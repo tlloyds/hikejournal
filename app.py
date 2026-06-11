@@ -2589,14 +2589,15 @@ def render_species_tab(
                 st.session_state.species_review_stage,
             )
 
-            for photo in page_photos:
+            for photo_index, photo in enumerate(page_photos):
                 primary_observation = primary_observation_by_photo.get(photo["id"])
                 photo_observations = observations_by_photo.get(photo["id"], [])
                 hike = hike_by_id.get(str(photo.get("hike_id")), {})
                 outing_title = hike.get("title") or ("Standalone sighting" if not photo.get("hike_id") else "Open outing")
                 outing_date = str(hike.get("hike_date") or "")
                 review_state = get_review_state_label(primary_observation)
-                st.markdown("<div class='species-review-entry-shell'>", unsafe_allow_html=True)
+                if photo_index > 0:
+                    st.divider()
                 cols = st.columns([0.42, 0.58], gap="large")
                 with cols[0]:
                     render_clickable_photo_with_view(photo, selected_hike_id=photo["hike_id"], source_view="Species Review")
