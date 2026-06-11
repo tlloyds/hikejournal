@@ -1,0 +1,1 @@
+"""HikeJournal package."""

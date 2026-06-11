@@ -1,0 +1,15 @@
+[Unit]
+Description=HikeJournal Streamlit App
+After=network.target
+
+[Service]
+Type=simple
+User=YOUR_USER
+WorkingDirectory=/home/YOUR_USER/hike-journal
+EnvironmentFile=/home/YOUR_USER/hike-journal/.env
+ExecStart=/home/YOUR_USER/hike-journal/.venv/bin/streamlit run app.py --server.port 8505 --server.address 127.0.0.1
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
