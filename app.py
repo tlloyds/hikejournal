@@ -2602,16 +2602,17 @@ def render_species_tab(
                 with cols[0]:
                     render_clickable_photo_with_view(photo, selected_hike_id=photo["hike_id"], source_view="Species Review")
                 with cols[1]:
+                    outing_date_markup = f"<span>• {escape(outing_date)}</span>" if outing_date else ""
                     st.markdown(
-                        f"""
-                        <div class="species-review-entry-head">
-                            <div class="species-review-entry-kicker">
-                                {render_review_state_chip(review_state)}
-                                <span>{escape(outing_title)}</span>
-                                {f"<span>• {escape(outing_date)}</span>" if outing_date else ""}
-                            </div>
-                        </div>
-                        """,
+                        (
+                            "<div class='species-review-entry-head'>"
+                            "<div class='species-review-entry-kicker'>"
+                            f"{render_review_state_chip(review_state)}"
+                            f"<span>{escape(outing_title)}</span>"
+                            f"{outing_date_markup}"
+                            "</div>"
+                            "</div>"
+                        ),
                         unsafe_allow_html=True,
                     )
                     selected_key = f"species_select_{photo['id']}"
