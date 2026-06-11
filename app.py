@@ -2602,17 +2602,16 @@ def render_species_tab(
                 with cols[0]:
                     render_clickable_photo_with_view(photo, selected_hike_id=photo["hike_id"], source_view="Species Review")
                 with cols[1]:
-                    outing_date_markup = f"<span>• {escape(outing_date)}</span>" if outing_date else ""
                     st.markdown(
-                        (
-                            "<div class='species-review-entry-head'>"
-                            "<div class='species-review-entry-kicker'>"
-                            f"{render_review_state_chip(review_state)}"
-                            f"<span>{escape(outing_title)}</span>"
-                            f"{outing_date_markup}"
-                            "</div>"
-                            "</div>"
-                        ),
+                        f"""
+                        <div class="species-review-entry-head">
+                            <div class="species-review-entry-kicker">
+                                {render_review_state_chip(review_state)}
+                                <span>{escape(outing_title)}</span>
+                                {f"<span>• {escape(outing_date)}</span>" if outing_date else ""}
+                            </div>
+                        </div>
+                        """,
                         unsafe_allow_html=True,
                     )
                     selected_key = f"species_select_{photo['id']}"
@@ -5035,19 +5034,25 @@ def render_publishing_section(
                 variant="publish-thumb",
             )
         with cols[1]:
+            posted_note_markup = (
+                f"<span class='publish-posted-note'>Posted {escape(posted_label)}</span>"
+                if posted_label and row["publish_state"] == "Posted"
+                else ""
+            )
+            publish_row_markup = (
+                "<div class=\"publish-row-shell\">"
+                "<div class=\"publish-row-header\">"
+                f"{render_publish_state_chip(row['publish_state'])}"
+                f"{posted_note_markup}"
+                "</div>"
+                f"<div class=\"species-summary-name\">{escape(observation.get('common_name') or observation.get('scientific_name') or 'Unknown species')}</div>"
+                f"<div class=\"species-summary-scientific\">{escape(observation.get('scientific_name') or '')}</div>"
+                f"<div class=\"species-summary-meta\">{escape(hike.get('title') or 'Untitled outing')} • {escape(str(hike.get('hike_date') or ''))}</div>"
+                f"<p class='photo-meta publish-photo-meta'>{format_photo_meta_html(photo, selected_hike_id=photo.get('hike_id'), link_coordinates=True, include_map_link=True)}</p>"
+                "</div>"
+            )
             st.markdown(
-                f"""
-                <div class="publish-row-shell">
-                    <div class="publish-row-header">
-                        {render_publish_state_chip(row["publish_state"])}
-                        {f"<span class='publish-posted-note'>Posted {escape(posted_label)}</span>" if posted_label and row["publish_state"] == "Posted" else ""}
-                    </div>
-                    <div class="species-summary-name">{escape(observation.get('common_name') or observation.get('scientific_name') or 'Unknown species')}</div>
-                    <div class="species-summary-scientific">{escape(observation.get('scientific_name') or '')}</div>
-                    <div class="species-summary-meta">{escape(hike.get('title') or 'Untitled outing')} • {escape(str(hike.get('hike_date') or ''))}</div>
-                    <p class='photo-meta publish-photo-meta'>{format_photo_meta_html(photo, selected_hike_id=photo.get('hike_id'), link_coordinates=True, include_map_link=True)}</p>
-                </div>
-                """,
+                publish_row_markup,
                 unsafe_allow_html=True,
             )
         select_key = f"publish_select_{observation['id']}"
