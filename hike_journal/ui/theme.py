@@ -1726,8 +1726,7 @@ body {
 
 .mobile-app-shell,
 .mobile-current-shell,
-.mobile-bottom-nav,
-.st-key-mobile_quick_actions {
+.mobile-bottom-nav {
   display: none;
 }
 
@@ -1757,36 +1756,6 @@ body {
   [data-testid="stSidebar"],
   [data-testid="collapsedControl"] {
     display: none !important;
-  }
-
-  .st-key-mobile_quick_actions {
-    display: block;
-    margin: 0 0 0.45rem;
-    padding: 0;
-    border: 0;
-    border-radius: 0;
-    background: transparent;
-  }
-
-  .st-key-mobile_quick_actions [data-testid="stHorizontalBlock"] {
-    display: grid !important;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    gap: 0.5rem !important;
-  }
-
-  .st-key-mobile_quick_actions [data-testid="stHorizontalBlock"] > [data-testid="column"] {
-    width: 100% !important;
-    min-width: 0 !important;
-    flex: none !important;
-  }
-
-  .mobile-quick-actions-label {
-    display: none;
-  }
-
-  .st-key-mobile_quick_actions [data-testid="stButton"] button {
-    min-height: 2.7rem;
-    border-radius: 18px !important;
   }
 
   .hero-shell {

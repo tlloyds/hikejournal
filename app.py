@@ -350,7 +350,6 @@ def main() -> None:
         render_sidebar(repository, storage, visible_hikes, user_context, st.session_state.active_view)
 
     render_mobile_shell(visible_hikes, st.session_state.active_view)
-    render_mobile_quick_actions(repository, storage, user_context)
 
     route_imports_by_hike: dict[str, dict[str, Any]] = {}
     if st.session_state.active_view in {"Map", "Species Log"} and visible_hikes:
@@ -1445,6 +1444,48 @@ def render_mobile_shell(hikes: list[dict[str, Any]], active_view: str) -> None:
 
     st.html(
         f"""
+        <style>
+        .mobile-app-shell {{
+            display: none !important;
+        }}
+        @media (max-width: 768px) {{
+            .mobile-app-shell {{
+                display: block !important;
+            }}
+            .mobile-app-shell .mobile-current-shell {{
+                position: fixed;
+                z-index: 999998;
+                top: env(safe-area-inset-top, 0px);
+                left: 0;
+                right: 0;
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 0.8rem;
+                min-height: 4.8rem;
+                padding: 0.65rem 1rem 0.7rem;
+                background: rgba(245,239,228,0.96);
+                border-bottom: 1px solid rgba(32,44,36,0.1);
+                box-shadow: 0 14px 34px rgba(32,44,36,0.08);
+            }}
+            .mobile-app-shell .mobile-bottom-nav {{
+                position: fixed;
+                z-index: 999999;
+                left: 0.75rem;
+                right: 0.75rem;
+                bottom: calc(0.65rem + env(safe-area-inset-bottom, 0px));
+                display: grid;
+                grid-auto-flow: column;
+                grid-auto-columns: 1fr;
+                gap: 0.35rem;
+                padding: 0.45rem;
+                border: 1px solid rgba(32,44,36,0.16);
+                border-radius: 24px;
+                background: rgba(246,240,229,0.96);
+                box-shadow: 0 18px 46px rgba(32,44,36,0.22);
+            }}
+        }}
+        </style>
         <div class="mobile-app-shell">
             {current_markup}
             <nav class="mobile-bottom-nav" aria-label="Mobile navigation">
