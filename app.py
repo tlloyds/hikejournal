@@ -349,6 +349,8 @@ def main() -> None:
     with st.sidebar:
         render_sidebar(repository, storage, visible_hikes, user_context, st.session_state.active_view)
 
+    render_mobile_shell(visible_hikes, st.session_state.active_view)
+
     route_imports_by_hike: dict[str, dict[str, Any]] = {}
     if st.session_state.active_view in {"Map", "Species Log"} and visible_hikes:
         route_import_records = fetch_all_hike_route_imports()
@@ -1387,6 +1389,69 @@ def render_sidebar(
                 st.logout()
             except Exception as exc:  # pragma: no cover - depends on local auth secrets
                 st.error(f"Google sign-out hit a configuration problem: {exc}")
+
+
+def render_mobile_shell(hikes: list[dict[str, Any]], active_view: str) -> None:
+    current_hike = next((hike for hike in hikes if hike["id"] == st.session_state.selected_hike_id), None)
+    nav_items: list[tuple[str, str, str]] = [
+        ("Library", "Library", build_internal_view_href(view="Library")),
+        ("Review", "Species Review", build_internal_view_href(view="Species Review")),
+        ("Map", "Map", build_internal_view_href(view="Map", scope="global")),
+        ("Log", "Species Log", build_internal_view_href(view="Species Log")),
+    ]
+    if current_hike:
+        nav_items.insert(
+            1,
+            (
+                "Journal",
+                "Journal",
+                build_internal_view_href(view="Journal", hike_id=str(current_hike["id"])),
+            ),
+        )
+
+    nav_links = []
+    for label, view_name, href in nav_items:
+        active_class = " active" if active_view == view_name else ""
+        nav_links.append(
+            f'<a class="mobile-bottom-nav-link{active_class}" href="{escape(href)}" target="_self">{escape(label)}</a>'
+        )
+
+    if current_hike:
+        current_title = escape(current_hike.get("title") or "Untitled outing")
+        current_meta = escape(str(current_hike.get("hike_date") or ""))
+        current_location = current_hike.get("location_name")
+        if current_location:
+            current_meta = f"{current_meta} • {escape(str(current_location))}" if current_meta else escape(str(current_location))
+        current_markup = f"""
+            <div class="mobile-current-shell">
+                <div>
+                    <div class="mobile-current-label">Open outing</div>
+                    <div class="mobile-current-title">{current_title}</div>
+                    <div class="mobile-current-meta">{current_meta}</div>
+                </div>
+                <a class="mobile-current-close" href="{escape(build_internal_view_href(view='Library', scope='global'))}" target="_self">Close</a>
+            </div>
+        """
+    else:
+        current_markup = f"""
+            <div class="mobile-current-shell mobile-current-shell--quiet">
+                <div>
+                    <div class="mobile-current-label">HikeJournal</div>
+                    <div class="mobile-current-title">{escape(active_view)}</div>
+                </div>
+            </div>
+        """
+
+    st.html(
+        f"""
+        <div class="mobile-app-shell">
+            {current_markup}
+            <nav class="mobile-bottom-nav" aria-label="Mobile navigation">
+                {''.join(nav_links)}
+            </nav>
+        </div>
+        """
+    )
 
 
 def render_empty_state() -> None:
