@@ -1448,7 +1448,7 @@ def render_mobile_shell(hikes: list[dict[str, Any]], active_view: str) -> None:
         .mobile-app-shell {{
             display: none !important;
         }}
-        @media (max-width: 768px) {{
+        @media (max-width: 640px) {{
             .mobile-app-shell {{
                 display: block !important;
             }}

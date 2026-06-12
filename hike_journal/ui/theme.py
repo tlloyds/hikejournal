@@ -1745,7 +1745,7 @@ body {
   }
 }
 
-@media (max-width: 768px) {
+@media (max-width: 640px) {
   .block-container {
     padding-top: calc(5.35rem + env(safe-area-inset-top, 0px));
     padding-left: 1rem;
