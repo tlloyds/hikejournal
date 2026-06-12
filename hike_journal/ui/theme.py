@@ -1726,7 +1726,8 @@ body {
 
 .mobile-app-shell,
 .mobile-current-shell,
-.mobile-bottom-nav {
+.mobile-bottom-nav,
+.st-key-mobile_quick_actions {
   display: none;
 }
 
@@ -1753,8 +1754,27 @@ body {
     padding-bottom: calc(6.5rem + env(safe-area-inset-bottom, 0px));
   }
 
-  [data-testid="stSidebar"] {
-    border-right: none;
+  [data-testid="stSidebar"],
+  [data-testid="collapsedControl"] {
+    display: none !important;
+  }
+
+  .st-key-mobile_quick_actions {
+    display: block;
+    margin: 0 0 0.85rem;
+    padding: 0.7rem 0.75rem 0.8rem;
+    border: 1px solid rgba(32,44,36,0.08);
+    border-radius: 20px;
+    background: rgba(255,255,255,0.38);
+  }
+
+  .mobile-quick-actions-label {
+    margin: 0 0 0.45rem;
+    color: #b86f3c;
+    font-size: 0.64rem;
+    font-weight: 850;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
   }
 
   .mobile-app-shell {
@@ -1888,12 +1908,30 @@ body {
   }
 
   .hero-shell {
-    padding: 1.2rem 1rem 1.35rem;
-    border-radius: 22px;
+    padding: 0.9rem 0 0.95rem;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
   }
 
   .hero-brand {
-    font-size: clamp(2.05rem, 10.8vw, 3.2rem);
+    font-size: clamp(1.95rem, 9vw, 2.65rem);
+  }
+
+  .hero-kicker {
+    font-size: 0.62rem;
+    letter-spacing: 0.16em;
+  }
+
+  .hero-subcopy {
+    margin-top: 0.35rem;
+    font-size: 0.88rem;
+    line-height: 1.45;
+  }
+
+  .hero-shell::after {
+    display: none;
   }
 
   .photo-link img {
@@ -1923,13 +1961,16 @@ body {
 
   .photo-link--library-cover img,
   .library-cover-placeholder {
-    min-height: 11.75rem;
-    height: 11.75rem;
+    min-height: 9.25rem;
+    height: 9.25rem;
   }
 
   .library-hero {
-    padding: 1.15rem 1.05rem 1.2rem;
-    border-radius: 24px;
+    padding: 0.95rem 0 0.9rem;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
   }
 
   .species-workspace-hero {
@@ -1952,11 +1993,14 @@ body {
   }
 
   .library-hero-title {
-    font-size: clamp(1.85rem, 8vw, 2.5rem);
+    font-size: clamp(1.45rem, 6.5vw, 2rem);
+    line-height: 1.08;
   }
 
   .library-hero-body {
-    font-size: 0.94rem;
+    margin-top: 0.45rem;
+    font-size: 0.88rem;
+    line-height: 1.5;
   }
 
   .library-hero-meta {
@@ -1973,6 +2017,41 @@ body {
   .library-section-label {
     margin-top: 1rem;
     margin-bottom: 0.45rem;
+  }
+
+  .library-row-shell {
+    padding: 0.85rem 0 0.95rem;
+  }
+
+  .library-row-kicker,
+  .library-group-label,
+  .library-section-label {
+    letter-spacing: 0.13em;
+  }
+
+  .library-row-title {
+    margin-bottom: 0.25rem;
+    font-size: clamp(1.28rem, 6.8vw, 1.72rem);
+    line-height: 1.08;
+  }
+
+  .library-row-subtitle {
+    font-size: 0.94rem;
+    line-height: 1.35;
+  }
+
+  .library-row-stats {
+    gap: 0.45rem 0.7rem;
+    margin-top: 0.5rem;
+    font-size: 0.8rem;
+  }
+
+  .library-action-intro {
+    margin-top: 0.25rem;
+    padding-left: 0;
+    justify-content: flex-start;
+    font-size: 0.82rem;
+    line-height: 1.35;
   }
 
   .species-log-shell {
