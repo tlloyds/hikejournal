@@ -1748,7 +1748,7 @@ body {
 
 @media (max-width: 768px) {
   .block-container {
-    padding-top: calc(6.9rem + env(safe-area-inset-top, 0px));
+    padding-top: calc(5.35rem + env(safe-area-inset-top, 0px));
     padding-left: 1rem;
     padding-right: 1rem;
     padding-bottom: calc(6.5rem + env(safe-area-inset-bottom, 0px));
@@ -1761,20 +1761,67 @@ body {
 
   .st-key-mobile_quick_actions {
     display: block;
-    margin: 0 0 0.85rem;
-    padding: 0.7rem 0.75rem 0.8rem;
-    border: 1px solid rgba(32,44,36,0.08);
-    border-radius: 20px;
-    background: rgba(255,255,255,0.38);
+    margin: 0 0 0.45rem;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+  }
+
+  .st-key-mobile_quick_actions [data-testid="stHorizontalBlock"] {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 0.5rem !important;
+  }
+
+  .st-key-mobile_quick_actions [data-testid="stHorizontalBlock"] > [data-testid="column"] {
+    width: 100% !important;
+    min-width: 0 !important;
+    flex: none !important;
   }
 
   .mobile-quick-actions-label {
-    margin: 0 0 0.45rem;
+    display: none;
+  }
+
+  .st-key-mobile_quick_actions [data-testid="stButton"] button {
+    min-height: 2.7rem;
+    border-radius: 18px !important;
+  }
+
+  .hero-shell {
+    display: none;
+  }
+
+  .library-hero {
+    padding: 0.35rem 0 0.45rem;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .library-hero-label {
     color: #b86f3c;
-    font-size: 0.64rem;
-    font-weight: 850;
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
+    font-size: 0.62rem;
+    letter-spacing: 0.14em;
+    margin-bottom: 0.35rem;
+  }
+
+  .library-hero-title {
+    font-size: clamp(1.28rem, 5.6vw, 1.72rem);
+    line-height: 1.08;
+  }
+
+  .library-hero-body {
+    display: none;
+  }
+
+  .library-hero-meta {
+    gap: 0.35rem 0.55rem;
+    margin-top: 0.48rem;
+    font-size: 0.72rem;
+    line-height: 1.25;
   }
 
   .mobile-app-shell {
@@ -1908,6 +1955,7 @@ body {
   }
 
   .hero-shell {
+    display: none;
     padding: 0.9rem 0 0.95rem;
     border: 0;
     border-radius: 0;
@@ -1961,16 +2009,12 @@ body {
 
   .photo-link--library-cover img,
   .library-cover-placeholder {
-    min-height: 9.25rem;
-    height: 9.25rem;
+    min-height: 7rem;
+    height: 7rem;
   }
 
   .library-hero {
-    padding: 0.95rem 0 0.9rem;
-    border: 0;
-    border-radius: 0;
-    background: transparent;
-    box-shadow: none;
+    display: none;
   }
 
   .species-workspace-hero {
@@ -1993,20 +2037,22 @@ body {
   }
 
   .library-hero-title {
-    font-size: clamp(1.45rem, 6.5vw, 2rem);
+    font-size: clamp(1.28rem, 5.6vw, 1.72rem);
     line-height: 1.08;
   }
 
   .library-hero-body {
+    display: none;
     margin-top: 0.45rem;
     font-size: 0.88rem;
     line-height: 1.5;
   }
 
   .library-hero-meta {
-    gap: 0.55rem 0.95rem;
-    margin-top: 0.9rem;
-    font-size: 0.76rem;
+    gap: 0.35rem 0.55rem;
+    margin-top: 0.48rem;
+    font-size: 0.72rem;
+    line-height: 1.25;
   }
 
   .library-rail-note {
@@ -2019,8 +2065,80 @@ body {
     margin-bottom: 0.45rem;
   }
 
+  .st-key-library_action_rail {
+    display: none;
+  }
+
+  .st-key-library_filters {
+    margin: 0.35rem 0 0.65rem;
+    padding: 0.72rem;
+    border: 1px solid rgba(32,44,36,0.08);
+    border-radius: 20px;
+    background: rgba(255,255,255,0.34);
+  }
+
+  .st-key-library_filters [data-testid="stHorizontalBlock"],
+  .st-key-library_toolbar [data-testid="stHorizontalBlock"] {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 0.52rem !important;
+  }
+
+  .st-key-library_filters [data-testid="stHorizontalBlock"] > [data-testid="column"],
+  .st-key-library_toolbar [data-testid="stHorizontalBlock"] > [data-testid="column"] {
+    width: 100% !important;
+    min-width: 0 !important;
+    flex: none !important;
+  }
+
+  .st-key-library_filters [data-testid="stHorizontalBlock"] > [data-testid="column"]:nth-child(1),
+  .st-key-library_filters [data-testid="stHorizontalBlock"] > [data-testid="column"]:nth-child(2) {
+    grid-column: 1 / -1;
+  }
+
+  .st-key-library_toolbar {
+    margin: 0.25rem 0 0.45rem;
+    padding: 0.5rem;
+    border-radius: 18px;
+    background: rgba(255,255,255,0.26);
+  }
+
+  .st-key-library_toolbar [data-testid="stHorizontalBlock"] {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.2fr);
+  }
+
+  .st-key-library_toolbar [data-testid="stHorizontalBlock"] > [data-testid="column"]:nth-child(3),
+  .st-key-library_toolbar [data-testid="stHorizontalBlock"] > [data-testid="column"]:nth-child(4) {
+    grid-column: auto;
+  }
+
+  .st-key-library_toolbar [data-testid="stHorizontalBlock"] > [data-testid="column"]:nth-child(3) {
+    display: none;
+  }
+
+  .st-key-library_toolbar .utility-rail-status {
+    display: none;
+  }
+
   .library-row-shell {
-    padding: 0.85rem 0 0.95rem;
+    padding: 0;
+  }
+
+  [class*="st-key-library_card_"] {
+    margin: 0.7rem 0;
+    padding: 0.72rem;
+    border: 1px solid rgba(32,44,36,0.08);
+    border-radius: 22px;
+    background: rgba(255,255,255,0.42);
+    box-shadow: 0 12px 28px rgba(32,44,36,0.06);
+  }
+
+  [class*="st-key-library_card_"] [data-testid="stHorizontalBlock"] {
+    gap: 0.62rem !important;
+  }
+
+  [class*="st-key-library_card_"] [data-testid="stHorizontalBlock"] > [data-testid="column"] {
+    min-width: 0 !important;
   }
 
   .library-row-kicker,
@@ -2047,11 +2165,23 @@ body {
   }
 
   .library-action-intro {
-    margin-top: 0.25rem;
-    padding-left: 0;
-    justify-content: flex-start;
-    font-size: 0.82rem;
-    line-height: 1.35;
+    display: none;
+  }
+
+  .library-row-notes {
+    display: none;
+  }
+
+  [class*="st-key-library_card_"] [data-testid="stButton"] button {
+    min-height: 2.85rem;
+    padding-left: 0.65rem;
+    padding-right: 0.65rem;
+    border-radius: 18px !important;
+    font-size: 0.88rem;
+  }
+
+  [class*="st-key-library_card_"] [data-testid="stButton"] button p {
+    line-height: 1.12;
   }
 
   .species-log-shell {

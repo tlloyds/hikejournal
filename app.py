@@ -1911,33 +1911,35 @@ def render_library_tab(
     )
     st.write("")
 
-    controls = st.columns([0.44, 0.24, 0.16, 0.16], gap="small")
-    query = controls[0].text_input(
-        "Search hikes",
-        placeholder="Bronson, Black Bear, scrub, loop...",
-        label_visibility="collapsed",
-        key="library_query",
-        on_change=reset_library_page,
-    )
-    archive_mode = controls[1].segmented_control(
-        "Browse",
-        ["Everything", "Current outings", "Archived outings", "Everyday"],
-        default="Current outings",
-        key="library_archive_mode",
-        label_visibility="collapsed",
-        on_change=reset_library_page,
-    )
-    sort_order = controls[2].selectbox("Sort", ["Newest first", "Oldest first", "Title"], label_visibility="collapsed", key="library_sort", on_change=reset_library_page)
-    group_by = controls[3].selectbox("Group", ["Month", "Year", "None"], label_visibility="collapsed", key="library_group_by", on_change=reset_library_page)
-    action_rail = st.columns([0.62, 0.18, 0.2], gap="small")
-    action_rail[0].markdown(
-        "<div class='library-rail-note'>Browse current outings, archived outings, or everyday sightings without losing the shape of the archive.</div>",
-        unsafe_allow_html=True,
-    )
-    if action_rail[1].button("Quick upload", use_container_width=True, type="secondary", key="library_quick_upload"):
-        render_quick_upload_dialog(storage, repository, user_context)
-    if action_rail[2].button("New hike", use_container_width=True, type="primary"):
-        render_create_hike_dialog(repository, storage, user_context)
+    with st.container(key="library_filters"):
+        controls = st.columns([0.44, 0.24, 0.16, 0.16], gap="small")
+        query = controls[0].text_input(
+            "Search hikes",
+            placeholder="Bronson, Black Bear, scrub, loop...",
+            label_visibility="collapsed",
+            key="library_query",
+            on_change=reset_library_page,
+        )
+        archive_mode = controls[1].segmented_control(
+            "Browse",
+            ["Everything", "Current outings", "Archived outings", "Everyday"],
+            default="Current outings",
+            key="library_archive_mode",
+            label_visibility="collapsed",
+            on_change=reset_library_page,
+        )
+        sort_order = controls[2].selectbox("Sort", ["Newest first", "Oldest first", "Title"], label_visibility="collapsed", key="library_sort", on_change=reset_library_page)
+        group_by = controls[3].selectbox("Group", ["Month", "Year", "None"], label_visibility="collapsed", key="library_group_by", on_change=reset_library_page)
+    with st.container(key="library_action_rail"):
+        action_rail = st.columns([0.62, 0.18, 0.2], gap="small")
+        action_rail[0].markdown(
+            "<div class='library-rail-note'>Browse current outings, archived outings, or everyday sightings without losing the shape of the archive.</div>",
+            unsafe_allow_html=True,
+        )
+        if action_rail[1].button("Quick upload", use_container_width=True, type="secondary", key="library_quick_upload"):
+            render_quick_upload_dialog(storage, repository, user_context)
+        if action_rail[2].button("New hike", use_container_width=True, type="primary"):
+            render_create_hike_dialog(repository, storage, user_context)
 
     photo_counts = count_records_by_key(photo_refs, "hike_id")
     confirmed_counts = count_unique_species_by_key(confirmed_observations, "hike_id")
@@ -1966,61 +1968,62 @@ def render_library_tab(
 
     if show_standalone and standalone_item:
         st.markdown("<div class='library-section-label'>Everyday sightings</div>", unsafe_allow_html=True)
-        st.markdown("<div class='library-row-shell library-row-shell--standalone'>", unsafe_allow_html=True)
-        standalone_row = st.columns([0.22, 0.5, 0.28], gap="large")
-        cover_photo = standalone_item.get("_cover_photo")
-        with standalone_row[0]:
-            if cover_photo:
-                render_clickable_photo(cover_photo, selected_hike_id=None, variant="library-cover", scope="standalone")
-            else:
+        with st.container(key="library_card_standalone"):
+            st.markdown("<div class='library-row-shell library-row-shell--standalone'>", unsafe_allow_html=True)
+            standalone_row = st.columns([0.22, 0.5, 0.28], gap="large")
+            cover_photo = standalone_item.get("_cover_photo")
+            with standalone_row[0]:
+                if cover_photo:
+                    render_clickable_photo(cover_photo, selected_hike_id=None, variant="library-cover", scope="standalone")
+                else:
+                    st.markdown(
+                        """
+                        <a class="library-cover-placeholder" href="?view=Journal&scope=standalone" target="_self">
+                            <div class="library-cover-mark">S</div>
+                            <div class="library-cover-copy">Open your standalone photo journal</div>
+                        </a>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+            with standalone_row[1]:
+                standalone_notes = (standalone_item.get("notes") or "").strip()
+                if len(standalone_notes) > 180:
+                    standalone_notes = standalone_notes[:177].rstrip() + "..."
                 st.markdown(
-                    """
-                    <a class="library-cover-placeholder" href="?view=Journal&scope=standalone" target="_self">
-                        <div class="library-cover-mark">S</div>
-                        <div class="library-cover-copy">Open your standalone photo journal</div>
-                    </a>
+                    f"""
+                    <div class="library-row-copy">
+                        <div class="library-row-kicker">Always available</div>
+                        <p class="library-row-title">{escape(standalone_item.get("title") or "Everyday sightings")}</p>
+                        <p class="library-row-subtitle">{escape(standalone_item.get("location_name") or "Neighborhood finds, one-off sightings, and quick uploads that were never part of a formal outing.")}</p>
+                        <div class="library-row-stats">
+                            <span>Standalone archive</span>
+                            <span>{standalone_item.get('_photo_count', 0)} photos</span>
+                            <span>{standalone_item.get('_confirmed_count', 0)} unique species</span>
+                        </div>
+                        {f"<p class='library-row-notes'>{escape(standalone_notes)}</p>" if standalone_notes else ""}
+                    </div>
                     """,
                     unsafe_allow_html=True,
                 )
-        with standalone_row[1]:
-            standalone_notes = (standalone_item.get("notes") or "").strip()
-            if len(standalone_notes) > 180:
-                standalone_notes = standalone_notes[:177].rstrip() + "..."
-            st.markdown(
-                f"""
-                <div class="library-row-copy">
-                    <div class="library-row-kicker">Always available</div>
-                    <p class="library-row-title">{escape(standalone_item.get("title") or "Everyday sightings")}</p>
-                    <p class="library-row-subtitle">{escape(standalone_item.get("location_name") or "Neighborhood finds, one-off sightings, and quick uploads that were never part of a formal outing.")}</p>
-                    <div class="library-row-stats">
-                        <span>Standalone archive</span>
-                        <span>{standalone_item.get('_photo_count', 0)} photos</span>
+            with standalone_row[2]:
+                st.markdown(
+                    f"""
+                    <div class="library-action-intro">
+                        <span class="library-action-count">{standalone_item.get('_photo_count', 0)} photos</span>
+                        <span class="library-action-separator">•</span>
                         <span>{standalone_item.get('_confirmed_count', 0)} unique species</span>
                     </div>
-                    {f"<p class='library-row-notes'>{escape(standalone_notes)}</p>" if standalone_notes else ""}
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-        with standalone_row[2]:
-            st.markdown(
-                f"""
-                <div class="library-action-intro">
-                    <span class="library-action-count">{standalone_item.get('_photo_count', 0)} photos</span>
-                    <span class="library-action-separator">•</span>
-                    <span>{standalone_item.get('_confirmed_count', 0)} unique species</span>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-            if st.button("Open photos", key=f"library_open_{standalone_item['id']}", use_container_width=True):
-                navigate_to(view="Journal", scope="standalone")
-            utility_markup = (
-                "<a class='library-inline-action' href='?view=Map&scope=global' target='_self'>Master map</a>"
-                "<a class='library-inline-action' href='?view=Species%20Log' target='_self'>Sightings log</a>"
-            )
-            st.markdown(f"<div class='library-row-utility'>{utility_markup}</div>", unsafe_allow_html=True)
-        st.markdown("</div>", unsafe_allow_html=True)
+                    """,
+                    unsafe_allow_html=True,
+                )
+                if st.button("Open photos", key=f"library_open_{standalone_item['id']}", use_container_width=True):
+                    navigate_to(view="Journal", scope="standalone")
+                utility_markup = (
+                    "<a class='library-inline-action' href='?view=Map&scope=global' target='_self'>Master map</a>"
+                    "<a class='library-inline-action' href='?view=Species%20Log' target='_self'>Sightings log</a>"
+                )
+                st.markdown(f"<div class='library-row-utility'>{utility_markup}</div>", unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
         if show_hikes and library_items:
             st.divider()
 
@@ -2033,43 +2036,44 @@ def render_library_tab(
         }.get(archive_mode, "Outings")
         st.markdown(f"<div class='library-section-label'>{escape(outings_label)}</div>", unsafe_allow_html=True)
         page_hikes, total_pages = paginate_items(library_items, "library_page", "library_page_size")
-        library_toolbar = st.columns([0.16, 0.14, 0.44, 0.26], gap="small")
-        page_size_options = [6, 8, 12, 18, 0]
-        page_size = library_toolbar[0].selectbox(
-            "Per page",
-            page_size_options,
-            index=page_size_options.index(st.session_state.library_page_size),
-            key="library_page_size_select",
-            format_func=lambda value: "All" if value == 0 else str(value),
-        )
-        if page_size != st.session_state.library_page_size:
-            st.session_state.library_page_size = page_size
-            st.session_state.library_page = 1
-            st.rerun()
-        requested_page = library_toolbar[1].number_input(
-            "Page",
-            min_value=1,
-            max_value=total_pages,
-            value=st.session_state.library_page,
-            step=1,
-            key="library_page_number",
-        )
-        if requested_page != st.session_state.library_page:
-            st.session_state.library_page = int(requested_page)
-            st.rerun()
-        library_toolbar[2].markdown(
-            f"<div class='utility-rail-status'>{len(page_hikes)} outings on this page • {len(library_items)} matched overall</div>",
-            unsafe_allow_html=True,
-        )
-        with library_toolbar[3].popover("Manage"):
-            st.caption(f"Page {st.session_state.library_page} of {total_pages}")
-            nav_cols = st.columns(2, gap="small")
-            if nav_cols[0].button("Previous", key="library_prev_page", use_container_width=True, disabled=st.session_state.library_page <= 1):
-                st.session_state.library_page -= 1
+        with st.container(key="library_toolbar"):
+            library_toolbar = st.columns([0.16, 0.14, 0.44, 0.26], gap="small")
+            page_size_options = [6, 8, 12, 18, 0]
+            page_size = library_toolbar[0].selectbox(
+                "Per page",
+                page_size_options,
+                index=page_size_options.index(st.session_state.library_page_size),
+                key="library_page_size_select",
+                format_func=lambda value: "All" if value == 0 else str(value),
+            )
+            if page_size != st.session_state.library_page_size:
+                st.session_state.library_page_size = page_size
+                st.session_state.library_page = 1
                 st.rerun()
-            if nav_cols[1].button("Next", key="library_next_page", use_container_width=True, disabled=st.session_state.library_page >= total_pages):
-                st.session_state.library_page += 1
+            requested_page = library_toolbar[1].number_input(
+                "Page",
+                min_value=1,
+                max_value=total_pages,
+                value=st.session_state.library_page,
+                step=1,
+                key="library_page_number",
+            )
+            if requested_page != st.session_state.library_page:
+                st.session_state.library_page = int(requested_page)
                 st.rerun()
+            library_toolbar[2].markdown(
+                f"<div class='utility-rail-status'>{len(page_hikes)} outings on this page • {len(library_items)} matched overall</div>",
+                unsafe_allow_html=True,
+            )
+            with library_toolbar[3].popover("Manage"):
+                st.caption(f"Page {st.session_state.library_page} of {total_pages}")
+                nav_cols = st.columns(2, gap="small")
+                if nav_cols[0].button("Previous", key="library_prev_page", use_container_width=True, disabled=st.session_state.library_page <= 1):
+                    st.session_state.library_page -= 1
+                    st.rerun()
+                if nav_cols[1].button("Next", key="library_next_page", use_container_width=True, disabled=st.session_state.library_page >= total_pages):
+                    st.session_state.library_page += 1
+                    st.rerun()
 
     if show_hikes and not library_items and show_standalone and standalone_item:
         return
@@ -2094,50 +2098,51 @@ def render_library_tab(
             notes = (hike.get("notes") or "").strip()
             if len(notes) > 180:
                 notes = notes[:177].rstrip() + "..."
-            st.markdown("<div class='library-row-shell'>", unsafe_allow_html=True)
-            row = st.columns([0.22, 0.5, 0.28], gap="large")
-            with row[0]:
-                render_library_cover(cover_photo, hike_id=hike["id"], title=title)
-            with row[1]:
-                st.markdown(
-                    f"""
-                    <div class="library-row-copy">
-                        <div class="library-row-kicker">{escape(str(hike.get('hike_date') or 'Undated outing'))}{archived_markup}</div>
-                        <p class="library-row-title">{escape(title)}</p>
-                        <p class="library-row-subtitle">{escape(location_name)}</p>
-                        <div class="library-row-stats">
-                            <span>{distance_label}</span>
-                            <span>{photo_count} photos</span>
+            with st.container(key=f"library_card_{hike['id']}"):
+                st.markdown("<div class='library-row-shell'>", unsafe_allow_html=True)
+                row = st.columns([0.22, 0.5, 0.28], gap="large")
+                with row[0]:
+                    render_library_cover(cover_photo, hike_id=hike["id"], title=title)
+                with row[1]:
+                    st.markdown(
+                        f"""
+                        <div class="library-row-copy">
+                            <div class="library-row-kicker">{escape(str(hike.get('hike_date') or 'Undated outing'))}{archived_markup}</div>
+                            <p class="library-row-title">{escape(title)}</p>
+                            <p class="library-row-subtitle">{escape(location_name)}</p>
+                            <div class="library-row-stats">
+                                <span>{distance_label}</span>
+                                <span>{photo_count} photos</span>
+                                <span>{confirmed_count} unique species</span>
+                            </div>
+                            {f"<p class='library-row-notes'>{escape(notes)}</p>" if notes else ""}
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+                with row[2]:
+                    st.markdown(
+                        f"""
+                        <div class="library-action-intro">
+                            <span class="library-action-count">{photo_count} photos</span>
+                            <span class="library-action-separator">•</span>
                             <span>{confirmed_count} unique species</span>
                         </div>
-                        {f"<p class='library-row-notes'>{escape(notes)}</p>" if notes else ""}
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-            with row[2]:
-                st.markdown(
-                    f"""
-                    <div class="library-action-intro">
-                        <span class="library-action-count">{photo_count} photos</span>
-                        <span class="library-action-separator">•</span>
-                        <span>{confirmed_count} unique species</span>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-                top_action_cols = st.columns(2, gap="small")
-                if top_action_cols[0].button("Open", key=f"library_open_{hike['id']}", use_container_width=True):
-                    navigate_to(view="Journal", hike_id=hike["id"])
-                if top_action_cols[1].button("Manage", key=f"library_manage_{hike['id']}", use_container_width=True, type="primary"):
-                    render_edit_hike_dialog(repository, storage, hike)
-                bottom_action_cols = st.columns(2, gap="small")
-                if bottom_action_cols[0].button("Outing map", key=f"library_map_{hike['id']}", use_container_width=True, type="secondary"):
-                    navigate_to(view="Map", hike_id=hike["id"])
-                if bottom_action_cols[1].button("Sightings log", key=f"library_sightings_{hike['id']}", use_container_width=True, type="secondary"):
-                    st.session_state.species_log_hike_filter = title
-                    navigate_to(view="Species Log")
-            st.markdown("</div>", unsafe_allow_html=True)
+                        """,
+                        unsafe_allow_html=True,
+                    )
+                    top_action_cols = st.columns(2, gap="small")
+                    if top_action_cols[0].button("Open", key=f"library_open_{hike['id']}", use_container_width=True):
+                        navigate_to(view="Journal", hike_id=hike["id"])
+                    if top_action_cols[1].button("Manage", key=f"library_manage_{hike['id']}", use_container_width=True, type="primary"):
+                        render_edit_hike_dialog(repository, storage, hike)
+                    bottom_action_cols = st.columns(2, gap="small")
+                    if bottom_action_cols[0].button("Outing map", key=f"library_map_{hike['id']}", use_container_width=True, type="secondary"):
+                        navigate_to(view="Map", hike_id=hike["id"])
+                    if bottom_action_cols[1].button("Sightings log", key=f"library_sightings_{hike['id']}", use_container_width=True, type="secondary"):
+                        st.session_state.species_log_hike_filter = title
+                        navigate_to(view="Species Log")
+                st.markdown("</div>", unsafe_allow_html=True)
             rendered_index += 1
             if rendered_index < total_hikes:
                 st.divider()
