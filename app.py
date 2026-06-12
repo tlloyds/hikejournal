@@ -1486,6 +1486,7 @@ def render_mobile_shell(hikes: list[dict[str, Any]], active_view: str) -> None:
             }}
         }}
         </style>
+        <div id="hikejournal-build-mobile-shell-df7fde9" hidden></div>
         <div class="mobile-app-shell">
             {current_markup}
             <nav class="mobile-bottom-nav" aria-label="Mobile navigation">
@@ -1494,21 +1495,6 @@ def render_mobile_shell(hikes: list[dict[str, Any]], active_view: str) -> None:
         </div>
         """
     )
-
-
-def render_mobile_quick_actions(
-    repository: HikeJournalRepository,
-    storage: StorageService,
-    user_context: dict[str, Any],
-) -> None:
-    with st.container(key="mobile_quick_actions"):
-        st.markdown("<div class='mobile-quick-actions-label'>Create</div>", unsafe_allow_html=True)
-        cols = st.columns(2, gap="small")
-        if cols[0].button("New outing", key="mobile_new_outing", use_container_width=True, type="primary"):
-            render_create_hike_dialog(repository, storage, user_context)
-        if cols[1].button("Quick upload", key="mobile_quick_upload", use_container_width=True, type="secondary"):
-            render_quick_upload_dialog(storage, repository, user_context)
-
 
 def render_empty_state() -> None:
     section_heading(
