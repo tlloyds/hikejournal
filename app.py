@@ -5179,6 +5179,13 @@ def render_publishing_section(
                 st.session_state.publish_selected_ids.discard(observation["id"])
         with cols[3]:
             if row["publish_state"] in {"Posted", "Ready to post", "Needs attention"}:
+                render_publish_lane_management_controls(
+                    repository,
+                    inat_client,
+                    observation,
+                    photo,
+                    key_prefix=f"publish_manage_{observation['id']}",
+                )
                 render_inat_posting_controls(
                     repository,
                     inat_client,
@@ -5192,6 +5199,80 @@ def render_publishing_section(
 def render_publish_state_chip(state: str) -> str:
     slug = state.lower().replace(" ", "-")
     return f"<span class='status-pill publish-{slug}'>{escape(state)}</span>"
+
+
+def render_publish_lane_management_controls(
+    repository: HikeJournalRepository,
+    inat_client: InatClient,
+    observation: dict[str, Any],
+    photo: dict[str, Any],
+    *,
+    key_prefix: str,
+) -> None:
+    posting = get_inat_posting(observation)
+    already_posted = bool(posting.get("observation_id"))
+    with st.popover("Manage ID"):
+        if already_posted:
+            st.caption("This record has already been posted. Edit or remove the iNaturalist observation there.")
+            return
+
+        st.caption("Change the confirmed ID before posting, or send this sighting back to review.")
+        render_alternate_suggestions(
+            repository,
+            inat_client,
+            observation,
+            photo,
+            key_prefix=f"{key_prefix}_alt",
+        )
+
+        with st.form(f"{key_prefix}_manual_form", enter_to_submit=False):
+            st.markdown("<div class='sidebar-control-label'>Manual ID</div>", unsafe_allow_html=True)
+            common_name = st.text_input("Common name", value=observation.get("common_name") or "", key=f"{key_prefix}_common")
+            scientific_name = st.text_input("Scientific name", value=observation.get("scientific_name") or "", key=f"{key_prefix}_scientific")
+            taxon_id_text = st.text_input(
+                "iNaturalist taxon ID",
+                value=str(observation.get("taxon_id") or ""),
+                key=f"{key_prefix}_taxon_id",
+                help="Optional. Leave blank if you only know the name.",
+            )
+            if st.form_submit_button("Save corrected ID", use_container_width=True):
+                if not common_name.strip() and not scientific_name.strip():
+                    st.error("Add at least a common name or scientific name.")
+                    return
+                taxon_id: int | None = None
+                if taxon_id_text.strip():
+                    try:
+                        taxon_id = int(taxon_id_text.strip())
+                    except ValueError:
+                        st.error("Taxon ID must be a number.")
+                        return
+                updated = repository.update_observation_details(
+                    observation["id"],
+                    common_name=common_name,
+                    scientific_name=scientific_name,
+                    photo_id=observation.get("photo_id"),
+                    is_primary=bool(observation.get("is_primary")),
+                    status="confirmed",
+                    source="manual_override",
+                    taxon_id=taxon_id,
+                    clear_confidence=True,
+                )
+                sync_species_override_payload(repository, observation, updated)
+                if taxon_id is not None:
+                    ensure_taxon_enrichment(repository, inat_client, updated)
+                invalidate_data_cache()
+                st.rerun()
+
+        st.divider()
+        st.caption("Remove from publish lane keeps the sighting, but sends it back to Species Review.")
+        if st.button("Remove from publish lane", key=f"{key_prefix}_return_to_review", use_container_width=True, type="secondary"):
+            repository.update_observation_status(observation["id"], "pending")
+            st.session_state.publish_selected_ids.discard(observation["id"])
+            checkbox_key = f"publish_select_{observation['id']}"
+            if checkbox_key in st.session_state:
+                st.session_state[checkbox_key] = False
+            invalidate_data_cache()
+            st.rerun()
 
 
 def get_review_state_label(observation: dict[str, Any] | None) -> str:
