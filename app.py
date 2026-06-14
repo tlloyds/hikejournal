@@ -5024,6 +5024,10 @@ def render_publishing_section(
         unsafe_allow_html=True,
     )
 
+    if st.button("Refresh publishing queue", key="publish_refresh_queue", type="secondary"):
+        invalidate_data_cache()
+        st.rerun()
+
     cols = st.columns([0.16, 0.14, 0.42, 0.1, 0.18], gap="small")
     page_size_options = [6, 8, 12, 18, 0]
     page_size = cols[0].selectbox(
@@ -5268,9 +5272,6 @@ def render_publish_lane_management_controls(
         if st.button("Remove from publish lane", key=f"{key_prefix}_return_to_review", use_container_width=True, type="secondary"):
             repository.update_observation_status(observation["id"], "pending")
             st.session_state.publish_selected_ids.discard(observation["id"])
-            checkbox_key = f"publish_select_{observation['id']}"
-            if checkbox_key in st.session_state:
-                st.session_state[checkbox_key] = False
             invalidate_data_cache()
             st.rerun()
 
