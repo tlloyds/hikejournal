@@ -5271,7 +5271,10 @@ def render_publish_lane_management_controls(
         st.caption("Remove from publish lane keeps the sighting, but sends it back to Species Review.")
         if st.button("Remove from publish lane", key=f"{key_prefix}_return_to_review", use_container_width=True, type="secondary"):
             repository.update_observation_status(observation["id"], "pending")
+            repository.update_photo_processing_status(photo["id"], REVIEW_QUEUE_STATUS)
             st.session_state.publish_selected_ids.discard(observation["id"])
+            st.session_state.species_review_mode = "Review"
+            st.session_state.species_review_stage = "Needs decisions"
             invalidate_data_cache()
             st.rerun()
 
