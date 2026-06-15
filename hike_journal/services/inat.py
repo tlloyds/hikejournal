@@ -32,6 +32,10 @@ class InatAuthError(InatRequestError):
     """Raised when iNaturalist authentication fails."""
 
 
+class InatComputerVisionBlockedError(InatRequestError):
+    """Raised when iNaturalist refuses computer-vision suggestions."""
+
+
 class InatRateLimitError(InatRequestError):
     """Raised when iNaturalist asks the client to slow down."""
 
@@ -106,9 +110,9 @@ class InatClient:
         if response.status_code == 401:
             raise InatAuthError("iNaturalist rejected this token while processing photos. Paste a fresh token below and try the batch again.")
         if response.status_code == 403:
-            raise InatRequestError(
-                "iNaturalist refused the computer-vision ID request with 403. Your token can still be valid for posting; "
-                "this means iNaturalist is blocking the image-suggestion endpoint from this app/server right now."
+            raise InatComputerVisionBlockedError(
+                "iNaturalist is blocking computer-vision suggestions from this server right now. "
+                "Your token can still be valid for posting observations; this only affects Process selected / image ID requests."
             )
         if response.status_code >= 400:
             raise InatRequestError(f"iNaturalist returned {response.status_code}: {response.text[:200]}")

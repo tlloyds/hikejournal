@@ -24,6 +24,7 @@ from hike_journal.services.image_processing import optimize_image
 from hike_journal.services.inat import (
     InatAuthError,
     InatClient,
+    InatComputerVisionBlockedError,
     InatConfigurationError,
     InatRequestError,
     InatRateLimitError,
@@ -5945,6 +5946,16 @@ def process_species_photos(
                 progress_bar.empty()
                 progress_text.caption(
                     f"iNaturalist asked HikeJournal to slow down after {successful_count} of {total_photos} photos. "
+                    "The remaining photos are still selected in Needs IDs."
+                )
+                st.warning(str(exc))
+                break
+            except InatComputerVisionBlockedError as exc:
+                st.session_state.inat_auth_notice = None
+                st.session_state.inat_auth_error = str(exc)
+                progress_bar.empty()
+                progress_text.caption(
+                    f"Stopped after {successful_count} of {total_photos} photos because iNaturalist blocked CV suggestions from this server. "
                     "The remaining photos are still selected in Needs IDs."
                 )
                 st.warning(str(exc))
