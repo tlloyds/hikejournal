@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import UTC, date, datetime
 from typing import Any
 
 from supabase import Client
@@ -629,6 +629,71 @@ class HikeJournalRepository:
             "inat_observation_url": inat_observation_url,
             "inat_posted_at": inat_posted_at,
             "inat_photo_attached": bool(inat_photo_attached),
+        }
+        response = self.client.table("species_observations").update(payload).eq("id", observation_id).execute()
+        return response.data[0]
+
+    def apply_observation_inat_sync(
+        self,
+        observation_id: str,
+        *,
+        inat_snapshot: dict[str, Any],
+    ) -> dict[str, Any]:
+        existing_response = (
+            self.client.table("species_observations")
+            .select("*")
+            .eq("id", observation_id)
+            .limit(1)
+            .execute()
+        )
+        existing_records = existing_response.data or []
+        if not existing_records:
+            raise RuntimeError("HikeJournal could not find the observation to sync.")
+        existing = existing_records[0]
+        raw_payload = existing.get("raw_response_json") if isinstance(existing.get("raw_response_json"), dict) else {}
+        raw_payload = dict(raw_payload or {})
+        history = raw_payload.get("inat_sync_history")
+        if not isinstance(history, list):
+            history = []
+        history.append(
+            {
+                "synced_at": datetime.now(UTC).isoformat(),
+                "inat_observation_id": inat_snapshot.get("observation_id") or existing.get("inat_observation_id"),
+                "previous": {
+                    "taxon_id": existing.get("taxon_id"),
+                    "common_name": existing.get("common_name"),
+                    "scientific_name": existing.get("scientific_name"),
+                    "source": existing.get("source"),
+                },
+                "accepted": {
+                    "taxon_id": inat_snapshot.get("taxon_id"),
+                    "common_name": inat_snapshot.get("common_name"),
+                    "scientific_name": inat_snapshot.get("scientific_name"),
+                    "quality_grade": inat_snapshot.get("quality_grade"),
+                    "community_taxon_id": inat_snapshot.get("community_taxon_id"),
+                    "observation_updated_at": inat_snapshot.get("observation_updated_at"),
+                },
+            }
+        )
+        raw_payload["inat_sync_history"] = history[-25:]
+        raw_payload["inat_last_sync"] = {
+            "synced_at": datetime.now(UTC).isoformat(),
+            "snapshot": {
+                "taxon_id": inat_snapshot.get("taxon_id"),
+                "common_name": inat_snapshot.get("common_name"),
+                "scientific_name": inat_snapshot.get("scientific_name"),
+                "quality_grade": inat_snapshot.get("quality_grade"),
+                "community_taxon_id": inat_snapshot.get("community_taxon_id"),
+                "observation_updated_at": inat_snapshot.get("observation_updated_at"),
+            },
+        }
+        payload = {
+            "taxon_id": inat_snapshot.get("taxon_id"),
+            "common_name": str(inat_snapshot.get("common_name") or "").strip() or None,
+            "scientific_name": str(inat_snapshot.get("scientific_name") or "").strip() or None,
+            "confidence": None,
+            "source": "inaturalist_sync",
+            "raw_response_json": raw_payload,
         }
         response = self.client.table("species_observations").update(payload).eq("id", observation_id).execute()
         return response.data[0]

@@ -137,6 +137,33 @@ class InatClient:
             raise InatRequestError("iNaturalist taxon lookup returned no usable taxon details.")
         return extract_taxon_enrichment(results[0])
 
+    def fetch_observation(self, observation_id: int | str) -> dict[str, Any]:
+        observations = self.fetch_observations([observation_id])
+        if not observations:
+            raise InatRequestError(f"iNaturalist returned no observation for {observation_id}.")
+        return observations[0]
+
+    def fetch_observations(self, observation_ids: list[int | str]) -> list[dict[str, Any]]:
+        normalized_ids = [str(observation_id).strip() for observation_id in observation_ids if str(observation_id).strip()]
+        if not normalized_ids:
+            return []
+        url = f"{self.base_url}/observations/{','.join(normalized_ids)}"
+        headers = {"Authorization": f"Bearer {self.access_token}"} if self.access_token else {}
+        response = requests.get(url, headers=headers, timeout=30)
+        if response.status_code == 401:
+            raise InatAuthError("iNaturalist rejected this token while checking posted observations. Paste a fresh token and try again.")
+        if response.status_code >= 400:
+            raise InatRequestError(f"iNaturalist observation lookup returned {response.status_code}: {response.text[:200]}")
+        payload = response.json()
+        if isinstance(payload, dict):
+            results = payload.get("results")
+            if isinstance(results, list):
+                return [item for item in results if isinstance(item, dict)]
+            return [payload]
+        if isinstance(payload, list):
+            return [item for item in payload if isinstance(item, dict)]
+        raise InatRequestError("iNaturalist returned an unexpected observation lookup response.")
+
     def autocomplete_taxa(self, query: str) -> list[dict[str, Any]]:
         if not query.strip():
             return []
@@ -422,6 +449,81 @@ def parse_candidate(payload: dict[str, Any]) -> SpeciesCandidate | None:
     return candidates[0] if candidates else None
 
 
+def extract_observation_taxon_snapshot(observation_payload: dict[str, Any]) -> dict[str, Any] | None:
+    observation = _extract_observation_record(observation_payload)
+    if not observation:
+        return None
+    taxon = observation.get("taxon")
+    if not isinstance(taxon, dict):
+        return None
+    taxon_id = _coerce_int(taxon.get("id"))
+    if taxon_id is None:
+        return None
+    common_name = _coerce_text(
+        taxon.get("preferred_common_name")
+        or taxon.get("english_common_name")
+        or observation.get("species_guess")
+        or taxon.get("name")
+    )
+    scientific_name = _coerce_text(taxon.get("name") or common_name)
+    return {
+        "taxon_id": taxon_id,
+        "common_name": common_name or scientific_name or "Unknown species",
+        "scientific_name": scientific_name or common_name or "Unknown species",
+        "rank": _coerce_text(taxon.get("rank")),
+        "iconic_taxon_name": _coerce_text(taxon.get("iconic_taxon_name")),
+        "community_taxon_id": _coerce_int(observation.get("community_taxon_id")),
+        "quality_grade": _coerce_text(observation.get("quality_grade")),
+        "observation_updated_at": _coerce_text(observation.get("updated_at")),
+        "observation_id": _coerce_int(observation.get("id")),
+        "uri": _coerce_text(observation.get("uri")),
+        "identification_count": len(observation.get("identifications") or []),
+        "raw_observation": observation,
+    }
+
+
+def build_observation_sync_candidate(
+    local_observation: dict[str, Any],
+    inat_observation: dict[str, Any],
+) -> dict[str, Any] | None:
+    snapshot = extract_observation_taxon_snapshot(inat_observation)
+    if not snapshot:
+        return None
+    local_taxon_id = _coerce_int(local_observation.get("taxon_id"))
+    if local_taxon_id is not None and local_taxon_id == snapshot["taxon_id"]:
+        return None
+    local_common = _normalize_name(local_observation.get("common_name"))
+    local_scientific = _normalize_name(local_observation.get("scientific_name"))
+    remote_common = _normalize_name(snapshot.get("common_name"))
+    remote_scientific = _normalize_name(snapshot.get("scientific_name"))
+    names_match = bool(({local_common, local_scientific} & {remote_common, remote_scientific}) - {""})
+    if local_taxon_id is None and not snapshot.get("taxon_id"):
+        return None
+    if local_taxon_id is not None and names_match and snapshot.get("taxon_id") is None:
+        return None
+    return {
+        "observation_id": str(local_observation.get("id") or ""),
+        "inat_observation_id": snapshot.get("observation_id") or _coerce_int(local_observation.get("inat_observation_id")),
+        "inat_observation_url": _coerce_text(local_observation.get("inat_observation_url")) or snapshot.get("uri"),
+        "local": {
+            "taxon_id": local_taxon_id,
+            "common_name": _coerce_text(local_observation.get("common_name")),
+            "scientific_name": _coerce_text(local_observation.get("scientific_name")),
+        },
+        "inat": snapshot,
+        "reason": "missing_local_taxon" if local_taxon_id is None else "changed_taxon",
+    }
+
+
+def _extract_observation_record(payload: dict[str, Any]) -> dict[str, Any] | None:
+    if not isinstance(payload, dict):
+        return None
+    results = payload.get("results")
+    if isinstance(results, list) and results and isinstance(results[0], dict):
+        return results[0]
+    return payload
+
+
 def _coerce_int(value: Any) -> int | None:
     try:
         return int(value) if value is not None else None
@@ -462,6 +564,11 @@ def _coerce_text(value: Any) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _normalize_name(value: Any) -> str:
+    text = _coerce_text(value) or ""
+    return re.sub(r"\s+", " ", text).strip().lower()
 
 
 def _extract_common_names_from_summary(summary: str | None) -> list[str]:

@@ -26,6 +26,7 @@ from hike_journal.services.inat import (
     InatClient,
     InatConfigurationError,
     InatRequestError,
+    build_observation_sync_candidate,
     build_oauth_authorize_url,
     exchange_oauth_code,
     normalize_access_token,
@@ -142,6 +143,14 @@ if "species_review_initialized_signature" not in st.session_state:
     st.session_state.species_review_initialized_signature = None
 if "inat_post_feedback" not in st.session_state:
     st.session_state.inat_post_feedback = {}
+if "inat_sync_candidates" not in st.session_state:
+    st.session_state.inat_sync_candidates = {}
+if "inat_sync_checked_count" not in st.session_state:
+    st.session_state.inat_sync_checked_count = 0
+if "inat_sync_error" not in st.session_state:
+    st.session_state.inat_sync_error = None
+if "inat_sync_notice" not in st.session_state:
+    st.session_state.inat_sync_notice = None
 if "viewer_notice" not in st.session_state:
     st.session_state.viewer_notice = None
 if "library_group_by" not in st.session_state:
@@ -3001,6 +3010,7 @@ def render_species_log_tab(
     all_species = species_log_context.get("all_species", [])
     species_rows = species_log_context.get("species_rows", [])
     representative_observations = species_log_context.get("representative_observations", {})
+    posted_observations = species_log_context.get("posted_observations", [])
     if not all_species:
         st.info("Confirmed species will appear here once you begin reviewing photos.")
         return
@@ -3052,6 +3062,8 @@ def render_species_log_tab(
         label_visibility="collapsed",
         on_change=reset_species_log_page,
     )
+
+    render_species_log_inat_sync_panel(repository, inat_client, posted_observations)
 
     if not species_rows:
         st.info("No confirmed species matched that search.")
@@ -3123,6 +3135,153 @@ def render_species_log_tab(
         render_species_record_dialog(page_rows, species_lookup, representative_observations)
     if st.session_state.species_log_page_size == 0 and page_rows:
         render_back_to_top_link("species-log-top")
+
+
+def render_species_log_inat_sync_panel(
+    repository: HikeJournalRepository,
+    inat_client: InatClient,
+    posted_observations: list[dict[str, Any]],
+) -> None:
+    candidates = st.session_state.get("inat_sync_candidates") or {}
+    panel_cols = st.columns([0.54, 0.18, 0.14, 0.14], gap="small")
+    panel_cols[0].markdown(
+        (
+            "<div class='utility-rail-status'>"
+            f"{len(posted_observations)} posted iNaturalist record{'s' if len(posted_observations) != 1 else ''} can be checked for ID changes"
+            "</div>"
+        ),
+        unsafe_allow_html=True,
+    )
+    if panel_cols[1].button(
+        "Check iNaturalist IDs",
+        key="inat_sync_check_species_log",
+        use_container_width=True,
+        disabled=not posted_observations or not inat_client.is_configured,
+    ):
+        run_species_log_inat_sync(inat_client, posted_observations)
+        st.rerun()
+    if panel_cols[2].button(
+        "Clear sync",
+        key="inat_sync_clear_species_log",
+        use_container_width=True,
+        disabled=not candidates and not st.session_state.get("inat_sync_error") and not st.session_state.get("inat_sync_notice"),
+    ):
+        st.session_state.inat_sync_candidates = {}
+        st.session_state.inat_sync_error = None
+        st.session_state.inat_sync_notice = None
+        st.session_state.inat_sync_checked_count = 0
+        st.rerun()
+    panel_cols[3].markdown(
+        f"<div class='utility-rail-status'>{len(candidates)} change{'s' if len(candidates) != 1 else ''} found</div>",
+        unsafe_allow_html=True,
+    )
+
+    if not inat_client.is_configured:
+        st.caption("Connect iNaturalist before checking posted IDs.")
+    if st.session_state.get("inat_sync_error"):
+        st.error(st.session_state.inat_sync_error)
+    elif st.session_state.get("inat_sync_notice"):
+        st.success(st.session_state.inat_sync_notice)
+
+    if not candidates:
+        return
+
+    st.markdown(
+        "<div class='species-log-detail-head'><p class='workspace-lane-label'>iNaturalist ID changes</p></div>",
+        unsafe_allow_html=True,
+    )
+    for candidate in list(candidates.values()):
+        observation_id = str(candidate.get("observation_id") or "")
+        local = candidate.get("local") or {}
+        inat = candidate.get("inat") or {}
+        local_label = format_taxon_sync_label(local)
+        inat_label = format_taxon_sync_label(inat)
+        row_cols = st.columns([0.30, 0.30, 0.18, 0.11, 0.11], gap="small")
+        row_cols[0].markdown(f"**HikeJournal**  \n{local_label}")
+        row_cols[1].markdown(f"**iNaturalist now**  \n{inat_label}")
+        link = candidate.get("inat_observation_url")
+        if link:
+            row_cols[2].markdown(f"[View on iNaturalist]({link})")
+        else:
+            row_cols[2].caption(f"iNat #{candidate.get('inat_observation_id') or 'unknown'}")
+        if row_cols[3].button("Update HikeJournal", key=f"inat_sync_apply_{observation_id}", use_container_width=True):
+            try:
+                updated = repository.apply_observation_inat_sync(observation_id, inat_snapshot=inat)
+                ensure_taxon_enrichment(repository, inat_client, updated)
+            except Exception as exc:
+                st.session_state.inat_sync_error = f"Could not update this HikeJournal record: {exc}"
+            else:
+                st.session_state.inat_sync_candidates.pop(observation_id, None)
+                st.session_state.inat_sync_notice = f"Updated {inat.get('common_name') or inat.get('scientific_name') or 'the observation'} from iNaturalist."
+                st.session_state.inat_sync_error = None
+                invalidate_data_cache()
+            st.rerun()
+        if row_cols[4].button("Skip", key=f"inat_sync_skip_{observation_id}", use_container_width=True):
+            st.session_state.inat_sync_candidates.pop(observation_id, None)
+            st.session_state.inat_sync_notice = "Skipped that iNaturalist ID change."
+            st.session_state.inat_sync_error = None
+            st.rerun()
+
+
+def run_species_log_inat_sync(inat_client: InatClient, posted_observations: list[dict[str, Any]]) -> None:
+    st.session_state.inat_sync_candidates = {}
+    st.session_state.inat_sync_error = None
+    st.session_state.inat_sync_notice = None
+    st.session_state.inat_sync_checked_count = 0
+    try:
+        inat_client.validate_credentials()
+    except (InatConfigurationError, InatAuthError, InatRequestError) as exc:
+        st.session_state.inat_sync_error = str(exc)
+        return
+
+    observations_by_inat_id = {
+        str(observation.get("inat_observation_id")): observation
+        for observation in posted_observations
+        if observation.get("inat_observation_id")
+    }
+    progress = st.progress(0, text="Checking iNaturalist IDs...")
+    total = len(observations_by_inat_id)
+    checked = 0
+    candidates: dict[str, dict[str, Any]] = {}
+    try:
+        for batch_ids in chunk_list(list(observations_by_inat_id), 30):
+            remote_observations = inat_client.fetch_observations(batch_ids)
+            remote_by_id = {str(remote.get("id")): remote for remote in remote_observations if remote.get("id") is not None}
+            for inat_id in batch_ids:
+                checked += 1
+                local_observation = observations_by_inat_id[inat_id]
+                remote_observation = remote_by_id.get(str(inat_id))
+                if remote_observation:
+                    candidate = build_observation_sync_candidate(local_observation, remote_observation)
+                    if candidate and candidate.get("observation_id"):
+                        candidates[str(candidate["observation_id"])] = candidate
+                        st.session_state.inat_sync_candidates = dict(candidates)
+                progress.progress(checked / max(total, 1), text=f"Checked {checked} of {total} iNaturalist records")
+    except (InatConfigurationError, InatAuthError, InatRequestError) as exc:
+        st.session_state.inat_sync_error = f"iNaturalist sync stopped after {checked} of {total} records: {exc}"
+        st.session_state.inat_sync_checked_count = checked
+        progress.empty()
+        return
+
+    st.session_state.inat_sync_candidates = candidates
+    st.session_state.inat_sync_checked_count = checked
+    st.session_state.inat_sync_notice = f"Checked {checked} posted iNaturalist records and found {len(candidates)} ID change{'s' if len(candidates) != 1 else ''}."
+    progress.empty()
+
+
+def format_taxon_sync_label(payload: dict[str, Any]) -> str:
+    common_name = str(payload.get("common_name") or "").strip()
+    scientific_name = str(payload.get("scientific_name") or "").strip()
+    taxon_id = payload.get("taxon_id")
+    pieces = [item for item in [common_name, scientific_name] if item]
+    label = " / ".join(pieces) if pieces else "Unknown ID"
+    if taxon_id not in (None, ""):
+        label = f"{label} (`{taxon_id}`)"
+    return label
+
+
+def chunk_list(values: list[Any], size: int) -> list[list[Any]]:
+    return [values[start:start + size] for start in range(0, len(values), size)]
 
 
 def dismiss_species_record_dialog() -> None:
@@ -4626,6 +4785,7 @@ def build_species_log_context(
         "all_species": all_species,
         "species_rows": species_rows,
         "representative_observations": representative_observations,
+        "posted_observations": [observation for observation in confirmed_observations if observation.get("inat_observation_id")],
         "viewer_photos": ordered_viewer_photos,
         "viewer_observations": ordered_viewer_observations,
     }
