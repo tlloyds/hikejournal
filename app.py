@@ -26,6 +26,7 @@ from hike_journal.services.inat import (
     InatClient,
     InatConfigurationError,
     InatRequestError,
+    InatRateLimitError,
     build_observation_sync_candidate,
     build_oauth_authorize_url,
     exchange_oauth_code,
@@ -4864,12 +4865,16 @@ def build_species_log_context(
 
 
 def build_species_group_key(observation: dict[str, Any]) -> str:
+    scientific = (observation.get("scientific_name") or "").strip().lower()
+    common = (observation.get("common_name") or "").strip().lower()
+    if scientific:
+        return f"scientific:{scientific}"
+    if common:
+        return f"common:{common}"
     taxon_id = observation.get("taxon_id")
     if taxon_id not in (None, ""):
         return f"taxon:{taxon_id}"
-    scientific = (observation.get("scientific_name") or "").strip().lower()
-    common = (observation.get("common_name") or "").strip().lower()
-    return f"name:{scientific or common}::{common}"
+    return "unknown"
 
 
 def _entry_sort_datetime(entry: dict[str, Any]) -> datetime:
@@ -5908,7 +5913,9 @@ def process_species_photos(
     progress_bar = st.progress(0, text="Preparing photos for identification...")
     with st.spinner("Sending photos to iNaturalist..."):
         for index, photo in enumerate(photos_to_process, start=1):
-            progress_text.caption(f"Processing photo {index} of {total_photos}")
+            progress_text.caption(
+                f"Processing photo {index} of {total_photos}. HikeJournal is pacing requests so iNaturalist does not throttle the batch."
+            )
             try:
                 candidate = inat_client.identify_species(
                     image_bytes=_download_public_image(photo["public_url"]),
@@ -5931,6 +5938,16 @@ def process_species_photos(
                 progress_bar.empty()
                 progress_text.caption(f"Stopped after {index - 1} of {total_photos} photos.")
                 st.error(str(exc))
+                break
+            except InatRateLimitError as exc:
+                st.session_state.inat_auth_notice = None
+                st.session_state.inat_auth_error = str(exc)
+                progress_bar.empty()
+                progress_text.caption(
+                    f"iNaturalist asked HikeJournal to slow down after {successful_count} of {total_photos} photos. "
+                    "The remaining photos are still selected in Needs IDs."
+                )
+                st.warning(str(exc))
                 break
             except (InatRequestError, RuntimeError) as exc:
                 st.error(f"{photo['id'][:8]}: {exc}")

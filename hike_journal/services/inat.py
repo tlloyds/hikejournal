@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 import base64
 import json
 import re
+import time
 from typing import Any
 from urllib.parse import urlencode
 
@@ -31,10 +32,20 @@ class InatAuthError(InatRequestError):
     """Raised when iNaturalist authentication fails."""
 
 
+class InatRateLimitError(InatRequestError):
+    """Raised when iNaturalist asks the client to slow down."""
+
+    def __init__(self, message: str, *, retry_after: float | None = None):
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
 class InatClient:
     def __init__(self, access_token: str | None = None, base_url: str | None = None):
         self.access_token = access_token or settings.inat_access_token
         self.base_url = (base_url or settings.inat_base_url).rstrip("/")
+        self.request_interval_seconds = 0.75
+        self._last_request_at = 0.0
 
     @property
     def is_configured(self) -> bool:
@@ -54,7 +65,7 @@ class InatClient:
 
         url = f"{self.base_url}/users/me"
         headers = {"Authorization": f"Bearer {self.access_token}"}
-        response = requests.get(url, headers=headers, timeout=15)
+        response = self._request("get", url, headers=headers, timeout=15)
         if response.status_code == 401:
             raise InatAuthError("iNaturalist rejected this token. Visit /users/api_token, copy a fresh token, and paste it below before processing photos.")
         if response.status_code >= 400 and expiry is None:
@@ -83,7 +94,8 @@ class InatClient:
         if observed_on is not None:
             data["observed_on"] = observed_on.date().isoformat()
 
-        response = requests.post(
+        response = self._request(
+            "post",
             url,
             headers=headers,
             data=data,
@@ -126,7 +138,7 @@ class InatClient:
 
         url = f"{self.base_url}/taxa/{taxon_id}"
         headers = {"Authorization": f"Bearer {self.access_token}"}
-        response = requests.get(url, headers=headers, timeout=30)
+        response = self._request("get", url, headers=headers, timeout=30)
         if response.status_code == 401:
             raise InatAuthError("iNaturalist rejected this token during taxon lookup. Paste a fresh token below and try again.")
         if response.status_code >= 400:
@@ -149,7 +161,7 @@ class InatClient:
             return []
         url = f"{self.base_url}/observations/{','.join(normalized_ids)}"
         headers = {"Authorization": f"Bearer {self.access_token}"} if self.access_token else {}
-        response = requests.get(url, headers=headers, timeout=30)
+        response = self._request("get", url, headers=headers, timeout=30)
         if response.status_code == 401:
             raise InatAuthError("iNaturalist rejected this token while checking posted observations. Paste a fresh token and try again.")
         if response.status_code >= 400:
@@ -169,7 +181,7 @@ class InatClient:
             return []
         url = f"{self.base_url}/taxa/autocomplete"
         headers = {"Authorization": f"Bearer {self.access_token}"} if self.access_token else {}
-        response = requests.get(url, headers=headers, params={"q": query.strip()}, timeout=20)
+        response = self._request("get", url, headers=headers, params={"q": query.strip()}, timeout=20)
         if response.status_code == 401:
             raise InatAuthError("iNaturalist rejected this token during taxon search. Paste a fresh token below and try again.")
         if response.status_code >= 400:
@@ -214,7 +226,8 @@ class InatClient:
         if tags:
             observation_payload["tag_list"] = ",".join(tag.strip() for tag in tags if tag.strip())
 
-        response = requests.post(
+        response = self._request(
+            "post",
             url,
             headers=headers,
             json={"observation": observation_payload},
@@ -249,7 +262,8 @@ class InatClient:
 
         url = f"{self.base_url}/observation_photos"
         headers = {"Authorization": f"Bearer {self.access_token}"}
-        response = requests.post(
+        response = self._request(
+            "post",
             url,
             headers=headers,
             data={"observation_photo[observation_id]": str(observation_id)},
@@ -269,6 +283,26 @@ class InatClient:
                     return first
             return payload
         raise InatRequestError("iNaturalist returned an unexpected photo-upload response.")
+
+    def _request(self, method: str, url: str, **kwargs: Any) -> requests.Response:
+        elapsed = time.monotonic() - self._last_request_at
+        if self._last_request_at and elapsed < self.request_interval_seconds:
+            time.sleep(self.request_interval_seconds - elapsed)
+        response = requests.request(method, url, **kwargs)
+        self._last_request_at = time.monotonic()
+        if response.status_code != 429:
+            return response
+        retry_after = _parse_retry_after(response.headers.get("Retry-After"))
+        wait_seconds = retry_after if retry_after is not None else 5.0
+        time.sleep(min(max(wait_seconds, self.request_interval_seconds), 20.0))
+        response = requests.request(method, url, **kwargs)
+        self._last_request_at = time.monotonic()
+        if response.status_code == 429:
+            raise InatRateLimitError(
+                "iNaturalist is rate limiting these requests. Wait a minute, then continue processing.",
+                retry_after=retry_after,
+            )
+        return response
 
 
 def normalize_access_token(raw_value: str) -> str:
@@ -564,6 +598,15 @@ def _coerce_text(value: Any) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _parse_retry_after(value: str | None) -> float | None:
+    if not value:
+        return None
+    try:
+        return max(float(value), 0.0)
+    except (TypeError, ValueError):
+        return None
 
 
 def _normalize_name(value: Any) -> str:
