@@ -145,6 +145,8 @@ if "inat_post_feedback" not in st.session_state:
     st.session_state.inat_post_feedback = {}
 if "inat_sync_candidates" not in st.session_state:
     st.session_state.inat_sync_candidates = {}
+if "inat_sync_selected_ids" not in st.session_state:
+    st.session_state.inat_sync_selected_ids = set()
 if "inat_sync_checked_count" not in st.session_state:
     st.session_state.inat_sync_checked_count = 0
 if "inat_sync_error" not in st.session_state:
@@ -3167,6 +3169,7 @@ def render_species_log_inat_sync_panel(
         disabled=not candidates and not st.session_state.get("inat_sync_error") and not st.session_state.get("inat_sync_notice"),
     ):
         st.session_state.inat_sync_candidates = {}
+        st.session_state.inat_sync_selected_ids = set()
         st.session_state.inat_sync_error = None
         st.session_state.inat_sync_notice = None
         st.session_state.inat_sync_checked_count = 0
@@ -3186,6 +3189,44 @@ def render_species_log_inat_sync_panel(
     if not candidates:
         return
 
+    valid_ids = {str(candidate.get("observation_id") or "") for candidate in candidates.values() if candidate.get("observation_id")}
+    st.session_state.inat_sync_selected_ids = {
+        observation_id for observation_id in st.session_state.inat_sync_selected_ids if observation_id in valid_ids
+    }
+    st.session_state.inat_sync_selected_ids = {
+        observation_id
+        for observation_id in valid_ids
+        if st.session_state.get(f"inat_sync_select_{observation_id}", observation_id in st.session_state.inat_sync_selected_ids)
+    }
+    selected_ids = set(st.session_state.inat_sync_selected_ids)
+    queue_cols = st.columns([0.18, 0.18, 0.20, 0.20, 0.24], gap="small")
+    queue_cols[0].markdown(
+        f"<div class='utility-rail-status'>{len(selected_ids)} selected</div>",
+        unsafe_allow_html=True,
+    )
+    if queue_cols[1].button("Select all", key="inat_sync_select_all", use_container_width=True, disabled=not valid_ids):
+        st.session_state.inat_sync_selected_ids = set(valid_ids)
+        for observation_id in valid_ids:
+            st.session_state[f"inat_sync_select_{observation_id}"] = True
+        st.rerun()
+    if queue_cols[2].button("Clear selected", key="inat_sync_clear_selected", use_container_width=True, disabled=not selected_ids):
+        st.session_state.inat_sync_selected_ids = set()
+        for observation_id in valid_ids:
+            checkbox_key = f"inat_sync_select_{observation_id}"
+            if checkbox_key in st.session_state:
+                st.session_state[checkbox_key] = False
+        st.rerun()
+    if queue_cols[3].button(f"Update selected ({len(selected_ids)})", key="inat_sync_update_selected", use_container_width=True, disabled=not selected_ids):
+        update_inat_sync_candidates(repository, inat_client, selected_ids)
+        st.rerun()
+    if queue_cols[4].button(f"Skip selected ({len(selected_ids)})", key="inat_sync_skip_selected", use_container_width=True, disabled=not selected_ids):
+        for observation_id in selected_ids:
+            st.session_state.inat_sync_candidates.pop(observation_id, None)
+            st.session_state.inat_sync_selected_ids.discard(observation_id)
+        st.session_state.inat_sync_notice = f"Skipped {len(selected_ids)} iNaturalist ID change{'s' if len(selected_ids) != 1 else ''}."
+        st.session_state.inat_sync_error = None
+        st.rerun()
+
     st.markdown(
         "<div class='species-log-detail-head'><p class='workspace-lane-label'>iNaturalist ID changes</p></div>",
         unsafe_allow_html=True,
@@ -3196,35 +3237,66 @@ def render_species_log_inat_sync_panel(
         inat = candidate.get("inat") or {}
         local_label = format_taxon_sync_label(local)
         inat_label = format_taxon_sync_label(inat)
-        row_cols = st.columns([0.30, 0.30, 0.18, 0.11, 0.11], gap="small")
-        row_cols[0].markdown(f"**HikeJournal**  \n{local_label}")
-        row_cols[1].markdown(f"**iNaturalist now**  \n{inat_label}")
+        select_key = f"inat_sync_select_{observation_id}"
+        if select_key not in st.session_state:
+            st.session_state[select_key] = observation_id in st.session_state.inat_sync_selected_ids
+        row_cols = st.columns([0.10, 0.26, 0.26, 0.16, 0.11, 0.11], gap="small")
+        is_selected = row_cols[0].checkbox("Select", key=select_key)
+        if is_selected:
+            st.session_state.inat_sync_selected_ids.add(observation_id)
+        else:
+            st.session_state.inat_sync_selected_ids.discard(observation_id)
+        row_cols[1].markdown(f"**HikeJournal**  \n{local_label}")
+        row_cols[2].markdown(f"**iNaturalist now**  \n{inat_label}")
         link = candidate.get("inat_observation_url")
         if link:
-            row_cols[2].markdown(f"[View on iNaturalist]({link})")
+            row_cols[3].markdown(f"[View on iNaturalist]({link})")
         else:
-            row_cols[2].caption(f"iNat #{candidate.get('inat_observation_id') or 'unknown'}")
-        if row_cols[3].button("Update HikeJournal", key=f"inat_sync_apply_{observation_id}", use_container_width=True):
-            try:
-                updated = repository.apply_observation_inat_sync(observation_id, inat_snapshot=inat)
-                ensure_taxon_enrichment(repository, inat_client, updated)
-            except Exception as exc:
-                st.session_state.inat_sync_error = f"Could not update this HikeJournal record: {exc}"
-            else:
-                st.session_state.inat_sync_candidates.pop(observation_id, None)
-                st.session_state.inat_sync_notice = f"Updated {inat.get('common_name') or inat.get('scientific_name') or 'the observation'} from iNaturalist."
-                st.session_state.inat_sync_error = None
-                invalidate_data_cache()
+            row_cols[3].caption(f"iNat #{candidate.get('inat_observation_id') or 'unknown'}")
+        if row_cols[4].button("Update", key=f"inat_sync_apply_{observation_id}", use_container_width=True):
+            update_inat_sync_candidates(repository, inat_client, {observation_id})
             st.rerun()
-        if row_cols[4].button("Skip", key=f"inat_sync_skip_{observation_id}", use_container_width=True):
+        if row_cols[5].button("Skip", key=f"inat_sync_skip_{observation_id}", use_container_width=True):
             st.session_state.inat_sync_candidates.pop(observation_id, None)
+            st.session_state.inat_sync_selected_ids.discard(observation_id)
             st.session_state.inat_sync_notice = "Skipped that iNaturalist ID change."
             st.session_state.inat_sync_error = None
             st.rerun()
 
 
+def update_inat_sync_candidates(
+    repository: HikeJournalRepository,
+    inat_client: InatClient,
+    observation_ids: set[str],
+) -> None:
+    candidates = st.session_state.get("inat_sync_candidates") or {}
+    updated_count = 0
+    for observation_id in list(observation_ids):
+        candidate = candidates.get(observation_id)
+        if not candidate:
+            st.session_state.inat_sync_selected_ids.discard(observation_id)
+            continue
+        inat = candidate.get("inat") or {}
+        try:
+            updated = repository.apply_observation_inat_sync(observation_id, inat_snapshot=inat)
+            ensure_taxon_enrichment(repository, inat_client, updated)
+        except Exception as exc:
+            st.session_state.inat_sync_error = f"Could not update {inat.get('common_name') or inat.get('scientific_name') or 'one iNaturalist record'}: {exc}"
+            break
+        else:
+            updated_count += 1
+            st.session_state.inat_sync_candidates.pop(observation_id, None)
+            st.session_state.inat_sync_selected_ids.discard(observation_id)
+    if updated_count:
+        st.session_state.inat_sync_notice = f"Updated {updated_count} HikeJournal ID{'s' if updated_count != 1 else ''} from iNaturalist."
+        if not st.session_state.get("inat_sync_error"):
+            st.session_state.inat_sync_error = None
+        invalidate_data_cache()
+
+
 def run_species_log_inat_sync(inat_client: InatClient, posted_observations: list[dict[str, Any]]) -> None:
     st.session_state.inat_sync_candidates = {}
+    st.session_state.inat_sync_selected_ids = set()
     st.session_state.inat_sync_error = None
     st.session_state.inat_sync_notice = None
     st.session_state.inat_sync_checked_count = 0
