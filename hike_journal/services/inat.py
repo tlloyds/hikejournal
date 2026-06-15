@@ -46,6 +46,7 @@ class InatClient:
         self.base_url = (base_url or settings.inat_base_url).rstrip("/")
         self.request_interval_seconds = 0.75
         self._last_request_at = 0.0
+        self.user_agent = "HikeJournal/1.0 (personal field journal; contact: addlloyd@gmail.com)"
 
     @property
     def is_configured(self) -> bool:
@@ -64,7 +65,7 @@ class InatClient:
             raise InatAuthError("Your iNaturalist token has expired. Visit /users/api_token, copy a fresh token, and paste it below before processing photos.")
 
         url = f"{self.base_url}/users/me"
-        headers = {"Authorization": f"Bearer {self.access_token}"}
+        headers = self._headers(auth=True)
         response = self._request("get", url, headers=headers, timeout=15)
         if response.status_code == 401:
             raise InatAuthError("iNaturalist rejected this token. Visit /users/api_token, copy a fresh token, and paste it below before processing photos.")
@@ -85,7 +86,7 @@ class InatClient:
             raise InatConfigurationError("INAT_ACCESS_TOKEN is not configured yet.")
 
         url = f"{self.base_url}/computervision/score_image"
-        headers = {"Authorization": f"Bearer {self.access_token}"}
+        headers = self._headers(auth=True)
         data: dict[str, Any] = {}
         if lat is not None:
             data["lat"] = str(lat)
@@ -104,6 +105,11 @@ class InatClient:
         )
         if response.status_code == 401:
             raise InatAuthError("iNaturalist rejected this token while processing photos. Paste a fresh token below and try the batch again.")
+        if response.status_code == 403:
+            raise InatRequestError(
+                "iNaturalist refused the computer-vision ID request with 403. Your token can still be valid for posting; "
+                "this means iNaturalist is blocking the image-suggestion endpoint from this app/server right now."
+            )
         if response.status_code >= 400:
             raise InatRequestError(f"iNaturalist returned {response.status_code}: {response.text[:200]}")
 
@@ -137,7 +143,7 @@ class InatClient:
             raise InatConfigurationError("INAT_ACCESS_TOKEN is not configured yet.")
 
         url = f"{self.base_url}/taxa/{taxon_id}"
-        headers = {"Authorization": f"Bearer {self.access_token}"}
+        headers = self._headers(auth=True)
         response = self._request("get", url, headers=headers, timeout=30)
         if response.status_code == 401:
             raise InatAuthError("iNaturalist rejected this token during taxon lookup. Paste a fresh token below and try again.")
@@ -160,7 +166,7 @@ class InatClient:
         if not normalized_ids:
             return []
         url = f"{self.base_url}/observations/{','.join(normalized_ids)}"
-        headers = {"Authorization": f"Bearer {self.access_token}"} if self.access_token else {}
+        headers = self._headers(auth=bool(self.access_token))
         response = self._request("get", url, headers=headers, timeout=30)
         if response.status_code == 401:
             raise InatAuthError("iNaturalist rejected this token while checking posted observations. Paste a fresh token and try again.")
@@ -180,7 +186,7 @@ class InatClient:
         if not query.strip():
             return []
         url = f"{self.base_url}/taxa/autocomplete"
-        headers = {"Authorization": f"Bearer {self.access_token}"} if self.access_token else {}
+        headers = self._headers(auth=bool(self.access_token))
         response = self._request("get", url, headers=headers, params={"q": query.strip()}, timeout=20)
         if response.status_code == 401:
             raise InatAuthError("iNaturalist rejected this token during taxon search. Paste a fresh token below and try again.")
@@ -205,7 +211,7 @@ class InatClient:
             raise InatConfigurationError("No iNaturalist token is configured yet.")
 
         url = f"{self.base_url}/observations"
-        headers = {"Authorization": f"Bearer {self.access_token}"}
+        headers = self._headers(auth=True)
         observation_payload: dict[str, Any] = {}
         if taxon_id:
             observation_payload["taxon_id"] = int(taxon_id)
@@ -261,7 +267,7 @@ class InatClient:
             raise InatConfigurationError("No iNaturalist token is configured yet.")
 
         url = f"{self.base_url}/observation_photos"
-        headers = {"Authorization": f"Bearer {self.access_token}"}
+        headers = self._headers(auth=True)
         response = self._request(
             "post",
             url,
@@ -283,6 +289,15 @@ class InatClient:
                     return first
             return payload
         raise InatRequestError("iNaturalist returned an unexpected photo-upload response.")
+
+    def _headers(self, *, auth: bool) -> dict[str, str]:
+        headers = {
+            "Accept": "application/json",
+            "User-Agent": self.user_agent,
+        }
+        if auth and self.access_token:
+            headers["Authorization"] = f"Bearer {self.access_token}"
+        return headers
 
     def _request(self, method: str, url: str, **kwargs: Any) -> requests.Response:
         elapsed = time.monotonic() - self._last_request_at
