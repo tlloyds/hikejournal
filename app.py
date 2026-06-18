@@ -283,6 +283,10 @@ def main() -> None:
         render_login_gate()
         return
 
+    if settings.require_google_auth and user_context["mode"] == "google" and not user_context["is_allowed"]:
+        render_access_denied(user_context)
+        return
+
     if not settings.supabase_configured:
         render_setup_state()
         return
@@ -1023,12 +1027,14 @@ def get_user_context() -> dict[str, Any]:
     if auth_configured and streamlit_logged_in:
         email = normalize_email(st.user.get("email"))
         display_name = st.user.get("name") or email or "Hiker"
+        is_allowed = bool(email and email in settings.allowed_emails)
         return {
             "auth_configured": True,
             "is_logged_in": True,
             "subject": st.user.get("sub"),
             "email": email,
             "display_name": display_name,
+            "is_allowed": is_allowed,
             "is_admin": bool(email and email in settings.admin_emails),
             "mode": "google",
         }
@@ -1040,6 +1046,7 @@ def get_user_context() -> dict[str, Any]:
             "subject": None,
             "email": None,
             "display_name": "Guest",
+            "is_allowed": False,
             "is_admin": False,
             "mode": "signed-out" if auth_configured else "auth-misconfigured",
         }
@@ -1051,6 +1058,7 @@ def get_user_context() -> dict[str, Any]:
             "subject": "local-dev-user",
             "email": next(iter(settings.admin_emails), "local@hikejournal.dev"),
             "display_name": "Local admin",
+            "is_allowed": True,
             "is_admin": True,
             "mode": "local-dev",
         }
@@ -1061,6 +1069,7 @@ def get_user_context() -> dict[str, Any]:
         "subject": None,
         "email": None,
         "display_name": "Guest",
+        "is_allowed": False,
         "is_admin": False,
         "mode": "signed-out",
     }
@@ -1091,6 +1100,25 @@ def render_login_gate() -> None:
                 st.login()
             except Exception as exc:  # pragma: no cover - depends on local auth secrets
                 st.error(f"Google sign-in is not configured cleanly yet: {exc}")
+
+
+def render_access_denied(user_context: dict[str, Any]) -> None:
+    render_hero(None, 0, 0, 0)
+    st.write("")
+    section_heading(
+        "Private Journal",
+        "This Google account is not allowed here",
+        "HikeJournal is locked to the journal owner. Sign out and use the owner account to continue.",
+    )
+    if user_context.get("email"):
+        st.error(f"{user_context['email']} is not on the allowed account list.")
+    action_cols = st.columns([0.34, 0.32, 0.34])
+    with action_cols[1]:
+        if st.button("Sign out", use_container_width=True):
+            try:
+                st.logout()
+            except Exception as exc:  # pragma: no cover - depends on local auth session
+                st.error(f"Could not sign out cleanly: {exc}")
 
 
 def render_inat_token_manager(inat_client: InatClient, user_context: dict[str, Any]) -> None:

@@ -174,6 +174,7 @@ class Settings:
     thumbnail_max_dimension: int = int(os.getenv("THUMBNAIL_MAX_DIMENSION", "560"))
     thumbnail_quality: int = int(os.getenv("THUMBNAIL_QUALITY", "72"))
     admin_emails_raw: str = os.getenv("ADMIN_EMAILS", "")
+    allowed_emails_raw: str = os.getenv("ALLOWED_EMAILS", "")
     require_google_auth: bool = os.getenv("REQUIRE_GOOGLE_AUTH", "false").strip().lower() in {"1", "true", "yes", "on"}
 
     @property
@@ -205,6 +206,15 @@ class Settings:
             for email in self.admin_emails_raw.split(",")
             if email.strip()
         }
+
+    @property
+    def allowed_emails(self) -> set[str]:
+        configured = {
+            email.strip().lower()
+            for email in self.allowed_emails_raw.split(",")
+            if email.strip()
+        }
+        return configured or self.admin_emails
 
     @property
     def inat_oauth_configured(self) -> bool:

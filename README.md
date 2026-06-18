@@ -49,6 +49,7 @@ Required now:
 - `SUPABASE_KEY`
 - `SUPABASE_BUCKET` (defaults to `hike-journal`)
 - `ADMIN_EMAILS` comma-separated list for people who should still see developer controls
+- `ALLOWED_EMAILS` comma-separated list for people who can sign in; defaults to `ADMIN_EMAILS`
 - `REQUIRE_GOOGLE_AUTH` set to `true` when you want Google sign-in enforced
 
 Needed later for species scoring:
