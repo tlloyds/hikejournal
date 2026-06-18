@@ -56,6 +56,7 @@ Needed later for species scoring:
 
 - `INAT_ACCESS_TOKEN`
 - `INAT_BASE_URL` defaults to `https://api.inaturalist.org/v1`
+- `INAT_CV_REQUEST_INTERVAL_SECONDS` defaults to `2.5` for slower image-ID requests
 
 ## Google Auth
 

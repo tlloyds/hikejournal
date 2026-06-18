@@ -164,6 +164,7 @@ class Settings:
     r2_api_token: str = os.getenv("R2_API_TOKEN", "")
     inat_access_token_env: str = os.getenv("INAT_ACCESS_TOKEN", "")
     inat_base_url: str = os.getenv("INAT_BASE_URL", "https://api.inaturalist.org/v1").rstrip("/")
+    inat_cv_request_interval_seconds: float = float(os.getenv("INAT_CV_REQUEST_INTERVAL_SECONDS", "2.5"))
     inat_oauth_client_id: str = os.getenv("INAT_OAUTH_CLIENT_ID", "")
     inat_oauth_client_secret: str = os.getenv("INAT_OAUTH_CLIENT_SECRET", "")
     inat_oauth_redirect_uri: str = os.getenv("INAT_OAUTH_REDIRECT_URI", "http://localhost:8505/")

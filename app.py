@@ -6086,7 +6086,8 @@ def process_species_photos(
     with st.spinner("Sending photos to iNaturalist..."):
         for index, photo in enumerate(photos_to_process, start=1):
             progress_text.caption(
-                f"Processing photo {index} of {total_photos}. HikeJournal is pacing requests so iNaturalist does not throttle the batch."
+                f"Processing photo {index} of {total_photos}. "
+                f"HikeJournal is spacing image-ID requests about {inat_client.cv_request_interval_seconds:g}s apart so iNaturalist does not throttle the batch."
             )
             try:
                 candidate = inat_client.identify_species(

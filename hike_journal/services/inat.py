@@ -49,6 +49,7 @@ class InatClient:
         self.access_token = access_token or settings.inat_access_token
         self.base_url = (base_url or settings.inat_base_url).rstrip("/")
         self.request_interval_seconds = 0.75
+        self.cv_request_interval_seconds = max(self.request_interval_seconds, settings.inat_cv_request_interval_seconds)
         self._last_request_at = 0.0
         self.user_agent = "HikeJournal/1.0 (personal field journal; contact: addlloyd@gmail.com)"
 
@@ -105,6 +106,7 @@ class InatClient:
             headers=headers,
             data=data,
             files={"image": (filename, image_bytes, "image/jpeg")},
+            min_interval=self.cv_request_interval_seconds,
             timeout=45,
         )
         if response.status_code == 401:
@@ -304,16 +306,17 @@ class InatClient:
         return headers
 
     def _request(self, method: str, url: str, **kwargs: Any) -> requests.Response:
+        request_interval = float(kwargs.pop("min_interval", self.request_interval_seconds))
         elapsed = time.monotonic() - self._last_request_at
-        if self._last_request_at and elapsed < self.request_interval_seconds:
-            time.sleep(self.request_interval_seconds - elapsed)
+        if self._last_request_at and elapsed < request_interval:
+            time.sleep(request_interval - elapsed)
         response = requests.request(method, url, **kwargs)
         self._last_request_at = time.monotonic()
         if response.status_code != 429:
             return response
         retry_after = _parse_retry_after(response.headers.get("Retry-After"))
         wait_seconds = retry_after if retry_after is not None else 5.0
-        time.sleep(min(max(wait_seconds, self.request_interval_seconds), 20.0))
+        time.sleep(min(max(wait_seconds, request_interval), 20.0))
         response = requests.request(method, url, **kwargs)
         self._last_request_at = time.monotonic()
         if response.status_code == 429:
