@@ -3131,10 +3131,10 @@ def render_species_log_tab(
         """,
         unsafe_allow_html=True,
     )
-    index_chunk_size = 4 if len(page_rows) <= 8 else 6
+    index_chunk_size = 4
     for start in range(0, len(page_rows), index_chunk_size):
         chunk = page_rows[start:start + index_chunk_size]
-        index_cols = st.columns(len(chunk), gap="small")
+        index_cols = st.columns(index_chunk_size, gap="small")
         for idx, row in enumerate(chunk):
             thumb_url = get_photo_thumbnail_url(row["lead_photo"])
             is_current_focus = row["key"] == st.session_state.species_log_focus_key
