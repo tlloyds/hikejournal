@@ -1027,7 +1027,8 @@ def get_user_context() -> dict[str, Any]:
     if auth_configured and streamlit_logged_in:
         email = normalize_email(st.user.get("email"))
         display_name = st.user.get("name") or email or "Hiker"
-        is_allowed = bool(email and email in settings.allowed_emails)
+        allowed_emails = getattr(settings, "allowed_emails", settings.admin_emails)
+        is_allowed = bool(email and email in allowed_emails)
         return {
             "auth_configured": True,
             "is_logged_in": True,
