@@ -2757,15 +2757,7 @@ def render_species_tab(
                     render_clickable_photo_with_view(photo, selected_hike_id=photo["hike_id"], source_view="Species Review")
                 with cols[1]:
                     st.markdown(
-                        f"""
-                        <div class="species-review-entry-head">
-                            <div class="species-review-entry-kicker">
-                                {render_review_state_chip(review_state)}
-                                <span>{escape(outing_title)}</span>
-                                {f"<span>• {escape(outing_date)}</span>" if outing_date else ""}
-                            </div>
-                        </div>
-                        """,
+                        render_species_review_entry_header(review_state, outing_title, outing_date),
                         unsafe_allow_html=True,
                     )
                     selected_key = f"species_select_{photo['id']}"
@@ -5562,6 +5554,19 @@ def get_review_state_label(observation: dict[str, Any] | None) -> str:
 def render_review_state_chip(state: str) -> str:
     slug = state.lower().replace(" ", "-")
     return f"<span class='status-pill review-{slug}'>{escape(state)}</span>"
+
+
+def render_species_review_entry_header(review_state: str, outing_title: str, outing_date: str | None = None) -> str:
+    date_markup = f"<span>• {escape(str(outing_date))}</span>" if outing_date else ""
+    return (
+        "<div class='species-review-entry-head'>"
+        "<div class='species-review-entry-kicker'>"
+        f"{render_review_state_chip(review_state)}"
+        f"<span>{escape(outing_title)}</span>"
+        f"{date_markup}"
+        "</div>"
+        "</div>"
+    )
 
 
 def get_publish_state(observation: dict[str, Any]) -> str:
