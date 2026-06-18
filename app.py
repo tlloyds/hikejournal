@@ -2784,6 +2784,13 @@ def render_species_tab(
                             show_details=True,
                         )
                         render_alternate_suggestions(repository, inat_client, primary_observation, photo, key_prefix=f"review_{photo['id']}")
+                        render_community_id_request_controls(
+                            repository,
+                            inat_client,
+                            primary_observation,
+                            photo,
+                            key_prefix=f"review_community_{photo['id']}",
+                        )
                         render_secondary_species_summary(photo_observations, primary_observation["id"])
                     else:
                         st.caption("No suggestion has been saved for this photo yet.")
@@ -3993,6 +4000,134 @@ def render_add_species_popover(
                     st.rerun()
 
 
+def render_community_id_request_controls(
+    repository: HikeJournalRepository,
+    inat_client: InatClient,
+    observation: dict[str, Any],
+    photo: dict[str, Any],
+    *,
+    key_prefix: str,
+) -> None:
+    if observation.get("status") != "pending":
+        return
+    st.markdown(
+        """
+        <div class="alternate-suggestions-shell">
+            <p class="workspace-lane-label">Send to iNaturalist for ID</p>
+            <p class="alternate-suggestions-caption">Replace the current suggestion with an unknown or broader taxon, then move it to publishing.</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    with st.popover("Submit as..."):
+        mode = st.radio(
+            "Submit as",
+            ["Unknown organism", "Broad taxon"],
+            key=f"{key_prefix}_mode",
+            horizontal=True,
+        )
+        selected_taxon: dict[str, Any] | None = None
+        if mode == "Broad taxon":
+            query = st.text_input(
+                "Search iNaturalist taxon",
+                key=f"{key_prefix}_query",
+                placeholder="Plants, Animals, Fungi, Rhexia...",
+            )
+            results: list[dict[str, Any]] = []
+            if query.strip():
+                try:
+                    results = [item for item in inat_client.autocomplete_taxa(query) if item.get("id") is not None][:10]
+                except Exception as exc:
+                    st.caption(f"Taxon search did not come back cleanly: {exc}")
+            else:
+                st.caption("Search for a broad group or genus. Examples: Plants, Fungi, Reptiles, Rhexia.")
+            if results:
+                selected_taxon = st.selectbox(
+                    "Taxon match",
+                    results,
+                    format_func=format_taxon_option,
+                    key=f"{key_prefix}_selected_taxon",
+                )
+            elif query.strip():
+                st.caption("No matching taxa came back.")
+
+        ready_to_submit = mode == "Unknown organism" or selected_taxon is not None
+        if st.button("Move to publishing", key=f"{key_prefix}_submit", use_container_width=True, disabled=not ready_to_submit):
+            apply_community_id_request(
+                repository,
+                inat_client,
+                observation,
+                photo,
+                selected_taxon=selected_taxon,
+            )
+            st.session_state.species_selected_ids.discard(photo["id"])
+            st.session_state.species_review_stage = "Needs decisions"
+            invalidate_data_cache()
+            st.rerun()
+
+
+def format_taxon_option(option: dict[str, Any]) -> str:
+    common_name = option.get("preferred_common_name") or option.get("matched_term") or option.get("name") or "Unknown taxon"
+    scientific_name = option.get("name") or ""
+    rank = option.get("rank") or ""
+    if scientific_name and scientific_name != common_name:
+        label = f"{common_name} — {scientific_name}"
+    else:
+        label = str(common_name)
+    return f"{label} {f'({rank})' if rank else ''}".strip()
+
+
+def apply_community_id_request(
+    repository: HikeJournalRepository,
+    inat_client: InatClient,
+    observation: dict[str, Any],
+    photo: dict[str, Any],
+    *,
+    selected_taxon: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if selected_taxon:
+        common_name = str(selected_taxon.get("preferred_common_name") or selected_taxon.get("matched_term") or selected_taxon.get("name") or "Unknown taxon")
+        scientific_name = str(selected_taxon.get("name") or selected_taxon.get("preferred_common_name") or common_name)
+        taxon_id = int(selected_taxon["id"])
+        request_payload = {"mode": "broad_taxon", "selected_taxon": selected_taxon}
+    else:
+        common_name = "Unknown organism"
+        scientific_name = ""
+        taxon_id = None
+        request_payload = {"mode": "unknown_organism", "selected_taxon": None}
+
+    updated = repository.update_observation_details(
+        observation["id"],
+        common_name=common_name,
+        scientific_name=scientific_name,
+        photo_id=photo.get("id"),
+        is_primary=True,
+        status="confirmed",
+        source="community_id_request",
+        taxon_id=taxon_id,
+        clear_confidence=True,
+    )
+    raw_payload = dict(observation.get("raw_response_json") or {})
+    raw_payload["community_id_request"] = {
+        **request_payload,
+        "requested_at": datetime.utcnow().isoformat(),
+        "replaced_identification": {
+            "taxon_id": observation.get("taxon_id"),
+            "common_name": observation.get("common_name"),
+            "scientific_name": observation.get("scientific_name"),
+            "confidence": observation.get("confidence"),
+            "source": observation.get("source"),
+        },
+    }
+    raw_payload.pop("taxon_enrichment", None)
+    updated = repository.update_observation_raw_payload(updated["id"], raw_payload)
+    if taxon_id is not None:
+        ensure_taxon_enrichment(repository, inat_client, updated)
+    if photo.get("id"):
+        repository.update_photo_processing_status(photo["id"], "ready")
+    return updated
+
+
 def format_confidence_percent(value: Any) -> str:
     try:
         number = float(value or 0)
@@ -4004,6 +4139,8 @@ def format_confidence_percent(value: Any) -> str:
 
 
 def format_confidence_label(observation: dict[str, Any]) -> str:
+    if observation.get("source") == "community_id_request":
+        return "Community ID request"
     if observation.get("confidence") in (None, ""):
         return "Manual entry"
     return f"Confidence: {format_confidence_percent(observation.get('confidence'))}"

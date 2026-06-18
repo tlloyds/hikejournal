@@ -602,7 +602,7 @@ class HikeJournalRepository:
             payload["source"] = source
         if clear_confidence:
             payload["confidence"] = None
-        if taxon_id is not None or (taxon_id is None and source == "manual_override"):
+        if taxon_id is not None or (taxon_id is None and source in {"manual_override", "community_id_request"}):
             payload["taxon_id"] = taxon_id
         try:
             response = self.client.table("species_observations").update(payload).eq("id", observation_id).execute()
