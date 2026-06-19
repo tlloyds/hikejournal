@@ -2282,9 +2282,9 @@ def render_library_tab(
                     if top_action_cols[1].button("Manage", key=f"library_manage_{hike['id']}", use_container_width=True, type="primary"):
                         render_edit_hike_dialog(repository, storage, hike)
                     bottom_action_cols = st.columns(2, gap="small")
-                    if bottom_action_cols[0].button("Outing map", key=f"library_map_{hike['id']}", use_container_width=True, type="secondary"):
+                    if bottom_action_cols[0].button("Map", key=f"library_map_{hike['id']}", use_container_width=True, type="secondary"):
                         navigate_to(view="Map", hike_id=hike["id"])
-                    if bottom_action_cols[1].button("Sightings log", key=f"library_sightings_{hike['id']}", use_container_width=True, type="secondary"):
+                    if bottom_action_cols[1].button("Sightings", key=f"library_sightings_{hike['id']}", use_container_width=True, type="secondary"):
                         st.session_state.species_log_hike_filter = title
                         navigate_to(view="Species Log")
                 st.markdown("</div>", unsafe_allow_html=True)
