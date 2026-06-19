@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from html import escape
 import math
 import secrets
@@ -115,6 +115,8 @@ if "inat_token_input" not in st.session_state:
     st.session_state.inat_token_input = ""
 if "inat_oauth_state" not in st.session_state:
     st.session_state.inat_oauth_state = None
+if "inat_token_dialog_open" not in st.session_state:
+    st.session_state.inat_token_dialog_open = False
 if "species_log_hike_filter" not in st.session_state:
     st.session_state.species_log_hike_filter = "All hikes"
 if "species_log_mapped_only" not in st.session_state:
@@ -652,7 +654,9 @@ def main() -> None:
             species_log_context or {},
         )
 
-    if st.session_state.viewer_open:
+    if st.session_state.inat_token_dialog_open:
+        render_inat_token_dialog(inat_client, user_context)
+    elif st.session_state.viewer_open:
         st.session_state.viewer_open = False
         render_photo_viewer(
             repository,
@@ -1123,108 +1127,168 @@ def render_access_denied(user_context: dict[str, Any]) -> None:
 
 
 def render_inat_token_manager(inat_client: InatClient, user_context: dict[str, Any]) -> None:
-    should_expand = bool(st.session_state.inat_auth_error) or not inat_client.is_configured
+    should_expand = bool(st.session_state.inat_auth_error) or not is_inat_client_ready(inat_client)
     with st.expander("iNaturalist connection", expanded=should_expand):
-        token_record = None
-        if user_context.get("mode") == "google":
-            token_record = load_inat_token_record_for_user(
-                subject=user_context.get("subject"),
-                email=user_context.get("email"),
-            )
-        if user_context.get("mode") == "google" and user_context.get("email"):
-            token_kind = str((token_record or {}).get("token_kind") or "manual").strip().lower() if token_record else "manual"
-            if token_record and token_kind == "oauth":
-                st.caption(f"iNaturalist is connected for {user_context['email']} through OAuth.")
-            else:
-                st.caption(f"Using the iNaturalist token saved for {user_context['email']}.")
-        if st.session_state.inat_auth_error:
-            st.error(st.session_state.inat_auth_error)
-        if st.session_state.inat_auth_notice:
-            st.success(st.session_state.inat_auth_notice)
+        render_inat_token_controls(inat_client, user_context, form_key="inat_token_form", disconnect_key="inat_disconnect_button")
 
-        if inat_client.is_configured and inat_client.token_expiry:
-            expires_local = inat_client.token_expiry.astimezone()
-            st.caption(f"Current token expires {expires_local.strftime('%B %d, %Y at %I:%M %p %Z')}.")
-        elif inat_client.is_configured:
-            st.caption("A token is configured, but HikeJournal could not read an expiry date from it.")
-        else:
-            if user_context.get("mode") == "google":
-                st.caption("Paste your iNaturalist token here once, and HikeJournal will save it for your signed-in Google account on this server.")
-            else:
-                st.caption("Paste your iNaturalist token here once, and HikeJournal will keep using it on this machine.")
 
-        if user_context.get("mode") == "google":
-            oauth_cols = st.columns([0.62, 0.38], gap="small")
-            if settings.inat_oauth_configured:
-                state = f"inat:{secrets.token_urlsafe(24)}"
-                st.session_state.inat_oauth_state = state
-                authorize_url = build_oauth_authorize_url(state=state)
-                oauth_cols[0].markdown(
-                    f"<a class='viewer-link' href='{authorize_url}' target='_self'>Connect iNaturalist</a>",
-                    unsafe_allow_html=True,
-                )
-                if token_record and oauth_cols[1].button("Disconnect", use_container_width=True, key="inat_disconnect_button"):
-                    delete_inat_token_record_for_user(
-                        subject=user_context.get("subject"),
-                        email=user_context.get("email"),
-                    )
-                    st.session_state.inat_auth_notice = "Disconnected your iNaturalist account."
-                    st.session_state.inat_auth_error = None
-                    st.rerun()
-            else:
-                st.caption(
-                    "OAuth is not configured yet for iNaturalist. Register an iNaturalist app and set the redirect URI to "
-                    f"`{settings.inat_oauth_redirect_uri}`."
-                )
+@st.dialog("iNaturalist connection", width="large")
+def render_inat_token_dialog(inat_client: InatClient, user_context: dict[str, Any]) -> None:
+    render_inat_token_controls(
+        inat_client,
+        user_context,
+        form_key="inat_token_dialog_form",
+        disconnect_key="inat_dialog_disconnect_button",
+    )
+    if st.button("Close", key="inat_token_dialog_close", type="secondary"):
+        st.session_state.inat_token_dialog_open = False
+        st.rerun()
 
-        st.markdown(
-            "Get a fresh token from [iNaturalist API token](https://www.inaturalist.org/users/api_token). "
-            "You can paste either the raw token or the full JSON snippet from that page."
+
+def open_inat_token_dialog() -> None:
+    st.session_state.viewer_open = False
+    if "photo" in st.query_params:
+        del st.query_params["photo"]
+    st.session_state.inat_token_dialog_open = True
+    st.rerun()
+
+
+def is_inat_client_ready(inat_client: InatClient) -> bool:
+    if not inat_client.is_configured:
+        return False
+    expiry = inat_client.token_expiry
+    return expiry is None or expiry > datetime.now(UTC)
+
+
+def inat_connection_action_label(inat_client: InatClient) -> str:
+    if not inat_client.is_configured:
+        return "Connect iNaturalist"
+    if not is_inat_client_ready(inat_client):
+        return "Refresh iNaturalist"
+    return "Manage iNaturalist"
+
+
+def inat_not_ready_message(inat_client: InatClient) -> str:
+    if not inat_client.is_configured:
+        return "Connect iNaturalist before using this action."
+    if not is_inat_client_ready(inat_client):
+        return "Refresh your expired iNaturalist token before using this action."
+    return ""
+
+
+def render_inat_token_controls(
+    inat_client: InatClient,
+    user_context: dict[str, Any],
+    *,
+    form_key: str,
+    disconnect_key: str,
+) -> None:
+    token_record = None
+    if user_context.get("mode") == "google":
+        token_record = load_inat_token_record_for_user(
+            subject=user_context.get("subject"),
+            email=user_context.get("email"),
         )
+    if user_context.get("mode") == "google" and user_context.get("email"):
+        token_kind = str((token_record or {}).get("token_kind") or "manual").strip().lower() if token_record else "manual"
+        if token_record and token_kind == "oauth":
+            st.caption(f"iNaturalist is connected for {user_context['email']} through OAuth.")
+        elif token_record or inat_client.is_configured:
+            st.caption(f"Using the iNaturalist token saved for {user_context['email']}.")
+        else:
+            st.caption(f"No iNaturalist token is currently saved for {user_context['email']}.")
+    if st.session_state.inat_auth_error:
+        st.error(st.session_state.inat_auth_error)
+    if st.session_state.inat_auth_notice:
+        st.success(st.session_state.inat_auth_notice)
 
-        with st.form("inat_token_form", clear_on_submit=False):
-            token_value = st.text_input(
-                "API token",
-                value=st.session_state.inat_token_input,
-                type="password",
-                placeholder="eyJhbGciOi...",
+    if inat_client.is_configured and inat_client.token_expiry:
+        expires_local = inat_client.token_expiry.astimezone()
+        if is_inat_client_ready(inat_client):
+            st.caption(f"Current token expires {expires_local.strftime('%B %d, %Y at %I:%M %p %Z')}.")
+        else:
+            st.warning(f"This iNaturalist token expired {expires_local.strftime('%B %d, %Y at %I:%M %p %Z')}. Paste a fresh token before posting or checking IDs.")
+    elif inat_client.is_configured:
+        st.caption("A token is configured, but HikeJournal could not read an expiry date from it.")
+    else:
+        if user_context.get("mode") == "google":
+            st.caption("Paste your iNaturalist token here once, and HikeJournal will save it for your signed-in Google account on this server.")
+        else:
+            st.caption("Paste your iNaturalist token here once, and HikeJournal will keep using it on this machine.")
+
+    if user_context.get("mode") == "google":
+        oauth_cols = st.columns([0.62, 0.38], gap="small")
+        if settings.inat_oauth_configured:
+            state = f"inat:{secrets.token_urlsafe(24)}"
+            st.session_state.inat_oauth_state = state
+            authorize_url = build_oauth_authorize_url(state=state)
+            oauth_cols[0].markdown(
+                f"<a class='viewer-link' href='{authorize_url}' target='_self'>Connect iNaturalist</a>",
+                unsafe_allow_html=True,
             )
-            submitted = st.form_submit_button("Save token", type="primary", use_container_width=True)
-
-        if submitted:
-            normalized_token = normalize_access_token(token_value)
-            st.session_state.inat_token_input = token_value
-            if not normalized_token:
-                st.session_state.inat_auth_notice = None
-                st.session_state.inat_auth_error = "Paste a token before saving."
-                st.rerun()
-
-            candidate_client = InatClient(access_token=normalized_token)
-            try:
-                candidate_client.validate_credentials()
-            except (InatConfigurationError, InatAuthError, InatRequestError) as exc:
-                st.session_state.inat_auth_notice = None
-                st.session_state.inat_auth_error = str(exc)
-                st.rerun()
-
-            if user_context.get("mode") == "google":
-                persist_access_token_for_user(
-                    normalized_token,
+            if token_record and oauth_cols[1].button("Disconnect", use_container_width=True, key=disconnect_key):
+                delete_inat_token_record_for_user(
                     subject=user_context.get("subject"),
                     email=user_context.get("email"),
                 )
-            else:
-                persist_access_token(normalized_token)
-            expires_local = candidate_client.token_expiry.astimezone() if candidate_client.token_expiry else None
-            st.session_state.inat_auth_error = None
-            st.session_state.inat_token_input = ""
-            if expires_local:
-                st.session_state.inat_auth_notice = (
-                    f"Saved a fresh iNaturalist token. It expires {expires_local.strftime('%B %d, %Y at %I:%M %p %Z')}."
-                )
-            else:
-                st.session_state.inat_auth_notice = "Saved a fresh iNaturalist token."
+                st.session_state.inat_auth_notice = "Disconnected your iNaturalist account."
+                st.session_state.inat_auth_error = None
+                st.rerun()
+        else:
+            st.caption(
+                "OAuth is not configured yet for iNaturalist. Register an iNaturalist app and set the redirect URI to "
+                f"`{settings.inat_oauth_redirect_uri}`."
+            )
+
+    st.markdown(
+        "Get a fresh token from [iNaturalist API token](https://www.inaturalist.org/users/api_token). "
+        "You can paste either the raw token or the full JSON snippet from that page."
+    )
+
+    with st.form(form_key, clear_on_submit=False):
+        token_value = st.text_input(
+            "API token",
+            value=st.session_state.inat_token_input,
+            type="password",
+            placeholder="eyJhbGciOi...",
+        )
+        submitted = st.form_submit_button("Save token", type="primary", use_container_width=True)
+
+    if submitted:
+        normalized_token = normalize_access_token(token_value)
+        st.session_state.inat_token_input = token_value
+        if not normalized_token:
+            st.session_state.inat_auth_notice = None
+            st.session_state.inat_auth_error = "Paste a token before saving."
             st.rerun()
+
+        candidate_client = InatClient(access_token=normalized_token)
+        try:
+            candidate_client.validate_credentials()
+        except (InatConfigurationError, InatAuthError, InatRequestError) as exc:
+            st.session_state.inat_auth_notice = None
+            st.session_state.inat_auth_error = str(exc)
+            st.rerun()
+
+        if user_context.get("mode") == "google":
+            persist_access_token_for_user(
+                normalized_token,
+                subject=user_context.get("subject"),
+                email=user_context.get("email"),
+            )
+        else:
+            persist_access_token(normalized_token)
+        expires_local = candidate_client.token_expiry.astimezone() if candidate_client.token_expiry else None
+        st.session_state.inat_auth_error = None
+        st.session_state.inat_token_input = ""
+        if expires_local:
+            st.session_state.inat_auth_notice = (
+                f"Saved a fresh iNaturalist token. It expires {expires_local.strftime('%B %d, %Y at %I:%M %p %Z')}."
+            )
+        else:
+            st.session_state.inat_auth_notice = "Saved a fresh iNaturalist token."
+        st.session_state.inat_token_dialog_open = False
+        st.rerun()
 
 
 def render_auth_configuration_state() -> None:
@@ -3191,6 +3255,7 @@ def render_species_log_tab(
         st.session_state.species_log_record_open
         and st.session_state.species_log_focus_key in species_lookup
         and not st.session_state.viewer_open
+        and not st.session_state.inat_token_dialog_open
     ):
         render_species_record_dialog(page_rows, species_lookup, representative_observations)
     if st.session_state.species_log_page_size == 0 and page_rows:
@@ -3216,7 +3281,7 @@ def render_species_log_inat_sync_panel(
         "Check iNaturalist IDs",
         key="inat_sync_check_species_log",
         use_container_width=True,
-        disabled=not posted_observations or not inat_client.is_configured,
+        disabled=not posted_observations or not is_inat_client_ready(inat_client),
     ):
         run_species_log_inat_sync(inat_client, posted_observations)
         st.rerun()
@@ -3237,8 +3302,10 @@ def render_species_log_inat_sync_panel(
         unsafe_allow_html=True,
     )
 
-    if not inat_client.is_configured:
-        st.caption("Connect iNaturalist before checking posted IDs.")
+    if not is_inat_client_ready(inat_client):
+        st.caption(inat_not_ready_message(inat_client).replace("using this action", "checking posted IDs"))
+        if st.button(inat_connection_action_label(inat_client), key="inat_sync_connect", type="secondary"):
+            open_inat_token_dialog()
     if st.session_state.get("inat_sync_error"):
         st.error(st.session_state.inat_sync_error)
     elif st.session_state.get("inat_sync_notice"):
@@ -4354,9 +4421,14 @@ def render_inat_posting_controls(
             except (TypeError, ValueError):
                 pass
         return
-    if not inat_client.is_configured:
-        return
     extra_photo_candidates = build_inat_extra_photo_candidates(observation, photo)
+    if not is_inat_client_ready(inat_client):
+        connect_cols = st.columns([0.42, 0.58], gap="small")
+        connect_cols[0].button("Post to iNaturalist", key=f"{key_prefix}_post_inat_disabled", type="secondary", disabled=True)
+        if connect_cols[1].button(inat_connection_action_label(inat_client), key=f"{key_prefix}_connect_inat", type="secondary"):
+            open_inat_token_dialog()
+        st.caption(inat_not_ready_message(inat_client).replace("using this action", "posting this confirmed sighting"))
+        return
     if st.button("Post to iNaturalist", key=f"{key_prefix}_post_inat", type="secondary"):
         try:
             with st.spinner("Posting to iNaturalist..."):
@@ -5338,7 +5410,7 @@ def render_species_management_toolbar(
         f"Process selected ({len(selected_unprocessed)})",
         key="species_process_selected",
         use_container_width=True,
-        disabled=not inat_client.is_configured or not selected_unprocessed,
+        disabled=not is_inat_client_ready(inat_client) or not selected_unprocessed,
     ):
         processed_count = process_species_photos(repository, inat_client, selected_photos_only, primary_observation_by_photo)
         if processed_count:
@@ -5350,7 +5422,7 @@ def render_species_management_toolbar(
         key="species_process_grouped",
         use_container_width=True,
         disabled=(
-            not inat_client.is_configured
+            not is_inat_client_ready(inat_client)
             or len(selected_unprocessed) < 2
             or len(selected_unprocessed) > GROUPED_ID_MAX_PHOTOS
             or not grouped_scope_valid
@@ -5534,19 +5606,22 @@ def render_publishing_section(
         f"Post selected ({len(selected_ready_rows)})",
         key="publish_post_selected",
         use_container_width=True,
-        disabled=not inat_client.is_configured or not selected_ready_rows,
+        disabled=not is_inat_client_ready(inat_client) or not selected_ready_rows,
     ):
         post_selected_observations_to_inaturalist(repository, inat_client, selected_ready_rows)
         clear_publish_selection(selected_rows)
         st.rerun()
-    action_cols[1].button(
-        "Select ready to post",
-        key="publish_select_ready",
-        use_container_width=True,
-        type="secondary",
-        on_click=select_publish_rows,
-        args=([row for row in filtered_rows if row["publish_state"] == "Ready to post"],),
-    )
+    if is_inat_client_ready(inat_client):
+        action_cols[1].button(
+            "Select ready to post",
+            key="publish_select_ready",
+            use_container_width=True,
+            type="secondary",
+            on_click=select_publish_rows,
+            args=([row for row in filtered_rows if row["publish_state"] == "Ready to post"],),
+        )
+    elif action_cols[1].button(inat_connection_action_label(inat_client), key="publish_connect_inat", use_container_width=True, type="secondary"):
+        open_inat_token_dialog()
     action_cols[2].button(
         "Clear selection",
         key="publish_clear_selection",
