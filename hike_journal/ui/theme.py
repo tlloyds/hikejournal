@@ -798,6 +798,23 @@ h1, h2, h3 {
   background: rgba(255,255,255,0.38);
 }
 
+.species-log-index-card-link {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+}
+
+.species-log-index-card-link .species-log-index-card {
+  min-height: 100%;
+  transition: transform 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.species-log-index-card-link:hover .species-log-index-card {
+  transform: translateY(-1px);
+  border-color: rgba(196,128,61,0.34);
+  box-shadow: 0 12px 24px rgba(31,42,38,0.08);
+}
+
 .species-log-index-card--active {
   border-color: rgba(196,128,61,0.34);
   background: linear-gradient(180deg, rgba(255,255,255,0.48) 0%, rgba(244,229,206,0.56) 100%);
@@ -1428,7 +1445,8 @@ h1, h2, h3 {
 }
 
 .publish-state-line {
-  margin-top: 0.5rem;
+  margin-top: 0.65rem;
+  margin-bottom: 0.8rem;
 }
 
 .publish-photo-meta {
@@ -1458,6 +1476,19 @@ h1, h2, h3 {
   color: var(--palmetto);
   font-weight: 700;
   text-decoration: none;
+}
+
+.viewer-link--inat {
+  margin-top: 0.55rem;
+  min-height: 2.55rem;
+  padding: 0.62rem 0.95rem;
+}
+
+.inat-posting-link-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  margin-top: 0.15rem;
 }
 
 .viewer-link:hover {

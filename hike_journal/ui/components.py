@@ -167,6 +167,8 @@ def _pagination_query_for_view(source_view: str) -> dict[str, str]:
     elif source_view == "Species Review":
         query["species_page"] = str(int(st.session_state.get("species_page", 1)))
         query["species_page_size"] = str(int(st.session_state.get("species_page_size", 6)))
+        query["species_review_mode"] = str(st.session_state.get("species_review_mode", "Review"))
+        query["species_review_stage"] = str(st.session_state.get("species_review_stage", "All"))
     elif source_view == "Map":
         query["map_layer_mode"] = str(st.session_state.get("map_layer_mode", "Both"))
         query["map_species_filter"] = str(st.session_state.get("map_species_filter", "All confirmed species"))
@@ -183,6 +185,9 @@ def _pagination_query_for_view(source_view: str) -> dict[str, str]:
         query["species_log_posted_filter"] = str(st.session_state.get("species_log_posted_filter", "All"))
         query["species_log_mapped_only"] = "1" if st.session_state.get("species_log_mapped_only") else "0"
         query["species_log_include_secondary"] = "1" if st.session_state.get("species_log_include_secondary", True) else "0"
+        if st.session_state.get("species_log_focus_key"):
+            query["species_log_focus_key"] = str(st.session_state.get("species_log_focus_key"))
+        query["species_log_record_open"] = "1" if st.session_state.get("species_log_record_open") else "0"
     return query
 
 

@@ -1601,8 +1601,12 @@ def sync_pagination_state_from_query_params() -> None:
             "journal_page_size",
             "species_page",
             "species_page_size",
+            "species_review_mode",
+            "species_review_stage",
             "species_log_page",
             "species_log_page_size",
+            "species_log_focus_key",
+            "species_log_record_open",
             "map_layer_mode",
             "map_species_filter",
             "species_log_query",
@@ -1622,8 +1626,12 @@ def sync_pagination_state_from_query_params() -> None:
     _sync_positive_int_query_param("species_page", minimum=1)
     _sync_positive_int_query_param("journal_page_size", minimum=0)
     _sync_positive_int_query_param("species_page_size", minimum=0)
+    _sync_string_query_param("species_review_mode")
+    _sync_string_query_param("species_review_stage")
     _sync_positive_int_query_param("species_log_page", minimum=1)
     _sync_positive_int_query_param("species_log_page_size", minimum=0)
+    _sync_string_query_param("species_log_focus_key")
+    _sync_bool_query_param("species_log_record_open")
     _sync_string_query_param("map_layer_mode")
     _sync_string_query_param("map_species_filter")
     _sync_string_query_param("species_log_query")
@@ -1649,6 +1657,8 @@ def get_query_state_for_view(view: str) -> dict[str, str]:
         return {
             "species_page": str(int(st.session_state.get("species_page", 1))),
             "species_page_size": str(int(st.session_state.get("species_page_size", 6))),
+            "species_review_mode": str(st.session_state.get("species_review_mode", "Review")),
+            "species_review_stage": str(st.session_state.get("species_review_stage", "All")),
         }
     if view == "Map":
         query = {
@@ -1670,6 +1680,8 @@ def get_query_state_for_view(view: str) -> dict[str, str]:
             "species_log_posted_filter": str(st.session_state.get("species_log_posted_filter", "All")),
             "species_log_mapped_only": "1" if st.session_state.get("species_log_mapped_only") else "0",
             "species_log_include_secondary": "1" if st.session_state.get("species_log_include_secondary", True) else "0",
+            "species_log_focus_key": str(st.session_state.get("species_log_focus_key") or ""),
+            "species_log_record_open": "1" if st.session_state.get("species_log_record_open") else "0",
         }
     return {}
 
@@ -2668,15 +2680,23 @@ def render_species_tab(
             synchronize_species_selection(selected_photos)
             review_stage_default = "Needs decisions" if review_pending_count else ("Needs IDs" if review_waiting_count else "All")
             current_signature = tuple(photo["id"] for photo in selected_photos)
-            if st.session_state.species_review_stage_signature != current_signature:
+            review_signature_changed = st.session_state.species_review_stage_signature != current_signature
+            if review_signature_changed:
                 st.session_state.species_review_stage_signature = current_signature
-                st.session_state.species_review_stage = review_stage_default
             review_stage_labels = {
                 "Needs IDs": f"Needs IDs · {review_waiting_count}",
                 "Needs decisions": f"Needs decisions · {review_pending_count}",
                 "Finished": f"Finished · {review_confirmed_count + review_rejected_count}",
                 "All": f"All · {len(selected_photos)}",
             }
+            if review_signature_changed:
+                requested_stage = str(st.query_params.get("species_review_stage") or "")
+                if requested_stage in review_stage_labels:
+                    st.session_state.species_review_stage = requested_stage
+                else:
+                    st.session_state.species_review_stage = review_stage_default
+            elif st.session_state.species_review_stage not in review_stage_labels:
+                st.session_state.species_review_stage = review_stage_default
             st.markdown(
                 """
                 <div class="review-filter-strip">
@@ -3139,9 +3159,11 @@ def render_species_log_tab(
             thumb_url = get_photo_thumbnail_url(row["lead_photo"])
             is_current_focus = row["key"] == st.session_state.species_log_focus_key
             is_open_record = is_current_focus and st.session_state.species_log_record_open
+            record_href = build_species_log_record_href(row["key"])
             with index_cols[idx]:
                 st.markdown(
                     f"""
+                    <a class='species-log-index-card-link' href='{escape(record_href)}' target='_self'>
                     <div class='species-log-index-card{" species-log-index-card--active" if is_current_focus else ""}{" species-log-index-card--open" if is_open_record else ""}'>
                         <img class='species-log-index-thumb' src='{escape(thumb_url)}' alt='{escape(row["common_name"])}'>
                         <div class='species-log-index-card-body'>
@@ -3151,6 +3173,7 @@ def render_species_log_tab(
                             <div class='species-log-index-card-meta'>{row['sighting_count']} sighting{'s' if row['sighting_count'] != 1 else ''} • {row['hike_count']} hike{'s' if row['hike_count'] != 1 else ''}</div>
                         </div>
                     </div>
+                    </a>
                     """,
                     unsafe_allow_html=True,
                 )
@@ -3162,6 +3185,7 @@ def render_species_log_tab(
                 ):
                     st.session_state.species_log_focus_key = row["key"]
                     st.session_state.species_log_record_open = True
+                    set_species_log_record_query_state(row["key"], True)
                     st.rerun()
     if st.session_state.species_log_record_open and st.session_state.species_log_focus_key in species_lookup:
         render_species_record_dialog(page_rows, species_lookup, representative_observations)
@@ -3423,13 +3447,16 @@ def render_species_record_dialog(
     if focus_nav_cols[1].button("Previous", key="species_log_prev_record", use_container_width=True, disabled=prev_disabled):
         st.session_state.species_log_focus_key = page_keys[focus_index - 1]
         st.session_state.species_log_record_open = True
+        set_species_log_record_query_state(page_keys[focus_index - 1], True)
         st.rerun()
     if focus_nav_cols[2].button("Next", key="species_log_next_record", use_container_width=True, disabled=next_disabled):
         st.session_state.species_log_focus_key = page_keys[focus_index + 1]
         st.session_state.species_log_record_open = True
+        set_species_log_record_query_state(page_keys[focus_index + 1], True)
         st.rerun()
     if focus_nav_cols[3].button("Close", key="species_log_close_record", use_container_width=True):
         st.session_state.species_log_record_open = False
+        set_species_log_record_query_state(st.session_state.species_log_focus_key, False)
         st.rerun()
 
     st.markdown("<div class='species-record-dialog-shell'>", unsafe_allow_html=True)
@@ -3633,6 +3660,12 @@ def render_photo_viewer(
         st.rerun()
     if controls[3].button("Close", use_container_width=True, key="viewer_close"):
         st.session_state.viewer_open = False
+        for key, value in get_query_state_for_view(st.session_state.active_view).items():
+            if value == "":
+                if key in st.query_params:
+                    del st.query_params[key]
+            else:
+                st.query_params[key] = value
         if "photo" in st.query_params:
             del st.query_params["photo"]
         st.rerun()
@@ -4294,7 +4327,10 @@ def render_inat_posting_controls(
     attached_photo_count = posting.get("attached_photo_count")
     requested_photo_count = posting.get("photo_count")
     if observation_url:
-        st.markdown(f"<a class='viewer-link' href='{escape(str(observation_url))}' target='_blank' rel='noopener noreferrer'>View on iNaturalist</a>", unsafe_allow_html=True)
+        st.markdown(
+            f"<div class='inat-posting-link-row'><a class='viewer-link viewer-link--inat' href='{escape(str(observation_url))}' target='_blank' rel='noopener noreferrer'>View on iNaturalist</a></div>",
+            unsafe_allow_html=True,
+        )
         if photo_attached is False:
             try:
                 attached_count_int = int(attached_photo_count) if attached_photo_count not in (None, "") else None
@@ -4315,7 +4351,8 @@ def render_inat_posting_controls(
     if not inat_client.is_configured:
         return
     extra_photo_candidates = build_inat_extra_photo_candidates(observation, photo)
-    if st.button("Post to iNaturalist", key=f"{key_prefix}_post_inat", type="secondary", use_container_width=True):
+    post_cols = st.columns([0.42, 0.58], gap="small")
+    if post_cols[0].button("Post to iNaturalist", key=f"{key_prefix}_post_inat", type="secondary", use_container_width=True):
         try:
             with st.spinner("Posting to iNaturalist..."):
                 posting_result = post_observation_to_inaturalist(
@@ -6264,6 +6301,21 @@ def build_internal_view_href(*, view: str, hike_id: str | None = None, scope: st
     if scope:
         params["scope"] = scope
     return f"?{urlencode(params, quote_via=quote)}"
+
+
+def build_species_log_record_href(focus_key: str) -> str:
+    params = {"view": "Species Log", **get_query_state_for_view("Species Log")}
+    params["species_log_focus_key"] = str(focus_key)
+    params["species_log_record_open"] = "1"
+    return f"?{urlencode(params, quote_via=quote)}"
+
+
+def set_species_log_record_query_state(focus_key: str | None, is_open: bool) -> None:
+    if focus_key:
+        st.query_params["species_log_focus_key"] = str(focus_key)
+    elif "species_log_focus_key" in st.query_params:
+        del st.query_params["species_log_focus_key"]
+    st.query_params["species_log_record_open"] = "1" if is_open else "0"
 
 
 def render_bottom_review_handoff(*, anchor_id: str, selected_count: int, hike_id: str | None = None) -> None:
