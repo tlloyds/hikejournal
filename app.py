@@ -3187,7 +3187,11 @@ def render_species_log_tab(
                     st.session_state.species_log_record_open = True
                     set_species_log_record_query_state(row["key"], True)
                     st.rerun()
-    if st.session_state.species_log_record_open and st.session_state.species_log_focus_key in species_lookup:
+    if (
+        st.session_state.species_log_record_open
+        and st.session_state.species_log_focus_key in species_lookup
+        and not st.session_state.viewer_open
+    ):
         render_species_record_dialog(page_rows, species_lookup, representative_observations)
     if st.session_state.species_log_page_size == 0 and page_rows:
         render_back_to_top_link("species-log-top")
@@ -3652,11 +3656,13 @@ def render_photo_viewer(
     if controls[0].button("Previous", use_container_width=True, key="viewer_previous"):
         st.session_state.viewer_index = (st.session_state.viewer_index - 1) % len(photos)
         st.session_state.viewer_open = True
+        st.query_params["photo"] = photos[st.session_state.viewer_index]["id"]
         st.rerun()
     controls[1].markdown(f"<div class='photo-meta' style='padding-top:0.85rem; text-align:center;'>{st.session_state.viewer_index + 1} / {len(photos)}</div>", unsafe_allow_html=True)
     if controls[2].button("Next", use_container_width=True, key="viewer_next"):
         st.session_state.viewer_index = (st.session_state.viewer_index + 1) % len(photos)
         st.session_state.viewer_open = True
+        st.query_params["photo"] = photos[st.session_state.viewer_index]["id"]
         st.rerun()
     if controls[3].button("Close", use_container_width=True, key="viewer_close"):
         st.session_state.viewer_open = False
@@ -6343,7 +6349,6 @@ def sync_viewer_from_query_params(photos: list[dict[str, Any]]) -> None:
         if photo["id"] == str(photo_id):
             st.session_state.viewer_open = True
             st.session_state.viewer_index = index
-            del st.query_params["photo"]
             break
 
 
