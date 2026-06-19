@@ -1489,6 +1489,7 @@ h1, h2, h3 {
   align-items: center;
   justify-content: flex-start;
   margin-top: 0.15rem;
+  margin-bottom: 0.85rem;
 }
 
 .viewer-link:hover {
