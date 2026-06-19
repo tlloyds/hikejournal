@@ -4357,8 +4357,7 @@ def render_inat_posting_controls(
     if not inat_client.is_configured:
         return
     extra_photo_candidates = build_inat_extra_photo_candidates(observation, photo)
-    post_cols = st.columns([0.42, 0.58], gap="small")
-    if post_cols[0].button("Post to iNaturalist", key=f"{key_prefix}_post_inat", type="secondary", use_container_width=True):
+    if st.button("Post to iNaturalist", key=f"{key_prefix}_post_inat", type="secondary"):
         try:
             with st.spinner("Posting to iNaturalist..."):
                 posting_result = post_observation_to_inaturalist(
