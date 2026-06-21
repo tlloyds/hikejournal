@@ -133,13 +133,14 @@ a {
 
 [data-testid="stSidebar"] .stButton button,
 [data-testid="stSidebar"] .stDownloadButton button,
-[data-testid="stSidebar"] .stFormSubmitButton button {
+[data-testid="stSidebar"] .stFormSubmitButton button,
+[data-testid="stSidebar"] [data-testid="stPopover"] > button {
   min-height: 2.8rem;
   border-radius: 10px;
-  background: rgba(255,255,255,0.06);
-  color: #F8F3EA;
-  border: 1px solid rgba(248,243,234,0.14);
-  box-shadow: none;
+  background: rgba(255,255,255,0.06) !important;
+  color: #F8F3EA !important;
+  border: 1px solid rgba(248,243,234,0.14) !important;
+  box-shadow: none !important;
   font-weight: 700;
   letter-spacing: 0.015em;
   backdrop-filter: blur(8px);
@@ -163,9 +164,11 @@ a {
 }
 
 [data-testid="stSidebar"] .stButton button:hover,
-[data-testid="stSidebar"] .stFormSubmitButton button:hover {
-  border-color: rgba(248,243,234,0.24);
-  background: rgba(255,255,255,0.12);
+[data-testid="stSidebar"] .stFormSubmitButton button:hover,
+[data-testid="stSidebar"] [data-testid="stPopover"] > button:hover {
+  border-color: rgba(248,243,234,0.24) !important;
+  background: rgba(255,255,255,0.12) !important;
+  color: #F8F3EA !important;
 }
 
 [data-testid="stSidebar"] [data-testid="stButton"]:last-of-type button {
