@@ -1651,6 +1651,8 @@ def render_sidebar(
         unsafe_allow_html=True,
     )
 
+    render_location_library_sidebar_tools(repository, hikes)
+
     st.write("")
     st.markdown("<div class='sidebar-section-label'>Account</div>", unsafe_allow_html=True)
     if user_context["auth_configured"] and user_context["mode"] != "google":
@@ -1665,6 +1667,53 @@ def render_sidebar(
                 st.logout()
             except Exception as exc:  # pragma: no cover - depends on local auth secrets
                 st.error(f"Google sign-out hit a configuration problem: {exc}")
+
+
+def render_location_library_sidebar_tools(repository: HikeJournalRepository, hikes: list[dict[str, Any]]) -> None:
+    locations = fetch_hike_locations()
+    seed_count = len(load_seed_hike_locations())
+    st.write("")
+    st.markdown("<div class='sidebar-section-label'>Locations</div>", unsafe_allow_html=True)
+    with st.popover("Location library", use_container_width=True):
+        st.caption(f"{len(locations)} locations loaded • {seed_count} in seed file")
+        if st.session_state.location_library_notice:
+            st.success(str(st.session_state.location_library_notice))
+            st.session_state.location_library_notice = None
+        action_cols = st.columns(2, gap="small")
+        if action_cols[0].button("Import", key="sidebar_import_location_library", use_container_width=True):
+            imported_count = repository.upsert_hike_locations(load_seed_hike_locations())
+            invalidate_data_cache()
+            st.session_state.location_library_notice = f"Imported {imported_count} mapped Central Florida locations."
+            st.rerun()
+        if action_cols[1].button("Auto-tag", key="sidebar_autotag_hike_locations", use_container_width=True):
+            latest_locations = fetch_hike_locations()
+            tagged_count = autotag_matching_hikes(repository, hikes, latest_locations)
+            invalidate_data_cache()
+            st.session_state.location_library_notice = f"Tagged {tagged_count} existing hike{'s' if tagged_count != 1 else ''} from title/location matches."
+            st.rerun()
+        st.divider()
+        with st.form("sidebar_add_location_form"):
+            name = st.text_input("Add location", placeholder="Black Bear Wilderness Area")
+            aliases = st.text_input("Aliases", placeholder="Optional, comma-separated")
+            location_type = st.text_input("Type", placeholder="preserve, state forest, trail...")
+            submitted = st.form_submit_button("Add", use_container_width=True)
+            if submitted:
+                clean_name = name.strip()
+                if not clean_name:
+                    st.warning("Add a location name first.")
+                    return
+                created = repository.upsert_hike_location(
+                    clean_name,
+                    source="manual",
+                    location_type=location_type.strip() or "manual",
+                    aliases=[alias.strip() for alias in aliases.split(",") if alias.strip()],
+                )
+                invalidate_data_cache()
+                if created:
+                    st.session_state.location_library_notice = f"Added {clean_name} to the location library."
+                else:
+                    st.session_state.location_library_notice = f"Tried to add {clean_name}, but the database did not return a saved location."
+                st.rerun()
 
 
 def render_mobile_shell(hikes: list[dict[str, Any]], active_view: str) -> None:
@@ -2413,19 +2462,6 @@ def render_library_tab(
                     st.rerun()
                 if nav_cols[1].button("Next", key="library_next_page", use_container_width=True, disabled=st.session_state.library_page >= total_pages):
                     st.session_state.library_page += 1
-                    st.rerun()
-                st.divider()
-                st.caption("Location tags")
-                if st.button("Import location library", key="import_location_library", use_container_width=True):
-                    imported_count = repository.upsert_hike_locations(load_seed_hike_locations())
-                    invalidate_data_cache()
-                    st.session_state.location_library_notice = f"Imported {imported_count} mapped Central Florida locations."
-                    st.rerun()
-                if st.button("Auto-tag matching hikes", key="autotag_hike_locations", use_container_width=True):
-                    latest_locations = fetch_hike_locations()
-                    tagged_count = autotag_matching_hikes(repository, hikes, latest_locations)
-                    invalidate_data_cache()
-                    st.session_state.location_library_notice = f"Tagged {tagged_count} existing hike{'s' if tagged_count != 1 else ''} from title/location matches."
                     st.rerun()
 
     if show_hikes and not library_items and show_standalone and standalone_item:
