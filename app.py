@@ -3,7 +3,10 @@ from __future__ import annotations
 from collections import defaultdict
 from datetime import UTC, date, datetime
 from html import escape
+import json
 import math
+from pathlib import Path
+import re
 import secrets
 from typing import Any
 from urllib.parse import quote, urlencode
@@ -67,6 +70,7 @@ apply_theme()
 REVIEW_QUEUE_STATUS = "in_review"
 TCX_IMPORT_TYPES = ["tcx", "xml"]
 GROUPED_ID_MAX_PHOTOS = 8
+LOCATION_SEED_PATH = Path(__file__).resolve().parent / "data" / "hike_locations_seed.json"
 
 
 if "selected_hike_id" not in st.session_state:
@@ -173,6 +177,8 @@ if "publish_page" not in st.session_state:
     st.session_state.publish_page = 1
 if "publish_page_size" not in st.session_state:
     st.session_state.publish_page_size = 8
+if "location_library_notice" not in st.session_state:
+    st.session_state.location_library_notice = None
 
 
 def get_inat_access_token_for_context(user_context: dict[str, Any]) -> str:
@@ -316,6 +322,9 @@ def main() -> None:
         render_setup_state(reason=str(exc))
         return
 
+    hike_locations = fetch_hike_locations()
+    hike_location_tags = fetch_hike_location_tags()
+    hikes = attach_location_tags_to_hikes(hikes, hike_locations, hike_location_tags)
     visible_hikes = filter_hikes_for_user(hikes, user_context)
     view_options = ["Library", "Journal", "Species Review", "Map", "Species Log"]
 
@@ -675,6 +684,16 @@ def fetch_hikes() -> list[dict[str, Any]]:
 
 
 @st.cache_data(show_spinner=False)
+def fetch_hike_locations() -> list[dict[str, Any]]:
+    return HikeJournalRepository(get_supabase()).list_hike_locations()
+
+
+@st.cache_data(show_spinner=False)
+def fetch_hike_location_tags() -> list[dict[str, Any]]:
+    return HikeJournalRepository(get_supabase()).list_hike_location_tags()
+
+
+@st.cache_data(show_spinner=False)
 def fetch_hike_route_import(hike_id: str) -> dict[str, Any] | None:
     return HikeJournalRepository(get_supabase()).get_hike_route_import(hike_id)
 
@@ -771,6 +790,8 @@ def fetch_confirmed_observation_hike_refs() -> list[dict[str, Any]]:
 
 def invalidate_data_cache() -> None:
     fetch_hikes.clear()
+    fetch_hike_locations.clear()
+    fetch_hike_location_tags.clear()
     fetch_hike_route_import.clear()
     fetch_all_hike_route_imports.clear()
     fetch_hike_photos.clear()
@@ -789,6 +810,155 @@ def invalidate_data_cache() -> None:
     fetch_observations_by_ids.clear()
     fetch_observations_for_photo_ids.clear()
     fetch_confirmed_observation_hike_refs.clear()
+
+
+def slugify_location_name(value: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", value.lower().strip())
+    return re.sub(r"-+", "-", slug).strip("-") or "location"
+
+
+def normalize_location_text(value: str) -> str:
+    normalized = re.sub(r"[^a-z0-9]+", " ", value.lower())
+    return re.sub(r"\s+", " ", normalized).strip()
+
+
+def load_seed_hike_locations() -> list[dict[str, Any]]:
+    try:
+        with LOCATION_SEED_PATH.open("r", encoding="utf-8") as seed_file:
+            data = json.load(seed_file)
+    except (OSError, json.JSONDecodeError):
+        return []
+    return [item for item in data if isinstance(item, dict) and str(item.get("name") or "").strip()]
+
+
+def attach_location_tags_to_hikes(
+    hikes: list[dict[str, Any]],
+    locations: list[dict[str, Any]],
+    location_tags: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    location_by_id = {str(location.get("id")): location for location in locations if location.get("id")}
+    grouped_tags: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for tag in location_tags:
+        hike_id = str(tag.get("hike_id") or "")
+        location = location_by_id.get(str(tag.get("location_id") or ""))
+        if hike_id and location:
+            grouped_tags[hike_id].append({**location, "is_primary": bool(tag.get("is_primary"))})
+    enriched_hikes: list[dict[str, Any]] = []
+    for hike in hikes:
+        hike_copy = dict(hike)
+        tags = grouped_tags.get(str(hike_copy.get("id") or ""), [])
+        hike_copy["location_tags"] = sorted(
+            tags,
+            key=lambda item: (not bool(item.get("is_primary")), str(item.get("name") or "").lower()),
+        )
+        enriched_hikes.append(hike_copy)
+    return enriched_hikes
+
+
+def format_hike_location_label(hike: dict[str, Any], fallback: str = "Unknown location") -> str:
+    tags = [str(tag.get("name") or "").strip() for tag in hike.get("location_tags") or [] if str(tag.get("name") or "").strip()]
+    if tags:
+        return ", ".join(tags[:3]) + (" +" if len(tags) > 3 else "")
+    return str(hike.get("location_name") or fallback)
+
+
+def selected_location_defaults(hike: dict[str, Any]) -> list[str]:
+    return [str(tag.get("name") or "").strip() for tag in hike.get("location_tags") or [] if str(tag.get("name") or "").strip()]
+
+
+def location_library_options(locations: list[dict[str, Any]]) -> list[str]:
+    return sorted(
+        {str(location.get("name") or "").strip() for location in locations if str(location.get("name") or "").strip()},
+        key=str.lower,
+    )
+
+
+def resolve_location_selection(
+    repository: HikeJournalRepository,
+    selected_names: list[str],
+    locations: list[dict[str, Any]],
+) -> list[str]:
+    by_name = {str(location.get("name") or "").strip().lower(): location for location in locations}
+    location_ids: list[str] = []
+    seen = set()
+    for raw_name in selected_names:
+        name = str(raw_name or "").strip()
+        if not name:
+            continue
+        location = by_name.get(name.lower())
+        if location and location.get("id"):
+            location_id = str(location["id"])
+        else:
+            created = repository.upsert_hike_location(
+                name,
+                source="manual",
+                location_type="manual",
+                slug=slugify_location_name(name),
+            )
+            location_id = str(created.get("id")) if created and created.get("id") else ""
+        if location_id and location_id not in seen:
+            location_ids.append(location_id)
+            seen.add(location_id)
+    return location_ids
+
+
+def maybe_store_hike_location_tags(
+    repository: HikeJournalRepository,
+    hike_id: str,
+    selected_names: list[str],
+    locations: list[dict[str, Any]],
+) -> None:
+    location_ids = resolve_location_selection(repository, selected_names, locations)
+    repository.set_hike_location_tags(hike_id, location_ids)
+
+
+def location_match_terms(location: dict[str, Any]) -> list[str]:
+    terms = [str(location.get("name") or "")]
+    aliases = location.get("aliases") or []
+    if isinstance(aliases, list):
+        terms.extend(str(alias) for alias in aliases)
+    normalized_terms: list[str] = []
+    for term in terms:
+        normalized = normalize_location_text(term)
+        if len(normalized) >= 4:
+            normalized_terms.append(normalized)
+    return normalized_terms
+
+
+def suggest_location_ids_for_hike(hike: dict[str, Any], locations: list[dict[str, Any]]) -> list[str]:
+    haystack = normalize_location_text(
+        " ".join(str(hike.get(field) or "") for field in ["title", "location_name", "notes"])
+    )
+    if not haystack:
+        return []
+    matches: list[tuple[int, str]] = []
+    padded_haystack = f" {haystack} "
+    for location in locations:
+        location_id = str(location.get("id") or "")
+        if not location_id:
+            continue
+        best_score = 0
+        for term in location_match_terms(location):
+            if f" {term} " in padded_haystack:
+                best_score = max(best_score, 100 + len(term))
+            elif term in haystack and len(term) >= 10:
+                best_score = max(best_score, 80 + len(term))
+        if best_score:
+            matches.append((best_score, location_id))
+    matches.sort(reverse=True)
+    return [location_id for _, location_id in matches[:4]]
+
+
+def autotag_matching_hikes(repository: HikeJournalRepository, hikes: list[dict[str, Any]], locations: list[dict[str, Any]]) -> int:
+    tagged_count = 0
+    for hike in hikes:
+        if hike.get("location_tags"):
+            continue
+        matches = suggest_location_ids_for_hike(hike, locations)
+        if matches:
+            repository.set_hike_location_tags(str(hike["id"]), matches)
+            tagged_count += 1
+    return tagged_count
 
 
 def format_duration_compact(value: int | float | None) -> str | None:
@@ -1790,11 +1960,20 @@ def _sync_bool_query_param(key: str) -> None:
 @st.dialog("New Hike", width="large")
 def render_create_hike_dialog(repository: HikeJournalRepository, storage: StorageService, user_context: dict[str, Any]) -> None:
     st.caption("Start a new outing and add it to your library.")
+    hike_locations = fetch_hike_locations()
+    location_options = location_library_options(hike_locations)
     with st.form("create_hike_dialog_form", clear_on_submit=True):
         title = st.text_input("Hike title", placeholder="Black Bear Wilderness Loop")
         hike_date = st.date_input("Hike date", value=date.today())
         distance = st.number_input("Distance (miles)", min_value=0.0, step=0.5, value=0.0)
         location_name = st.text_input("Location", placeholder="Seminole State Forest")
+        selected_locations = st.multiselect(
+            "Location tags",
+            options=location_options,
+            default=[],
+            accept_new_options=True,
+            placeholder="Start typing Bronson, Chuluota, Econ...",
+        )
         notes = st.text_area("Opening notes", placeholder="What stood out about the day?", height=140)
         route_import_file = st.file_uploader(
             "MapMyRun TCX export",
@@ -1814,16 +1993,18 @@ def render_create_hike_dialog(repository: HikeJournalRepository, storage: Storag
                     return
                 target_hike_date = parsed_route_import.visited_on if parsed_route_import and use_imported_route_fields and parsed_route_import.visited_on else hike_date
                 target_distance = parsed_route_import.distance_miles if parsed_route_import and use_imported_route_fields and parsed_route_import.distance_miles is not None else (distance or None)
+                saved_location_name = location_name.strip() or ", ".join(selected_locations[:3])
                 draft = HikeDraft(
                     title=title,
                     hike_date=target_hike_date,
                     distance_miles=target_distance,
-                    location_name=location_name,
+                    location_name=saved_location_name,
                     notes=notes,
                     owner_subject=user_context.get("subject") if user_context.get("mode") == "google" else None,
                     owner_email=user_context.get("email") if user_context.get("mode") == "google" else None,
                 )
                 created = repository.create_hike(draft)
+                maybe_store_hike_location_tags(repository, created["id"], selected_locations, hike_locations)
                 if route_import_file:
                     _, route_import_error = sync_hike_route_import(
                         repository=repository,
@@ -1964,12 +2145,21 @@ def render_edit_hike_dialog(
 ) -> None:
     st.caption("Update the details for this outing or archive it when you want it out of the main list.")
     existing_route_import = fetch_hike_route_import(hike["id"])
+    hike_locations = fetch_hike_locations()
+    location_options = location_library_options(hike_locations)
     with st.form(f"edit_hike_dialog_{hike['id']}"):
         title = st.text_input("Title", value=hike.get("title") or "")
         hike_date = st.date_input("Date", value=_parse_date(hike.get("hike_date")))
         distance_value = float(hike.get("distance_miles") or 0.0)
         distance = st.number_input("Distance (miles)", min_value=0.0, step=0.5, value=distance_value)
         location_name = st.text_input("Location", value=hike.get("location_name") or "")
+        selected_locations = st.multiselect(
+            "Location tags",
+            options=location_options,
+            default=selected_location_defaults(hike),
+            accept_new_options=True,
+            placeholder="Start typing Bronson, Chuluota, Econ...",
+        )
         notes = st.text_area("Notes", value=hike.get("notes") or "", height=140)
         route_import_file = st.file_uploader(
             "MapMyRun TCX export",
@@ -1989,14 +2179,16 @@ def render_edit_hike_dialog(
                 return
             target_hike_date = parsed_route_import.visited_on if parsed_route_import and use_imported_route_fields and parsed_route_import.visited_on else hike_date
             target_distance = parsed_route_import.distance_miles if parsed_route_import and use_imported_route_fields and parsed_route_import.distance_miles is not None else (distance or None)
+            saved_location_name = location_name.strip() or ", ".join(selected_locations[:3])
             repository.update_hike(
                 hike["id"],
                 title=title,
                 hike_date=target_hike_date,
                 distance_miles=target_distance,
-                location_name=location_name,
+                location_name=saved_location_name,
                 notes=notes,
             )
+            maybe_store_hike_location_tags(repository, hike["id"], selected_locations, hike_locations)
             _, route_import_error = sync_hike_route_import(
                 repository=repository,
                 storage=storage,
@@ -2028,6 +2220,9 @@ def render_library_tab(
     user_context: dict[str, Any],
 ) -> None:
     st.markdown("<div id='library-top'></div>", unsafe_allow_html=True)
+    if st.session_state.location_library_notice:
+        st.success(str(st.session_state.location_library_notice))
+        st.session_state.location_library_notice = None
     total_photo_count = len(photo_refs)
     total_confirmed_count = count_unique_species(confirmed_observations)
     total_outing_count = len(hikes)
@@ -2219,6 +2414,19 @@ def render_library_tab(
                 if nav_cols[1].button("Next", key="library_next_page", use_container_width=True, disabled=st.session_state.library_page >= total_pages):
                     st.session_state.library_page += 1
                     st.rerun()
+                st.divider()
+                st.caption("Location tags")
+                if st.button("Import location library", key="import_location_library", use_container_width=True):
+                    imported_count = repository.upsert_hike_locations(load_seed_hike_locations())
+                    invalidate_data_cache()
+                    st.session_state.location_library_notice = f"Imported {imported_count} mapped Central Florida locations."
+                    st.rerun()
+                if st.button("Auto-tag matching hikes", key="autotag_hike_locations", use_container_width=True):
+                    latest_locations = fetch_hike_locations()
+                    tagged_count = autotag_matching_hikes(repository, hikes, latest_locations)
+                    invalidate_data_cache()
+                    st.session_state.location_library_notice = f"Tagged {tagged_count} existing hike{'s' if tagged_count != 1 else ''} from title/location matches."
+                    st.rerun()
 
     if show_hikes and not library_items and show_standalone and standalone_item:
         return
@@ -2235,7 +2443,7 @@ def render_library_tab(
         for hike in group_items:
             cover_photo = cover_photos_by_id.get(str(hike.get("cover_photo_id")))
             title = hike.get("title") or "Untitled hike"
-            location_name = hike.get("location_name") or "Unknown location"
+            location_name = format_hike_location_label(hike)
             distance_label = f"{float(hike.get('distance_miles') or 0):.1f} mi" if hike.get("distance_miles") is not None else "Distance n/a"
             photo_count = hike.get('_photo_count', photo_counts.get(hike['id'], 0))
             confirmed_count = hike.get('_confirmed_count', confirmed_counts.get(hike['id'], 0))
@@ -2403,12 +2611,21 @@ def render_journal_tab(
 
     left, right = st.columns([1.1, 0.9], gap="large")
     with left:
+        hike_locations = fetch_hike_locations()
+        location_options = location_library_options(hike_locations)
         with st.form("edit_hike_form"):
             title = st.text_input("Title", value=selected_hike.get("title", ""))
             hike_date = st.date_input("Date", value=_parse_date(selected_hike.get("hike_date")))
             distance_value = float(selected_hike.get("distance_miles") or 0.0)
             distance = st.number_input("Distance (miles)", min_value=0.0, step=0.5, value=distance_value)
             location_name = st.text_input("Location", value=selected_hike.get("location_name") or "")
+            selected_locations = st.multiselect(
+                "Location tags",
+                options=location_options,
+                default=selected_location_defaults(selected_hike),
+                accept_new_options=True,
+                placeholder="Start typing Bronson, Chuluota, Econ...",
+            )
             notes = st.text_area("Hike notes", value=selected_hike.get("notes") or "", height=180)
             route_import_file = st.file_uploader(
                 "MapMyRun TCX export",
@@ -2425,14 +2642,16 @@ def render_journal_tab(
                     return
                 target_hike_date = parsed_route_import.visited_on if parsed_route_import and use_imported_route_fields and parsed_route_import.visited_on else hike_date
                 target_distance = parsed_route_import.distance_miles if parsed_route_import and use_imported_route_fields and parsed_route_import.distance_miles is not None else (distance or None)
+                saved_location_name = location_name.strip() or ", ".join(selected_locations[:3])
                 repository.update_hike(
                     selected_hike["id"],
                     title=title,
                     hike_date=target_hike_date,
                     distance_miles=target_distance,
-                    location_name=location_name,
+                    location_name=saved_location_name,
                     notes=notes,
                 )
+                maybe_store_hike_location_tags(repository, selected_hike["id"], selected_locations, hike_locations)
                 _, route_import_error = sync_hike_route_import(
                     repository=repository,
                     storage=storage,
@@ -4875,10 +5094,15 @@ def filter_hike_library(
             continue
         if scope == "Archived" and not is_archived:
             continue
+        location_tag_text = " ".join(
+            str(tag.get("name") or "")
+            for tag in hike.get("location_tags") or []
+        )
         haystack = " ".join(
             str(hike.get(field) or "")
             for field in ["title", "location_name", "notes", "hike_date"]
-        ).lower()
+        )
+        haystack = f"{haystack} {location_tag_text}".lower()
         if normalized_query and normalized_query not in haystack:
             continue
         filtered.append(hike)
@@ -4905,7 +5129,7 @@ def group_hikes_for_library(hikes: list[dict[str, Any]], group_by: str) -> list[
 
 def format_hike_choice(hike: dict[str, Any]) -> str:
     archive_prefix = "Archived • " if hike.get("is_archived") else ""
-    location = hike.get("location_name") or "Unknown place"
+    location = format_hike_location_label(hike, fallback="Unknown place")
     return f"{archive_prefix}{hike.get('title') or 'Untitled hike'} • {hike.get('hike_date') or ''} • {location}"
 
 

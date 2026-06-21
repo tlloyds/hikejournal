@@ -1,11 +1,17 @@
 from __future__ import annotations
 
 from datetime import UTC, date, datetime
+import re
 from typing import Any
 
 from supabase import Client
 
 from hike_journal.models import HikeDraft, SpeciesCandidate
+
+
+def _slugify_location_name(value: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", value.lower().strip())
+    return re.sub(r"-+", "-", slug).strip("-") or "location"
 
 
 class HikeJournalRepository:
@@ -102,6 +108,96 @@ class HikeJournalRepository:
         }
         response = self.client.table("hikes").update(payload).eq("id", hike_id).execute()
         return response.data[0]
+
+    def list_hike_locations(self) -> list[dict[str, Any]]:
+        try:
+            return self._select_all_rows(
+                lambda: self.client.table("hike_locations").select("*").order("name")
+            )
+        except Exception:
+            return []
+
+    def list_hike_location_tags(self) -> list[dict[str, Any]]:
+        try:
+            return self._select_all_rows(
+                lambda: self.client.table("hike_location_tags").select("*").order("created_at")
+            )
+        except Exception:
+            return []
+
+    def upsert_hike_location(self, name: str, **values: Any) -> dict[str, Any] | None:
+        clean_name = name.strip()
+        if not clean_name:
+            return None
+        payload = {
+            "name": clean_name,
+            "slug": values.get("slug") or _slugify_location_name(clean_name),
+            "location_type": values.get("location_type") or "manual",
+            "source": values.get("source") or "manual",
+            "source_url": values.get("source_url"),
+            "lat": values.get("lat"),
+            "lng": values.get("lng"),
+            "aliases": values.get("aliases") or [],
+        }
+        try:
+            response = self.client.table("hike_locations").upsert(payload, on_conflict="slug").execute()
+            rows = response.data or []
+            return rows[0] if rows else payload
+        except Exception:
+            return None
+
+    def upsert_hike_locations(self, locations: list[dict[str, Any]]) -> int:
+        payloads: list[dict[str, Any]] = []
+        for location in locations:
+            name = str(location.get("name") or "").strip()
+            if not name:
+                continue
+            payloads.append(
+                {
+                    "name": name,
+                    "slug": str(location.get("slug") or _slugify_location_name(name)),
+                    "location_type": location.get("location_type"),
+                    "source": location.get("source") or "seed",
+                    "source_url": location.get("source_url"),
+                    "lat": location.get("lat"),
+                    "lng": location.get("lng"),
+                    "aliases": location.get("aliases") or [],
+                }
+            )
+        if not payloads:
+            return 0
+        try:
+            for start in range(0, len(payloads), 200):
+                self.client.table("hike_locations").upsert(
+                    payloads[start : start + 200],
+                    on_conflict="slug",
+                ).execute()
+            return len(payloads)
+        except Exception:
+            return 0
+
+    def set_hike_location_tags(self, hike_id: str, location_ids: list[str]) -> None:
+        normalized_ids: list[str] = []
+        seen = set()
+        for location_id in location_ids:
+            clean_id = str(location_id).strip()
+            if clean_id and clean_id not in seen:
+                normalized_ids.append(clean_id)
+                seen.add(clean_id)
+        try:
+            self.client.table("hike_location_tags").delete().eq("hike_id", hike_id).execute()
+            if normalized_ids:
+                payloads = [
+                    {
+                        "hike_id": hike_id,
+                        "location_id": location_id,
+                        "is_primary": index == 0,
+                    }
+                    for index, location_id in enumerate(normalized_ids)
+                ]
+                self.client.table("hike_location_tags").insert(payloads).execute()
+        except Exception:
+            return
 
     def upsert_hike_route_import(self, hike_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         normalized_payload = dict(payload)

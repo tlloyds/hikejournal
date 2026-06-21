@@ -63,6 +63,27 @@ create table if not exists public.hike_route_imports (
     unique (hike_id)
 );
 
+create table if not exists public.hike_locations (
+    id uuid primary key default gen_random_uuid(),
+    name text not null,
+    slug text not null unique,
+    location_type text,
+    source text,
+    source_url text,
+    lat double precision,
+    lng double precision,
+    aliases jsonb not null default '[]'::jsonb,
+    created_at timestamptz not null default timezone('utc', now())
+);
+
+create table if not exists public.hike_location_tags (
+    hike_id uuid not null references public.hikes(id) on delete cascade,
+    location_id uuid not null references public.hike_locations(id) on delete cascade,
+    is_primary boolean not null default false,
+    created_at timestamptz not null default timezone('utc', now()),
+    primary key (hike_id, location_id)
+);
+
 create table if not exists public.species_observations (
     id uuid primary key default gen_random_uuid(),
     hike_id uuid references public.hikes(id) on delete cascade,
@@ -133,6 +154,12 @@ alter table public.hike_route_imports add column if not exists end_lat double pr
 alter table public.hike_route_imports add column if not exists end_lng double precision;
 alter table public.hike_route_imports add column if not exists track_geojson jsonb not null default '{}'::jsonb;
 alter table public.hike_route_imports add column if not exists updated_at timestamptz not null default timezone('utc', now());
+alter table public.hike_locations add column if not exists location_type text;
+alter table public.hike_locations add column if not exists source text;
+alter table public.hike_locations add column if not exists source_url text;
+alter table public.hike_locations add column if not exists lat double precision;
+alter table public.hike_locations add column if not exists lng double precision;
+alter table public.hike_locations add column if not exists aliases jsonb not null default '[]'::jsonb;
 alter table public.hikes drop constraint if exists hikes_cover_photo_id_fkey;
 alter table public.hikes
 add constraint hikes_cover_photo_id_fkey
@@ -177,12 +204,16 @@ create index if not exists species_status_idx on public.species_observations (st
 create index if not exists species_inat_observation_id_idx on public.species_observations (inat_observation_id);
 create index if not exists hike_collaborators_hike_id_idx on public.hike_collaborators (hike_id);
 create unique index if not exists hike_collaborators_unique_email_idx on public.hike_collaborators (hike_id, lower(collaborator_email));
+create index if not exists hike_locations_lower_name_idx on public.hike_locations (lower(name));
+create index if not exists hike_location_tags_location_id_idx on public.hike_location_tags (location_id);
 
 alter table public.hikes enable row level security;
 alter table public.photos enable row level security;
 alter table public.species_observations enable row level security;
 alter table public.hike_collaborators enable row level security;
 alter table public.hike_route_imports enable row level security;
+alter table public.hike_locations enable row level security;
+alter table public.hike_location_tags enable row level security;
 
 drop policy if exists "Open single-user access for hikes" on public.hikes;
 create policy "Open single-user access for hikes"
@@ -215,6 +246,20 @@ with check (true);
 drop policy if exists "Open single-user access for hike route imports" on public.hike_route_imports;
 create policy "Open single-user access for hike route imports"
 on public.hike_route_imports
+for all
+using (true)
+with check (true);
+
+drop policy if exists "Open single-user access for hike locations" on public.hike_locations;
+create policy "Open single-user access for hike locations"
+on public.hike_locations
+for all
+using (true)
+with check (true);
+
+drop policy if exists "Open single-user access for hike location tags" on public.hike_location_tags;
+create policy "Open single-user access for hike location tags"
+on public.hike_location_tags
 for all
 using (true)
 with check (true);
