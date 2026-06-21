@@ -1557,11 +1557,11 @@ def render_sidebar(
 
     st.markdown(
         f"""
-        <div class="sidebar-brand-shell">
+        <a class="sidebar-brand-shell" href="?view=Library&amp;scope=global" target="_self" aria-label="Open HikeJournal Library">
             <div class="sidebar-brand-kicker">Field Journal</div>
             <div class="sidebar-brand-wordmark">HikeJournal</div>
             <div class="sidebar-brand-meta">{escape(identity_line)}</div>
-        </div>
+        </a>
         """,
         unsafe_allow_html=True,
     )
@@ -2011,62 +2011,73 @@ def render_create_hike_dialog(repository: HikeJournalRepository, storage: Storag
     st.caption("Start a new outing and add it to your library.")
     hike_locations = fetch_hike_locations()
     location_options = location_library_options(hike_locations)
-    with st.form("create_hike_dialog_form", clear_on_submit=True):
-        title = st.text_input("Hike title", placeholder="Black Bear Wilderness Loop")
-        hike_date = st.date_input("Hike date", value=date.today())
-        distance = st.number_input("Distance (miles)", min_value=0.0, step=0.5, value=0.0)
-        location_name = st.text_input("Location", placeholder="Seminole State Forest")
-        selected_locations = st.multiselect(
-            "Location tags",
-            options=location_options,
-            default=[],
-            accept_new_options=True,
-            placeholder="Start typing Bronson, Chuluota, Econ...",
+    form_placeholder = st.empty()
+    with form_placeholder.container():
+        with st.form("create_hike_dialog_form", clear_on_submit=True):
+            title = st.text_input("Hike title", placeholder="Black Bear Wilderness Loop")
+            hike_date = st.date_input("Hike date", value=date.today())
+            distance = st.number_input("Distance (miles)", min_value=0.0, step=0.5, value=0.0)
+            location_name = st.text_input("Location", placeholder="Seminole State Forest")
+            selected_locations = st.multiselect(
+                "Location tags",
+                options=location_options,
+                default=[],
+                accept_new_options=True,
+                placeholder="Start typing Bronson, Chuluota, Econ...",
+            )
+            notes = st.text_area("Opening notes", placeholder="What stood out about the day?", height=140)
+            route_import_file = st.file_uploader(
+                "MapMyRun TCX export",
+                type=TCX_IMPORT_TYPES,
+                accept_multiple_files=False,
+                help="Optional: upload the TCX export for this outing to save the route line and route stats.",
+            )
+            use_imported_route_fields = st.checkbox("Use TCX date and distance for this outing", value=True)
+            submitted = st.form_submit_button("Create hike", use_container_width=True)
+
+    if not submitted:
+        return
+    if not title.strip():
+        st.warning("Add a hike title to save this outing.")
+        return
+
+    parsed_route_import, _, route_import_error = parse_uploaded_route_import(route_import_file)
+    if route_import_error:
+        st.warning(route_import_error)
+        return
+
+    form_placeholder.empty()
+    with st.status("Creating hike...", expanded=True) as creation_status:
+        target_hike_date = parsed_route_import.visited_on if parsed_route_import and use_imported_route_fields and parsed_route_import.visited_on else hike_date
+        target_distance = parsed_route_import.distance_miles if parsed_route_import and use_imported_route_fields and parsed_route_import.distance_miles is not None else (distance or None)
+        saved_location_name = location_name.strip() or ", ".join(selected_locations[:3])
+        draft = HikeDraft(
+            title=title,
+            hike_date=target_hike_date,
+            distance_miles=target_distance,
+            location_name=saved_location_name,
+            notes=notes,
+            owner_subject=user_context.get("subject") if user_context.get("mode") == "google" else None,
+            owner_email=user_context.get("email") if user_context.get("mode") == "google" else None,
         )
-        notes = st.text_area("Opening notes", placeholder="What stood out about the day?", height=140)
-        route_import_file = st.file_uploader(
-            "MapMyRun TCX export",
-            type=TCX_IMPORT_TYPES,
-            accept_multiple_files=False,
-            help="Optional: upload the TCX export for this outing to save the route line and route stats.",
-        )
-        use_imported_route_fields = st.checkbox("Use TCX date and distance for this outing", value=True)
-        submitted = st.form_submit_button("Create hike", use_container_width=True)
-        if submitted:
-            if not title.strip():
-                st.warning("Add a hike title to save this outing.")
-            else:
-                parsed_route_import, _, route_import_error = parse_uploaded_route_import(route_import_file)
-                if route_import_error:
-                    st.warning(route_import_error)
-                    return
-                target_hike_date = parsed_route_import.visited_on if parsed_route_import and use_imported_route_fields and parsed_route_import.visited_on else hike_date
-                target_distance = parsed_route_import.distance_miles if parsed_route_import and use_imported_route_fields and parsed_route_import.distance_miles is not None else (distance or None)
-                saved_location_name = location_name.strip() or ", ".join(selected_locations[:3])
-                draft = HikeDraft(
-                    title=title,
-                    hike_date=target_hike_date,
-                    distance_miles=target_distance,
-                    location_name=saved_location_name,
-                    notes=notes,
-                    owner_subject=user_context.get("subject") if user_context.get("mode") == "google" else None,
-                    owner_email=user_context.get("email") if user_context.get("mode") == "google" else None,
-                )
-                created = repository.create_hike(draft)
-                maybe_store_hike_location_tags(repository, created["id"], selected_locations, hike_locations)
-                if route_import_file:
-                    _, route_import_error = sync_hike_route_import(
-                        repository=repository,
-                        storage=storage,
-                        hike_id=created["id"],
-                        uploaded_file=route_import_file,
-                        existing_route_import=None,
-                        remove_existing=False,
-                    )
-                    if route_import_error:
-                        st.warning(route_import_error)
-                invalidate_data_cache()
-                navigate_to(view="Journal", hike_id=created["id"])
+        creation_status.write("Saving outing details...")
+        created = repository.create_hike(draft)
+        maybe_store_hike_location_tags(repository, created["id"], selected_locations, hike_locations)
+        if route_import_file:
+            creation_status.write("Saving the imported route...")
+            _, route_import_error = sync_hike_route_import(
+                repository=repository,
+                storage=storage,
+                hike_id=created["id"],
+                uploaded_file=route_import_file,
+                existing_route_import=None,
+                remove_existing=False,
+            )
+            if route_import_error:
+                st.warning(route_import_error)
+        creation_status.update(label="Hike created. Opening journal...", state="complete", expanded=False)
+    invalidate_data_cache()
+    navigate_to(view="Journal", hike_id=created["id"])
 
 
 @st.dialog("Quick Upload", width="large")

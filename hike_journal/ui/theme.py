@@ -134,7 +134,7 @@ a {
 [data-testid="stSidebar"] .stButton button,
 [data-testid="stSidebar"] .stDownloadButton button,
 [data-testid="stSidebar"] .stFormSubmitButton button,
-[data-testid="stSidebar"] [data-testid="stPopover"] > button {
+[data-testid="stSidebar"] [data-testid="stPopoverButton"] {
   min-height: 2.8rem;
   border-radius: 10px;
   background: rgba(255,255,255,0.06) !important;
@@ -165,7 +165,7 @@ a {
 
 [data-testid="stSidebar"] .stButton button:hover,
 [data-testid="stSidebar"] .stFormSubmitButton button:hover,
-[data-testid="stSidebar"] [data-testid="stPopover"] > button:hover {
+[data-testid="stSidebar"] [data-testid="stPopoverButton"]:hover {
   border-color: rgba(248,243,234,0.24) !important;
   background: rgba(255,255,255,0.12) !important;
   color: #F8F3EA !important;
@@ -197,9 +197,15 @@ a {
 }
 
 .sidebar-brand-shell {
+  display: block;
   margin: 0.15rem 0 1.9rem;
   padding-bottom: 1.25rem;
   border-bottom: 1px solid rgba(248,243,234,0.12);
+  text-decoration: none !important;
+}
+
+.sidebar-brand-shell:hover .sidebar-brand-wordmark {
+  color: #FFFFFF;
 }
 
 .sidebar-brand-kicker {
