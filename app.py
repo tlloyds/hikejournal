@@ -5546,10 +5546,27 @@ def render_photo_management_toolbar(
             use_container_width=True,
             disabled=not st.session_state.delete_photo_ids,
         ):
-            for photo in all_deletable_photos:
-                if photo["id"] in st.session_state.delete_photo_ids:
+            photos_to_delete = [
+                photo
+                for photo in all_deletable_photos
+                if photo["id"] in st.session_state.delete_photo_ids
+            ]
+            total_to_delete = len(photos_to_delete)
+            delete_progress = st.progress(0, text=f"Preparing to delete {total_to_delete} photos...")
+            with st.status(f"Deleting {total_to_delete} photos...", expanded=True) as delete_status:
+                for index, photo in enumerate(photos_to_delete, start=1):
+                    delete_status.write(f"Removing photo {index} of {total_to_delete}")
                     storage.delete_file(photo.get("storage_path") or "")
                     repository.delete_photo(photo["id"])
+                    delete_progress.progress(
+                        index / total_to_delete,
+                        text=f"Deleted {index} of {total_to_delete} photos",
+                    )
+                delete_status.update(
+                    label=f"Deleted {total_to_delete} photos.",
+                    state="complete",
+                    expanded=False,
+                )
             invalidate_data_cache()
             st.session_state.delete_photo_ids = set()
             for key in list(st.session_state.keys()):
