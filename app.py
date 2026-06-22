@@ -23,6 +23,7 @@ from hike_journal.config import (
 )
 from hike_journal.models import HikeDraft, SpeciesCandidate
 from hike_journal.services.exif import extract_metadata
+from hike_journal.services.encounters import build_publish_encounter_plan
 from hike_journal.services.image_processing import optimize_image
 from hike_journal.services.inat import (
     InatAuthError,
@@ -70,6 +71,7 @@ apply_theme()
 REVIEW_QUEUE_STATUS = "in_review"
 TCX_IMPORT_TYPES = ["tcx", "xml"]
 GROUPED_ID_MAX_PHOTOS = 8
+GROUPED_PUBLISH_MAX_PHOTOS = 8
 LOCATION_SEED_PATH = Path(__file__).resolve().parent / "data" / "hike_locations_seed.json"
 
 
@@ -177,6 +179,8 @@ if "publish_page" not in st.session_state:
     st.session_state.publish_page = 1
 if "publish_page_size" not in st.session_state:
     st.session_state.publish_page_size = 8
+if "publish_batch_notice" not in st.session_state:
+    st.session_state.publish_batch_notice = None
 if "location_library_notice" not in st.session_state:
     st.session_state.location_library_notice = None
 
@@ -4535,6 +4539,9 @@ def get_inat_posting(observation: dict[str, Any]) -> dict[str, Any]:
             "local_photo_ids",
             "attached_local_photo_ids",
             "failed_local_photo_ids",
+            "local_observation_ids",
+            "group_lead_observation_id",
+            "grouped",
         ):
             if key in raw_posting:
                 posting[key] = raw_posting[key]
@@ -4604,19 +4611,28 @@ def build_inat_extra_photo_candidates(
     return candidates
 
 
-def _normalize_inat_post_photos(
+def _normalize_inat_post_records(
+    lead_observation: dict[str, Any],
     lead_photo: dict[str, Any],
-    extra_photos: list[dict[str, Any]] | None,
+    related_records: list[dict[str, Any]] | None,
 ) -> list[dict[str, Any]]:
-    ordered_photos = [lead_photo, *(extra_photos or [])]
+    ordered_records = [
+        {"observation": lead_observation, "photo": lead_photo},
+        *(related_records or []),
+    ]
     normalized: list[dict[str, Any]] = []
     seen_photo_ids: set[str] = set()
-    for candidate in ordered_photos:
-        photo_id = str(candidate.get("id") or "").strip()
+    for record in ordered_records:
+        photo = record.get("photo") or {}
+        observation = record.get("observation") or {}
+        photo_id = str(photo.get("id") or "").strip()
+        observation_id = str(observation.get("id") or "").strip()
+        if not observation_id:
+            continue
         if not photo_id or photo_id in seen_photo_ids:
             continue
         seen_photo_ids.add(photo_id)
-        normalized.append(candidate)
+        normalized.append({"observation": observation, "photo": photo})
     return normalized
 
 
@@ -4734,16 +4750,23 @@ def render_inat_posting_controls(
         st.caption("Bundle other confirmed photos of this same species from this outing into one iNaturalist observation.")
         with st.form(f"{key_prefix}_inat_multi_photo_form", enter_to_submit=False):
             st.caption("The current photo will be used as the lead image.")
-            selected_extra_photos: list[dict[str, Any]] = []
+            selected_extra_records: list[dict[str, Any]] = []
             for index, candidate in enumerate(extra_photo_candidates, start=1):
                 candidate_photo = candidate["photo"]
                 candidate_label = f"Photo {index + 1}: {candidate['label']}"
                 checkbox_key = f"{key_prefix}_inat_related_{candidate_photo['id']}"
                 if st.checkbox(candidate_label, key=checkbox_key):
-                    selected_extra_photos.append(candidate_photo)
-            selected_total = 1 + len(selected_extra_photos)
+                    selected_extra_records.append(candidate)
+            selected_total = 1 + len(selected_extra_records)
             submit_label = f"Post grouped observation ({selected_total} photos)"
-            if st.form_submit_button(submit_label, use_container_width=True, type="secondary"):
+            if selected_total > GROUPED_PUBLISH_MAX_PHOTOS:
+                st.warning(f"Choose no more than {GROUPED_PUBLISH_MAX_PHOTOS} photos for one iNaturalist observation.")
+            if st.form_submit_button(
+                submit_label,
+                use_container_width=True,
+                type="secondary",
+                disabled=selected_total > GROUPED_PUBLISH_MAX_PHOTOS,
+            ):
                 try:
                     with st.spinner("Posting grouped observation to iNaturalist..."):
                         posting_result = post_observation_to_inaturalist(
@@ -4752,7 +4775,7 @@ def render_inat_posting_controls(
                             observation,
                             photo,
                             place_guess=place_guess,
-                            extra_photos=selected_extra_photos,
+                            related_records=selected_extra_records,
                         )
                 except (InatConfigurationError, InatAuthError, InatRequestError, RuntimeError) as exc:
                     st.session_state.inat_auth_notice = None
@@ -4786,15 +4809,30 @@ def post_observation_to_inaturalist(
     photo: dict[str, Any],
     *,
     place_guess: str | None,
-    extra_photos: list[dict[str, Any]] | None = None,
+    related_records: list[dict[str, Any]] | None = None,
+    raise_on_photo_failure: bool = True,
 ) -> dict[str, Any]:
     inat_client.validate_credentials()
     observed_on = _parse_datetime(photo.get("taken_at"))
-    upload_photos = _normalize_inat_post_photos(photo, extra_photos)
-    if not upload_photos:
+    post_records = _normalize_inat_post_records(observation, photo, related_records)
+    if not post_records:
         raise RuntimeError("Choose at least one photo before posting to iNaturalist.")
+    if len(post_records) > GROUPED_PUBLISH_MAX_PHOTOS:
+        raise RuntimeError(f"Choose no more than {GROUPED_PUBLISH_MAX_PHOTOS} photos for one iNaturalist observation.")
+    full_observations = fetch_observations_by_ids(
+        tuple(str(record["observation"]["id"]) for record in post_records)
+    )
+    full_observation_by_id = {str(record["id"]): record for record in full_observations}
+    missing_observation_ids = [
+        str(record["observation"]["id"])
+        for record in post_records
+        if str(record["observation"]["id"]) not in full_observation_by_id
+    ]
+    if missing_observation_ids:
+        raise RuntimeError("HikeJournal could not load every selected observation needed for grouped posting.")
     upload_payloads: list[dict[str, Any]] = []
-    for upload_photo in upload_photos:
+    for record in post_records:
+        upload_photo = record["photo"]
         public_url = str(upload_photo.get("public_url") or "").strip()
         if not public_url:
             raise RuntimeError("One of the selected photos is missing a public image URL, so HikeJournal could not send it to iNaturalist.")
@@ -4804,6 +4842,7 @@ def post_observation_to_inaturalist(
             raise RuntimeError("HikeJournal could not download one of the selected photos for iNaturalist.") from exc
         upload_payloads.append(
             {
+                "observation": full_observation_by_id[str(record["observation"]["id"])],
                 "photo": upload_photo,
                 "image_bytes": image_bytes,
                 "content_type": upload_photo.get("content_type") or "image/jpeg",
@@ -4823,7 +4862,9 @@ def post_observation_to_inaturalist(
     created_id = created_observation.get("id")
     if created_id in (None, ""):
         raise InatRequestError("iNaturalist created a response, but HikeJournal could not find the new observation ID.")
-    posting_payload = {
+    local_observation_ids = [str(item["observation"]["id"]) for item in upload_payloads]
+    lead_observation_id = str(observation["id"])
+    posting_payload: dict[str, Any] = {
         "observation_id": int(created_id),
         "observation_url": created_observation.get("uri") or created_observation.get("html_url") or build_inat_observation_url(created_id),
         "posted_at": datetime.now().astimezone().isoformat(),
@@ -4833,10 +4874,12 @@ def post_observation_to_inaturalist(
         "photo_count": len(upload_payloads),
         "attached_photo_count": 0,
         "local_photo_ids": [str(item["photo"]["id"]) for item in upload_payloads],
+        "local_observation_ids": local_observation_ids,
+        "group_lead_observation_id": lead_observation_id,
+        "grouped": len(upload_payloads) > 1,
         "attached_local_photo_ids": [],
         "failed_local_photo_ids": [],
     }
-    raw_payload = dict(observation.get("raw_response_json") or {})
     upload_errors: list[str] = []
     for upload_payload in upload_payloads:
         upload_photo = upload_payload["photo"]
@@ -4855,16 +4898,25 @@ def post_observation_to_inaturalist(
         else:
             posting_payload["attached_local_photo_ids"].append(photo_id)
     posting_payload["attached_photo_count"] = len(posting_payload["attached_local_photo_ids"])
-    raw_payload["inat_posting"] = posting_payload
-    repository.update_observation_raw_payload(observation["id"], raw_payload)
-    repository.update_observation_inat_posting(
-        observation["id"],
-        inat_observation_id=int(created_id),
-        inat_observation_url=posting_payload["observation_url"],
-        inat_posted_at=posting_payload["posted_at"],
-        inat_photo_attached=bool(posting_payload["photo_attached"]),
-    )
     if upload_errors:
+        posting_payload["upload_errors"] = upload_errors
+    for upload_payload in upload_payloads:
+        local_observation = upload_payload["observation"]
+        local_posting_payload = {
+            **posting_payload,
+            "group_role": "lead" if str(local_observation["id"]) == lead_observation_id else "member",
+        }
+        raw_payload = dict(local_observation.get("raw_response_json") or {})
+        raw_payload["inat_posting"] = local_posting_payload
+        repository.update_observation_raw_payload(local_observation["id"], raw_payload)
+        repository.update_observation_inat_posting(
+            local_observation["id"],
+            inat_observation_id=int(created_id),
+            inat_observation_url=posting_payload["observation_url"],
+            inat_posted_at=posting_payload["posted_at"],
+            inat_photo_attached=bool(posting_payload["photo_attached"]),
+        )
+    if upload_errors and raise_on_photo_failure:
         attached_count = posting_payload["attached_photo_count"]
         requested_count = posting_payload["photo_count"]
         raise InatRequestError(
@@ -5771,6 +5823,13 @@ def render_publishing_section(
     if not confirmed_observations:
         st.info("Confirmed species will show up here once you start reviewing photos.")
         return
+    if st.session_state.publish_batch_notice:
+        notice = st.session_state.publish_batch_notice
+        if notice.get("level") == "warning":
+            st.warning(str(notice.get("message") or "Some iNaturalist posts need attention."))
+        else:
+            st.success(str(notice.get("message") or "Finished posting to iNaturalist."))
+        st.session_state.publish_batch_notice = None
 
     rows = build_publish_rows(hikes, confirmed_observations, photos)
     counts = count_publish_states(rows)
@@ -5854,7 +5913,7 @@ def render_publishing_section(
     selected_ids = set(st.session_state.publish_selected_ids)
     selected_rows = [row for row in filtered_rows if row["observation"]["id"] in selected_ids]
     cols[2].markdown(
-        f"<div class='utility-rail-status'>{len(selected_rows)} selected • {len([row for row in filtered_rows if row['publish_state'] in {'Ready to post', 'Needs attention'}])} actionable</div>",
+        f"<div class='utility-rail-status'>{len(selected_rows)} selected • {len([row for row in filtered_rows if row['publish_state'] == 'Ready to post'])} ready</div>",
         unsafe_allow_html=True,
     )
     cols[3].markdown(
@@ -5888,7 +5947,7 @@ def render_publishing_section(
         st.info("Nothing matches this publishing filter right now.")
         return
 
-    selected_ready_rows = [row for row in selected_rows if row["publish_state"] in {"Ready to post", "Needs attention"}]
+    selected_ready_rows = [row for row in selected_rows if row["publish_state"] == "Ready to post"]
     action_cols = st.columns([0.3, 0.26, 0.18, 0.12, 0.14], gap="small")
     if action_cols[0].button(
         f"Post selected ({len(selected_ready_rows)})",
@@ -5896,9 +5955,7 @@ def render_publishing_section(
         use_container_width=True,
         disabled=not is_inat_client_ready(inat_client) or not selected_ready_rows,
     ):
-        post_selected_observations_to_inaturalist(repository, inat_client, selected_ready_rows)
-        clear_publish_selection(selected_rows)
-        st.rerun()
+        render_publish_plan_dialog(repository, inat_client, selected_ready_rows)
     if is_inat_client_ready(inat_client):
         action_cols[1].button(
             "Select ready to post",
@@ -5956,11 +6013,17 @@ def render_publishing_section(
                 if posted_label and row["publish_state"] == "Posted"
                 else ""
             )
+            grouped_note_markup = (
+                f"<span class='publish-posted-note'>Grouped observation • {int(posting.get('photo_count') or 1)} photos</span>"
+                if posting.get("grouped")
+                else ""
+            )
             publish_row_markup = (
                 "<div class=\"publish-row-shell\">"
                 "<div class=\"publish-row-header\">"
                 f"{render_publish_state_chip(row['publish_state'])}"
                 f"{posted_note_markup}"
+                f"{grouped_note_markup}"
                 "</div>"
                 f"<div class=\"species-summary-name\">{escape(observation.get('common_name') or observation.get('scientific_name') or 'Unknown species')}</div>"
                 f"<div class=\"species-summary-scientific\">{escape(observation.get('scientific_name') or '')}</div>"
@@ -6196,43 +6259,143 @@ def fetch_full_observation_for_post(observation_id: str) -> dict[str, Any] | Non
     return observations[0] if observations else None
 
 
-def post_selected_observations_to_inaturalist(
+@st.dialog("Review iNaturalist posts", width="large")
+def render_publish_plan_dialog(
     repository: HikeJournalRepository,
     inat_client: InatClient,
     rows: list[dict[str, Any]],
 ) -> None:
-    if not rows:
+    groups = build_publish_encounter_plan(rows, max_photos=GROUPED_PUBLISH_MAX_PHOTOS)
+    photo_count = sum(int(group["photo_count"]) for group in groups)
+    observation_count = len(groups)
+    st.markdown(f"### {photo_count} selected photos → {observation_count} iNaturalist observations")
+    st.caption("Same-species photos are grouped only when they come from one outing, fall within 15 minutes, and stay within 50 meters of one another.")
+    oversized_groups = [group for group in groups if group["oversized"]]
+    for index, group in enumerate(groups, start=1):
+        lead_row = group["lead_row"]
+        observation = lead_row["observation"]
+        hike = lead_row["hike"]
+        species_name = observation.get("common_name") or observation.get("scientific_name") or "Unknown species"
+        group_photo_count = int(group["photo_count"])
+        if group_photo_count > 1:
+            group_summary = (
+                f"{group_photo_count} photos • {float(group['time_span_minutes']):.0f} min • "
+                f"{float(group['max_distance_meters']):.0f} m spread"
+            )
+        else:
+            group_summary = "1 photo • separate observation"
+        st.markdown(
+            f"**{index}. {escape(str(species_name))}**  \n"
+            f"{escape(str(hike.get('title') or 'Standalone sighting'))} • {group_summary}"
+        )
+        if group["oversized"]:
+            st.error(f"This encounter contains {group_photo_count} photos. Reduce it to {GROUPED_PUBLISH_MAX_PHOTOS} or fewer before posting.")
+
+    if oversized_groups:
+        st.warning("Nothing will be posted until every detected encounter is within the eight-photo limit.")
         return
+    if st.button(
+        f"Post {observation_count} observations ({photo_count} photos)",
+        key="publish_confirm_encounter_plan",
+        use_container_width=True,
+        type="primary",
+        disabled=not groups,
+    ):
+        processed_ids = post_publish_encounter_plan(repository, inat_client, groups)
+        processed_rows = [
+            row
+            for group in groups
+            for row in group["rows"]
+            if str(row["observation"]["id"]) in processed_ids
+        ]
+        clear_publish_selection(processed_rows)
+        st.rerun()
+
+
+def post_publish_encounter_plan(
+    repository: HikeJournalRepository,
+    inat_client: InatClient,
+    groups: list[dict[str, Any]],
+) -> set[str]:
+    if not groups:
+        return set()
     try:
         inat_client.validate_credentials()
     except (InatConfigurationError, InatAuthError, InatRequestError) as exc:
         st.session_state.inat_auth_notice = None
         st.session_state.inat_auth_error = str(exc)
         st.error(str(exc))
-        return
+        return set()
     progress_text = st.empty()
     progress_bar = st.progress(0, text="Preparing observations for iNaturalist...")
-    total = len(rows)
+    total = len(groups)
+    processed_ids: set[str] = set()
+    failed_groups = 0
+    partial_groups = 0
     with st.spinner("Posting observations to iNaturalist..."):
-        for index, row in enumerate(rows, start=1):
+        for index, group in enumerate(groups, start=1):
+            row = group["lead_row"]
             progress_text.caption(f"Posting observation {index} of {total}")
             full_observation = fetch_full_observation_for_post(row["observation"]["id"])
             if not full_observation:
                 st.error("HikeJournal could not load an observation needed for posting.")
+                failed_groups += 1
+                progress_bar.progress(index / total, text=f"Processed {index} of {total} observations")
                 continue
             try:
-                post_observation_to_inaturalist(
+                posting_result = post_observation_to_inaturalist(
                     repository,
                     inat_client,
                     full_observation,
                     row["photo"],
                     place_guess=row["hike"].get("location_name"),
+                    related_records=group["rows"][1:],
+                    raise_on_photo_failure=False,
                 )
             except (InatConfigurationError, InatAuthError, InatRequestError, RuntimeError) as exc:
-                st.error(f"{row['observation']['common_name'] or row['observation']['scientific_name'] or row['observation']['id']}: {exc}")
+                failed_groups += 1
+                message = f"{row['observation']['common_name'] or row['observation']['scientific_name'] or row['observation']['id']}: {exc}"
+                st.session_state.inat_post_feedback[str(row["observation"]["id"])] = {
+                    "level": "error",
+                    "message": message,
+                }
+            except Exception as exc:  # pragma: no cover - depends on remote database state
+                failed_groups += 1
+                st.session_state.inat_post_feedback[str(row["observation"]["id"])] = {
+                    "level": "error",
+                    "message": f"HikeJournal could not finish this grouped post: {exc}",
+                }
             else:
-                progress_bar.progress(index / total, text=f"Posted {index} of {total} observations")
+                processed_ids.update(str(group_row["observation"]["id"]) for group_row in group["rows"])
+                upload_errors = posting_result.get("upload_errors") or []
+                if upload_errors:
+                    partial_groups += 1
+                st.session_state.inat_post_feedback[str(row["observation"]["id"])] = {
+                    "level": "warning" if upload_errors else "success",
+                    "message": (
+                        f"Posted one iNaturalist observation, but {len(upload_errors)} photo upload{'s' if len(upload_errors) != 1 else ''} need attention."
+                        if upload_errors
+                        else _format_inat_multi_photo_message(posting_result)
+                    ),
+                }
+            progress_bar.progress(index / total, text=f"Processed {index} of {total} observations")
     invalidate_data_cache()
+    posted_groups = total - failed_groups
+    if failed_groups or partial_groups:
+        st.session_state.publish_batch_notice = {
+            "level": "warning",
+            "message": (
+                f"Posted {posted_groups} of {total} planned observations. "
+                f"{partial_groups} posted observation{'s' if partial_groups != 1 else ''} still need photo attention; "
+                f"{failed_groups} could not be created."
+            ),
+        }
+    else:
+        st.session_state.publish_batch_notice = {
+            "level": "success",
+            "message": f"Posted {total} iNaturalist observation{'s' if total != 1 else ''} from {len(processed_ids)} selected photos.",
+        }
+    return processed_ids
 
 
 def render_species_log_toolbar(
