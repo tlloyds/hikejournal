@@ -181,6 +181,8 @@ if "publish_page_size" not in st.session_state:
     st.session_state.publish_page_size = 8
 if "publish_query" not in st.session_state:
     st.session_state.publish_query = ""
+if "publish_hike_filter" not in st.session_state:
+    st.session_state.publish_hike_filter = "All hikes"
 if "publish_batch_notice" not in st.session_state:
     st.session_state.publish_batch_notice = None
 if "location_library_notice" not in st.session_state:
@@ -5868,12 +5870,28 @@ def render_publishing_section(
         reset_publish_page()
         st.rerun()
 
-    publish_query = st.text_input(
+    hike_options = ["All hikes", *[hike.get("title") or "Untitled hike" for hike in hikes]]
+    if st.session_state.publish_hike_filter not in hike_options:
+        st.session_state.publish_hike_filter = "All hikes"
+    publish_filters = st.columns([0.68, 0.32], gap="small")
+    publish_query = publish_filters[0].text_input(
         "Search publishing queue",
         placeholder="Alligator, oak, mushroom...",
         key="publish_query",
+        label_visibility="collapsed",
         on_change=reset_publish_page,
     )
+    publish_hike_filter = publish_filters[1].selectbox(
+        "Hike filter",
+        hike_options,
+        key="publish_hike_filter",
+        label_visibility="collapsed",
+        on_change=reset_publish_page,
+    )
+    hike_title_to_id = {
+        str(hike.get("title") or "Untitled hike"): str(hike.get("id") or "")
+        for hike in hikes
+    }
     normalized_publish_query = publish_query.strip().casefold()
     filtered_rows = []
     for row in rows:
@@ -5881,6 +5899,8 @@ def render_publishing_section(
             continue
         observation = row["observation"]
         hike = row["hike"]
+        if publish_hike_filter != "All hikes" and str(observation.get("hike_id") or "") != hike_title_to_id.get(publish_hike_filter):
+            continue
         haystack = " ".join(
             str(value or "")
             for value in [
