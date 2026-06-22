@@ -179,6 +179,8 @@ if "publish_page" not in st.session_state:
     st.session_state.publish_page = 1
 if "publish_page_size" not in st.session_state:
     st.session_state.publish_page_size = 8
+if "publish_query" not in st.session_state:
+    st.session_state.publish_query = ""
 if "publish_batch_notice" not in st.session_state:
     st.session_state.publish_batch_notice = None
 if "location_library_notice" not in st.session_state:
@@ -5866,7 +5868,32 @@ def render_publishing_section(
         reset_publish_page()
         st.rerun()
 
-    filtered_rows = [row for row in rows if publish_filter == "All" or row["publish_state"] == publish_filter]
+    publish_query = st.text_input(
+        "Search publishing queue",
+        placeholder="Alligator, oak, mushroom...",
+        key="publish_query",
+        on_change=reset_publish_page,
+    )
+    normalized_publish_query = publish_query.strip().casefold()
+    filtered_rows = []
+    for row in rows:
+        if publish_filter != "All" and row["publish_state"] != publish_filter:
+            continue
+        observation = row["observation"]
+        hike = row["hike"]
+        haystack = " ".join(
+            str(value or "")
+            for value in [
+                observation.get("common_name"),
+                observation.get("scientific_name"),
+                observation.get("taxon_id"),
+                hike.get("title"),
+                hike.get("location_name"),
+            ]
+        ).casefold()
+        if normalized_publish_query and normalized_publish_query not in haystack:
+            continue
+        filtered_rows.append(row)
     synchronize_publish_selection(filtered_rows)
 
     st.markdown(
