@@ -1401,7 +1401,7 @@ def render_inat_token_controls(
             st.session_state.inat_oauth_state = state
             authorize_url = build_oauth_authorize_url(state=state)
             oauth_cols[0].markdown(
-                f"<a class='viewer-link' href='{escape(authorize_url)}' target='_top'>Connect iNaturalist</a>",
+                f"<a class='viewer-link' href='{escape(authorize_url)}' target='_blank' rel='noopener noreferrer'>Connect iNaturalist</a>",
                 unsafe_allow_html=True,
             )
             if token_record and oauth_cols[1].button("Disconnect", use_container_width=True, key=disconnect_key):
