@@ -1,8 +1,14 @@
+from datetime import UTC, datetime, timedelta
+import base64
+import json
+
+from hike_journal.services import inat
 from hike_journal.services.inat import (
     build_observation_sync_candidate,
     extract_observation_taxon_snapshot,
     extract_taxon_enrichment,
     parse_candidate,
+    resolve_access_token_for_user,
 )
 
 
@@ -139,3 +145,46 @@ def test_build_observation_sync_candidate_offers_name_only_local_update() -> Non
     assert candidate is not None
     assert candidate["reason"] == "missing_local_taxon"
     assert candidate["inat"]["taxon_id"] == 789
+
+
+def test_resolve_oauth_record_exchanges_legacy_access_token_for_api_token(monkeypatch) -> None:
+    oauth_access_token = "oauth-token"
+    api_token = _build_fake_jwt()
+    saved_records = []
+
+    class FakeResponse:
+        status_code = 200
+        text = ""
+
+        def json(self):
+            return {"api_token": api_token}
+
+    monkeypatch.setattr(
+        inat,
+        "load_inat_token_record_for_user",
+        lambda **_kwargs: {
+            "token_kind": "oauth",
+            "access_token": oauth_access_token,
+            "refresh_token": "refresh-token",
+        },
+    )
+    monkeypatch.setattr(inat.requests, "get", lambda *_args, **_kwargs: FakeResponse())
+    monkeypatch.setattr(inat, "save_inat_token_record_for_user", lambda **kwargs: saved_records.append(kwargs["record"]))
+
+    resolved = resolve_access_token_for_user(subject="user-1", email="user@example.com")
+
+    assert resolved == api_token
+    assert saved_records[0]["api_token"] == api_token
+    assert saved_records[0]["oauth_access_token"] == oauth_access_token
+    assert "access_token" not in saved_records[0]
+
+
+def _build_fake_jwt() -> str:
+    header = _base64url_json({"alg": "none", "typ": "JWT"})
+    payload = _base64url_json({"exp": int((datetime.now(UTC) + timedelta(hours=1)).timestamp())})
+    return f"{header}.{payload}.signature"
+
+
+def _base64url_json(payload: dict) -> str:
+    encoded = base64.urlsafe_b64encode(json.dumps(payload).encode("utf-8")).decode("utf-8")
+    return encoded.rstrip("=")

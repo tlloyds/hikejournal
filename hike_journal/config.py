@@ -170,6 +170,7 @@ class Settings:
     inat_oauth_redirect_uri: str = os.getenv("INAT_OAUTH_REDIRECT_URI", "http://localhost:8505/")
     inat_oauth_authorize_url: str = os.getenv("INAT_OAUTH_AUTHORIZE_URL", "https://www.inaturalist.org/oauth/authorize").rstrip("/")
     inat_oauth_token_url: str = os.getenv("INAT_OAUTH_TOKEN_URL", "https://www.inaturalist.org/oauth/token").rstrip("/")
+    inat_api_token_url: str = os.getenv("INAT_API_TOKEN_URL", "https://www.inaturalist.org/users/api_token").rstrip("/")
     image_max_dimension: int = int(os.getenv("IMAGE_MAX_DIMENSION", "1600"))
     image_quality: int = int(os.getenv("IMAGE_QUALITY", "86"))
     thumbnail_max_dimension: int = int(os.getenv("THUMBNAIL_MAX_DIMENSION", "560"))

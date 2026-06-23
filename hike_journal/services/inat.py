@@ -412,12 +412,35 @@ def refresh_oauth_access_token(*, refresh_token: str) -> dict[str, Any]:
     return payload
 
 
+def fetch_api_token_for_oauth_access_token(oauth_access_token: str) -> str:
+    if not oauth_access_token.strip():
+        raise InatAuthError("iNaturalist OAuth did not return a usable access token.")
+    response = requests.get(
+        settings.inat_api_token_url,
+        headers={
+            "Accept": "application/json",
+            "Authorization": f"Bearer {oauth_access_token.strip()}",
+            "User-Agent": "HikeJournal/1.0 (personal field journal; contact: addlloyd@gmail.com)",
+        },
+        timeout=30,
+    )
+    if response.status_code >= 400:
+        raise InatAuthError(f"iNaturalist API token exchange failed with {response.status_code}: {response.text[:250]}")
+    payload = response.json()
+    api_token = str(payload.get("api_token") or "").strip() if isinstance(payload, dict) else ""
+    if not api_token:
+        raise InatAuthError("iNaturalist did not return an API token for this OAuth session.")
+    return api_token
+
+
 def save_oauth_token_payload_for_user(
     token_payload: dict[str, Any],
     *,
     subject: str | None,
     email: str | None,
 ) -> None:
+    oauth_access_token = str(token_payload.get("access_token") or "").strip()
+    api_token = fetch_api_token_for_oauth_access_token(oauth_access_token)
     expires_at: str | None = None
     expires_in = token_payload.get("expires_in")
     try:
@@ -431,7 +454,8 @@ def save_oauth_token_payload_for_user(
     save_inat_token_record_for_user(
         record={
             "token_kind": "oauth",
-            "access_token": str(token_payload.get("access_token") or "").strip(),
+            "api_token": api_token,
+            "oauth_access_token": oauth_access_token,
             "refresh_token": str(token_payload.get("refresh_token") or "").strip(),
             "expires_at": expires_at,
         },
@@ -447,7 +471,14 @@ def resolve_access_token_for_user(*, subject: str | None, email: str | None) -> 
     token_kind = str(record.get("token_kind") or "").strip().lower()
     if token_kind != "oauth":
         return str(record.get("api_token") or record.get("access_token") or "").strip()
-    access_token = str(record.get("access_token") or "").strip()
+    api_token = str(record.get("api_token") or "").strip()
+    legacy_access_token = str(record.get("access_token") or "").strip()
+    oauth_access_token = str(record.get("oauth_access_token") or "").strip()
+    if legacy_access_token:
+        if _extract_token_expiry(legacy_access_token):
+            api_token = api_token or legacy_access_token
+        else:
+            oauth_access_token = oauth_access_token or legacy_access_token
     refresh_token = str(record.get("refresh_token") or "").strip()
     expires_at_raw = str(record.get("expires_at") or "").strip()
     expires_at: datetime | None = None
@@ -456,13 +487,24 @@ def resolve_access_token_for_user(*, subject: str | None, email: str | None) -> 
             expires_at = datetime.fromisoformat(expires_at_raw.replace("Z", "+00:00"))
         except ValueError:
             expires_at = None
-    if access_token and (expires_at is None or expires_at > datetime.now(UTC)):
-        return access_token
+    api_token_expiry = _extract_token_expiry(api_token)
+    if api_token and (api_token_expiry is None or api_token_expiry > datetime.now(UTC)):
+        return api_token
+    if oauth_access_token and (expires_at is None or expires_at > datetime.now(UTC)):
+        api_token = fetch_api_token_for_oauth_access_token(oauth_access_token)
+        refreshed_record = dict(record)
+        refreshed_record.pop("access_token", None)
+        refreshed_record["api_token"] = api_token
+        refreshed_record["oauth_access_token"] = oauth_access_token
+        save_inat_token_record_for_user(record=refreshed_record, subject=subject, email=email)
+        return api_token
     if refresh_token:
         refreshed = refresh_oauth_access_token(refresh_token=refresh_token)
+        if not refreshed.get("refresh_token"):
+            refreshed["refresh_token"] = refresh_token
         save_oauth_token_payload_for_user(refreshed, subject=subject, email=email)
-        return str(refreshed.get("access_token") or "").strip()
-    return access_token
+        return resolve_access_token_for_user(subject=subject, email=email)
+    return api_token
 
 
 def parse_candidates(payload: dict[str, Any], *, limit: int | None = None) -> list[SpeciesCandidate]:
