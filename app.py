@@ -72,6 +72,7 @@ REVIEW_QUEUE_STATUS = "in_review"
 TCX_IMPORT_TYPES = ["tcx", "xml"]
 GROUPED_ID_MAX_PHOTOS = 8
 GROUPED_PUBLISH_MAX_PHOTOS = 8
+QUICK_UPLOAD_HIKE_FILTER = "Quick uploads"
 LOCATION_SEED_PATH = Path(__file__).resolve().parent / "data" / "hike_locations_seed.json"
 
 
@@ -3405,7 +3406,7 @@ def render_species_log_tab(
         st.info("Confirmed species will appear here once you begin reviewing photos.")
         return
 
-    hike_options = ["All hikes", *[hike.get("title") or "Untitled hike" for hike in hikes]]
+    hike_options = ["All hikes", QUICK_UPLOAD_HIKE_FILTER, *[hike.get("title") or "Untitled hike" for hike in hikes]]
     valid_hike_filter = st.session_state.get("species_log_hike_filter", "All hikes")
     if valid_hike_filter not in hike_options:
         st.session_state.species_log_hike_filter = "All hikes"
@@ -5335,7 +5336,9 @@ def build_species_log_context(
         photo = photo_by_id.get(observation.get("photo_id"))
         if not photo:
             continue
-        if hike_filter != "All hikes" and observation.get("hike_id") != hike_title_to_id.get(hike_filter):
+        if hike_filter == QUICK_UPLOAD_HIKE_FILTER and observation.get("hike_id"):
+            continue
+        if hike_filter not in {"All hikes", QUICK_UPLOAD_HIKE_FILTER} and observation.get("hike_id") != hike_title_to_id.get(hike_filter):
             continue
         if mapped_only and (photo.get("lat") is None or photo.get("lng") is None):
             continue
@@ -5870,7 +5873,7 @@ def render_publishing_section(
         reset_publish_page()
         st.rerun()
 
-    hike_options = ["All hikes", *[hike.get("title") or "Untitled hike" for hike in hikes]]
+    hike_options = ["All hikes", QUICK_UPLOAD_HIKE_FILTER, *[hike.get("title") or "Untitled hike" for hike in hikes]]
     if st.session_state.publish_hike_filter not in hike_options:
         st.session_state.publish_hike_filter = "All hikes"
     publish_filters = st.columns([0.68, 0.32], gap="small")
@@ -5899,7 +5902,9 @@ def render_publishing_section(
             continue
         observation = row["observation"]
         hike = row["hike"]
-        if publish_hike_filter != "All hikes" and str(observation.get("hike_id") or "") != hike_title_to_id.get(publish_hike_filter):
+        if publish_hike_filter == QUICK_UPLOAD_HIKE_FILTER and observation.get("hike_id"):
+            continue
+        if publish_hike_filter not in {"All hikes", QUICK_UPLOAD_HIKE_FILTER} and str(observation.get("hike_id") or "") != hike_title_to_id.get(publish_hike_filter):
             continue
         haystack = " ".join(
             str(value or "")
