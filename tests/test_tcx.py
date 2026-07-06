@@ -1,4 +1,4 @@
-from hike_journal.services.tcx import parse_tcx_bytes
+from hike_journal.services.tcx import combine_tcx_route_imports, parse_tcx_bytes
 
 
 SAMPLE_TCX = b"""<?xml version="1.0" encoding="UTF-8"?>
@@ -57,3 +57,27 @@ def test_parse_tcx_extracts_route_summary() -> None:
     assert parsed.track_geojson["type"] == "LineString"
     assert len(parsed.track_geojson["coordinates"]) == 3
     assert parsed.track_geojson["meta"]["elevation_gain_feet"] == 33
+
+
+def test_combine_tcx_route_imports_keeps_separate_segments() -> None:
+    first = parse_tcx_bytes(SAMPLE_TCX)
+    second = parse_tcx_bytes(
+        SAMPLE_TCX
+        .replace(b"2026-05-18T13:18:24+00:00", b"2026-05-18T21:18:24+00:00")
+        .replace(b"22598.0", b"3600.0")
+        .replace(b"24857.122752", b"1609.344")
+        .replace(b"28.591", b"28.700")
+    )
+
+    combined = combine_tcx_route_imports([second, first])
+
+    assert combined is not None
+    assert combined.visited_on is not None
+    assert combined.visited_on.isoformat() == "2026-05-18"
+    assert round(combined.distance_miles or 0, 3) == 16.445
+    assert combined.duration_seconds == 26198
+    assert combined.track_point_count == 6
+    assert combined.track_geojson["type"] == "MultiLineString"
+    assert combined.track_geojson["meta"]["segment_count"] == 2
+    assert len(combined.track_geojson["coordinates"]) == 2
+    assert all(len(segment) == 3 for segment in combined.track_geojson["coordinates"])

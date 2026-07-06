@@ -183,25 +183,39 @@ def estimate_elevation_meta_from_track_geojson(track_geojson: dict[str, Any] | N
     if not isinstance(coordinates, list):
         return {}
 
-    elevation_track_points: list[tuple[float, float, float]] = []
-    for coordinate in coordinates:
-        if not isinstance(coordinate, (list, tuple)) or len(coordinate) < 3:
-            continue
-        try:
-            longitude = float(coordinate[0])
-            latitude = float(coordinate[1])
-            altitude = float(coordinate[2])
-        except (TypeError, ValueError):
-            continue
-        elevation_track_points.append((latitude, longitude, altitude))
+    coordinate_groups = coordinates
+    if track_geojson.get("type") == "MultiLineString":
+        coordinate_groups = [group for group in coordinates if isinstance(group, list)]
+    else:
+        coordinate_groups = [coordinates]
 
-    if len(elevation_track_points) < 2:
+    total_gain_m = 0.0
+    total_loss_m = 0.0
+    for coordinate_group in coordinate_groups:
+        elevation_track_points: list[tuple[float, float, float]] = []
+        for coordinate in coordinate_group:
+            if not isinstance(coordinate, (list, tuple)) or len(coordinate) < 3:
+                continue
+            try:
+                longitude = float(coordinate[0])
+                latitude = float(coordinate[1])
+                altitude = float(coordinate[2])
+            except (TypeError, ValueError):
+                continue
+            elevation_track_points.append((latitude, longitude, altitude))
+
+        if len(elevation_track_points) < 2:
+            continue
+        elevation_gain_m, elevation_loss_m = _estimate_elevation_change(elevation_track_points)
+        total_gain_m += elevation_gain_m
+        total_loss_m += elevation_loss_m
+
+    if total_gain_m <= 0 and total_loss_m <= 0:
         return {}
 
-    elevation_gain_m, elevation_loss_m = _estimate_elevation_change(elevation_track_points)
     return {
-        "elevation_gain_feet": _meters_to_feet(elevation_gain_m) if elevation_gain_m > 0 else None,
-        "elevation_loss_feet": _meters_to_feet(elevation_loss_m) if elevation_loss_m > 0 else None,
+        "elevation_gain_feet": _meters_to_feet(total_gain_m) if total_gain_m > 0 else None,
+        "elevation_loss_feet": _meters_to_feet(total_loss_m) if total_loss_m > 0 else None,
     }
 
 
@@ -263,6 +277,80 @@ def parse_tcx_bytes(payload: bytes) -> ParsedTcxRouteImport:
             "meta": {
                 "elevation_gain_feet": _meters_to_feet(elevation_gain_m) if elevation_gain_m > 0 else None,
                 "elevation_loss_feet": _meters_to_feet(elevation_loss_m) if elevation_loss_m > 0 else None,
+            },
+        },
+    )
+
+
+def _parsed_started_datetime(route_import: ParsedTcxRouteImport) -> datetime | None:
+    return _parse_iso_datetime(route_import.started_at)
+
+
+def _route_sort_key(route_import: ParsedTcxRouteImport) -> tuple[float, str]:
+    started_dt = _parsed_started_datetime(route_import)
+    return started_dt.timestamp() if started_dt else float("inf"), route_import.started_at or ""
+
+
+def _sum_optional(values: list[float | int | None]) -> float | int | None:
+    present_values = [value for value in values if value is not None]
+    if not present_values:
+        return None
+    return sum(present_values)
+
+
+def combine_tcx_route_imports(route_imports: list[ParsedTcxRouteImport]) -> ParsedTcxRouteImport | None:
+    if not route_imports:
+        return None
+    if len(route_imports) == 1:
+        return route_imports[0]
+
+    ordered_imports = sorted(route_imports, key=_route_sort_key)
+    coordinate_segments: list[list[list[float]]] = []
+    for route_import in ordered_imports:
+        track_geojson = route_import.track_geojson or {}
+        coordinates = track_geojson.get("coordinates") if isinstance(track_geojson, dict) else None
+        if not isinstance(coordinates, list):
+            continue
+        if track_geojson.get("type") == "MultiLineString":
+            for segment in coordinates:
+                if isinstance(segment, list) and len(segment) >= 2:
+                    coordinate_segments.append(_downsample_coordinates(segment))
+        elif len(coordinates) >= 2:
+            coordinate_segments.append(_downsample_coordinates(coordinates))
+
+    if not coordinate_segments:
+        return ordered_imports[0]
+
+    first_route = ordered_imports[0]
+    last_route = ordered_imports[-1]
+    total_distance = _sum_optional([route_import.distance_miles for route_import in ordered_imports])
+    total_duration = _sum_optional([route_import.duration_seconds for route_import in ordered_imports])
+    elevation_gain = _sum_optional([route_import.elevation_gain_feet for route_import in ordered_imports])
+    elevation_loss = _sum_optional([route_import.elevation_loss_feet for route_import in ordered_imports])
+    first_segment = coordinate_segments[0]
+    last_segment = coordinate_segments[-1]
+    start_lon, start_lat = first_segment[0][0], first_segment[0][1]
+    end_lon, end_lat = last_segment[-1][0], last_segment[-1][1]
+
+    return ParsedTcxRouteImport(
+        started_at=first_route.started_at,
+        visited_on=first_route.visited_on,
+        distance_miles=float(total_distance) if total_distance is not None else None,
+        duration_seconds=int(total_duration) if total_duration is not None else None,
+        track_point_count=sum(route_import.track_point_count for route_import in ordered_imports),
+        elevation_gain_feet=int(elevation_gain) if elevation_gain is not None else None,
+        elevation_loss_feet=int(elevation_loss) if elevation_loss is not None else None,
+        start_latitude=start_lat,
+        start_longitude=start_lon,
+        end_latitude=end_lat,
+        end_longitude=end_lon,
+        track_geojson={
+            "type": "MultiLineString",
+            "coordinates": coordinate_segments,
+            "meta": {
+                "segment_count": len(coordinate_segments),
+                "elevation_gain_feet": int(elevation_gain) if elevation_gain is not None else None,
+                "elevation_loss_feet": int(elevation_loss) if elevation_loss is not None else None,
             },
         },
     )

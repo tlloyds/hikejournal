@@ -48,6 +48,7 @@ from hike_journal.services.supabase_client import get_supabase
 from hike_journal.services.tcx import (
     ParsedTcxRouteImport,
     TcxParseError,
+    combine_tcx_route_imports,
     estimate_elevation_meta_from_track_geojson,
     parse_tcx_bytes,
 )
@@ -1022,21 +1023,50 @@ def format_elevation_compact(feet: Any) -> str | None:
     return f"{value:,} ft gain"
 
 
-def parse_uploaded_route_import(uploaded_file) -> tuple[ParsedTcxRouteImport | None, bytes | None, str | None]:
-    if not uploaded_file:
+def _normalize_uploaded_route_files(uploaded_files) -> list[Any]:
+    if not uploaded_files:
+        return []
+    if isinstance(uploaded_files, (list, tuple)):
+        return [uploaded_file for uploaded_file in uploaded_files if uploaded_file]
+    return [uploaded_files]
+
+
+def _route_import_source_name(uploaded_files) -> str | None:
+    file_names = [
+        str(getattr(uploaded_file, "name", "") or "").strip()
+        for uploaded_file in _normalize_uploaded_route_files(uploaded_files)
+    ]
+    file_names = [file_name for file_name in file_names if file_name]
+    if not file_names:
+        return None
+    return file_names[0] if len(file_names) == 1 else " + ".join(file_names)
+
+
+def parse_uploaded_route_import(uploaded_files) -> tuple[ParsedTcxRouteImport | None, bytes | None, str | None]:
+    route_files = _normalize_uploaded_route_files(uploaded_files)
+    if not route_files:
         return None, None, None
-    file_name = str(getattr(uploaded_file, "name", "") or "").strip()
-    if not file_name:
+    parsed_imports: list[ParsedTcxRouteImport] = []
+    file_payloads: list[bytes] = []
+    for uploaded_file in route_files:
+        file_name = str(getattr(uploaded_file, "name", "") or "").strip()
+        if not file_name:
+            continue
+        try:
+            file_bytes = uploaded_file.getvalue()
+        except Exception:
+            return None, None, f"Could not read {file_name}."
+        try:
+            parsed_imports.append(parse_tcx_bytes(file_bytes))
+        except TcxParseError as exc:
+            return None, None, f"{file_name}: {exc}"
+        file_payloads.append(file_bytes)
+    if not parsed_imports:
         return None, None, None
-    try:
-        file_bytes = uploaded_file.getvalue()
-    except Exception:
-        return None, None, "Could not read the uploaded TCX file."
-    try:
-        parsed = parse_tcx_bytes(file_bytes)
-    except TcxParseError as exc:
-        return None, None, str(exc)
-    return parsed, file_bytes, None
+    combined = combine_tcx_route_imports(parsed_imports)
+    if not combined:
+        return None, None, None
+    return combined, b"\n\n".join(file_payloads), None
 
 
 def sync_hike_route_import(
@@ -1070,8 +1100,8 @@ def sync_hike_route_import(
 
     storage_path, public_url = storage.upload_hike_route_import(hike_id, file_bytes)
     payload = {
-        "source_type": "mapmyrun_tcx",
-        "source_file_name": str(getattr(uploaded_file, "name", "") or "").strip() or None,
+        "source_type": "mapmyrun_tcx_collection" if len(_normalize_uploaded_route_files(uploaded_file)) > 1 else "mapmyrun_tcx",
+        "source_file_name": _route_import_source_name(uploaded_file),
         "source_storage_path": storage_path,
         "source_public_url": public_url,
         "started_at": parsed.started_at,
@@ -1095,13 +1125,7 @@ def sync_hike_route_import(
     return updated, None
 
 
-def route_import_to_route_points(route_import: dict[str, Any] | None) -> list[dict[str, float]]:
-    if not route_import:
-        return []
-    geojson = route_import.get("track_geojson") or {}
-    coordinates = geojson.get("coordinates") if isinstance(geojson, dict) else None
-    if not isinstance(coordinates, list):
-        return []
+def _coordinates_to_route_points(coordinates: list[Any]) -> list[dict[str, float]]:
     points: list[dict[str, float]] = []
     for coordinate in coordinates:
         if not isinstance(coordinate, (list, tuple)) or len(coordinate) < 2:
@@ -1113,6 +1137,35 @@ def route_import_to_route_points(route_import: dict[str, Any] | None) -> list[di
             continue
         points.append({"lat": lat, "lng": lng})
     return points
+
+
+def route_import_to_route_groups(route_import: dict[str, Any] | None) -> list[list[dict[str, float]]]:
+    if not route_import:
+        return []
+    geojson = route_import.get("track_geojson") or {}
+    coordinates = geojson.get("coordinates") if isinstance(geojson, dict) else None
+    if not isinstance(coordinates, list):
+        return []
+    if geojson.get("type") == "MultiLineString":
+        return [
+            points
+            for points in (
+                _coordinates_to_route_points(segment)
+                for segment in coordinates
+                if isinstance(segment, list)
+            )
+            if len(points) >= 2
+        ]
+    points = _coordinates_to_route_points(coordinates)
+    return [points] if len(points) >= 2 else []
+
+
+def route_import_to_route_points(route_import: dict[str, Any] | None) -> list[dict[str, float]]:
+    return [
+        point
+        for route_group in route_import_to_route_groups(route_import)
+        for point in route_group
+    ]
 
 
 def count_unique_species(observations: list[dict[str, Any]]) -> int:
@@ -2036,10 +2089,10 @@ def render_create_hike_dialog(repository: HikeJournalRepository, storage: Storag
             )
             notes = st.text_area("Opening notes", placeholder="What stood out about the day?", height=140)
             route_import_file = st.file_uploader(
-                "MapMyRun TCX export",
+                "MapMyRun TCX exports",
                 type=TCX_IMPORT_TYPES,
-                accept_multiple_files=False,
-                help="Optional: upload the TCX export for this outing to save the route line and route stats.",
+                accept_multiple_files=True,
+                help="Optional: upload one or more TCX exports for this outing to save route lines and route stats.",
             )
             use_imported_route_fields = st.checkbox("Use TCX date and distance for this outing", value=True)
             submitted = st.form_submit_button("Create hike", use_container_width=True)
@@ -2073,7 +2126,7 @@ def render_create_hike_dialog(repository: HikeJournalRepository, storage: Storag
         created = repository.create_hike(draft)
         maybe_store_hike_location_tags(repository, created["id"], selected_locations, hike_locations)
         if route_import_file:
-            creation_status.write("Saving the imported route...")
+            creation_status.write("Saving the imported route data...")
             _, route_import_error = sync_hike_route_import(
                 repository=repository,
                 storage=storage,
@@ -2231,10 +2284,10 @@ def render_edit_hike_dialog(
         )
         notes = st.text_area("Notes", value=hike.get("notes") or "", height=140)
         route_import_file = st.file_uploader(
-            "MapMyRun TCX export",
+            "MapMyRun TCX exports",
             type=TCX_IMPORT_TYPES,
-            accept_multiple_files=False,
-            help="Upload a new TCX file to replace the saved route for this outing.",
+            accept_multiple_files=True,
+            help="Upload one or more TCX files to replace the saved route for this outing.",
         )
         use_imported_route_fields = st.checkbox("Use TCX date and distance for this outing", value=True)
         remove_route_import = st.checkbox("Remove the saved route import", value=False)
@@ -2684,10 +2737,10 @@ def render_journal_tab(
             )
             notes = st.text_area("Hike notes", value=selected_hike.get("notes") or "", height=180)
             route_import_file = st.file_uploader(
-                "MapMyRun TCX export",
+                "MapMyRun TCX exports",
                 type=TCX_IMPORT_TYPES,
-                accept_multiple_files=False,
-                help="Upload or replace the outing route export here.",
+                accept_multiple_files=True,
+                help="Upload one or more TCX files to replace the outing route data here.",
             )
             use_imported_route_fields = st.checkbox("Use TCX date and distance for this outing", value=True)
             remove_route_import = st.checkbox("Remove the saved route import", value=False)
@@ -3192,16 +3245,12 @@ def render_map_tab(
     geotagged_photos = [photo for photo in photos if photo.get("lat") is not None and photo.get("lng") is not None]
     imported_route_groups: list[list[dict[str, float]]] = []
     if selected_hike:
-        selected_route_points = route_import_to_route_points(route_imports_by_hike.get(str(selected_hike["id"])))
-        imported_route_groups = [selected_route_points] if len(selected_route_points) >= 2 else []
+        imported_route_groups = route_import_to_route_groups(route_imports_by_hike.get(str(selected_hike["id"])))
     else:
         imported_route_groups = [
             points
-            for points in (
-                route_import_to_route_points(route_import)
-                for route_import in route_imports_by_hike.values()
-            )
-            if len(points) >= 2
+            for route_import in route_imports_by_hike.values()
+            for points in route_import_to_route_groups(route_import)
         ]
 
     if not geotagged_photos and not imported_route_groups:
@@ -4491,7 +4540,7 @@ def apply_community_id_request(
     raw_payload = dict(observation.get("raw_response_json") or {})
     raw_payload["community_id_request"] = {
         **request_payload,
-        "requested_at": datetime.utcnow().isoformat(),
+        "requested_at": datetime.now(UTC).isoformat(),
         "replaced_identification": {
             "taxon_id": observation.get("taxon_id"),
             "common_name": observation.get("common_name"),
@@ -5088,7 +5137,7 @@ def sync_species_override_payload(
         raw_payload["manual_override"] = {
             "common_name": updated_common,
             "scientific_name": updated_scientific,
-            "edited_at": datetime.utcnow().isoformat(),
+            "edited_at": datetime.now(UTC).isoformat(),
         }
         raw_payload.pop("taxon_enrichment", None)
     else:

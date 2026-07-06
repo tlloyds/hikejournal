@@ -37,9 +37,12 @@ def _rational_to_float(value: Any) -> float:
 def _dms_to_decimal(values: list[Any] | tuple[Any, ...], ref: str) -> float | None:
     if len(values) != 3:
         return None
-    degrees = _rational_to_float(values[0])
-    minutes = _rational_to_float(values[1])
-    seconds = _rational_to_float(values[2])
+    try:
+        degrees = _rational_to_float(values[0])
+        minutes = _rational_to_float(values[1])
+        seconds = _rational_to_float(values[2])
+    except (TypeError, ValueError, ZeroDivisionError):
+        return None
     decimal = degrees + minutes / 60 + seconds / 3600
     if ref in {"S", "W"}:
         decimal *= -1
@@ -107,14 +110,30 @@ def _parse_exifread_metadata(image_bytes: bytes) -> dict[str, Any]:
 
 
 def extract_metadata(image_bytes: bytes) -> PhotoMetadata:
-    with Image.open(BytesIO(image_bytes)) as image:
-        raw_exif = image.getexif() or {}
-        gps_ifd = {}
-        if hasattr(raw_exif, "get_ifd"):
-            try:
-                gps_ifd = raw_exif.get_ifd(ExifTags.IFD.GPSInfo) or {}
-            except Exception:
-                gps_ifd = {}
+    try:
+        with Image.open(BytesIO(image_bytes)) as image:
+            raw_exif = image.getexif() or {}
+            gps_ifd = {}
+            if hasattr(raw_exif, "get_ifd"):
+                try:
+                    gps_ifd = raw_exif.get_ifd(ExifTags.IFD.GPSInfo) or {}
+                except Exception:
+                    gps_ifd = {}
+    except Exception:
+        return PhotoMetadata(
+            lat=None,
+            lng=None,
+            taken_at=None,
+            exif_json={
+                "datetime_original": None,
+                "datetime_digitized": None,
+                "datetime": None,
+                "gps_latitude": None,
+                "gps_longitude": None,
+                "make": None,
+                "model": None,
+            },
+        )
 
     exif_map: dict[str, Any] = {}
     gps_map: dict[str, Any] = {ExifTags.GPSTAGS.get(k, str(k)): v for k, v in gps_ifd.items()} if gps_ifd else {}
