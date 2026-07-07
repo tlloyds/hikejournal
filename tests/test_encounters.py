@@ -181,3 +181,24 @@ def test_review_plan_chunks_large_encounters() -> None:
     )
 
     assert [group["photo_count"] for group in groups] == [8, 2]
+
+
+def test_review_plan_can_use_strict_smart_id_thresholds() -> None:
+    close_but_late = [
+        review_photo("close-a", minutes=0, lat=28.50336, lng=-80.92436),
+        review_photo("close-b", minutes=14, lat=28.50331, lng=-80.92418),
+    ]
+    same_stop_but_spread_out = [
+        review_photo("stop-a", minutes=0, lat=28.51361, lng=-80.98198),
+        review_photo("stop-b", minutes=1, lat=28.51369, lng=-80.98150),
+        review_photo("stop-c", minutes=3, lat=28.51328, lng=-80.98166),
+    ]
+
+    groups = build_review_photo_encounter_plan(
+        [*close_but_late, *same_stop_but_spread_out],
+        max_distance_meters=12,
+        max_minutes=2,
+    )
+
+    assert len(groups) == 5
+    assert all(group["photo_count"] == 1 for group in groups)

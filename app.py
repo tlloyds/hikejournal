@@ -72,6 +72,8 @@ apply_theme()
 REVIEW_QUEUE_STATUS = "in_review"
 TCX_IMPORT_TYPES = ["tcx", "xml"]
 GROUPED_ID_MAX_PHOTOS = 8
+SMART_ID_MAX_DISTANCE_METERS = 12
+SMART_ID_MAX_MINUTES = 2
 GROUPED_PUBLISH_MAX_PHOTOS = 8
 QUICK_UPLOAD_HIKE_FILTER = "Quick uploads"
 LOCATION_SEED_PATH = Path(__file__).resolve().parent / "data" / "hike_locations_seed.json"
@@ -5789,7 +5791,12 @@ def render_species_management_toolbar(
 
     selected_photos_only = [photo for photo in selected_photos if photo["id"] in selected_ids]
     selected_unprocessed = [photo for photo in selected_photos_only if photo["id"] not in primary_observation_by_photo]
-    smart_id_groups = build_review_photo_encounter_plan(selected_unprocessed, max_photos=GROUPED_ID_MAX_PHOTOS)
+    smart_id_groups = build_review_photo_encounter_plan(
+        selected_unprocessed,
+        max_distance_meters=SMART_ID_MAX_DISTANCE_METERS,
+        max_minutes=SMART_ID_MAX_MINUTES,
+        max_photos=GROUPED_ID_MAX_PHOTOS,
+    )
     smart_group_count = len([group for group in smart_id_groups if int(group["photo_count"]) > 1])
     smart_single_count = len([group for group in smart_id_groups if int(group["photo_count"]) == 1])
     grouped_scope_ids = {str(photo.get("hike_id") or "standalone") for photo in selected_unprocessed}
@@ -5869,7 +5876,7 @@ def render_species_management_toolbar(
                 st.session_state.species_page = 1
             st.rerun()
         if st.button(
-            f"One shared ID ({len(selected_unprocessed)})",
+            f"Selected as one ID ({len(selected_unprocessed)})",
             key="species_process_grouped",
             use_container_width=True,
             disabled=(
@@ -5927,7 +5934,11 @@ def render_species_management_toolbar(
 
     if selected_unprocessed and smart_id_groups:
         smart_pieces = [f"{smart_single_count} individual" if smart_single_count else "", f"{smart_group_count} grouped" if smart_group_count else ""]
-        action_cols[2].caption(f"Smart IDs will send {len(smart_id_groups)} ID request{'s' if len(smart_id_groups) != 1 else ''}: {', '.join(piece for piece in smart_pieces if piece)}.")
+        action_cols[2].caption(
+            f"Smart IDs will send {len(smart_id_groups)} ID request{'s' if len(smart_id_groups) != 1 else ''}: "
+            f"{', '.join(piece for piece in smart_pieces if piece)}. Auto-groups only within "
+            f"{SMART_ID_MAX_MINUTES:g} min and {SMART_ID_MAX_DISTANCE_METERS:g} m."
+        )
     if len(selected_unprocessed) == 1:
         st.caption("Single ID needs at least 2 unprocessed photos.")
     elif len(selected_unprocessed) > GROUPED_ID_MAX_PHOTOS:
@@ -6807,7 +6818,12 @@ def process_smart_species_photo_groups(
     if not photos_to_process:
         st.info("Everything selected here already has a saved species suggestion.")
         return 0
-    groups = build_review_photo_encounter_plan(photos_to_process, max_photos=GROUPED_ID_MAX_PHOTOS)
+    groups = build_review_photo_encounter_plan(
+        photos_to_process,
+        max_distance_meters=SMART_ID_MAX_DISTANCE_METERS,
+        max_minutes=SMART_ID_MAX_MINUTES,
+        max_photos=GROUPED_ID_MAX_PHOTOS,
+    )
     if not groups:
         st.info("No photos are ready for smart ID processing.")
         return 0
