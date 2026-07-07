@@ -1791,7 +1791,7 @@ body {
     padding-top: calc(5.35rem + env(safe-area-inset-top, 0px));
     padding-left: 1rem;
     padding-right: 1rem;
-    padding-bottom: calc(6.5rem + env(safe-area-inset-bottom, 0px));
+    padding-bottom: calc(10rem + env(safe-area-inset-bottom, 0px));
   }
 
   [data-testid="stSidebar"],
@@ -1915,7 +1915,7 @@ body {
     z-index: 999999;
     left: 0.75rem;
     right: 0.75rem;
-    bottom: calc(0.65rem + env(safe-area-inset-bottom, 0px));
+    bottom: calc(4.15rem + env(safe-area-inset-bottom, 0px));
     display: grid;
     grid-auto-flow: column;
     grid-auto-columns: 1fr;

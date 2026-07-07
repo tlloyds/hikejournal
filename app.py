@@ -1860,7 +1860,7 @@ def render_mobile_shell(hikes: list[dict[str, Any]], active_view: str) -> None:
                 z-index: 999999;
                 left: 0.75rem;
                 right: 0.75rem;
-                bottom: calc(0.65rem + env(safe-area-inset-bottom, 0px));
+                bottom: calc(4.15rem + env(safe-area-inset-bottom, 0px));
                 display: grid;
                 grid-auto-flow: column;
                 grid-auto-columns: 1fr;
@@ -5804,83 +5804,130 @@ def render_species_management_toolbar(
         for photo in selected_photos_only
         if primary_observation_by_photo.get(photo["id"])
     ]
-    id_action_cols = st.columns([0.18, 0.18, 0.16, 0.48], gap="small")
-    if id_action_cols[0].button(
-        f"Smart IDs ({len(selected_unprocessed)})",
-        key="species_process_smart_groups",
+
+    action_cols = st.columns([0.32, 0.18, 0.5], gap="small")
+    if selected_unprocessed:
+        primary_label = f"Smart IDs ({len(selected_unprocessed)})"
+        primary_disabled = not is_inat_client_ready(inat_client)
+    elif selected_pending:
+        primary_label = f"Confirm selected ({len(selected_pending)})"
+        primary_disabled = False
+    elif selected_scored:
+        primary_label = f"Reject selected ({len(selected_scored)})"
+        primary_disabled = False
+    else:
+        primary_label = f"Remove from review ({len(selected_photos_only)})"
+        primary_disabled = not selected_photos_only
+
+    if action_cols[0].button(
+        primary_label,
+        key="species_primary_batch_action",
         use_container_width=True,
-        disabled=not is_inat_client_ready(inat_client) or not selected_unprocessed,
+        disabled=primary_disabled,
         type="primary",
     ):
-        processed_count = process_smart_species_photo_groups(repository, inat_client, selected_photos_only, primary_observation_by_photo)
-        if processed_count:
-            st.session_state.species_review_stage = "Needs decisions"
-            st.session_state.species_page = 1
+        if selected_unprocessed:
+            processed_count = process_smart_species_photo_groups(repository, inat_client, selected_photos_only, primary_observation_by_photo)
+            if processed_count:
+                st.session_state.species_review_stage = "Needs decisions"
+                st.session_state.species_page = 1
+        elif selected_pending:
+            confirm_observations(repository, inat_client, [item for item in selected_pending if item])
+            clear_species_selection(selected_photos_only)
+        elif selected_scored:
+            reject_observations(repository, selected_scored, selected_photos_only)
+            clear_species_selection(selected_photos_only)
+        else:
+            repository.update_photo_processing_statuses([photo["id"] for photo in selected_photos_only], "ready")
+            invalidate_data_cache()
+            clear_species_selection(selected_photos_only)
         st.rerun()
-    if id_action_cols[1].button(
-        f"Individual ({len(selected_unprocessed)})",
-        key="species_process_selected",
-        use_container_width=True,
-        disabled=not is_inat_client_ready(inat_client) or not selected_unprocessed,
-    ):
-        processed_count = process_species_photos(repository, inat_client, selected_photos_only, primary_observation_by_photo)
-        if processed_count:
-            st.session_state.species_review_stage = "Needs decisions"
-            st.session_state.species_page = 1
-        st.rerun()
-    if id_action_cols[2].button(
-        f"Single ID ({len(selected_unprocessed)})",
-        key="species_process_grouped",
-        use_container_width=True,
-        disabled=(
-            not is_inat_client_ready(inat_client)
-            or len(selected_unprocessed) < 2
-            or len(selected_unprocessed) > GROUPED_ID_MAX_PHOTOS
-            or not grouped_scope_valid
-        ),
-        type="secondary",
-    ):
-        processed_count = process_species_photo_group(repository, inat_client, selected_photos_only, primary_observation_by_photo)
-        if processed_count:
-            st.session_state.species_review_stage = "Needs decisions"
-            st.session_state.species_page = 1
-        st.rerun()
+
+    with action_cols[1].popover("More"):
+        st.caption(f"{selected_count} selected")
+        if st.button(
+            f"Smart IDs ({len(selected_unprocessed)})",
+            key="species_process_smart_groups",
+            use_container_width=True,
+            disabled=not is_inat_client_ready(inat_client) or not selected_unprocessed,
+            type="primary",
+        ):
+            processed_count = process_smart_species_photo_groups(repository, inat_client, selected_photos_only, primary_observation_by_photo)
+            if processed_count:
+                st.session_state.species_review_stage = "Needs decisions"
+                st.session_state.species_page = 1
+            st.rerun()
+        if st.button(
+            f"Individual IDs ({len(selected_unprocessed)})",
+            key="species_process_selected",
+            use_container_width=True,
+            disabled=not is_inat_client_ready(inat_client) or not selected_unprocessed,
+        ):
+            processed_count = process_species_photos(repository, inat_client, selected_photos_only, primary_observation_by_photo)
+            if processed_count:
+                st.session_state.species_review_stage = "Needs decisions"
+                st.session_state.species_page = 1
+            st.rerun()
+        if st.button(
+            f"One shared ID ({len(selected_unprocessed)})",
+            key="species_process_grouped",
+            use_container_width=True,
+            disabled=(
+                not is_inat_client_ready(inat_client)
+                or len(selected_unprocessed) < 2
+                or len(selected_unprocessed) > GROUPED_ID_MAX_PHOTOS
+                or not grouped_scope_valid
+            ),
+        ):
+            processed_count = process_species_photo_group(repository, inat_client, selected_photos_only, primary_observation_by_photo)
+            if processed_count:
+                st.session_state.species_review_stage = "Needs decisions"
+                st.session_state.species_page = 1
+            st.rerun()
+        st.divider()
+        if st.button(
+            f"Confirm ({len(selected_pending)})",
+            key="species_confirm_selected",
+            use_container_width=True,
+            disabled=not selected_pending,
+        ):
+            confirm_observations(repository, inat_client, [item for item in selected_pending if item])
+            clear_species_selection(selected_photos_only)
+            st.rerun()
+        if st.button(
+            f"Reject ({len(selected_scored)})",
+            key="species_reject_selected",
+            use_container_width=True,
+            disabled=not selected_scored,
+            type="secondary",
+        ):
+            reject_observations(repository, selected_scored, selected_photos_only)
+            clear_species_selection(selected_photos_only)
+            st.rerun()
+        if st.button(
+            f"Remove from review ({len(selected_photos_only)})",
+            key="species_remove_selected",
+            use_container_width=True,
+            disabled=not selected_photos_only,
+            type="secondary",
+        ):
+            repository.update_photo_processing_statuses([photo["id"] for photo in selected_photos_only], "ready")
+            invalidate_data_cache()
+            clear_species_selection(selected_photos_only)
+            st.rerun()
+        st.button(
+            "Clear selection",
+            key="species_clear_selected_batch",
+            use_container_width=True,
+            type="tertiary",
+            disabled=not selected_count,
+            on_click=clear_species_selection,
+            args=(selected_photos_only,),
+        )
+
     if selected_unprocessed and smart_id_groups:
         smart_pieces = [f"{smart_single_count} individual" if smart_single_count else "", f"{smart_group_count} grouped" if smart_group_count else ""]
-        id_action_cols[3].caption(f"Smart IDs will send {len(smart_id_groups)} ID request{'s' if len(smart_id_groups) != 1 else ''}: {', '.join(piece for piece in smart_pieces if piece)}.")
-
-    batch_cols = st.columns([0.28, 0.22, 0.32, 0.18], gap="small")
-    if batch_cols[0].button(
-        f"Confirm selected ({selected_count})",
-        key="species_confirm_selected",
-        use_container_width=True,
-        disabled=not selected_pending,
-    ):
-        confirm_observations(repository, inat_client, [item for item in selected_pending if item])
-        clear_species_selection(selected_photos_only)
-        st.rerun()
-    if batch_cols[1].button(
-        f"Reject selected ({selected_count})",
-        key="species_reject_selected",
-        use_container_width=True,
-        disabled=not selected_scored,
-        type="secondary",
-    ):
-        reject_observations(repository, selected_scored, selected_photos_only)
-        clear_species_selection(selected_photos_only)
-        st.rerun()
-    if batch_cols[2].button(
-        f"Remove from review ({len(selected_photos_only)})",
-        key="species_remove_selected",
-        use_container_width=True,
-        disabled=not selected_photos_only,
-        type="secondary",
-    ):
-        repository.update_photo_processing_statuses([photo["id"] for photo in selected_photos_only], "ready")
-        invalidate_data_cache()
-        clear_species_selection(selected_photos_only)
-        st.rerun()
-    batch_cols[3].button("Clear", key="species_clear_selected_batch", use_container_width=True, type="tertiary", disabled=not selected_count, on_click=clear_species_selection, args=(selected_photos_only,))
+        action_cols[2].caption(f"Smart IDs will send {len(smart_id_groups)} ID request{'s' if len(smart_id_groups) != 1 else ''}: {', '.join(piece for piece in smart_pieces if piece)}.")
     if len(selected_unprocessed) == 1:
         st.caption("Single ID needs at least 2 unprocessed photos.")
     elif len(selected_unprocessed) > GROUPED_ID_MAX_PHOTOS:
