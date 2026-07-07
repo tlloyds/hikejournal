@@ -392,6 +392,31 @@ class HikeJournalRepository:
         self.client.table("species_observations").delete().eq("photo_id", photo_id).execute()
         self.client.table("photos").delete().eq("id", photo_id).execute()
 
+    def delete_observations(self, observation_ids: list[str]) -> None:
+        normalized_ids = [str(observation_id) for observation_id in observation_ids if str(observation_id).strip()]
+        if not normalized_ids:
+            return
+        for chunk_ids in self._chunks(normalized_ids, size=200):
+            self.client.table("species_observations").delete().in_("id", chunk_ids).execute()
+
+    def delete_observations_for_photo_ids(self, photo_ids: list[str]) -> None:
+        normalized_ids = [str(photo_id) for photo_id in photo_ids if str(photo_id).strip()]
+        if not normalized_ids:
+            return
+        for chunk_ids in self._chunks(normalized_ids, size=200):
+            self.client.table("species_observations").delete().in_("photo_id", chunk_ids).execute()
+
+    def delete_hike(self, hike_id: str) -> None:
+        self.client.table("hike_collaborators").delete().eq("hike_id", hike_id).execute()
+        try:
+            self.client.table("hike_location_tags").delete().eq("hike_id", hike_id).execute()
+        except Exception:
+            pass
+        self.client.table("hike_route_imports").delete().eq("hike_id", hike_id).execute()
+        self.client.table("species_observations").delete().eq("hike_id", hike_id).execute()
+        self.client.table("photos").delete().eq("hike_id", hike_id).execute()
+        self.client.table("hikes").delete().eq("id", hike_id).execute()
+
     def list_hike_collaborators(self) -> list[dict[str, Any]]:
         try:
             response = (

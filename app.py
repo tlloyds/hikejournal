@@ -1127,6 +1127,27 @@ def sync_hike_route_import(
     return updated, None
 
 
+def delete_hike_and_assets(repository: HikeJournalRepository, storage: StorageService, hike_id: str) -> None:
+    photos = repository.list_photos(hike_id)
+    route_import = repository.get_hike_route_import(hike_id)
+    storage_paths = [
+        str(photo.get("storage_path") or "").strip()
+        for photo in photos
+        if str(photo.get("storage_path") or "").strip()
+    ]
+    route_storage_path = str((route_import or {}).get("source_storage_path") or "").strip()
+    if route_storage_path:
+        storage_paths.append(route_storage_path)
+
+    repository.delete_hike(hike_id)
+
+    for storage_path in storage_paths:
+        try:
+            storage.delete_file(storage_path)
+        except Exception:
+            pass
+
+
 def _coordinates_to_route_points(coordinates: list[Any]) -> list[dict[str, float]]:
     points: list[dict[str, float]] = []
     for coordinate in coordinates:
@@ -2332,6 +2353,30 @@ def render_edit_hike_dialog(
                 st.session_state.active_view = "Library"
                 st.session_state.pending_view = "Library"
             st.rerun()
+
+    st.divider()
+    st.markdown("##### Delete outing")
+    st.caption("Deletes the hike, its photos, saved species suggestions, route import, and uploaded files.")
+    confirm_delete = st.checkbox("I understand this permanently deletes the outing", key=f"delete_hike_confirm_{hike['id']}")
+    delete_text = st.text_input(
+        "Type DELETE to confirm",
+        key=f"delete_hike_text_{hike['id']}",
+        placeholder="DELETE",
+    )
+    if st.button(
+        "Delete this hike",
+        key=f"delete_hike_button_{hike['id']}",
+        use_container_width=True,
+        type="secondary",
+        disabled=not confirm_delete or delete_text.strip() != "DELETE",
+    ):
+        with st.spinner("Deleting outing..."):
+            delete_hike_and_assets(repository, storage, str(hike["id"]))
+        st.session_state.selected_hike_id = None
+        st.session_state.active_view = "Library"
+        st.session_state.pending_view = "Library"
+        invalidate_data_cache()
+        st.rerun()
 
 
 def render_library_tab(
@@ -5781,8 +5826,7 @@ def render_species_management_toolbar(
             clear_species_selection(selected_photos)
             st.rerun()
         if st.button("Remove all from review", key="species_remove_all_queue", use_container_width=True, type="secondary", disabled=not selected_photos):
-            repository.update_photo_processing_statuses([photo["id"] for photo in selected_photos], "ready")
-            invalidate_data_cache()
+            remove_photos_from_review(repository, selected_photos)
             clear_species_selection(selected_photos)
             st.rerun()
     if not selected_count:
@@ -5845,8 +5889,7 @@ def render_species_management_toolbar(
             reject_observations(repository, selected_scored, selected_photos_only)
             clear_species_selection(selected_photos_only)
         else:
-            repository.update_photo_processing_statuses([photo["id"] for photo in selected_photos_only], "ready")
-            invalidate_data_cache()
+            remove_photos_from_review(repository, selected_photos_only)
             clear_species_selection(selected_photos_only)
         st.rerun()
 
@@ -5918,8 +5961,7 @@ def render_species_management_toolbar(
             disabled=not selected_photos_only,
             type="secondary",
         ):
-            repository.update_photo_processing_statuses([photo["id"] for photo in selected_photos_only], "ready")
-            invalidate_data_cache()
+            remove_photos_from_review(repository, selected_photos_only)
             clear_species_selection(selected_photos_only)
             st.rerun()
         st.button(
@@ -7024,18 +7066,27 @@ def reject_observations(
     photos: list[dict[str, Any]],
 ) -> None:
     rejected_photo_ids: set[str] = set()
+    rejected_observation_ids: list[str] = []
     for observation in observations:
         if not observation:
             continue
-        repository.update_observation_status(observation["id"], "rejected")
+        rejected_observation_ids.append(str(observation["id"]))
         if observation.get("photo_id"):
             rejected_photo_ids.add(str(observation["photo_id"]))
+    repository.delete_observations(rejected_observation_ids)
     photo_ids_to_reset = [
         photo["id"]
         for photo in photos
         if not rejected_photo_ids or photo["id"] in rejected_photo_ids
     ]
     repository.update_photo_processing_statuses(photo_ids_to_reset, "ready")
+    invalidate_data_cache()
+
+
+def remove_photos_from_review(repository: HikeJournalRepository, photos: list[dict[str, Any]]) -> None:
+    photo_ids = [str(photo["id"]) for photo in photos if photo.get("id")]
+    repository.delete_observations_for_photo_ids(photo_ids)
+    repository.update_photo_processing_statuses(photo_ids, "ready")
     invalidate_data_cache()
 
 
