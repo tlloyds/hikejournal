@@ -58,6 +58,11 @@ def _scope_key(row: dict[str, Any]) -> str:
     return f"hike:{hike_id}" if hike_id else "standalone"
 
 
+def _photo_scope_key(photo: dict[str, Any]) -> str:
+    hike_id = photo.get("hike_id")
+    return f"hike:{hike_id}" if hike_id else "standalone"
+
+
 def _row_datetime(row: dict[str, Any]) -> datetime | None:
     photo = row.get("photo", {})
     return _parse_datetime(photo.get("taken_at"))
@@ -138,6 +143,48 @@ def build_publish_encounter_plan(
                     group_rows
                     for group_rows in compatible_groups
                     if _fits_group(
+                        row,
+                        group_rows,
+                        max_distance_meters=max_distance_meters,
+                        max_minutes=max_minutes,
+                    )
+                ),
+                None,
+            )
+            if matched_group is None:
+                compatible_groups.append([row])
+            else:
+                matched_group.append(row)
+        groups.extend(_summarize_group(group_rows, max_photos=max_photos) for group_rows in compatible_groups)
+
+    groups.sort(key=lambda group: _row_sort_key(group["lead_row"]))
+    return groups
+
+
+def build_review_photo_encounter_plan(
+    photos: list[dict[str, Any]],
+    *,
+    max_distance_meters: float = 50,
+    max_minutes: float = 15,
+    max_photos: int = 8,
+) -> list[dict[str, Any]]:
+    partitions: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for photo in photos:
+        partitions[_photo_scope_key(photo)].append({"photo": photo})
+
+    groups: list[dict[str, Any]] = []
+    for partition_rows in partitions.values():
+        compatible_groups: list[list[dict[str, Any]]] = []
+        for row in sorted(partition_rows, key=_row_sort_key):
+            if _row_datetime(row) is None or _coordinates(row.get("photo", {})) is None:
+                compatible_groups.append([row])
+                continue
+            matched_group = next(
+                (
+                    group_rows
+                    for group_rows in compatible_groups
+                    if len(group_rows) < max_photos
+                    and _fits_group(
                         row,
                         group_rows,
                         max_distance_meters=max_distance_meters,

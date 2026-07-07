@@ -1,6 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
-from hike_journal.services.encounters import build_publish_encounter_plan
+from hike_journal.services.encounters import build_publish_encounter_plan, build_review_photo_encounter_plan
 
 
 BASE_TIME = datetime(2026, 6, 21, 14, 0, tzinfo=UTC)
@@ -33,6 +33,23 @@ def publish_row(
         },
         "hike": {"id": hike_id, "title": "Test outing"},
         "publish_state": "Ready to post",
+    }
+
+
+def review_photo(
+    suffix: str,
+    *,
+    hike_id: str | None = "hike-1",
+    minutes: int = 0,
+    lat: float | None = 28.6000,
+    lng: float | None = -81.1000,
+) -> dict:
+    return {
+        "id": f"photo-{suffix}",
+        "hike_id": hike_id,
+        "taken_at": (BASE_TIME + timedelta(minutes=minutes)).isoformat(),
+        "lat": lat,
+        "lng": lng,
     }
 
 
@@ -122,3 +139,45 @@ def test_name_fallback_groups_records_without_taxon_ids() -> None:
 
     assert len(groups) == 1
     assert groups[0]["photo_count"] == 2
+
+
+def test_review_plan_groups_nearby_photos_without_species() -> None:
+    groups = build_review_photo_encounter_plan(
+        [
+            review_photo("a"),
+            review_photo("b", minutes=8, lat=28.6002),
+            review_photo("far", minutes=2, lat=28.6010),
+            review_photo("other-hike", hike_id="hike-2", minutes=3, lat=28.6001),
+        ]
+    )
+
+    assert [group["photo_count"] for group in groups] == [2, 1, 1]
+    assert [row["photo"]["id"] for row in groups[0]["rows"]] == ["photo-a", "photo-b"]
+
+
+def test_review_plan_keeps_missing_time_or_gps_separate() -> None:
+    missing_time = review_photo("time")
+    missing_time["taken_at"] = None
+
+    groups = build_review_photo_encounter_plan(
+        [
+            review_photo("a"),
+            review_photo("gps", minutes=1, lat=None, lng=None),
+            missing_time,
+        ]
+    )
+
+    assert len(groups) == 3
+    assert all(group["photo_count"] == 1 for group in groups)
+
+
+def test_review_plan_chunks_large_encounters() -> None:
+    groups = build_review_photo_encounter_plan(
+        [
+            review_photo(str(index), minutes=index, lat=28.6000 + index * 0.00001)
+            for index in range(10)
+        ],
+        max_photos=8,
+    )
+
+    assert [group["photo_count"] for group in groups] == [8, 2]
