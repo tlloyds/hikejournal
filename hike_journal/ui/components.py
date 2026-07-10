@@ -31,6 +31,7 @@ def render_hero(
     *,
     route_import: dict[str, Any] | None = None,
     total_miles: float | None = None,
+    cover_photo_url: str | None = None,
 ) -> None:
     if selected_hike:
         title = selected_hike["title"]
@@ -74,16 +75,26 @@ def render_hero(
             f"{species_count} unique species",
         ]
 
+    hero_class = "hero-shell hero-shell--photo" if cover_photo_url else "hero-shell"
+    photo_markup = (
+        f'<img class="hero-media" src="{escape(cover_photo_url, quote=True)}" alt="" decoding="async">'
+        if cover_photo_url
+        else ""
+    )
     st.markdown(
         f"""
-        <section class="hero-shell">
-            <div class="hero-kicker">Field Journal • Florida Ready</div>
-            <h1 class="hero-brand">{title}</h1>
-            <p class="hero-subcopy">{supporting}</p>
-            <div class="metric-line">
-                {''.join(f"<span>{escape(item)}</span>" for item in metric_items if item)}
+        <section class="{hero_class}">
+            {photo_markup}
+            <div class="hero-scrim"></div>
+            <div class="hero-content">
+                <div class="hero-kicker">Field Journal · Florida</div>
+                <h1 class="hero-brand">{escape(str(title))}</h1>
+                <p class="hero-subcopy">{escape(str(supporting))}</p>
+                <div class="metric-line">
+                    {''.join(f"<span>{escape(item)}</span>" for item in metric_items if item)}
+                </div>
+                <p class="hero-subcopy hero-summary">{escape(str(summary))}</p>
             </div>
-            <p class="hero-subcopy">{summary}</p>
         </section>
         """,
         unsafe_allow_html=True,

@@ -596,26 +596,21 @@ def main() -> None:
 
     sync_viewer_from_query_params(viewer_photos)
 
-    hero_hike = selected_hike if st.session_state.active_view in {"Journal", "Map"} else None
-    if standalone_journal_active:
-        hero_photo_count = len(photos)
-        hero_confirmed_count = count_unique_species([item for item in observations if item.get("status") == "confirmed"])
-    else:
-        hero_photo_count = len(photos) if hero_hike else (
-            len(library_photo_refs) if st.session_state.active_view == "Library" else len(all_visible_photos)
+    if st.session_state.active_view == "Journal" and selected_hike:
+        cover_photo = next(
+            (photo for photo in photos if str(photo.get("id")) == str(selected_hike.get("cover_photo_id") or "")),
+            photos[0] if photos else None,
         )
-        hero_confirmed_count = count_unique_species([item for item in observations if item.get("status") == "confirmed"]) if hero_hike else (
-            visible_unique_species_count if st.session_state.active_view == "Library" else count_unique_species(confirmed_visible_observations)
+        render_hero(
+            selected_hike,
+            len(visible_hikes),
+            len(photos),
+            count_unique_species([item for item in observations if item.get("status") == "confirmed"]),
+            route_import=route_import,
+            total_miles=total_logged_miles,
+            cover_photo_url=str(cover_photo.get("public_url")) if cover_photo and cover_photo.get("public_url") else None,
         )
-    render_hero(
-        hero_hike,
-        len(visible_hikes),
-        hero_photo_count,
-        hero_confirmed_count,
-        route_import=route_import if hero_hike else None,
-        total_miles=total_logged_miles,
-    )
-    st.write("")
+        st.write("")
 
     if not selected_hike and not standalone_journal_active and st.session_state.active_view not in top_level_views:
         render_empty_state()
@@ -2401,25 +2396,47 @@ def render_library_tab(
     total_confirmed_count = count_unique_species(confirmed_observations)
     total_outing_count = len(hikes)
     total_logged_miles = compute_total_mileage(hikes)
+    featured_hike = next(
+        (
+            hike
+            for hike in sorted(hikes, key=lambda item: str(item.get("hike_date") or ""), reverse=True)
+            if hike.get("cover_photo_id") and str(hike.get("cover_photo_id")) in cover_photos_by_id
+        ),
+        None,
+    )
+    featured_photo = cover_photos_by_id.get(str(featured_hike.get("cover_photo_id"))) if featured_hike else None
+    featured_image = (
+        f'<img class="library-hero-media" src="{escape(str(featured_photo.get("public_url")), quote=True)}" alt="" decoding="async">'
+        if featured_photo and featured_photo.get("public_url")
+        else ""
+    )
+    featured_action = (
+        f'<a class="library-hero-action" href="?view=Journal&amp;hike={quote(str(featured_hike["id"]))}" target="_self">Continue {escape(str(featured_hike.get("title") or "latest outing"))}</a>'
+        if featured_hike
+        else ""
+    )
     standalone_photos = [
         photo for photo in fetch_standalone_photos()
         if record_visible_for_user(photo, {hike["id"] for hike in hikes}, user_context)
     ]
     st.markdown(
         f"""
-        <section class="library-hero">
+        <section class="library-hero{' library-hero--photo' if featured_image else ''}">
+            {featured_image}
+            <div class="library-hero-scrim"></div>
             <div class="library-hero-copy">
-                <p class="library-hero-label">Library</p>
-                <h2 class="library-hero-title">Your field archive, shaped like a living trail record.</h2>
-                <p class="library-hero-body">Move between outings, everyday sightings, maps, and confirmed species without losing the story of where each sighting belongs.</p>
-                <div class="library-hero-meta">
-                    <span>{total_outing_count} outings</span>
-                    <span>{format_total_miles(total_logged_miles)}</span>
-                    <span>{total_photo_count} archived photos</span>
-                    <span>{total_confirmed_count} unique species</span>
-                </div>
+                <p class="library-hero-label">Field journal · Florida</p>
+                <h1 class="library-hero-title">HikeJournal</h1>
+                <p class="library-hero-body">Outings, photographs, maps, and species observations in one living field record.</p>
+                {featured_action}
             </div>
         </section>
+        <div class="library-index-line">
+            <span>{total_outing_count} outings</span>
+            <span>{format_total_miles(total_logged_miles)}</span>
+            <span>{total_photo_count} photographs</span>
+            <span>{total_confirmed_count} species</span>
+        </div>
         """,
         unsafe_allow_html=True,
     )
@@ -2764,9 +2781,9 @@ def render_journal_tab(
 ) -> None:
     st.markdown("<div id='journal-top'></div>", unsafe_allow_html=True)
     section_heading(
-        "Journal",
-        "Field notes for this outing",
-        "Keep the story of the day, add the photos you want to remember, and mark the frames worth identifying.",
+        "Outing workspace",
+        "Details and photographs",
+        "Update the route and field notes, add photographs, or continue through the outing record below.",
     )
     st.write("")
 
@@ -3283,15 +3300,15 @@ def render_map_tab(
 ) -> None:
     if selected_hike:
         section_heading(
-            "Trail Map",
-            "See where the day unfolded",
-            "Follow the route, open geotagged photos, and view confirmed species where you found them.",
+            "Outing map",
+            "Route and observations",
+            "Follow the track, open geotagged photographs, and inspect confirmed species in place.",
         )
     else:
         section_heading(
-            "Trail Map",
-            "See the full field record at once",
-            "Browse geotagged photos across every outing, filter confirmed species, and jump straight into the photo you want.",
+            "Master map",
+            "Your field record in place",
+            "Browse geotagged photographs across every outing and filter the confirmed species layered over them.",
         )
     st.write("")
     geotagged_photos = [photo for photo in photos if photo.get("lat") is not None and photo.get("lng") is not None]
@@ -3494,8 +3511,8 @@ def render_species_log_tab(
     st.markdown("<div id='species-log-top'></div>", unsafe_allow_html=True)
     section_heading(
         "Species Log",
-        "Your field guide",
-        "Search by the name you know, then open one species record at a time to revisit where and when you found it.",
+        "Field index",
+        "Search the species record, then open an entry to revisit where and when it was observed.",
     )
     st.write("")
 
@@ -3515,45 +3532,46 @@ def render_species_log_tab(
     if st.session_state.get("species_log_sort") not in sort_options:
         st.session_state.species_log_sort = "Most recent"
 
-    controls = st.columns([0.28, 0.18, 0.14, 0.12, 0.14, 0.14], gap="small")
-    query = controls[0].text_input(
-        "Search species",
-        placeholder="Blueberry, milkweed, duck potato, Vaccinium, oak...",
-        key="species_log_query",
-        label_visibility="collapsed",
-        on_change=reset_species_log_page,
-    )
-    controls[1].selectbox(
-        "Hike filter",
-        hike_options,
-        key="species_log_hike_filter",
-        label_visibility="collapsed",
-        on_change=reset_species_log_page,
-    )
-    controls[2].toggle(
-        "Mapped only",
-        key="species_log_mapped_only",
-        on_change=reset_species_log_page,
-    )
-    controls[3].selectbox(
-        "Posted filter",
-        ["All", "Posted", "Not posted"],
-        key="species_log_posted_filter",
-        label_visibility="collapsed",
-        on_change=reset_species_log_page,
-    )
-    controls[4].toggle(
-        "Include secondary",
-        key="species_log_include_secondary",
-        on_change=reset_species_log_page,
-    )
-    controls[5].selectbox(
-        "Sort species",
-        sort_options,
-        key="species_log_sort",
-        label_visibility="collapsed",
-        on_change=reset_species_log_page,
-    )
+    with st.container(key="species_log_filters"):
+        controls = st.columns([0.28, 0.18, 0.14, 0.12, 0.14, 0.14], gap="small")
+        query = controls[0].text_input(
+            "Search species",
+            placeholder="Blueberry, milkweed, duck potato, Vaccinium, oak...",
+            key="species_log_query",
+            label_visibility="collapsed",
+            on_change=reset_species_log_page,
+        )
+        controls[1].selectbox(
+            "Hike filter",
+            hike_options,
+            key="species_log_hike_filter",
+            label_visibility="collapsed",
+            on_change=reset_species_log_page,
+        )
+        controls[2].toggle(
+            "Mapped only",
+            key="species_log_mapped_only",
+            on_change=reset_species_log_page,
+        )
+        controls[3].selectbox(
+            "Posted filter",
+            ["All", "Posted", "Not posted"],
+            key="species_log_posted_filter",
+            label_visibility="collapsed",
+            on_change=reset_species_log_page,
+        )
+        controls[4].toggle(
+            "Include secondary",
+            key="species_log_include_secondary",
+            on_change=reset_species_log_page,
+        )
+        controls[5].selectbox(
+            "Sort species",
+            sort_options,
+            key="species_log_sort",
+            label_visibility="collapsed",
+            on_change=reset_species_log_page,
+        )
 
     render_species_log_inat_sync_panel(repository, inat_client, posted_observations)
 
@@ -3644,7 +3662,8 @@ def render_species_log_inat_sync_panel(
     posted_observations: list[dict[str, Any]],
 ) -> None:
     candidates = st.session_state.get("inat_sync_candidates") or {}
-    panel_cols = st.columns([0.54, 0.18, 0.14, 0.14], gap="small")
+    panel_container = st.container(key="species_log_sync_panel")
+    panel_cols = panel_container.columns([0.54, 0.18, 0.14, 0.14], gap="small")
     panel_cols[0].markdown(
         (
             "<div class='utility-rail-status'>"

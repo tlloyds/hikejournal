@@ -1,10 +1,22 @@
 [theme]
 base = "light"
-primaryColor = "#30473A"
-backgroundColor = "#F6F0E4"
-secondaryBackgroundColor = "#EFE6D7"
-textColor = "#1F2A26"
-font = "sans serif"
+primaryColor = "#C56A35"
+backgroundColor = "#F8FAF7"
+secondaryBackgroundColor = "#EEF3EF"
+textColor = "#14231B"
+font = "sans-serif"
+baseRadius = "6px"
+buttonRadius = "6px"
+borderColor = "#D3DED7"
+showWidgetBorder = true
+
+[theme.sidebar]
+primaryColor = "#F2B16E"
+backgroundColor = "#10291D"
+secondaryBackgroundColor = "#1B3B2C"
+textColor = "#F7FAF6"
+borderColor = "#345344"
+showWidgetBorder = true
 
 [client]
 toolbarMode = "minimal"
