@@ -1,6 +1,11 @@
 from datetime import UTC, datetime, timedelta
 
-from hike_journal.services.encounters import build_publish_encounter_plan, build_review_photo_encounter_plan
+from hike_journal.services.encounters import (
+    build_publish_encounter_plan,
+    build_review_photo_encounter_plan,
+    split_encounter_plan,
+    split_review_photo_encounter_plan,
+)
 
 
 BASE_TIME = datetime(2026, 6, 21, 14, 0, tzinfo=UTC)
@@ -132,6 +137,37 @@ def test_group_over_eight_photos_is_flagged() -> None:
     assert groups[0]["oversized"] is True
 
 
+def test_publish_plan_can_split_photos_into_separate_observations() -> None:
+    groups = build_publish_encounter_plan(
+        [
+            publish_row("a"),
+            publish_row("b", minutes=1, lat=28.60001),
+            publish_row("c", minutes=2, lat=28.60002),
+        ]
+    )
+
+    split_groups = split_encounter_plan(groups, {"photo-b"})
+
+    assert [group["photo_count"] for group in split_groups] == [2, 1]
+    assert [row["photo"]["id"] for row in split_groups[0]["rows"]] == ["photo-a", "photo-c"]
+    assert split_groups[1]["lead_row"]["observation"]["id"] == "observation-b"
+
+
+def test_publish_split_can_resolve_an_oversized_group() -> None:
+    groups = build_publish_encounter_plan(
+        [
+            publish_row(str(index), minutes=index, lat=28.6000 + index * 0.00001)
+            for index in range(9)
+        ],
+        max_photos=8,
+    )
+
+    split_groups = split_encounter_plan(groups, {"photo-8"}, max_photos=8)
+
+    assert [group["photo_count"] for group in split_groups] == [8, 1]
+    assert all(group["oversized"] is False for group in split_groups)
+
+
 def test_name_fallback_groups_records_without_taxon_ids() -> None:
     rows = [publish_row("a", taxon_id=None), publish_row("b", taxon_id=None, minutes=1)]
 
@@ -202,3 +238,29 @@ def test_review_plan_can_use_strict_smart_id_thresholds() -> None:
 
     assert len(groups) == 5
     assert all(group["photo_count"] == 1 for group in groups)
+
+
+def test_review_plan_can_pull_selected_photos_into_individual_ids() -> None:
+    groups = build_review_photo_encounter_plan(
+        [
+            review_photo("a"),
+            review_photo("b", minutes=1, lat=28.60001),
+            review_photo("c", minutes=2, lat=28.60002),
+        ]
+    )
+
+    split_groups = split_review_photo_encounter_plan(groups, {"photo-b"})
+
+    assert [group["photo_count"] for group in split_groups] == [2, 1]
+    assert [row["photo"]["id"] for row in split_groups[0]["rows"]] == ["photo-a", "photo-c"]
+    assert split_groups[1]["lead_row"]["photo"]["id"] == "photo-b"
+
+
+def test_splitting_one_photo_from_pair_makes_both_individual() -> None:
+    groups = build_review_photo_encounter_plan(
+        [review_photo("a"), review_photo("b", minutes=1, lat=28.60001)]
+    )
+
+    split_groups = split_review_photo_encounter_plan(groups, {"photo-a"})
+
+    assert [group["photo_count"] for group in split_groups] == [1, 1]

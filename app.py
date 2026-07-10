@@ -23,7 +23,12 @@ from hike_journal.config import (
 )
 from hike_journal.models import HikeDraft, SpeciesCandidate
 from hike_journal.services.exif import extract_metadata
-from hike_journal.services.encounters import build_publish_encounter_plan, build_review_photo_encounter_plan
+from hike_journal.services.encounters import (
+    build_publish_encounter_plan,
+    build_review_photo_encounter_plan,
+    split_encounter_plan,
+    split_review_photo_encounter_plan,
+)
 from hike_journal.services.image_processing import optimize_image
 from hike_journal.services.inat import (
     InatAuthError,
@@ -43,6 +48,7 @@ from hike_journal.services.inat import (
     save_oauth_token_payload_for_user,
 )
 from hike_journal.services.repositories import HikeJournalRepository
+from hike_journal.services.species_identification import select_shared_candidate
 from hike_journal.services.storage import StorageService
 from hike_journal.services.supabase_client import get_supabase
 from hike_journal.services.tcx import (
@@ -591,26 +597,21 @@ def main() -> None:
 
     sync_viewer_from_query_params(viewer_photos)
 
-    hero_hike = selected_hike if st.session_state.active_view in {"Journal", "Map"} else None
-    if standalone_journal_active:
-        hero_photo_count = len(photos)
-        hero_confirmed_count = count_unique_species([item for item in observations if item.get("status") == "confirmed"])
-    else:
-        hero_photo_count = len(photos) if hero_hike else (
-            len(library_photo_refs) if st.session_state.active_view == "Library" else len(all_visible_photos)
+    if st.session_state.active_view == "Journal" and selected_hike:
+        cover_photo = next(
+            (photo for photo in photos if str(photo.get("id")) == str(selected_hike.get("cover_photo_id") or "")),
+            photos[0] if photos else None,
         )
-        hero_confirmed_count = count_unique_species([item for item in observations if item.get("status") == "confirmed"]) if hero_hike else (
-            visible_unique_species_count if st.session_state.active_view == "Library" else count_unique_species(confirmed_visible_observations)
+        render_hero(
+            selected_hike,
+            len(visible_hikes),
+            len(photos),
+            count_unique_species([item for item in observations if item.get("status") == "confirmed"]),
+            route_import=route_import,
+            total_miles=total_logged_miles,
+            cover_photo_url=str(cover_photo.get("public_url")) if cover_photo and cover_photo.get("public_url") else None,
         )
-    render_hero(
-        hero_hike,
-        len(visible_hikes),
-        hero_photo_count,
-        hero_confirmed_count,
-        route_import=route_import if hero_hike else None,
-        total_miles=total_logged_miles,
-    )
-    st.write("")
+        st.write("")
 
     if not selected_hike and not standalone_journal_active and st.session_state.active_view not in top_level_views:
         render_empty_state()
@@ -2396,25 +2397,47 @@ def render_library_tab(
     total_confirmed_count = count_unique_species(confirmed_observations)
     total_outing_count = len(hikes)
     total_logged_miles = compute_total_mileage(hikes)
+    featured_hike = next(
+        (
+            hike
+            for hike in sorted(hikes, key=lambda item: str(item.get("hike_date") or ""), reverse=True)
+            if hike.get("cover_photo_id") and str(hike.get("cover_photo_id")) in cover_photos_by_id
+        ),
+        None,
+    )
+    featured_photo = cover_photos_by_id.get(str(featured_hike.get("cover_photo_id"))) if featured_hike else None
+    featured_image = (
+        f'<img class="library-hero-media" src="{escape(str(featured_photo.get("public_url")), quote=True)}" alt="" decoding="async">'
+        if featured_photo and featured_photo.get("public_url")
+        else ""
+    )
+    featured_action = (
+        f'<a class="library-hero-action" href="?view=Journal&amp;hike={quote(str(featured_hike["id"]))}" target="_self">Continue {escape(str(featured_hike.get("title") or "latest outing"))}</a>'
+        if featured_hike
+        else ""
+    )
     standalone_photos = [
         photo for photo in fetch_standalone_photos()
         if record_visible_for_user(photo, {hike["id"] for hike in hikes}, user_context)
     ]
     st.markdown(
         f"""
-        <section class="library-hero">
+        <section class="library-hero{' library-hero--photo' if featured_image else ''}">
+            {featured_image}
+            <div class="library-hero-scrim"></div>
             <div class="library-hero-copy">
-                <p class="library-hero-label">Library</p>
-                <h2 class="library-hero-title">Your field archive, shaped like a living trail record.</h2>
-                <p class="library-hero-body">Move between outings, everyday sightings, maps, and confirmed species without losing the story of where each sighting belongs.</p>
-                <div class="library-hero-meta">
-                    <span>{total_outing_count} outings</span>
-                    <span>{format_total_miles(total_logged_miles)}</span>
-                    <span>{total_photo_count} archived photos</span>
-                    <span>{total_confirmed_count} unique species</span>
-                </div>
+                <p class="library-hero-label">Field journal · Florida</p>
+                <h1 class="library-hero-title">HikeJournal</h1>
+                <p class="library-hero-body">Outings, photographs, maps, and species observations in one living field record.</p>
+                {featured_action}
             </div>
         </section>
+        <div class="library-index-line">
+            <span>{total_outing_count} outings</span>
+            <span>{format_total_miles(total_logged_miles)}</span>
+            <span>{total_photo_count} photographs</span>
+            <span>{total_confirmed_count} species</span>
+        </div>
         """,
         unsafe_allow_html=True,
     )
@@ -2759,9 +2782,9 @@ def render_journal_tab(
 ) -> None:
     st.markdown("<div id='journal-top'></div>", unsafe_allow_html=True)
     section_heading(
-        "Journal",
-        "Field notes for this outing",
-        "Keep the story of the day, add the photos you want to remember, and mark the frames worth identifying.",
+        "Outing workspace",
+        "Details and photographs",
+        "Update the route and field notes, add photographs, or continue through the outing record below.",
     )
     st.write("")
 
@@ -3278,15 +3301,15 @@ def render_map_tab(
 ) -> None:
     if selected_hike:
         section_heading(
-            "Trail Map",
-            "See where the day unfolded",
-            "Follow the route, open geotagged photos, and view confirmed species where you found them.",
+            "Outing map",
+            "Route and observations",
+            "Follow the track, open geotagged photographs, and inspect confirmed species in place.",
         )
     else:
         section_heading(
-            "Trail Map",
-            "See the full field record at once",
-            "Browse geotagged photos across every outing, filter confirmed species, and jump straight into the photo you want.",
+            "Master map",
+            "Your field record in place",
+            "Browse geotagged photographs across every outing and filter the confirmed species layered over them.",
         )
     st.write("")
     geotagged_photos = [photo for photo in photos if photo.get("lat") is not None and photo.get("lng") is not None]
@@ -3489,8 +3512,8 @@ def render_species_log_tab(
     st.markdown("<div id='species-log-top'></div>", unsafe_allow_html=True)
     section_heading(
         "Species Log",
-        "Your field guide",
-        "Search by the name you know, then open one species record at a time to revisit where and when you found it.",
+        "Field index",
+        "Search the species record, then open an entry to revisit where and when it was observed.",
     )
     st.write("")
 
@@ -3510,45 +3533,46 @@ def render_species_log_tab(
     if st.session_state.get("species_log_sort") not in sort_options:
         st.session_state.species_log_sort = "Most recent"
 
-    controls = st.columns([0.28, 0.18, 0.14, 0.12, 0.14, 0.14], gap="small")
-    query = controls[0].text_input(
-        "Search species",
-        placeholder="Blueberry, milkweed, duck potato, Vaccinium, oak...",
-        key="species_log_query",
-        label_visibility="collapsed",
-        on_change=reset_species_log_page,
-    )
-    controls[1].selectbox(
-        "Hike filter",
-        hike_options,
-        key="species_log_hike_filter",
-        label_visibility="collapsed",
-        on_change=reset_species_log_page,
-    )
-    controls[2].toggle(
-        "Mapped only",
-        key="species_log_mapped_only",
-        on_change=reset_species_log_page,
-    )
-    controls[3].selectbox(
-        "Posted filter",
-        ["All", "Posted", "Not posted"],
-        key="species_log_posted_filter",
-        label_visibility="collapsed",
-        on_change=reset_species_log_page,
-    )
-    controls[4].toggle(
-        "Include secondary",
-        key="species_log_include_secondary",
-        on_change=reset_species_log_page,
-    )
-    controls[5].selectbox(
-        "Sort species",
-        sort_options,
-        key="species_log_sort",
-        label_visibility="collapsed",
-        on_change=reset_species_log_page,
-    )
+    with st.container(key="species_log_filters"):
+        controls = st.columns([0.28, 0.18, 0.14, 0.12, 0.14, 0.14], gap="small")
+        query = controls[0].text_input(
+            "Search species",
+            placeholder="Blueberry, milkweed, duck potato, Vaccinium, oak...",
+            key="species_log_query",
+            label_visibility="collapsed",
+            on_change=reset_species_log_page,
+        )
+        controls[1].selectbox(
+            "Hike filter",
+            hike_options,
+            key="species_log_hike_filter",
+            label_visibility="collapsed",
+            on_change=reset_species_log_page,
+        )
+        controls[2].toggle(
+            "Mapped only",
+            key="species_log_mapped_only",
+            on_change=reset_species_log_page,
+        )
+        controls[3].selectbox(
+            "Posted filter",
+            ["All", "Posted", "Not posted"],
+            key="species_log_posted_filter",
+            label_visibility="collapsed",
+            on_change=reset_species_log_page,
+        )
+        controls[4].toggle(
+            "Include secondary",
+            key="species_log_include_secondary",
+            on_change=reset_species_log_page,
+        )
+        controls[5].selectbox(
+            "Sort species",
+            sort_options,
+            key="species_log_sort",
+            label_visibility="collapsed",
+            on_change=reset_species_log_page,
+        )
 
     render_species_log_inat_sync_panel(repository, inat_client, posted_observations)
 
@@ -3639,7 +3663,8 @@ def render_species_log_inat_sync_panel(
     posted_observations: list[dict[str, Any]],
 ) -> None:
     candidates = st.session_state.get("inat_sync_candidates") or {}
-    panel_cols = st.columns([0.54, 0.18, 0.14, 0.14], gap="small")
+    panel_container = st.container(key="species_log_sync_panel")
+    panel_cols = panel_container.columns([0.54, 0.18, 0.14, 0.14], gap="small")
     panel_cols[0].markdown(
         (
             "<div class='utility-rail-status'>"
@@ -5730,6 +5755,122 @@ def render_photo_management_toolbar(
             st.rerun()
 
 
+@st.dialog("Review ID requests", width="medium")
+def render_smart_id_plan_dialog(
+    repository: HikeJournalRepository,
+    inat_client: InatClient,
+    photos_to_process: list[dict[str, Any]],
+    primary_observation_by_photo: dict[str, dict[str, Any]],
+) -> None:
+    proposed_groups = build_review_photo_encounter_plan(
+        photos_to_process,
+        max_distance_meters=SMART_ID_MAX_DISTANCE_METERS,
+        max_minutes=SMART_ID_MAX_MINUTES,
+        max_photos=GROUPED_ID_MAX_PHOTOS,
+    )
+    display_groups = sorted(proposed_groups, key=lambda group: int(group["photo_count"]) == 1)
+    st.markdown(
+        f"""
+        <div class="encounter-plan-marker encounter-plan-intro">
+            <strong>{len(photos_to_process)} selected photos</strong>
+            <span>Nearby photos are proposed as one decision. Check anything that should be submitted separately.</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    separate_photo_ids: set[str] = set()
+    for index, group in enumerate(display_groups, start=1):
+        rows = group["rows"]
+        photo_count = int(group["photo_count"])
+        if index > 1:
+            st.markdown('<div class="encounter-plan-divider"></div>', unsafe_allow_html=True)
+        if photo_count > 1:
+            st.markdown(
+                f"""
+                <div class="encounter-plan-heading">
+                    <strong>Proposed Group · {photo_count} photos</strong>
+                    <span>{float(group['time_span_minutes']):.1f} min · {float(group['max_distance_meters']):.0f} m spread</span>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                '<div class="encounter-plan-heading"><strong>Individual</strong></div>',
+                unsafe_allow_html=True,
+            )
+
+        for row_start in range(0, len(rows), 4):
+            photo_rows = rows[row_start : row_start + 4]
+            photo_columns = st.columns(4, gap="small")
+            for photo_column, row in zip(photo_columns[: len(photo_rows)], photo_rows, strict=True):
+                photo = row["photo"]
+                with photo_column:
+                    thumbnail_url = get_photo_thumbnail_url(photo)
+                    st.markdown(
+                        f'<div class="encounter-plan-thumbnail"><img src="{escape(thumbnail_url, quote=True)}" alt=""></div>',
+                        unsafe_allow_html=True,
+                    )
+                    if photo_count > 1 and st.checkbox(
+                        "Split",
+                        key=f"smart_id_separate_{photo['id']}",
+                        help="Submit this photo as an individual ID request.",
+                    ):
+                        separate_photo_ids.add(str(photo["id"]))
+
+    planned_groups = split_review_photo_encounter_plan(
+        proposed_groups,
+        separate_photo_ids,
+        max_photos=GROUPED_ID_MAX_PHOTOS,
+    )
+    grouped_count = len([group for group in planned_groups if int(group["photo_count"]) > 1])
+    individual_count = len(planned_groups) - grouped_count
+    request_count = len(planned_groups)
+    st.markdown('<div class="encounter-plan-divider encounter-plan-footer-divider"></div>', unsafe_allow_html=True)
+    st.markdown(
+        f"<div class='encounter-plan-summary'><strong>Plan: {request_count} ID request{'s' if request_count != 1 else ''}</strong> · "
+        f"{grouped_count} grouped · {individual_count} individual. "
+        "Groups that disagree after scoring will automatically split into individual suggestions.</div>",
+        unsafe_allow_html=True,
+    )
+    if st.button(
+        f"Submit {request_count} ID Request{'s' if request_count != 1 else ''}",
+        key="smart_id_run_reviewed_plan",
+        use_container_width=True,
+        type="primary",
+        disabled=not planned_groups,
+    ):
+        processed_count = process_smart_species_photo_groups(
+            repository,
+            inat_client,
+            photos_to_process,
+            primary_observation_by_photo,
+            planned_groups=planned_groups,
+        )
+        if processed_count:
+            st.session_state.species_review_stage = "Needs decisions"
+            st.session_state.species_page = 1
+            clear_species_selection(photos_to_process)
+        st.rerun()
+
+
+def open_smart_id_plan(
+    repository: HikeJournalRepository,
+    inat_client: InatClient,
+    photos_to_process: list[dict[str, Any]],
+    primary_observation_by_photo: dict[str, dict[str, Any]],
+) -> None:
+    for photo in photos_to_process:
+        st.session_state.pop(f"smart_id_separate_{photo['id']}", None)
+    render_smart_id_plan_dialog(
+        repository,
+        inat_client,
+        photos_to_process,
+        primary_observation_by_photo,
+    )
+
+
 def render_species_management_toolbar(
     repository: HikeJournalRepository,
     inat_client: InatClient,
@@ -5858,7 +5999,7 @@ def render_species_management_toolbar(
 
     action_cols = st.columns([0.32, 0.18, 0.5], gap="small")
     if selected_unprocessed:
-        primary_label = f"Smart IDs ({len(selected_unprocessed)})"
+        primary_label = f"Submit IDs ({len(selected_unprocessed)})"
         primary_disabled = not is_inat_client_ready(inat_client)
     elif selected_pending:
         primary_label = f"Confirm selected ({len(selected_pending)})"
@@ -5878,10 +6019,8 @@ def render_species_management_toolbar(
         type="primary",
     ):
         if selected_unprocessed:
-            processed_count = process_smart_species_photo_groups(repository, inat_client, selected_photos_only, primary_observation_by_photo)
-            if processed_count:
-                st.session_state.species_review_stage = "Needs decisions"
-                st.session_state.species_page = 1
+            open_smart_id_plan(repository, inat_client, selected_unprocessed, primary_observation_by_photo)
+            return
         elif selected_pending:
             confirm_observations(repository, inat_client, [item for item in selected_pending if item])
             clear_species_selection(selected_photos_only)
@@ -5896,17 +6035,13 @@ def render_species_management_toolbar(
     with action_cols[1].popover("More"):
         st.caption(f"{selected_count} selected")
         if st.button(
-            f"Smart IDs ({len(selected_unprocessed)})",
+            f"Submit IDs ({len(selected_unprocessed)})",
             key="species_process_smart_groups",
             use_container_width=True,
             disabled=not is_inat_client_ready(inat_client) or not selected_unprocessed,
             type="primary",
         ):
-            processed_count = process_smart_species_photo_groups(repository, inat_client, selected_photos_only, primary_observation_by_photo)
-            if processed_count:
-                st.session_state.species_review_stage = "Needs decisions"
-                st.session_state.species_page = 1
-            st.rerun()
+            open_smart_id_plan(repository, inat_client, selected_unprocessed, primary_observation_by_photo)
         if st.button(
             f"Individual IDs ({len(selected_unprocessed)})",
             key="species_process_selected",
@@ -5977,7 +6112,7 @@ def render_species_management_toolbar(
     if selected_unprocessed and smart_id_groups:
         smart_pieces = [f"{smart_single_count} individual" if smart_single_count else "", f"{smart_group_count} grouped" if smart_group_count else ""]
         action_cols[2].caption(
-            f"Smart IDs will send {len(smart_id_groups)} ID request{'s' if len(smart_id_groups) != 1 else ''}: "
+            f"Submit IDs will prepare {len(smart_id_groups)} review decision{'s' if len(smart_id_groups) != 1 else ''}: "
             f"{', '.join(piece for piece in smart_pieces if piece)}. Auto-groups only within "
             f"{SMART_ID_MAX_MINUTES:g} min and {SMART_ID_MAX_DISTANCE_METERS:g} m."
         )
@@ -6176,7 +6311,7 @@ def render_publishing_section(
         use_container_width=True,
         disabled=not is_inat_client_ready(inat_client) or not selected_ready_rows,
     ):
-        render_publish_plan_dialog(repository, inat_client, selected_ready_rows)
+        open_publish_plan(repository, inat_client, selected_ready_rows)
     if is_inat_client_ready(inat_client):
         action_cols[1].button(
             "Select ready to post",
@@ -6480,57 +6615,117 @@ def fetch_full_observation_for_post(observation_id: str) -> dict[str, Any] | Non
     return observations[0] if observations else None
 
 
-@st.dialog("Review iNaturalist posts", width="large")
+@st.dialog("Review iNaturalist posts", width="medium")
 def render_publish_plan_dialog(
     repository: HikeJournalRepository,
     inat_client: InatClient,
     rows: list[dict[str, Any]],
 ) -> None:
     groups = build_publish_encounter_plan(rows, max_photos=GROUPED_PUBLISH_MAX_PHOTOS)
+    display_groups = sorted(groups, key=lambda group: int(group["photo_count"]) == 1)
     photo_count = sum(int(group["photo_count"]) for group in groups)
-    observation_count = len(groups)
-    st.markdown(f"### {photo_count} selected photos → {observation_count} iNaturalist observations")
-    st.caption("Same-species photos are grouped only when they come from one outing, fall within 15 minutes, and stay within 50 meters of one another.")
-    oversized_groups = [group for group in groups if group["oversized"]]
-    for index, group in enumerate(groups, start=1):
+    st.markdown(
+        f"""
+        <div class="encounter-plan-marker encounter-plan-intro">
+            <strong>{photo_count} selected photos</strong>
+            <span>Same-species photos from one outing are grouped when they fall within 15 minutes and 50 meters.</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    separate_photo_ids: set[str] = set()
+    for index, group in enumerate(display_groups, start=1):
         lead_row = group["lead_row"]
         observation = lead_row["observation"]
         hike = lead_row["hike"]
         species_name = observation.get("common_name") or observation.get("scientific_name") or "Unknown species"
         group_photo_count = int(group["photo_count"])
+        if index > 1:
+            st.markdown('<div class="encounter-plan-divider"></div>', unsafe_allow_html=True)
         if group_photo_count > 1:
-            group_summary = (
-                f"{group_photo_count} photos • {float(group['time_span_minutes']):.0f} min • "
-                f"{float(group['max_distance_meters']):.0f} m spread"
+            st.markdown(
+                f"""
+                <div class="encounter-plan-heading">
+                    <strong>Proposed Group · {group_photo_count} photos</strong>
+                    <span>{escape(str(species_name))} · {float(group['time_span_minutes']):.0f} min · {float(group['max_distance_meters']):.0f} m spread</span>
+                </div>
+                <div class="encounter-plan-context">{escape(str(hike.get('title') or 'Standalone sighting'))}</div>
+                """,
+                unsafe_allow_html=True,
             )
         else:
-            group_summary = "1 photo • separate observation"
-        st.markdown(
-            f"**{index}. {escape(str(species_name))}**  \n"
-            f"{escape(str(hike.get('title') or 'Standalone sighting'))} • {group_summary}"
-        )
-        if group["oversized"]:
-            st.error(f"This encounter contains {group_photo_count} photos. Reduce it to {GROUPED_PUBLISH_MAX_PHOTOS} or fewer before posting.")
+            st.markdown(
+                f"""
+                <div class="encounter-plan-heading">
+                    <strong>Individual</strong>
+                    <span>{escape(str(species_name))}</span>
+                </div>
+                <div class="encounter-plan-context">{escape(str(hike.get('title') or 'Standalone sighting'))}</div>
+                """,
+                unsafe_allow_html=True,
+            )
 
+        for row_start in range(0, len(group["rows"]), 4):
+            photo_rows = group["rows"][row_start : row_start + 4]
+            photo_columns = st.columns(4, gap="small")
+            for photo_column, row in zip(photo_columns[: len(photo_rows)], photo_rows, strict=True):
+                photo = row["photo"]
+                with photo_column:
+                    thumbnail_url = get_photo_thumbnail_url(photo)
+                    st.markdown(
+                        f'<div class="encounter-plan-thumbnail"><img src="{escape(thumbnail_url, quote=True)}" alt="{escape(str(species_name), quote=True)}"></div>',
+                        unsafe_allow_html=True,
+                    )
+                    if group_photo_count > 1 and st.checkbox(
+                        "Split",
+                        key=f"publish_plan_split_{photo['id']}",
+                        help="Post this photo as an individual iNaturalist observation.",
+                    ):
+                        separate_photo_ids.add(str(photo["id"]))
+    planned_groups = split_encounter_plan(
+        groups,
+        separate_photo_ids,
+        max_photos=GROUPED_PUBLISH_MAX_PHOTOS,
+    )
+    observation_count = len(planned_groups)
+    grouped_count = len([group for group in planned_groups if int(group["photo_count"]) > 1])
+    individual_count = observation_count - grouped_count
+    oversized_groups = [group for group in planned_groups if group["oversized"]]
+    st.markdown('<div class="encounter-plan-divider encounter-plan-footer-divider"></div>', unsafe_allow_html=True)
+    st.markdown(
+        f"<div class='encounter-plan-summary'><strong>Plan: {observation_count} iNaturalist observation{'s' if observation_count != 1 else ''}</strong> · "
+        f"{grouped_count} grouped · {individual_count} individual.</div>",
+        unsafe_allow_html=True,
+    )
     if oversized_groups:
-        st.warning("Nothing will be posted until every detected encounter is within the eight-photo limit.")
-        return
+        st.warning("Split enough photos from every oversized group to stay within the eight-photo limit.")
     if st.button(
         f"Post {observation_count} observations ({photo_count} photos)",
         key="publish_confirm_encounter_plan",
         use_container_width=True,
         type="primary",
-        disabled=not groups,
+        disabled=not planned_groups or bool(oversized_groups),
     ):
-        processed_ids = post_publish_encounter_plan(repository, inat_client, groups)
+        processed_ids = post_publish_encounter_plan(repository, inat_client, planned_groups)
         processed_rows = [
             row
-            for group in groups
+            for group in planned_groups
             for row in group["rows"]
             if str(row["observation"]["id"]) in processed_ids
         ]
         clear_publish_selection(processed_rows)
         st.rerun()
+
+
+def open_publish_plan(
+    repository: HikeJournalRepository,
+    inat_client: InatClient,
+    rows: list[dict[str, Any]],
+) -> None:
+    for row in rows:
+        st.session_state.pop(f"publish_plan_split_{row['photo']['id']}", None)
+    render_publish_plan_dialog(repository, inat_client, rows)
 
 
 def post_publish_encounter_plan(
@@ -6684,9 +6879,12 @@ def _candidate_identity_key(candidate: SpeciesCandidate) -> str:
 def _build_grouped_species_candidate(
     inat_client: InatClient,
     photos_to_process: list[dict[str, Any]],
-) -> tuple[SpeciesCandidate, list[dict[str, Any]], list[str]]:
+    *,
+    require_consensus: bool = False,
+) -> tuple[SpeciesCandidate | None, list[dict[str, Any]], dict[str, SpeciesCandidate], list[str]]:
     aggregate: dict[str, dict[str, Any]] = {}
     processed_photos: list[dict[str, Any]] = []
+    individual_candidates: dict[str, SpeciesCandidate] = {}
     warnings: list[str] = []
     per_photo_candidates: list[dict[str, Any]] = []
 
@@ -6707,6 +6905,7 @@ def _build_grouped_species_candidate(
             continue
 
         processed_photos.append(photo)
+        individual_candidates[str(photo["id"])] = candidates[0]
         compact_candidates: list[dict[str, Any]] = []
         for rank, candidate in enumerate(candidates, start=1):
             key = _candidate_identity_key(candidate)
@@ -6738,7 +6937,7 @@ def _build_grouped_species_candidate(
             )
         per_photo_candidates.append({"photo_id": photo["id"], "candidates": compact_candidates})
 
-    if len(processed_photos) < 2:
+    if not processed_photos or (len(processed_photos) < 2 and not require_consensus):
         raise InatRequestError(
             "Grouped ID needs at least 2 photos with usable suggestions. Try the regular Process selected button or choose a tighter set."
         )
@@ -6759,7 +6958,11 @@ def _build_grouped_species_candidate(
         ),
         reverse=True,
     )
-    top_match = aggregate_candidates[0]
+    top_match = (
+        select_shared_candidate(aggregate_candidates, photo_count=len(processed_photos))
+        if require_consensus
+        else aggregate_candidates[0]
+    )
     raw_payload = {
         "grouped_cv": True,
         "group_size": len(processed_photos),
@@ -6780,14 +6983,16 @@ def _build_grouped_species_candidate(
             for entry in aggregate_candidates
         ],
     }
-    grouped_candidate = SpeciesCandidate(
-        common_name=str(top_match.get("common_name") or top_match.get("scientific_name") or "Unknown species"),
-        scientific_name=str(top_match.get("scientific_name") or top_match.get("common_name") or "Unknown species"),
-        confidence=float(top_match.get("average_confidence") or 0),
-        taxon_id=top_match.get("taxon_id"),
-        raw_payload=raw_payload,
-    )
-    return grouped_candidate, processed_photos, warnings
+    grouped_candidate = None
+    if top_match is not None:
+        grouped_candidate = SpeciesCandidate(
+            common_name=str(top_match.get("common_name") or top_match.get("scientific_name") or "Unknown species"),
+            scientific_name=str(top_match.get("scientific_name") or top_match.get("common_name") or "Unknown species"),
+            confidence=float(top_match.get("average_confidence") or 0),
+            taxon_id=top_match.get("taxon_id"),
+            raw_payload=raw_payload,
+        )
+    return grouped_candidate, processed_photos, individual_candidates, warnings
 
 
 def process_species_photo_group(
@@ -6818,7 +7023,10 @@ def process_species_photo_group(
     st.session_state.inat_auth_error = None
     with st.spinner("Scoring the selected photos together as one shared ID..."):
         try:
-            grouped_candidate, processed_photos, warnings = _build_grouped_species_candidate(inat_client, photos_to_process)
+            grouped_candidate, processed_photos, _individual_candidates, warnings = _build_grouped_species_candidate(
+                inat_client,
+                photos_to_process,
+            )
         except (InatConfigurationError, InatAuthError) as exc:
             st.session_state.inat_auth_notice = None
             st.session_state.inat_auth_error = str(exc)
@@ -6826,6 +7034,10 @@ def process_species_photo_group(
             return 0
         except (InatRequestError, RuntimeError) as exc:
             st.error(str(exc))
+            return 0
+
+        if grouped_candidate is None:
+            st.error("The selected photos did not produce a shared suggestion.")
             return 0
 
         saved_names = []
@@ -6855,19 +7067,21 @@ def process_smart_species_photo_groups(
     inat_client: InatClient,
     photos_to_consider: list[dict[str, Any]],
     primary_observation_by_photo: dict[str, dict[str, Any]],
+    *,
+    planned_groups: list[dict[str, Any]] | None = None,
 ) -> int:
     photos_to_process = [photo for photo in photos_to_consider if photo["id"] not in primary_observation_by_photo]
     if not photos_to_process:
         st.info("Everything selected here already has a saved species suggestion.")
         return 0
-    groups = build_review_photo_encounter_plan(
+    groups = planned_groups or build_review_photo_encounter_plan(
         photos_to_process,
         max_distance_meters=SMART_ID_MAX_DISTANCE_METERS,
         max_minutes=SMART_ID_MAX_MINUTES,
         max_photos=GROUPED_ID_MAX_PHOTOS,
     )
     if not groups:
-        st.info("No photos are ready for smart ID processing.")
+        st.info("No photos are ready for ID request processing.")
         return 0
     try:
         inat_client.validate_credentials()
@@ -6880,10 +7094,11 @@ def process_smart_species_photo_groups(
     st.session_state.inat_auth_error = None
     total_groups = len(groups)
     processed_count = 0
+    auto_split_group_count = 0
     warning_messages: list[str] = []
     progress_text = st.empty()
-    progress_bar = st.progress(0, text="Preparing smart ID groups...")
-    with st.spinner("Sending smart ID groups to iNaturalist..."):
+    progress_bar = st.progress(0, text="Preparing ID request groups...")
+    with st.spinner("Sending ID request groups to iNaturalist..."):
         for index, group in enumerate(groups, start=1):
             group_photos = [row["photo"] for row in group["rows"]]
             group_size = len(group_photos)
@@ -6911,17 +7126,24 @@ def process_smart_species_photo_groups(
                     ensure_taxon_enrichment(repository, inat_client, observation)
                     processed_count += 1
                 else:
-                    grouped_candidate, processed_photos, warnings = _build_grouped_species_candidate(inat_client, group_photos)
+                    grouped_candidate, processed_photos, individual_candidates, warnings = _build_grouped_species_candidate(
+                        inat_client,
+                        group_photos,
+                        require_consensus=True,
+                    )
                     warning_messages.extend(warnings)
                     for photo in processed_photos:
+                        candidate = grouped_candidate or individual_candidates[str(photo["id"])]
                         observation = repository.upsert_observation(
                             photo.get("hike_id"),
                             photo["id"],
-                            grouped_candidate,
+                            candidate,
                             owner_subject=photo.get("owner_subject"),
                             owner_email=photo.get("owner_email"),
                         )
                         ensure_taxon_enrichment(repository, inat_client, observation)
+                    if grouped_candidate is None:
+                        auto_split_group_count += 1
                     processed_count += len(processed_photos)
             except (InatConfigurationError, InatAuthError) as exc:
                 st.session_state.inat_auth_notice = None
@@ -6950,14 +7172,19 @@ def process_smart_species_photo_groups(
                 break
             except (InatRequestError, RuntimeError) as exc:
                 warning_messages.append(f"{group_photos[0]['id'][:8]}: {exc}")
-            progress_bar.progress(index / total_groups, text=f"Processed {index} of {total_groups} ID requests")
+            progress_bar.progress(index / total_groups, text=f"Processed {index} of {total_groups} review decisions")
 
     invalidate_data_cache()
     if warning_messages:
-        st.warning("Smart IDs skipped a few photos or groups:\n\n- " + "\n- ".join(warning_messages))
+        st.warning("ID requests skipped a few photos or groups:\n\n- " + "\n- ".join(warning_messages))
+    if auto_split_group_count:
+        st.info(
+            f"{auto_split_group_count} proposed group{'s' if auto_split_group_count != 1 else ''} "
+            "did not agree strongly enough, so those photos received individual suggestions."
+        )
     if not st.session_state.inat_auth_error:
         progress_text.caption(
-            f"Finished {total_groups} planned ID request{'s' if total_groups != 1 else ''} "
+            f"Finished {total_groups} planned review decision{'s' if total_groups != 1 else ''} "
             f"for {processed_count} photo{'s' if processed_count != 1 else ''}."
         )
     return processed_count
@@ -7079,7 +7306,7 @@ def reject_observations(
         for photo in photos
         if not rejected_photo_ids or photo["id"] in rejected_photo_ids
     ]
-    repository.update_photo_processing_statuses(photo_ids_to_reset, "ready")
+    repository.update_photo_processing_statuses(photo_ids_to_reset, REVIEW_QUEUE_STATUS)
     invalidate_data_cache()
 
 
