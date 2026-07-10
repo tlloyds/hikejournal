@@ -23,7 +23,11 @@ from hike_journal.config import (
 )
 from hike_journal.models import HikeDraft, SpeciesCandidate
 from hike_journal.services.exif import extract_metadata
-from hike_journal.services.encounters import build_publish_encounter_plan, build_review_photo_encounter_plan
+from hike_journal.services.encounters import (
+    build_publish_encounter_plan,
+    build_review_photo_encounter_plan,
+    split_review_photo_encounter_plan,
+)
 from hike_journal.services.image_processing import optimize_image
 from hike_journal.services.inat import (
     InatAuthError,
@@ -43,6 +47,7 @@ from hike_journal.services.inat import (
     save_oauth_token_payload_for_user,
 )
 from hike_journal.services.repositories import HikeJournalRepository
+from hike_journal.services.species_identification import select_shared_candidate
 from hike_journal.services.storage import StorageService
 from hike_journal.services.supabase_client import get_supabase
 from hike_journal.services.tcx import (
@@ -5730,6 +5735,105 @@ def render_photo_management_toolbar(
             st.rerun()
 
 
+@st.dialog("Review ID requests", width="large")
+def render_smart_id_plan_dialog(
+    repository: HikeJournalRepository,
+    inat_client: InatClient,
+    photos_to_process: list[dict[str, Any]],
+    primary_observation_by_photo: dict[str, dict[str, Any]],
+) -> None:
+    proposed_groups = build_review_photo_encounter_plan(
+        photos_to_process,
+        max_distance_meters=SMART_ID_MAX_DISTANCE_METERS,
+        max_minutes=SMART_ID_MAX_MINUTES,
+        max_photos=GROUPED_ID_MAX_PHOTOS,
+    )
+    st.markdown(f"### {len(photos_to_process)} selected photos")
+    st.caption(
+        "Nearby photos are proposed as one review decision. Mark anything that shows a different organism as a separate ID."
+    )
+
+    separate_photo_ids: set[str] = set()
+    for index, group in enumerate(proposed_groups, start=1):
+        rows = group["rows"]
+        photo_count = int(group["photo_count"])
+        if index > 1:
+            st.divider()
+        if photo_count > 1:
+            st.markdown(f"**Proposed group {index} · {photo_count} photos**")
+            st.caption(
+                f"{float(group['time_span_minutes']):.1f} min apart · "
+                f"{float(group['max_distance_meters']):.0f} m maximum spread"
+            )
+        else:
+            st.markdown(f"**Individual ID {index}**")
+            st.caption("No nearby selected photo met the automatic grouping thresholds.")
+
+        photo_columns = st.columns(min(photo_count, 4), gap="small")
+        for photo_index, row in enumerate(rows):
+            photo = row["photo"]
+            with photo_columns[photo_index % len(photo_columns)]:
+                thumbnail_url = get_photo_thumbnail_url(photo)
+                st.markdown(
+                    f'<div class="smart-id-thumbnail"><img src="{escape(thumbnail_url, quote=True)}" alt=""></div>',
+                    unsafe_allow_html=True,
+                )
+                if photo_count > 1 and st.checkbox(
+                    "Separate ID",
+                    key=f"smart_id_separate_{photo['id']}",
+                ):
+                    separate_photo_ids.add(str(photo["id"]))
+
+    planned_groups = split_review_photo_encounter_plan(
+        proposed_groups,
+        separate_photo_ids,
+        max_photos=GROUPED_ID_MAX_PHOTOS,
+    )
+    grouped_count = len([group for group in planned_groups if int(group["photo_count"]) > 1])
+    individual_count = len(planned_groups) - grouped_count
+    st.divider()
+    st.caption(
+        f"Plan: {len(photos_to_process)} image checks → {grouped_count} grouped and "
+        f"{individual_count} individual review decision{'s' if individual_count != 1 else ''}. "
+        "Groups that disagree after scoring will automatically split into individual suggestions."
+    )
+    if st.button(
+        f"Submit {len(photos_to_process)} ID Requests",
+        key="smart_id_run_reviewed_plan",
+        use_container_width=True,
+        type="primary",
+        disabled=not planned_groups,
+    ):
+        processed_count = process_smart_species_photo_groups(
+            repository,
+            inat_client,
+            photos_to_process,
+            primary_observation_by_photo,
+            planned_groups=planned_groups,
+        )
+        if processed_count:
+            st.session_state.species_review_stage = "Needs decisions"
+            st.session_state.species_page = 1
+            clear_species_selection(photos_to_process)
+        st.rerun()
+
+
+def open_smart_id_plan(
+    repository: HikeJournalRepository,
+    inat_client: InatClient,
+    photos_to_process: list[dict[str, Any]],
+    primary_observation_by_photo: dict[str, dict[str, Any]],
+) -> None:
+    for photo in photos_to_process:
+        st.session_state.pop(f"smart_id_separate_{photo['id']}", None)
+    render_smart_id_plan_dialog(
+        repository,
+        inat_client,
+        photos_to_process,
+        primary_observation_by_photo,
+    )
+
+
 def render_species_management_toolbar(
     repository: HikeJournalRepository,
     inat_client: InatClient,
@@ -5858,7 +5962,7 @@ def render_species_management_toolbar(
 
     action_cols = st.columns([0.32, 0.18, 0.5], gap="small")
     if selected_unprocessed:
-        primary_label = f"Smart IDs ({len(selected_unprocessed)})"
+        primary_label = f"Submit IDs ({len(selected_unprocessed)})"
         primary_disabled = not is_inat_client_ready(inat_client)
     elif selected_pending:
         primary_label = f"Confirm selected ({len(selected_pending)})"
@@ -5878,10 +5982,8 @@ def render_species_management_toolbar(
         type="primary",
     ):
         if selected_unprocessed:
-            processed_count = process_smart_species_photo_groups(repository, inat_client, selected_photos_only, primary_observation_by_photo)
-            if processed_count:
-                st.session_state.species_review_stage = "Needs decisions"
-                st.session_state.species_page = 1
+            open_smart_id_plan(repository, inat_client, selected_unprocessed, primary_observation_by_photo)
+            return
         elif selected_pending:
             confirm_observations(repository, inat_client, [item for item in selected_pending if item])
             clear_species_selection(selected_photos_only)
@@ -5896,17 +5998,13 @@ def render_species_management_toolbar(
     with action_cols[1].popover("More"):
         st.caption(f"{selected_count} selected")
         if st.button(
-            f"Smart IDs ({len(selected_unprocessed)})",
+            f"Submit IDs ({len(selected_unprocessed)})",
             key="species_process_smart_groups",
             use_container_width=True,
             disabled=not is_inat_client_ready(inat_client) or not selected_unprocessed,
             type="primary",
         ):
-            processed_count = process_smart_species_photo_groups(repository, inat_client, selected_photos_only, primary_observation_by_photo)
-            if processed_count:
-                st.session_state.species_review_stage = "Needs decisions"
-                st.session_state.species_page = 1
-            st.rerun()
+            open_smart_id_plan(repository, inat_client, selected_unprocessed, primary_observation_by_photo)
         if st.button(
             f"Individual IDs ({len(selected_unprocessed)})",
             key="species_process_selected",
@@ -5977,7 +6075,7 @@ def render_species_management_toolbar(
     if selected_unprocessed and smart_id_groups:
         smart_pieces = [f"{smart_single_count} individual" if smart_single_count else "", f"{smart_group_count} grouped" if smart_group_count else ""]
         action_cols[2].caption(
-            f"Smart IDs will send {len(smart_id_groups)} ID request{'s' if len(smart_id_groups) != 1 else ''}: "
+            f"Submit IDs will prepare {len(smart_id_groups)} review decision{'s' if len(smart_id_groups) != 1 else ''}: "
             f"{', '.join(piece for piece in smart_pieces if piece)}. Auto-groups only within "
             f"{SMART_ID_MAX_MINUTES:g} min and {SMART_ID_MAX_DISTANCE_METERS:g} m."
         )
@@ -6684,9 +6782,12 @@ def _candidate_identity_key(candidate: SpeciesCandidate) -> str:
 def _build_grouped_species_candidate(
     inat_client: InatClient,
     photos_to_process: list[dict[str, Any]],
-) -> tuple[SpeciesCandidate, list[dict[str, Any]], list[str]]:
+    *,
+    require_consensus: bool = False,
+) -> tuple[SpeciesCandidate | None, list[dict[str, Any]], dict[str, SpeciesCandidate], list[str]]:
     aggregate: dict[str, dict[str, Any]] = {}
     processed_photos: list[dict[str, Any]] = []
+    individual_candidates: dict[str, SpeciesCandidate] = {}
     warnings: list[str] = []
     per_photo_candidates: list[dict[str, Any]] = []
 
@@ -6707,6 +6808,7 @@ def _build_grouped_species_candidate(
             continue
 
         processed_photos.append(photo)
+        individual_candidates[str(photo["id"])] = candidates[0]
         compact_candidates: list[dict[str, Any]] = []
         for rank, candidate in enumerate(candidates, start=1):
             key = _candidate_identity_key(candidate)
@@ -6738,7 +6840,7 @@ def _build_grouped_species_candidate(
             )
         per_photo_candidates.append({"photo_id": photo["id"], "candidates": compact_candidates})
 
-    if len(processed_photos) < 2:
+    if not processed_photos or (len(processed_photos) < 2 and not require_consensus):
         raise InatRequestError(
             "Grouped ID needs at least 2 photos with usable suggestions. Try the regular Process selected button or choose a tighter set."
         )
@@ -6759,7 +6861,11 @@ def _build_grouped_species_candidate(
         ),
         reverse=True,
     )
-    top_match = aggregate_candidates[0]
+    top_match = (
+        select_shared_candidate(aggregate_candidates, photo_count=len(processed_photos))
+        if require_consensus
+        else aggregate_candidates[0]
+    )
     raw_payload = {
         "grouped_cv": True,
         "group_size": len(processed_photos),
@@ -6780,14 +6886,16 @@ def _build_grouped_species_candidate(
             for entry in aggregate_candidates
         ],
     }
-    grouped_candidate = SpeciesCandidate(
-        common_name=str(top_match.get("common_name") or top_match.get("scientific_name") or "Unknown species"),
-        scientific_name=str(top_match.get("scientific_name") or top_match.get("common_name") or "Unknown species"),
-        confidence=float(top_match.get("average_confidence") or 0),
-        taxon_id=top_match.get("taxon_id"),
-        raw_payload=raw_payload,
-    )
-    return grouped_candidate, processed_photos, warnings
+    grouped_candidate = None
+    if top_match is not None:
+        grouped_candidate = SpeciesCandidate(
+            common_name=str(top_match.get("common_name") or top_match.get("scientific_name") or "Unknown species"),
+            scientific_name=str(top_match.get("scientific_name") or top_match.get("common_name") or "Unknown species"),
+            confidence=float(top_match.get("average_confidence") or 0),
+            taxon_id=top_match.get("taxon_id"),
+            raw_payload=raw_payload,
+        )
+    return grouped_candidate, processed_photos, individual_candidates, warnings
 
 
 def process_species_photo_group(
@@ -6818,7 +6926,10 @@ def process_species_photo_group(
     st.session_state.inat_auth_error = None
     with st.spinner("Scoring the selected photos together as one shared ID..."):
         try:
-            grouped_candidate, processed_photos, warnings = _build_grouped_species_candidate(inat_client, photos_to_process)
+            grouped_candidate, processed_photos, _individual_candidates, warnings = _build_grouped_species_candidate(
+                inat_client,
+                photos_to_process,
+            )
         except (InatConfigurationError, InatAuthError) as exc:
             st.session_state.inat_auth_notice = None
             st.session_state.inat_auth_error = str(exc)
@@ -6826,6 +6937,10 @@ def process_species_photo_group(
             return 0
         except (InatRequestError, RuntimeError) as exc:
             st.error(str(exc))
+            return 0
+
+        if grouped_candidate is None:
+            st.error("The selected photos did not produce a shared suggestion.")
             return 0
 
         saved_names = []
@@ -6855,19 +6970,21 @@ def process_smart_species_photo_groups(
     inat_client: InatClient,
     photos_to_consider: list[dict[str, Any]],
     primary_observation_by_photo: dict[str, dict[str, Any]],
+    *,
+    planned_groups: list[dict[str, Any]] | None = None,
 ) -> int:
     photos_to_process = [photo for photo in photos_to_consider if photo["id"] not in primary_observation_by_photo]
     if not photos_to_process:
         st.info("Everything selected here already has a saved species suggestion.")
         return 0
-    groups = build_review_photo_encounter_plan(
+    groups = planned_groups or build_review_photo_encounter_plan(
         photos_to_process,
         max_distance_meters=SMART_ID_MAX_DISTANCE_METERS,
         max_minutes=SMART_ID_MAX_MINUTES,
         max_photos=GROUPED_ID_MAX_PHOTOS,
     )
     if not groups:
-        st.info("No photos are ready for smart ID processing.")
+        st.info("No photos are ready for ID request processing.")
         return 0
     try:
         inat_client.validate_credentials()
@@ -6880,10 +6997,11 @@ def process_smart_species_photo_groups(
     st.session_state.inat_auth_error = None
     total_groups = len(groups)
     processed_count = 0
+    auto_split_group_count = 0
     warning_messages: list[str] = []
     progress_text = st.empty()
-    progress_bar = st.progress(0, text="Preparing smart ID groups...")
-    with st.spinner("Sending smart ID groups to iNaturalist..."):
+    progress_bar = st.progress(0, text="Preparing ID request groups...")
+    with st.spinner("Sending ID request groups to iNaturalist..."):
         for index, group in enumerate(groups, start=1):
             group_photos = [row["photo"] for row in group["rows"]]
             group_size = len(group_photos)
@@ -6911,17 +7029,24 @@ def process_smart_species_photo_groups(
                     ensure_taxon_enrichment(repository, inat_client, observation)
                     processed_count += 1
                 else:
-                    grouped_candidate, processed_photos, warnings = _build_grouped_species_candidate(inat_client, group_photos)
+                    grouped_candidate, processed_photos, individual_candidates, warnings = _build_grouped_species_candidate(
+                        inat_client,
+                        group_photos,
+                        require_consensus=True,
+                    )
                     warning_messages.extend(warnings)
                     for photo in processed_photos:
+                        candidate = grouped_candidate or individual_candidates[str(photo["id"])]
                         observation = repository.upsert_observation(
                             photo.get("hike_id"),
                             photo["id"],
-                            grouped_candidate,
+                            candidate,
                             owner_subject=photo.get("owner_subject"),
                             owner_email=photo.get("owner_email"),
                         )
                         ensure_taxon_enrichment(repository, inat_client, observation)
+                    if grouped_candidate is None:
+                        auto_split_group_count += 1
                     processed_count += len(processed_photos)
             except (InatConfigurationError, InatAuthError) as exc:
                 st.session_state.inat_auth_notice = None
@@ -6950,14 +7075,19 @@ def process_smart_species_photo_groups(
                 break
             except (InatRequestError, RuntimeError) as exc:
                 warning_messages.append(f"{group_photos[0]['id'][:8]}: {exc}")
-            progress_bar.progress(index / total_groups, text=f"Processed {index} of {total_groups} ID requests")
+            progress_bar.progress(index / total_groups, text=f"Processed {index} of {total_groups} review decisions")
 
     invalidate_data_cache()
     if warning_messages:
-        st.warning("Smart IDs skipped a few photos or groups:\n\n- " + "\n- ".join(warning_messages))
+        st.warning("ID requests skipped a few photos or groups:\n\n- " + "\n- ".join(warning_messages))
+    if auto_split_group_count:
+        st.info(
+            f"{auto_split_group_count} proposed group{'s' if auto_split_group_count != 1 else ''} "
+            "did not agree strongly enough, so those photos received individual suggestions."
+        )
     if not st.session_state.inat_auth_error:
         progress_text.caption(
-            f"Finished {total_groups} planned ID request{'s' if total_groups != 1 else ''} "
+            f"Finished {total_groups} planned review decision{'s' if total_groups != 1 else ''} "
             f"for {processed_count} photo{'s' if processed_count != 1 else ''}."
         )
     return processed_count
@@ -7079,7 +7209,7 @@ def reject_observations(
         for photo in photos
         if not rejected_photo_ids or photo["id"] in rejected_photo_ids
     ]
-    repository.update_photo_processing_statuses(photo_ids_to_reset, "ready")
+    repository.update_photo_processing_statuses(photo_ids_to_reset, REVIEW_QUEUE_STATUS)
     invalidate_data_cache()
 
 

@@ -201,3 +201,29 @@ def build_review_photo_encounter_plan(
 
     groups.sort(key=lambda group: _row_sort_key(group["lead_row"]))
     return groups
+
+
+def split_review_photo_encounter_plan(
+    groups: list[dict[str, Any]],
+    separate_photo_ids: set[str],
+    *,
+    max_photos: int = 8,
+) -> list[dict[str, Any]]:
+    split_groups: list[dict[str, Any]] = []
+    for group in groups:
+        grouped_rows = [
+            row
+            for row in group.get("rows", [])
+            if str(row.get("photo", {}).get("id") or "") not in separate_photo_ids
+        ]
+        separate_rows = [
+            row
+            for row in group.get("rows", [])
+            if str(row.get("photo", {}).get("id") or "") in separate_photo_ids
+        ]
+        if grouped_rows:
+            split_groups.append(_summarize_group(grouped_rows, max_photos=max_photos))
+        split_groups.extend(_summarize_group([row], max_photos=max_photos) for row in separate_rows)
+
+    split_groups.sort(key=lambda group: _row_sort_key(group["lead_row"]))
+    return split_groups

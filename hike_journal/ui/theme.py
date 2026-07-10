@@ -1677,6 +1677,25 @@ body {
 .status-pill.publish-posted { background: rgba(110,138,87,0.18); color: #456037; }
 .status-pill.publish-needs-attention { background: rgba(189,107,47,0.18); color: #9a4c1b; }
 
+.smart-id-thumbnail {
+  width: 100%;
+  max-width: 132px;
+  aspect-ratio: 1;
+  overflow: hidden;
+  border: 1px solid rgba(36, 66, 50, 0.16);
+  border-radius: 6px;
+  background: rgba(36, 66, 50, 0.06);
+  box-shadow: 0 8px 22px rgba(23, 35, 27, 0.08);
+}
+
+.smart-id-thumbnail img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+}
+
 .metric-line {
   display: flex;
   flex-wrap: wrap;
