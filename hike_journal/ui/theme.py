@@ -1677,45 +1677,57 @@ body {
 .status-pill.publish-posted { background: rgba(110,138,87,0.18); color: #456037; }
 .status-pill.publish-needs-attention { background: rgba(189,107,47,0.18); color: #9a4c1b; }
 
-.smart-id-plan-intro {
+.encounter-plan-intro {
   display: flex;
   align-items: baseline;
   flex-wrap: wrap;
   gap: 0.35rem 0.85rem;
-  margin-bottom: 0.3rem;
+  margin-bottom: 0.8rem;
 }
 
-.smart-id-plan-intro strong {
+.encounter-plan-intro strong {
   color: var(--charcoal);
   font-size: 1rem;
 }
 
-.smart-id-plan-intro span,
-.smart-id-group-heading span {
-  color: rgba(31, 42, 38, 0.62);
+.encounter-plan-intro span,
+.encounter-plan-heading span {
+  color: rgba(31, 42, 38, 0.78);
   font-size: 0.82rem;
+  font-weight: 550;
 }
 
-.smart-id-group-heading {
+.encounter-plan-heading {
   display: flex;
   align-items: baseline;
   flex-wrap: wrap;
   gap: 0.25rem 0.7rem;
-  margin: 0.05rem 0 0.2rem;
+  margin: 0.2rem 0 0.5rem;
 }
 
-.smart-id-group-heading strong {
+.encounter-plan-heading strong {
   color: var(--charcoal);
   font-size: 0.9rem;
 }
 
-.smart-id-group-divider {
+.encounter-plan-context {
+  color: rgba(31, 42, 38, 0.68);
+  font-size: 0.78rem;
+  margin: -0.25rem 0 0.55rem;
+}
+
+.encounter-plan-divider {
   height: 1px;
-  margin: 0.55rem 0 0.45rem;
+  margin: 0.95rem 0 0.75rem;
   background: rgba(36, 66, 50, 0.12);
 }
 
-.smart-id-thumbnail {
+.encounter-plan-footer-divider {
+  margin-top: 1.1rem;
+  margin-bottom: 0.7rem;
+}
+
+.encounter-plan-thumbnail {
   width: 100%;
   max-width: 132px;
   aspect-ratio: 1;
@@ -1726,7 +1738,7 @@ body {
   box-shadow: 0 8px 22px rgba(23, 35, 27, 0.08);
 }
 
-.smart-id-thumbnail img {
+.encounter-plan-thumbnail img {
   display: block;
   width: 100%;
   height: 100%;
@@ -1734,15 +1746,27 @@ body {
   object-position: center;
 }
 
-[data-testid="stDialog"]:has(.smart-id-plan-marker) [data-testid="stVerticalBlock"] {
-  gap: 0.45rem;
+.encounter-plan-summary {
+  color: rgba(31, 42, 38, 0.82);
+  font-size: 0.86rem;
+  line-height: 1.5;
+  margin: 0 0 0.45rem;
 }
 
-[data-testid="stDialog"]:has(.smart-id-plan-marker) [data-testid="stCheckbox"] {
-  margin-top: 0.15rem;
+.encounter-plan-summary strong {
+  color: var(--charcoal);
+  font-weight: 750;
 }
 
-[data-testid="stDialog"]:has(.smart-id-plan-marker) [data-testid="stCheckbox"] p {
+[data-testid="stDialog"]:has(.encounter-plan-marker) [data-testid="stVerticalBlock"] {
+  gap: 0.55rem;
+}
+
+[data-testid="stDialog"]:has(.encounter-plan-marker) [data-testid="stCheckbox"] {
+  margin-top: 0.25rem;
+}
+
+[data-testid="stDialog"]:has(.encounter-plan-marker) [data-testid="stCheckbox"] p {
   font-size: 0.72rem;
   line-height: 1.1;
 }

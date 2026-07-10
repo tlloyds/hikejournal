@@ -203,7 +203,7 @@ def build_review_photo_encounter_plan(
     return groups
 
 
-def split_review_photo_encounter_plan(
+def split_encounter_plan(
     groups: list[dict[str, Any]],
     separate_photo_ids: set[str],
     *,
@@ -227,3 +227,12 @@ def split_review_photo_encounter_plan(
 
     split_groups.sort(key=lambda group: _row_sort_key(group["lead_row"]))
     return split_groups
+
+
+def split_review_photo_encounter_plan(
+    groups: list[dict[str, Any]],
+    separate_photo_ids: set[str],
+    *,
+    max_photos: int = 8,
+) -> list[dict[str, Any]]:
+    return split_encounter_plan(groups, separate_photo_ids, max_photos=max_photos)

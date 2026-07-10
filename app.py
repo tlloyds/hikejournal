@@ -26,6 +26,7 @@ from hike_journal.services.exif import extract_metadata
 from hike_journal.services.encounters import (
     build_publish_encounter_plan,
     build_review_photo_encounter_plan,
+    split_encounter_plan,
     split_review_photo_encounter_plan,
 )
 from hike_journal.services.image_processing import optimize_image
@@ -5767,9 +5768,10 @@ def render_smart_id_plan_dialog(
         max_minutes=SMART_ID_MAX_MINUTES,
         max_photos=GROUPED_ID_MAX_PHOTOS,
     )
+    display_groups = sorted(proposed_groups, key=lambda group: int(group["photo_count"]) == 1)
     st.markdown(
         f"""
-        <div class="smart-id-plan-marker smart-id-plan-intro">
+        <div class="encounter-plan-marker encounter-plan-intro">
             <strong>{len(photos_to_process)} selected photos</strong>
             <span>Nearby photos are proposed as one decision. Check anything that should be submitted separately.</span>
         </div>
@@ -5778,16 +5780,16 @@ def render_smart_id_plan_dialog(
     )
 
     separate_photo_ids: set[str] = set()
-    for index, group in enumerate(proposed_groups, start=1):
+    for index, group in enumerate(display_groups, start=1):
         rows = group["rows"]
         photo_count = int(group["photo_count"])
         if index > 1:
-            st.markdown('<div class="smart-id-group-divider"></div>', unsafe_allow_html=True)
+            st.markdown('<div class="encounter-plan-divider"></div>', unsafe_allow_html=True)
         if photo_count > 1:
             st.markdown(
                 f"""
-                <div class="smart-id-group-heading">
-                    <strong>Group {index} · {photo_count} photos</strong>
+                <div class="encounter-plan-heading">
+                    <strong>Proposed Group · {photo_count} photos</strong>
                     <span>{float(group['time_span_minutes']):.1f} min · {float(group['max_distance_meters']):.0f} m spread</span>
                 </div>
                 """,
@@ -5795,7 +5797,7 @@ def render_smart_id_plan_dialog(
             )
         else:
             st.markdown(
-                f'<div class="smart-id-group-heading"><strong>Individual {index}</strong><span>Separate request</span></div>',
+                '<div class="encounter-plan-heading"><strong>Individual</strong></div>',
                 unsafe_allow_html=True,
             )
 
@@ -5807,7 +5809,7 @@ def render_smart_id_plan_dialog(
                 with photo_column:
                     thumbnail_url = get_photo_thumbnail_url(photo)
                     st.markdown(
-                        f'<div class="smart-id-thumbnail"><img src="{escape(thumbnail_url, quote=True)}" alt=""></div>',
+                        f'<div class="encounter-plan-thumbnail"><img src="{escape(thumbnail_url, quote=True)}" alt=""></div>',
                         unsafe_allow_html=True,
                     )
                     if photo_count > 1 and st.checkbox(
@@ -5824,14 +5826,16 @@ def render_smart_id_plan_dialog(
     )
     grouped_count = len([group for group in planned_groups if int(group["photo_count"]) > 1])
     individual_count = len(planned_groups) - grouped_count
-    st.markdown('<div class="smart-id-group-divider"></div>', unsafe_allow_html=True)
-    st.caption(
-        f"Plan: {len(photos_to_process)} image checks → {grouped_count} grouped and "
-        f"{individual_count} individual review decision{'s' if individual_count != 1 else ''}. "
-        "Groups that disagree after scoring will automatically split into individual suggestions."
+    request_count = len(planned_groups)
+    st.markdown('<div class="encounter-plan-divider encounter-plan-footer-divider"></div>', unsafe_allow_html=True)
+    st.markdown(
+        f"<div class='encounter-plan-summary'><strong>Plan: {request_count} ID request{'s' if request_count != 1 else ''}</strong> · "
+        f"{grouped_count} grouped · {individual_count} individual. "
+        "Groups that disagree after scoring will automatically split into individual suggestions.</div>",
+        unsafe_allow_html=True,
     )
     if st.button(
-        f"Submit {len(photos_to_process)} ID Requests",
+        f"Submit {request_count} ID Request{'s' if request_count != 1 else ''}",
         key="smart_id_run_reviewed_plan",
         use_container_width=True,
         type="primary",
@@ -6307,7 +6311,7 @@ def render_publishing_section(
         use_container_width=True,
         disabled=not is_inat_client_ready(inat_client) or not selected_ready_rows,
     ):
-        render_publish_plan_dialog(repository, inat_client, selected_ready_rows)
+        open_publish_plan(repository, inat_client, selected_ready_rows)
     if is_inat_client_ready(inat_client):
         action_cols[1].button(
             "Select ready to post",
@@ -6618,50 +6622,110 @@ def render_publish_plan_dialog(
     rows: list[dict[str, Any]],
 ) -> None:
     groups = build_publish_encounter_plan(rows, max_photos=GROUPED_PUBLISH_MAX_PHOTOS)
+    display_groups = sorted(groups, key=lambda group: int(group["photo_count"]) == 1)
     photo_count = sum(int(group["photo_count"]) for group in groups)
-    observation_count = len(groups)
-    st.markdown(f"### {photo_count} selected photos → {observation_count} iNaturalist observations")
-    st.caption("Same-species photos are grouped only when they come from one outing, fall within 15 minutes, and stay within 50 meters of one another.")
-    oversized_groups = [group for group in groups if group["oversized"]]
-    for index, group in enumerate(groups, start=1):
+    st.markdown(
+        f"""
+        <div class="encounter-plan-marker encounter-plan-intro">
+            <strong>{photo_count} selected photos</strong>
+            <span>Same-species photos from one outing are grouped when they fall within 15 minutes and 50 meters.</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    separate_photo_ids: set[str] = set()
+    for index, group in enumerate(display_groups, start=1):
         lead_row = group["lead_row"]
         observation = lead_row["observation"]
         hike = lead_row["hike"]
         species_name = observation.get("common_name") or observation.get("scientific_name") or "Unknown species"
         group_photo_count = int(group["photo_count"])
+        if index > 1:
+            st.markdown('<div class="encounter-plan-divider"></div>', unsafe_allow_html=True)
         if group_photo_count > 1:
-            group_summary = (
-                f"{group_photo_count} photos • {float(group['time_span_minutes']):.0f} min • "
-                f"{float(group['max_distance_meters']):.0f} m spread"
+            st.markdown(
+                f"""
+                <div class="encounter-plan-heading">
+                    <strong>Proposed Group · {group_photo_count} photos</strong>
+                    <span>{escape(str(species_name))} · {float(group['time_span_minutes']):.0f} min · {float(group['max_distance_meters']):.0f} m spread</span>
+                </div>
+                <div class="encounter-plan-context">{escape(str(hike.get('title') or 'Standalone sighting'))}</div>
+                """,
+                unsafe_allow_html=True,
             )
         else:
-            group_summary = "1 photo • separate observation"
-        st.markdown(
-            f"**{index}. {escape(str(species_name))}**  \n"
-            f"{escape(str(hike.get('title') or 'Standalone sighting'))} • {group_summary}"
-        )
-        if group["oversized"]:
-            st.error(f"This encounter contains {group_photo_count} photos. Reduce it to {GROUPED_PUBLISH_MAX_PHOTOS} or fewer before posting.")
+            st.markdown(
+                f"""
+                <div class="encounter-plan-heading">
+                    <strong>Individual</strong>
+                    <span>{escape(str(species_name))}</span>
+                </div>
+                <div class="encounter-plan-context">{escape(str(hike.get('title') or 'Standalone sighting'))}</div>
+                """,
+                unsafe_allow_html=True,
+            )
 
+        for row_start in range(0, len(group["rows"]), 4):
+            photo_rows = group["rows"][row_start : row_start + 4]
+            photo_columns = st.columns([*[1] * len(photo_rows), 4], gap="small")
+            for photo_column, row in zip(photo_columns[: len(photo_rows)], photo_rows, strict=True):
+                photo = row["photo"]
+                with photo_column:
+                    thumbnail_url = get_photo_thumbnail_url(photo)
+                    st.markdown(
+                        f'<div class="encounter-plan-thumbnail"><img src="{escape(thumbnail_url, quote=True)}" alt="{escape(str(species_name), quote=True)}"></div>',
+                        unsafe_allow_html=True,
+                    )
+                    if group_photo_count > 1 and st.checkbox(
+                        "Split",
+                        key=f"publish_plan_split_{photo['id']}",
+                        help="Post this photo as an individual iNaturalist observation.",
+                    ):
+                        separate_photo_ids.add(str(photo["id"]))
+    planned_groups = split_encounter_plan(
+        groups,
+        separate_photo_ids,
+        max_photos=GROUPED_PUBLISH_MAX_PHOTOS,
+    )
+    observation_count = len(planned_groups)
+    grouped_count = len([group for group in planned_groups if int(group["photo_count"]) > 1])
+    individual_count = observation_count - grouped_count
+    oversized_groups = [group for group in planned_groups if group["oversized"]]
+    st.markdown('<div class="encounter-plan-divider encounter-plan-footer-divider"></div>', unsafe_allow_html=True)
+    st.markdown(
+        f"<div class='encounter-plan-summary'><strong>Plan: {observation_count} iNaturalist observation{'s' if observation_count != 1 else ''}</strong> · "
+        f"{grouped_count} grouped · {individual_count} individual.</div>",
+        unsafe_allow_html=True,
+    )
     if oversized_groups:
-        st.warning("Nothing will be posted until every detected encounter is within the eight-photo limit.")
-        return
+        st.warning("Split enough photos from every oversized group to stay within the eight-photo limit.")
     if st.button(
         f"Post {observation_count} observations ({photo_count} photos)",
         key="publish_confirm_encounter_plan",
         use_container_width=True,
         type="primary",
-        disabled=not groups,
+        disabled=not planned_groups or bool(oversized_groups),
     ):
-        processed_ids = post_publish_encounter_plan(repository, inat_client, groups)
+        processed_ids = post_publish_encounter_plan(repository, inat_client, planned_groups)
         processed_rows = [
             row
-            for group in groups
+            for group in planned_groups
             for row in group["rows"]
             if str(row["observation"]["id"]) in processed_ids
         ]
         clear_publish_selection(processed_rows)
         st.rerun()
+
+
+def open_publish_plan(
+    repository: HikeJournalRepository,
+    inat_client: InatClient,
+    rows: list[dict[str, Any]],
+) -> None:
+    for row in rows:
+        st.session_state.pop(f"publish_plan_split_{row['photo']['id']}", None)
+    render_publish_plan_dialog(repository, inat_client, rows)
 
 
 def post_publish_encounter_plan(
