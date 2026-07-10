@@ -1731,6 +1731,7 @@ body {
   width: 100%;
   max-width: 132px;
   aspect-ratio: 1;
+  margin-bottom: 0.8rem;
   overflow: hidden;
   border: 1px solid rgba(36, 66, 50, 0.16);
   border-radius: 6px;

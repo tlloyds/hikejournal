@@ -5755,7 +5755,7 @@ def render_photo_management_toolbar(
             st.rerun()
 
 
-@st.dialog("Review ID requests", width="large")
+@st.dialog("Review ID requests", width="medium")
 def render_smart_id_plan_dialog(
     repository: HikeJournalRepository,
     inat_client: InatClient,
@@ -5803,7 +5803,7 @@ def render_smart_id_plan_dialog(
 
         for row_start in range(0, len(rows), 4):
             photo_rows = rows[row_start : row_start + 4]
-            photo_columns = st.columns([*[1] * len(photo_rows), 4], gap="small")
+            photo_columns = st.columns(4, gap="small")
             for photo_column, row in zip(photo_columns[: len(photo_rows)], photo_rows, strict=True):
                 photo = row["photo"]
                 with photo_column:
@@ -6615,7 +6615,7 @@ def fetch_full_observation_for_post(observation_id: str) -> dict[str, Any] | Non
     return observations[0] if observations else None
 
 
-@st.dialog("Review iNaturalist posts", width="large")
+@st.dialog("Review iNaturalist posts", width="medium")
 def render_publish_plan_dialog(
     repository: HikeJournalRepository,
     inat_client: InatClient,
@@ -6668,7 +6668,7 @@ def render_publish_plan_dialog(
 
         for row_start in range(0, len(group["rows"]), 4):
             photo_rows = group["rows"][row_start : row_start + 4]
-            photo_columns = st.columns([*[1] * len(photo_rows), 4], gap="small")
+            photo_columns = st.columns(4, gap="small")
             for photo_column, row in zip(photo_columns[: len(photo_rows)], photo_rows, strict=True):
                 photo = row["photo"]
                 with photo_column:
