@@ -1677,6 +1677,44 @@ body {
 .status-pill.publish-posted { background: rgba(110,138,87,0.18); color: #456037; }
 .status-pill.publish-needs-attention { background: rgba(189,107,47,0.18); color: #9a4c1b; }
 
+.smart-id-plan-intro {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.85rem;
+  margin-bottom: 0.3rem;
+}
+
+.smart-id-plan-intro strong {
+  color: var(--charcoal);
+  font-size: 1rem;
+}
+
+.smart-id-plan-intro span,
+.smart-id-group-heading span {
+  color: rgba(31, 42, 38, 0.62);
+  font-size: 0.82rem;
+}
+
+.smart-id-group-heading {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.7rem;
+  margin: 0.05rem 0 0.2rem;
+}
+
+.smart-id-group-heading strong {
+  color: var(--charcoal);
+  font-size: 0.9rem;
+}
+
+.smart-id-group-divider {
+  height: 1px;
+  margin: 0.55rem 0 0.45rem;
+  background: rgba(36, 66, 50, 0.12);
+}
+
 .smart-id-thumbnail {
   width: 100%;
   max-width: 132px;
@@ -1694,6 +1732,19 @@ body {
   height: 100%;
   object-fit: cover;
   object-position: center;
+}
+
+[data-testid="stDialog"]:has(.smart-id-plan-marker) [data-testid="stVerticalBlock"] {
+  gap: 0.45rem;
+}
+
+[data-testid="stDialog"]:has(.smart-id-plan-marker) [data-testid="stCheckbox"] {
+  margin-top: 0.15rem;
+}
+
+[data-testid="stDialog"]:has(.smart-id-plan-marker) [data-testid="stCheckbox"] p {
+  font-size: 0.72rem;
+  line-height: 1.1;
 }
 
 .metric-line {

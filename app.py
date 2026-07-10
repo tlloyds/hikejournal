@@ -5748,9 +5748,14 @@ def render_smart_id_plan_dialog(
         max_minutes=SMART_ID_MAX_MINUTES,
         max_photos=GROUPED_ID_MAX_PHOTOS,
     )
-    st.markdown(f"### {len(photos_to_process)} selected photos")
-    st.caption(
-        "Nearby photos are proposed as one review decision. Mark anything that shows a different organism as a separate ID."
+    st.markdown(
+        f"""
+        <div class="smart-id-plan-marker smart-id-plan-intro">
+            <strong>{len(photos_to_process)} selected photos</strong>
+            <span>Nearby photos are proposed as one decision. Check anything that should be submitted separately.</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
 
     separate_photo_ids: set[str] = set()
@@ -5758,31 +5763,40 @@ def render_smart_id_plan_dialog(
         rows = group["rows"]
         photo_count = int(group["photo_count"])
         if index > 1:
-            st.divider()
+            st.markdown('<div class="smart-id-group-divider"></div>', unsafe_allow_html=True)
         if photo_count > 1:
-            st.markdown(f"**Proposed group {index} · {photo_count} photos**")
-            st.caption(
-                f"{float(group['time_span_minutes']):.1f} min apart · "
-                f"{float(group['max_distance_meters']):.0f} m maximum spread"
+            st.markdown(
+                f"""
+                <div class="smart-id-group-heading">
+                    <strong>Group {index} · {photo_count} photos</strong>
+                    <span>{float(group['time_span_minutes']):.1f} min · {float(group['max_distance_meters']):.0f} m spread</span>
+                </div>
+                """,
+                unsafe_allow_html=True,
             )
         else:
-            st.markdown(f"**Individual ID {index}**")
-            st.caption("No nearby selected photo met the automatic grouping thresholds.")
+            st.markdown(
+                f'<div class="smart-id-group-heading"><strong>Individual {index}</strong><span>Separate request</span></div>',
+                unsafe_allow_html=True,
+            )
 
-        photo_columns = st.columns(min(photo_count, 4), gap="small")
-        for photo_index, row in enumerate(rows):
-            photo = row["photo"]
-            with photo_columns[photo_index % len(photo_columns)]:
-                thumbnail_url = get_photo_thumbnail_url(photo)
-                st.markdown(
-                    f'<div class="smart-id-thumbnail"><img src="{escape(thumbnail_url, quote=True)}" alt=""></div>',
-                    unsafe_allow_html=True,
-                )
-                if photo_count > 1 and st.checkbox(
-                    "Separate ID",
-                    key=f"smart_id_separate_{photo['id']}",
-                ):
-                    separate_photo_ids.add(str(photo["id"]))
+        for row_start in range(0, len(rows), 4):
+            photo_rows = rows[row_start : row_start + 4]
+            photo_columns = st.columns([*[1] * len(photo_rows), 4], gap="small")
+            for photo_column, row in zip(photo_columns[: len(photo_rows)], photo_rows, strict=True):
+                photo = row["photo"]
+                with photo_column:
+                    thumbnail_url = get_photo_thumbnail_url(photo)
+                    st.markdown(
+                        f'<div class="smart-id-thumbnail"><img src="{escape(thumbnail_url, quote=True)}" alt=""></div>',
+                        unsafe_allow_html=True,
+                    )
+                    if photo_count > 1 and st.checkbox(
+                        "Split",
+                        key=f"smart_id_separate_{photo['id']}",
+                        help="Submit this photo as an individual ID request.",
+                    ):
+                        separate_photo_ids.add(str(photo["id"]))
 
     planned_groups = split_review_photo_encounter_plan(
         proposed_groups,
@@ -5791,7 +5805,7 @@ def render_smart_id_plan_dialog(
     )
     grouped_count = len([group for group in planned_groups if int(group["photo_count"]) > 1])
     individual_count = len(planned_groups) - grouped_count
-    st.divider()
+    st.markdown('<div class="smart-id-group-divider"></div>', unsafe_allow_html=True)
     st.caption(
         f"Plan: {len(photos_to_process)} image checks → {grouped_count} grouped and "
         f"{individual_count} individual review decision{'s' if individual_count != 1 else ''}. "
