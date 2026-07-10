@@ -219,10 +219,11 @@ a {
 .sidebar-brand-wordmark {
   margin-top: 0.5rem;
   color: #F8F3EA;
-  font-family: 'Fraunces', serif;
-  font-size: 2.25rem;
-  line-height: 0.94;
-  letter-spacing: -0.05em;
+  font-family: 'Manrope', sans-serif;
+  font-size: 2.1rem;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 0;
 }
 
 .sidebar-brand-meta {
