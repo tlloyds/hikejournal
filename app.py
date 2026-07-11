@@ -3061,6 +3061,8 @@ def render_journal_tab(
                 hike_id=selected_hike.get("id"),
                 key_prefix="journal",
             )
+            if st.session_state.get("journal_cover_update_error"):
+                st.error(st.session_state.pop("journal_cover_update_error"))
             control_cols = st.columns([0.4, 0.3, 0.3], gap="small")
             selected = photo.get("processing_status") == REVIEW_QUEUE_STATUS
             checkbox_key = f"photo_select_{photo['id']}"
@@ -3075,17 +3077,15 @@ def render_journal_tab(
                 )
             with control_cols[1]:
                 current_cover_photo_id = selected_hike.get("cover_photo_id")
-                if str(current_cover_photo_id or "") == photo["id"]:
-                    st.button("Cover photo", key=f"cover_active_{photo['id']}", disabled=True, use_container_width=True)
-                elif st.button("Use as cover", key=f"cover_set_{photo['id']}", use_container_width=True, type="secondary"):
-                    try:
-                        repository.update_hike_cover_photo(selected_hike["id"], photo["id"])
-                    except Exception as exc:
-                        st.error(f"Cover photos need the new library migration before they can be saved: {exc}")
-                        return
-                    invalidate_data_cache()
-                    st.success("Saved this as the hike cover photo.")
-                    st.rerun()
+                cover_checkbox_key = f"cover_photo_select_{photo['id']}"
+                is_cover_photo = str(current_cover_photo_id or "") == str(photo["id"])
+                st.session_state[cover_checkbox_key] = is_cover_photo
+                st.checkbox(
+                    "Cover photo",
+                    key=cover_checkbox_key,
+                    on_change=sync_hike_cover_checkbox,
+                    args=(repository, selected_hike["id"], photo["id"], cover_checkbox_key),
+                )
             if not primary_observation:
                 known_species_key = f"known_species_select_{photo['id']}"
                 if known_species_key not in st.session_state:
@@ -4421,6 +4421,29 @@ def sync_journal_review_checkbox(
     is_selected = bool(st.session_state.get(checkbox_key))
     new_status = REVIEW_QUEUE_STATUS if is_selected else "ready"
     repository.update_photo_processing_status(photo_id, new_status)
+    invalidate_data_cache()
+
+
+def sync_hike_cover_checkbox(
+    repository: HikeJournalRepository,
+    hike_id: str,
+    photo_id: str,
+    checkbox_key: str,
+) -> None:
+    is_selected = bool(st.session_state.get(checkbox_key))
+    new_cover_photo_id = photo_id if is_selected else None
+    try:
+        repository.update_hike_cover_photo(hike_id, new_cover_photo_id)
+    except Exception as exc:
+        st.session_state[checkbox_key] = not is_selected
+        st.session_state["journal_cover_update_error"] = (
+            f"Cover photos need the new library migration before they can be saved: {exc}"
+        )
+        return
+    if is_selected:
+        for state_key in list(st.session_state.keys()):
+            if state_key.startswith("cover_photo_select_") and state_key != checkbox_key:
+                st.session_state[state_key] = False
     invalidate_data_cache()
 
 
