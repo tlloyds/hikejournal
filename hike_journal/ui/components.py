@@ -81,7 +81,7 @@ def render_hero(
         if cover_photo_url
         else ""
     )
-    st.markdown(
+    st.html(
         f"""
         <section class="{hero_class}">
             {photo_markup}
@@ -96,8 +96,7 @@ def render_hero(
                 <p class="hero-subcopy hero-summary">{escape(str(summary))}</p>
             </div>
         </section>
-        """,
-        unsafe_allow_html=True,
+        """
     )
 
 

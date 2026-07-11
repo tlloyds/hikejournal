@@ -3,16 +3,12 @@ from __future__ import annotations
 from collections import defaultdict
 from datetime import UTC, date, datetime
 from html import escape
-import json
 import math
-from pathlib import Path
-import re
 import secrets
 from typing import Any
-from urllib.parse import quote, urlencode
+from urllib.parse import quote
 
 import streamlit as st
-import streamlit.components.v1 as components
 
 from hike_journal.config import (
     build_inat_token_identity,
@@ -22,6 +18,50 @@ from hike_journal.config import (
     settings,
 )
 from hike_journal.models import HikeDraft, SpeciesCandidate
+from hike_journal.application import ApplicationActions, run_application
+from hike_journal.navigation import (
+    apply_navigation,
+    build_internal_view_href as build_view_href,
+    build_species_log_record_href as build_species_record_href,
+    hydrate_query_state,
+    query_state_for_view,
+    set_species_log_record_query_state as update_species_record_query_state,
+    sync_viewer_state,
+)
+from hike_journal.domain.locations import (
+    autotag_matching_hikes,
+    load_seed_hike_locations,
+    location_library_options,
+    maybe_store_hike_location_tags,
+    selected_location_defaults,
+)
+from hike_journal.domain.routes import (
+    delete_hike_and_assets,
+    format_duration_compact,
+    format_elevation_compact,
+    parse_uploaded_route_import,
+    route_import_meta,
+    sync_hike_route_import,
+)
+from hike_journal.domain.library import (
+    build_species_group_key,
+    entry_sort_datetime as _entry_sort_datetime,
+    format_species_log_date_label,
+    normalize_email,
+    photo_owner_email,
+    photo_owner_subject,
+    record_visible_for_user,
+)
+from hike_journal.queries import (
+    fetch_hike_lightweight_observations,
+    fetch_hike_locations,
+    fetch_hike_photos,
+    fetch_hike_route_import,
+    fetch_observations_by_ids,
+    fetch_photo_storage_records,
+    fetch_species_log_photo_preferences,
+    invalidate_data_cache,
+)
 from hike_journal.services.exif import extract_metadata
 from hike_journal.services.encounters import (
     build_publish_encounter_plan,
@@ -49,20 +89,11 @@ from hike_journal.services.inat import (
 )
 from hike_journal.services.repositories import HikeJournalRepository
 from hike_journal.services.species_identification import (
-    build_known_species_catalog,
     is_species_log_main_photo,
     select_shared_candidate,
     update_species_log_main_photo_payload,
 )
 from hike_journal.services.storage import StorageService
-from hike_journal.services.supabase_client import get_supabase
-from hike_journal.services.tcx import (
-    ParsedTcxRouteImport,
-    TcxParseError,
-    combine_tcx_route_imports,
-    estimate_elevation_meta_from_track_geojson,
-    parse_tcx_bytes,
-)
 from hike_journal.ui.components import (
     format_photo_meta,
     format_photo_meta_html,
@@ -70,12 +101,14 @@ from hike_journal.ui.components import (
     render_clickable_photo,
     render_clickable_photo_with_view,
     render_hero,
-    render_library_cover,
     render_observation_badge,
-    render_rich_map,
     section_heading,
 )
 from hike_journal.ui.theme import apply_theme
+from hike_journal.ui.state import initialize_session_state
+from hike_journal.ui.views.library import render_library_view
+from hike_journal.ui.views.map import render_map_view
+from hike_journal.ui.views.species_log import render_species_log_view
 
 
 st.set_page_config(page_title="HikeJournal", page_icon="🥾", layout="wide")
@@ -87,125 +120,8 @@ SMART_ID_MAX_DISTANCE_METERS = 12
 SMART_ID_MAX_MINUTES = 2
 GROUPED_PUBLISH_MAX_PHOTOS = 8
 QUICK_UPLOAD_HIKE_FILTER = "Quick uploads"
-LOCATION_SEED_PATH = Path(__file__).resolve().parent / "data" / "hike_locations_seed.json"
 
-
-if "selected_hike_id" not in st.session_state:
-    st.session_state.selected_hike_id = None
-if "viewer_open" not in st.session_state:
-    st.session_state.viewer_open = False
-if "viewer_index" not in st.session_state:
-    st.session_state.viewer_index = 0
-if "journal_page" not in st.session_state:
-    st.session_state.journal_page = 1
-if "journal_page_size" not in st.session_state:
-    st.session_state.journal_page_size = 9
-if "species_page" not in st.session_state:
-    st.session_state.species_page = 1
-if "species_page_size" not in st.session_state:
-    st.session_state.species_page_size = 6
-if "species_selected_ids" not in st.session_state:
-    st.session_state.species_selected_ids = set()
-if "known_species_selected_ids" not in st.session_state:
-    st.session_state.known_species_selected_ids = set()
-if "known_species_notice" not in st.session_state:
-    st.session_state.known_species_notice = None
-if "species_review_filter" not in st.session_state:
-    st.session_state.species_review_filter = "All"
-if "species_review_stage" not in st.session_state:
-    st.session_state.species_review_stage = "All"
-if "species_review_stage_signature" not in st.session_state:
-    st.session_state.species_review_stage_signature = ()
-if "species_review_stage_selection_signature" not in st.session_state:
-    st.session_state.species_review_stage_selection_signature = ()
-if "species_review_mode" not in st.session_state:
-    st.session_state.species_review_mode = "Review"
-if "delete_photo_ids" not in st.session_state:
-    st.session_state.delete_photo_ids = set()
-if "delete_mode" not in st.session_state:
-    st.session_state.delete_mode = False
-if "active_view" not in st.session_state:
-    st.session_state.active_view = "Library"
-if "active_view_picker" not in st.session_state:
-    st.session_state.active_view_picker = "Library"
-if "pending_view" not in st.session_state:
-    st.session_state.pending_view = None
-if "query_state_signature" not in st.session_state:
-    st.session_state.query_state_signature = None
-if "inat_auth_error" not in st.session_state:
-    st.session_state.inat_auth_error = None
-if "inat_auth_notice" not in st.session_state:
-    st.session_state.inat_auth_notice = None
-if "inat_token_input" not in st.session_state:
-    st.session_state.inat_token_input = ""
-if "inat_oauth_state" not in st.session_state:
-    st.session_state.inat_oauth_state = None
-if "inat_token_dialog_open" not in st.session_state:
-    st.session_state.inat_token_dialog_open = False
-if "species_log_hike_filter" not in st.session_state:
-    st.session_state.species_log_hike_filter = "All hikes"
-if "species_log_mapped_only" not in st.session_state:
-    st.session_state.species_log_mapped_only = False
-if "species_log_include_secondary" not in st.session_state:
-    st.session_state.species_log_include_secondary = True
-if "species_log_sort" not in st.session_state:
-    st.session_state.species_log_sort = "Most recent"
-if "species_log_posted_filter" not in st.session_state:
-    st.session_state.species_log_posted_filter = "All"
-if "species_log_page" not in st.session_state:
-    st.session_state.species_log_page = 1
-if "journal_upload_nonce" not in st.session_state:
-    st.session_state.journal_upload_nonce = 0
-if "quick_upload_nonce" not in st.session_state:
-    st.session_state.quick_upload_nonce = 0
-if "journal_upload_notice" not in st.session_state:
-    st.session_state.journal_upload_notice = None
-if "quick_upload_notice" not in st.session_state:
-    st.session_state.quick_upload_notice = None
-if "species_log_page_size" not in st.session_state:
-    st.session_state.species_log_page_size = 8
-if "species_log_focus_key" not in st.session_state:
-    st.session_state.species_log_focus_key = None
-if "species_log_record_open" not in st.session_state:
-    st.session_state.species_log_record_open = False
-if "species_review_initialized_signature" not in st.session_state:
-    st.session_state.species_review_initialized_signature = None
-if "inat_post_feedback" not in st.session_state:
-    st.session_state.inat_post_feedback = {}
-if "inat_sync_candidates" not in st.session_state:
-    st.session_state.inat_sync_candidates = {}
-if "inat_sync_selected_ids" not in st.session_state:
-    st.session_state.inat_sync_selected_ids = set()
-if "inat_sync_checked_count" not in st.session_state:
-    st.session_state.inat_sync_checked_count = 0
-if "inat_sync_error" not in st.session_state:
-    st.session_state.inat_sync_error = None
-if "inat_sync_notice" not in st.session_state:
-    st.session_state.inat_sync_notice = None
-if "viewer_notice" not in st.session_state:
-    st.session_state.viewer_notice = None
-if "library_group_by" not in st.session_state:
-    st.session_state.library_group_by = "Month"
-if "library_page" not in st.session_state:
-    st.session_state.library_page = 1
-if "library_page_size" not in st.session_state:
-    st.session_state.library_page_size = 8
-if "publish_filter" not in st.session_state:
-    st.session_state.publish_filter = "Ready to post"
-if "publish_selected_ids" not in st.session_state:
-    st.session_state.publish_selected_ids = set()
-if "publish_page" not in st.session_state:
-    st.session_state.publish_page = 1
-if "publish_page_size" not in st.session_state:
-    st.session_state.publish_page_size = 8
-if "publish_query" not in st.session_state:
-    st.session_state.publish_query = ""
-if "publish_hike_filter" not in st.session_state:
-    st.session_state.publish_hike_filter = "All hikes"
-if "publish_batch_notice" not in st.session_state:
-    st.session_state.publish_batch_notice = None
-if "location_library_notice" not in st.session_state:
-    st.session_state.location_library_notice = None
+initialize_session_state(st.session_state)
 
 
 def get_inat_access_token_for_context(user_context: dict[str, Any]) -> str:
@@ -306,1006 +222,36 @@ def maybe_handle_inat_oauth_callback(user_context: dict[str, Any]) -> None:
 
 
 def main() -> None:
-    user_context = get_user_context()
-    st.session_state.current_user_context = user_context
-    maybe_handle_inat_oauth_callback(user_context)
-
-    if settings.require_google_auth and not user_context["auth_configured"]:
-        render_auth_configuration_state()
-        return
-
-    if settings.require_google_auth and not user_context["is_logged_in"]:
-        render_login_gate()
-        return
-
-    if settings.require_google_auth and user_context["mode"] == "google" and not user_context["is_allowed"]:
-        render_access_denied(user_context)
-        return
-
-    if not settings.supabase_configured:
-        render_setup_state()
-        return
-
-    supabase = get_supabase()
-    repository = HikeJournalRepository(supabase)
-    storage = StorageService(supabase)
-    inat_access_token = get_inat_access_token_for_context(user_context)
-    inat_client = InatClient(access_token=inat_access_token)
-    sync_pagination_state_from_query_params()
-    maybe_migrate_legacy_inat_token(user_context)
-
-    if user_context["mode"] == "google" and user_context["is_admin"]:
-        try:
-            repository.claim_unowned_hikes(
-                owner_subject=user_context.get("subject"),
-                owner_email=user_context.get("email"),
-            )
-        except Exception:
-            pass
-
-    try:
-        hikes = fetch_hikes()
-    except Exception as exc:  # pragma: no cover - depends on remote project state
-        render_setup_state(reason=str(exc))
-        return
-
-    hike_locations = fetch_hike_locations()
-    hike_location_tags = fetch_hike_location_tags()
-    hikes = attach_location_tags_to_hikes(hikes, hike_locations, hike_location_tags)
-    visible_hikes = filter_hikes_for_user(hikes, user_context)
-    view_options = ["Library", "Journal", "Species Review", "Map", "Species Log"]
-
-    query_hike_id = st.query_params.get("hike")
-    query_photo_id = st.query_params.get("photo")
-    requested_view = st.query_params.get("view")
-    requested_scope = st.query_params.get("scope")
-    top_level_views = {"Library", "Species Review", "Map", "Species Log"}
-    if requested_view in view_options:
-        st.session_state.active_view = str(requested_view)
-        st.session_state.pending_view = str(requested_view)
-    if requested_scope == "global":
-        st.session_state.selected_hike_id = None
-    elif query_hike_id:
-        st.session_state.selected_hike_id = str(query_hike_id)
-
-    if st.session_state.selected_hike_id and not any(hike["id"] == st.session_state.selected_hike_id for hike in visible_hikes):
-        st.session_state.selected_hike_id = None
-
-    visible_hike_ids = {hike["id"] for hike in visible_hikes}
-    if query_photo_id:
-        linked_photos = fetch_photo_records_for_ids((str(query_photo_id),))
-        linked_photo = next(
-            (
-                photo
-                for photo in linked_photos
-                if photo.get("id") == str(query_photo_id)
-                and record_visible_for_user(photo, visible_hike_ids, user_context)
-            ),
-            None,
+    run_application(
+        ApplicationActions(
+            build_species_log_context=build_species_log_context,
+            dedupe_records_by_id=dedupe_records_by_id,
+            get_inat_access_token_for_context=get_inat_access_token_for_context,
+            get_primary_observation=get_primary_observation,
+            get_user_context=get_user_context,
+            group_observations_by_photo=group_observations_by_photo,
+            maybe_handle_inat_oauth_callback=maybe_handle_inat_oauth_callback,
+            maybe_migrate_legacy_inat_token=maybe_migrate_legacy_inat_token,
+            render_access_denied=render_access_denied,
+            render_auth_configuration_state=render_auth_configuration_state,
+            render_empty_state=render_empty_state,
+            render_footer=render_footer,
+            render_inat_token_dialog=render_inat_token_dialog,
+            render_journal_tab=render_journal_tab,
+            render_library_tab=render_library_tab,
+            render_login_gate=render_login_gate,
+            render_map_tab=render_map_tab,
+            render_mobile_shell=render_mobile_shell,
+            render_photo_viewer=render_photo_viewer,
+            render_setup_state=render_setup_state,
+            render_sidebar=render_sidebar,
+            render_species_log_tab=render_species_log_tab,
+            render_species_tab=render_species_tab,
+            render_standalone_journal_tab=render_standalone_journal_tab,
+            sync_pagination_state_from_query_params=sync_pagination_state_from_query_params,
+            sync_viewer_from_query_params=sync_viewer_from_query_params,
         )
-        current_view_hint = requested_view if requested_view in view_options else st.session_state.active_view
-        if linked_photo and linked_photo.get("hike_id") and current_view_hint not in top_level_views and not query_hike_id:
-            st.session_state.selected_hike_id = linked_photo["hike_id"]
-            st.query_params["hike"] = linked_photo["hike_id"]
-
-    if st.session_state.pending_view in view_options:
-        st.session_state.active_view = st.session_state.pending_view
-        st.session_state.pending_view = None
-    if st.session_state.active_view not in view_options:
-        st.session_state.active_view = "Library"
-
-    selected_hike = next((hike for hike in visible_hikes if hike["id"] == st.session_state.selected_hike_id), None)
-    standalone_journal_active = (
-        st.session_state.active_view == "Journal"
-        and requested_scope == "standalone"
-        and selected_hike is None
     )
-
-    with st.sidebar:
-        render_sidebar(repository, storage, visible_hikes, user_context, st.session_state.active_view)
-
-    render_mobile_shell(visible_hikes, st.session_state.active_view)
-
-    route_imports_by_hike: dict[str, dict[str, Any]] = {}
-    if st.session_state.active_view in {"Map", "Species Log"} and visible_hikes:
-        route_import_records = fetch_all_hike_route_imports()
-        route_imports_by_hike = {
-            str(item["hike_id"]): item
-            for item in route_import_records
-            if item.get("hike_id") and str(item.get("hike_id")) in visible_hike_ids
-        }
-
-    photos: list[dict[str, Any]] = []
-    observations: list[dict[str, Any]] = []
-    route_import: dict[str, Any] | None = None
-    all_visible_photos: list[dict[str, Any]] = []
-    all_visible_observations: list[dict[str, Any]] = []
-    confirmed_visible_observations: list[dict[str, Any]] = []
-    library_photo_refs: list[dict[str, Any]] = []
-    library_confirmed_refs: list[dict[str, Any]] = []
-    library_cover_photos: dict[str, dict[str, Any]] = {}
-    species_log_context: dict[str, Any] | None = None
-
-    if st.session_state.active_view == "Journal" and selected_hike:
-        photos = fetch_hike_photos(selected_hike["id"])
-        observations = fetch_hike_observations(selected_hike["id"])
-        route_import = fetch_hike_route_import(selected_hike["id"])
-        annotate_photos_with_route_context(
-            photos,
-            route_import=route_import,
-            hike_distance_miles=selected_hike.get("distance_miles"),
-        )
-    elif standalone_journal_active:
-        photos = [
-            photo
-            for photo in fetch_standalone_photos()
-            if record_visible_for_user(photo, visible_hike_ids, user_context)
-        ]
-        standalone_photo_ids = tuple(photo["id"] for photo in photos if photo.get("id"))
-        all_visible_observations = [
-            observation
-            for observation in (fetch_observations_for_photo_ids(standalone_photo_ids) if standalone_photo_ids else [])
-            if record_visible_for_user(observation, visible_hike_ids, user_context)
-            and not observation.get("hike_id")
-        ]
-        observations = all_visible_observations
-
-    if st.session_state.active_view in top_level_views:
-        library_photo_refs = [record for record in fetch_photo_hike_refs() if record_visible_for_user(record, visible_hike_ids, user_context)]
-        library_confirmed_refs = [
-            record for record in fetch_confirmed_observation_hike_refs() if record_visible_for_user(record, visible_hike_ids, user_context)
-        ]
-        if st.session_state.active_view == "Library":
-            cover_photo_ids = tuple(
-                {
-                    str(hike.get("cover_photo_id"))
-                    for hike in visible_hikes
-                    if hike.get("cover_photo_id")
-                }
-            )
-            if cover_photo_ids:
-                library_cover_photos = {
-                    photo["id"]: photo
-                    for photo in fetch_photo_records_for_ids(cover_photo_ids)
-                }
-
-    if st.session_state.active_view == "Map":
-        if selected_hike:
-            photos = fetch_hike_map_photos(selected_hike["id"])
-            route_import = fetch_hike_route_import(selected_hike["id"])
-            annotate_photos_with_route_context(
-                photos,
-                route_import=route_import,
-                hike_distance_miles=selected_hike.get("distance_miles"),
-            )
-            if photos:
-                observations = fetch_hike_lightweight_observations(selected_hike["id"])
-        else:
-            all_visible_photos = fetch_all_map_photos() if visible_hikes else []
-            all_visible_photos = [photo for photo in all_visible_photos if record_visible_for_user(photo, visible_hike_ids, user_context)]
-            for hike_id, grouped_photos in group_records_by_key(all_visible_photos, "hike_id").items():
-                annotate_photos_with_route_context(
-                    grouped_photos,
-                    route_import=route_imports_by_hike.get(str(hike_id)),
-                    hike_distance_miles=next((hike.get("distance_miles") for hike in visible_hikes if hike["id"] == hike_id), None),
-                )
-            all_visible_observations = fetch_all_lightweight_observations() if visible_hikes else []
-            all_visible_observations = [
-                observation for observation in all_visible_observations if record_visible_for_user(observation, visible_hike_ids, user_context)
-            ]
-            confirmed_visible_observations = [
-                observation
-                for observation in fetch_confirmed_observations_light()
-                if record_visible_for_user(observation, visible_hike_ids, user_context)
-            ]
-
-    if st.session_state.active_view == "Species Log":
-        confirmed_visible_observations = [
-            observation
-            for observation in fetch_confirmed_observations_light()
-            if record_visible_for_user(observation, visible_hike_ids, user_context)
-        ]
-        species_log_photo_ids = tuple(
-            {
-                observation["photo_id"]
-                for observation in confirmed_visible_observations
-                if observation.get("photo_id")
-            }
-        )
-        all_visible_photos = fetch_photo_records_for_ids(species_log_photo_ids) if species_log_photo_ids else []
-        species_log_context = build_species_log_context(
-            hikes=visible_hikes,
-            confirmed_observations=confirmed_visible_observations,
-            photos=all_visible_photos,
-            inat_client=inat_client,
-        )
-        all_visible_photos = species_log_context["viewer_photos"]
-        for hike_id, grouped_photos in group_records_by_key(all_visible_photos, "hike_id").items():
-            annotate_photos_with_route_context(
-                grouped_photos,
-                route_import=route_imports_by_hike.get(str(hike_id)),
-                hike_distance_miles=next((hike.get("distance_miles") for hike in visible_hikes if hike["id"] == hike_id), None),
-            )
-        all_visible_observations = species_log_context["viewer_observations"]
-
-    review_queue_photos: list[dict[str, Any]] = []
-    publish_confirmed_observations: list[dict[str, Any]] = []
-    publish_photos: list[dict[str, Any]] = []
-
-    observations_by_photo = group_observations_by_photo(observations)
-    primary_observation_by_photo = {
-        photo_id: get_primary_observation(photo_observations)
-        for photo_id, photo_observations in observations_by_photo.items()
-    }
-    if st.session_state.active_view == "Species Review":
-        review_queue_photos = fetch_review_queue_photos() if visible_hikes else []
-        review_queue_photos = [photo for photo in review_queue_photos if record_visible_for_user(photo, visible_hike_ids, user_context)]
-        publish_confirmed_observations = [
-            observation
-            for observation in fetch_confirmed_observations_light()
-            if record_visible_for_user(observation, visible_hike_ids, user_context)
-        ]
-        review_photo_ids = tuple(photo["id"] for photo in review_queue_photos)
-        publish_photo_ids = tuple(
-            {
-                str(observation["photo_id"])
-                for observation in publish_confirmed_observations
-                if observation.get("photo_id")
-            }
-        )
-        publish_photos = fetch_photo_records_for_ids(publish_photo_ids) if publish_photo_ids else []
-        all_visible_photos = dedupe_records_by_id(review_queue_photos + publish_photos)
-        review_observations = fetch_observations_for_photo_ids(review_photo_ids) if review_photo_ids else []
-        all_visible_observations = dedupe_records_by_id(review_observations + publish_confirmed_observations)
-        confirmed_visible_observations = [
-            observation for observation in all_visible_observations if observation.get("status") == "confirmed"
-        ]
-    all_visible_observations_by_photo = group_observations_by_photo(all_visible_observations)
-    all_visible_primary_observation_by_photo = {
-        photo_id: get_primary_observation(photo_observations)
-        for photo_id, photo_observations in all_visible_observations_by_photo.items()
-    }
-    if st.session_state.active_view == "Species Review":
-        review_queue_photos = sorted(
-            review_queue_photos,
-            key=lambda photo: (
-                0 if not all_visible_primary_observation_by_photo.get(photo["id"]) else 1,
-                0 if (all_visible_primary_observation_by_photo.get(photo["id"]) or {}).get("status") == "pending" else 1,
-                photo.get("taken_at") or "",
-                photo.get("created_at") or "",
-            ),
-        )
-    confirmed_count = len([item for item in observations if item.get("status") == "confirmed"])
-    visible_confirmed_observations = [
-        observation
-        for observation in fetch_confirmed_observations_light()
-        if record_visible_for_user(observation, visible_hike_ids, user_context)
-    ] if visible_hikes else []
-    known_species_catalog = build_known_species_catalog(visible_confirmed_observations)
-    visible_unique_species_count = count_unique_species(visible_confirmed_observations)
-    total_logged_miles = compute_total_mileage(visible_hikes)
-
-    viewer_photos: list[dict[str, Any]]
-    viewer_observations_by_photo: dict[str, list[dict[str, Any]]]
-    viewer_primary_observation_by_photo: dict[str, dict[str, Any]]
-    if st.session_state.active_view == "Journal":
-        viewer_photos = photos
-        viewer_observations_by_photo = observations_by_photo
-        viewer_primary_observation_by_photo = primary_observation_by_photo
-    elif st.session_state.active_view == "Species Review":
-        viewer_photos = all_visible_photos
-        viewer_observations_by_photo = all_visible_observations_by_photo
-        viewer_primary_observation_by_photo = all_visible_primary_observation_by_photo
-    elif st.session_state.active_view in {"Map", "Species Log"}:
-        viewer_photos = all_visible_photos
-        viewer_observations_by_photo = all_visible_observations_by_photo
-        viewer_primary_observation_by_photo = all_visible_primary_observation_by_photo
-    else:
-        viewer_photos = photos
-        viewer_observations_by_photo = observations_by_photo
-        viewer_primary_observation_by_photo = primary_observation_by_photo
-
-    sync_viewer_from_query_params(viewer_photos)
-
-    if st.session_state.active_view == "Journal" and selected_hike:
-        cover_photo = next(
-            (photo for photo in photos if str(photo.get("id")) == str(selected_hike.get("cover_photo_id") or "")),
-            photos[0] if photos else None,
-        )
-        render_hero(
-            selected_hike,
-            len(visible_hikes),
-            len(photos),
-            count_unique_species([item for item in observations if item.get("status") == "confirmed"]),
-            route_import=route_import,
-            total_miles=total_logged_miles,
-            cover_photo_url=str(cover_photo.get("public_url")) if cover_photo and cover_photo.get("public_url") else None,
-        )
-        st.write("")
-
-    if not selected_hike and not standalone_journal_active and st.session_state.active_view not in top_level_views:
-        render_empty_state()
-        return
-
-    if st.session_state.active_view == "Library":
-        render_library_tab(
-            repository,
-            storage,
-            visible_hikes,
-            library_photo_refs,
-            visible_confirmed_observations,
-            library_cover_photos,
-            user_context,
-        )
-    elif st.session_state.active_view == "Journal":
-        if standalone_journal_active:
-            render_standalone_journal_tab(
-                repository,
-                storage,
-                inat_client,
-                photos,
-                observations_by_photo,
-                primary_observation_by_photo,
-                user_context,
-                known_species_catalog,
-            )
-        else:
-            render_journal_tab(
-                repository,
-                storage,
-                inat_client,
-                selected_hike,
-                photos,
-                observations_by_photo,
-                primary_observation_by_photo,
-                route_import,
-                known_species_catalog,
-            )
-    elif st.session_state.active_view == "Species Review":
-        render_species_tab(
-            repository,
-            inat_client,
-            visible_hikes,
-            review_queue_photos,
-            publish_confirmed_observations,
-            publish_photos,
-            all_visible_observations_by_photo,
-            all_visible_primary_observation_by_photo,
-        )
-    elif st.session_state.active_view == "Map":
-        if selected_hike:
-            render_map_tab(
-                photos,
-                observations_by_photo,
-                primary_observation_by_photo,
-                selected_hike=selected_hike,
-                route_imports_by_hike={selected_hike["id"]: route_import} if selected_hike and route_import else {},
-            )
-        else:
-            render_map_tab(
-                all_visible_photos,
-                all_visible_observations_by_photo,
-                all_visible_primary_observation_by_photo,
-                selected_hike=None,
-                route_imports_by_hike=route_imports_by_hike,
-            )
-    elif st.session_state.active_view == "Species Log":
-        render_species_log_tab(
-            repository,
-            inat_client,
-            visible_hikes,
-            species_log_context or {},
-        )
-
-    if st.session_state.inat_token_dialog_open:
-        render_inat_token_dialog(inat_client, user_context)
-    elif st.session_state.viewer_open:
-        st.session_state.viewer_open = False
-        render_photo_viewer(
-            repository,
-            inat_client,
-            viewer_photos,
-            viewer_observations_by_photo,
-            viewer_primary_observation_by_photo,
-        )
-
-    render_footer()
-
-
-@st.cache_data(show_spinner=False)
-def fetch_hikes() -> list[dict[str, Any]]:
-    return HikeJournalRepository(get_supabase()).list_hikes()
-
-
-@st.cache_data(show_spinner=False)
-def fetch_hike_locations() -> list[dict[str, Any]]:
-    return HikeJournalRepository(get_supabase()).list_hike_locations()
-
-
-@st.cache_data(show_spinner=False)
-def fetch_hike_location_tags() -> list[dict[str, Any]]:
-    return HikeJournalRepository(get_supabase()).list_hike_location_tags()
-
-
-@st.cache_data(show_spinner=False)
-def fetch_hike_route_import(hike_id: str) -> dict[str, Any] | None:
-    return HikeJournalRepository(get_supabase()).get_hike_route_import(hike_id)
-
-
-@st.cache_data(show_spinner=False)
-def fetch_all_hike_route_imports() -> list[dict[str, Any]]:
-    return HikeJournalRepository(get_supabase()).list_hike_route_imports()
-
-
-@st.cache_data(show_spinner=False)
-def fetch_hike_photos(hike_id: str) -> list[dict[str, Any]]:
-    return HikeJournalRepository(get_supabase()).list_photos(hike_id)
-
-
-@st.cache_data(show_spinner=False)
-def fetch_all_photos() -> list[dict[str, Any]]:
-    return HikeJournalRepository(get_supabase()).list_all_photos()
-
-
-@st.cache_data(show_spinner=False)
-def fetch_standalone_photos() -> list[dict[str, Any]]:
-    return HikeJournalRepository(get_supabase()).list_standalone_photos()
-
-
-@st.cache_data(show_spinner=False)
-def fetch_hike_map_photos(hike_id: str) -> list[dict[str, Any]]:
-    return HikeJournalRepository(get_supabase()).list_map_photos(hike_id)
-
-
-@st.cache_data(show_spinner=False)
-def fetch_all_map_photos() -> list[dict[str, Any]]:
-    return HikeJournalRepository(get_supabase()).list_map_photos()
-
-
-@st.cache_data(show_spinner=False)
-def fetch_review_queue_photos() -> list[dict[str, Any]]:
-    return HikeJournalRepository(get_supabase()).list_review_queue_photos()
-
-
-@st.cache_data(show_spinner=False)
-def fetch_photo_hike_refs() -> list[dict[str, Any]]:
-    return HikeJournalRepository(get_supabase()).list_photo_hike_refs()
-
-
-@st.cache_data(show_spinner=False)
-def fetch_photo_storage_records() -> list[dict[str, Any]]:
-    return HikeJournalRepository(get_supabase()).list_photo_storage_records()
-
-
-@st.cache_data(show_spinner=False)
-def fetch_hike_observations(hike_id: str) -> list[dict[str, Any]]:
-    return HikeJournalRepository(get_supabase()).list_observations(hike_id)
-
-
-@st.cache_data(show_spinner=False)
-def fetch_hike_lightweight_observations(hike_id: str) -> list[dict[str, Any]]:
-    return HikeJournalRepository(get_supabase()).list_lightweight_observations(hike_id=hike_id)
-
-
-@st.cache_data(show_spinner=False)
-def fetch_all_lightweight_observations() -> list[dict[str, Any]]:
-    return HikeJournalRepository(get_supabase()).list_lightweight_observations()
-
-
-@st.cache_data(show_spinner=False)
-def fetch_lightweight_observations_for_photo_ids(photo_ids: tuple[str, ...]) -> list[dict[str, Any]]:
-    return HikeJournalRepository(get_supabase()).list_lightweight_observations(photo_ids=list(photo_ids))
-
-
-@st.cache_data(show_spinner=False)
-def fetch_confirmed_observations_light() -> list[dict[str, Any]]:
-    return HikeJournalRepository(get_supabase()).list_lightweight_observations(status="confirmed")
-
-
-@st.cache_data(show_spinner=False)
-def fetch_photo_records_for_ids(photo_ids: tuple[str, ...]) -> list[dict[str, Any]]:
-    return HikeJournalRepository(get_supabase()).list_photo_records_for_ids(list(photo_ids))
-
-
-@st.cache_data(show_spinner=False)
-def fetch_observations_by_ids(observation_ids: tuple[str, ...]) -> list[dict[str, Any]]:
-    return HikeJournalRepository(get_supabase()).list_observations_by_ids(list(observation_ids))
-
-
-@st.cache_data(show_spinner=False)
-def fetch_species_log_photo_preferences(observation_ids: tuple[str, ...]) -> list[dict[str, Any]]:
-    return HikeJournalRepository(get_supabase()).list_species_log_photo_preferences(list(observation_ids))
-
-
-@st.cache_data(show_spinner=False)
-def fetch_observations_for_photo_ids(photo_ids: tuple[str, ...]) -> list[dict[str, Any]]:
-    return HikeJournalRepository(get_supabase()).list_observations_for_photo_ids(list(photo_ids))
-
-
-@st.cache_data(show_spinner=False)
-def fetch_confirmed_observation_hike_refs() -> list[dict[str, Any]]:
-    return HikeJournalRepository(get_supabase()).list_confirmed_observation_hike_refs()
-
-
-def invalidate_data_cache() -> None:
-    fetch_hikes.clear()
-    fetch_hike_locations.clear()
-    fetch_hike_location_tags.clear()
-    fetch_hike_route_import.clear()
-    fetch_all_hike_route_imports.clear()
-    fetch_hike_photos.clear()
-    fetch_all_photos.clear()
-    fetch_hike_map_photos.clear()
-    fetch_all_map_photos.clear()
-    fetch_review_queue_photos.clear()
-    fetch_photo_hike_refs.clear()
-    fetch_photo_storage_records.clear()
-    fetch_hike_observations.clear()
-    fetch_hike_lightweight_observations.clear()
-    fetch_all_lightweight_observations.clear()
-    fetch_lightweight_observations_for_photo_ids.clear()
-    fetch_confirmed_observations_light.clear()
-    fetch_photo_records_for_ids.clear()
-    fetch_observations_by_ids.clear()
-    fetch_species_log_photo_preferences.clear()
-    fetch_observations_for_photo_ids.clear()
-    fetch_confirmed_observation_hike_refs.clear()
-
-
-def slugify_location_name(value: str) -> str:
-    slug = re.sub(r"[^a-z0-9]+", "-", value.lower().strip())
-    return re.sub(r"-+", "-", slug).strip("-") or "location"
-
-
-def normalize_location_text(value: str) -> str:
-    normalized = re.sub(r"[^a-z0-9]+", " ", value.lower())
-    return re.sub(r"\s+", " ", normalized).strip()
-
-
-def load_seed_hike_locations() -> list[dict[str, Any]]:
-    try:
-        with LOCATION_SEED_PATH.open("r", encoding="utf-8") as seed_file:
-            data = json.load(seed_file)
-    except (OSError, json.JSONDecodeError):
-        return []
-    return [item for item in data if isinstance(item, dict) and str(item.get("name") or "").strip()]
-
-
-def attach_location_tags_to_hikes(
-    hikes: list[dict[str, Any]],
-    locations: list[dict[str, Any]],
-    location_tags: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    location_by_id = {str(location.get("id")): location for location in locations if location.get("id")}
-    grouped_tags: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for tag in location_tags:
-        hike_id = str(tag.get("hike_id") or "")
-        location = location_by_id.get(str(tag.get("location_id") or ""))
-        if hike_id and location:
-            grouped_tags[hike_id].append({**location, "is_primary": bool(tag.get("is_primary"))})
-    enriched_hikes: list[dict[str, Any]] = []
-    for hike in hikes:
-        hike_copy = dict(hike)
-        tags = grouped_tags.get(str(hike_copy.get("id") or ""), [])
-        hike_copy["location_tags"] = sorted(
-            tags,
-            key=lambda item: (not bool(item.get("is_primary")), str(item.get("name") or "").lower()),
-        )
-        enriched_hikes.append(hike_copy)
-    return enriched_hikes
-
-
-def format_hike_location_label(hike: dict[str, Any], fallback: str = "Unknown location") -> str:
-    tags = [str(tag.get("name") or "").strip() for tag in hike.get("location_tags") or [] if str(tag.get("name") or "").strip()]
-    if tags:
-        return ", ".join(tags[:3]) + (" +" if len(tags) > 3 else "")
-    return str(hike.get("location_name") or fallback)
-
-
-def selected_location_defaults(hike: dict[str, Any]) -> list[str]:
-    return [str(tag.get("name") or "").strip() for tag in hike.get("location_tags") or [] if str(tag.get("name") or "").strip()]
-
-
-def location_library_options(locations: list[dict[str, Any]]) -> list[str]:
-    return sorted(
-        {str(location.get("name") or "").strip() for location in locations if str(location.get("name") or "").strip()},
-        key=str.lower,
-    )
-
-
-def resolve_location_selection(
-    repository: HikeJournalRepository,
-    selected_names: list[str],
-    locations: list[dict[str, Any]],
-) -> list[str]:
-    by_name = {str(location.get("name") or "").strip().lower(): location for location in locations}
-    location_ids: list[str] = []
-    seen = set()
-    for raw_name in selected_names:
-        name = str(raw_name or "").strip()
-        if not name:
-            continue
-        location = by_name.get(name.lower())
-        if location and location.get("id"):
-            location_id = str(location["id"])
-        else:
-            created = repository.upsert_hike_location(
-                name,
-                source="manual",
-                location_type="manual",
-                slug=slugify_location_name(name),
-            )
-            location_id = str(created.get("id")) if created and created.get("id") else ""
-        if location_id and location_id not in seen:
-            location_ids.append(location_id)
-            seen.add(location_id)
-    return location_ids
-
-
-def maybe_store_hike_location_tags(
-    repository: HikeJournalRepository,
-    hike_id: str,
-    selected_names: list[str],
-    locations: list[dict[str, Any]],
-) -> None:
-    location_ids = resolve_location_selection(repository, selected_names, locations)
-    repository.set_hike_location_tags(hike_id, location_ids)
-
-
-def location_match_terms(location: dict[str, Any]) -> list[str]:
-    terms = [str(location.get("name") or "")]
-    aliases = location.get("aliases") or []
-    if isinstance(aliases, list):
-        terms.extend(str(alias) for alias in aliases)
-    normalized_terms: list[str] = []
-    for term in terms:
-        normalized = normalize_location_text(term)
-        if len(normalized) >= 4:
-            normalized_terms.append(normalized)
-    return normalized_terms
-
-
-def suggest_location_ids_for_hike(hike: dict[str, Any], locations: list[dict[str, Any]]) -> list[str]:
-    haystack = normalize_location_text(
-        " ".join(str(hike.get(field) or "") for field in ["title", "location_name", "notes"])
-    )
-    if not haystack:
-        return []
-    matches: list[tuple[int, str]] = []
-    padded_haystack = f" {haystack} "
-    for location in locations:
-        location_id = str(location.get("id") or "")
-        if not location_id:
-            continue
-        best_score = 0
-        for term in location_match_terms(location):
-            if f" {term} " in padded_haystack:
-                best_score = max(best_score, 100 + len(term))
-            elif term in haystack and len(term) >= 10:
-                best_score = max(best_score, 80 + len(term))
-        if best_score:
-            matches.append((best_score, location_id))
-    matches.sort(reverse=True)
-    return [location_id for _, location_id in matches[:4]]
-
-
-def autotag_matching_hikes(repository: HikeJournalRepository, hikes: list[dict[str, Any]], locations: list[dict[str, Any]]) -> int:
-    tagged_count = 0
-    for hike in hikes:
-        if hike.get("location_tags"):
-            continue
-        matches = suggest_location_ids_for_hike(hike, locations)
-        if matches:
-            repository.set_hike_location_tags(str(hike["id"]), matches)
-            tagged_count += 1
-    return tagged_count
-
-
-def format_duration_compact(value: int | float | None) -> str | None:
-    if value in (None, ""):
-        return None
-    try:
-        total_seconds = max(0, int(round(float(value))))
-    except (TypeError, ValueError):
-        return None
-    hours, remainder = divmod(total_seconds, 3600)
-    minutes, seconds = divmod(remainder, 60)
-    if hours:
-        return f"{hours}h {minutes}m"
-    if minutes:
-        return f"{minutes}m {seconds}s" if seconds else f"{minutes}m"
-    return f"{seconds}s"
-
-
-def format_total_miles(value: float | int | None) -> str:
-    if value in (None, ""):
-        return "0 mi logged"
-    try:
-        miles = float(value)
-    except (TypeError, ValueError):
-        return "0 mi logged"
-    if miles >= 100:
-        return f"{miles:,.0f} mi logged"
-    return f"{miles:,.1f} mi logged"
-
-
-def route_import_meta(route_import: dict[str, Any] | None) -> dict[str, Any]:
-    if not route_import:
-        return {}
-    track_geojson = route_import.get("track_geojson") or {}
-    if not isinstance(track_geojson, dict):
-        return {}
-    meta = track_geojson.get("meta") or {}
-    stored_meta = meta if isinstance(meta, dict) else {}
-    computed_meta = estimate_elevation_meta_from_track_geojson(track_geojson)
-    if not computed_meta:
-        return stored_meta
-    return {**stored_meta, **computed_meta}
-
-
-def format_elevation_compact(feet: Any) -> str | None:
-    if feet in (None, ""):
-        return None
-    try:
-        value = int(round(float(feet)))
-    except (TypeError, ValueError):
-        return None
-    return f"{value:,} ft gain"
-
-
-def _normalize_uploaded_route_files(uploaded_files) -> list[Any]:
-    if not uploaded_files:
-        return []
-    if isinstance(uploaded_files, (list, tuple)):
-        return [uploaded_file for uploaded_file in uploaded_files if uploaded_file]
-    return [uploaded_files]
-
-
-def _route_import_source_name(uploaded_files) -> str | None:
-    file_names = [
-        str(getattr(uploaded_file, "name", "") or "").strip()
-        for uploaded_file in _normalize_uploaded_route_files(uploaded_files)
-    ]
-    file_names = [file_name for file_name in file_names if file_name]
-    if not file_names:
-        return None
-    return file_names[0] if len(file_names) == 1 else " + ".join(file_names)
-
-
-def parse_uploaded_route_import(uploaded_files) -> tuple[ParsedTcxRouteImport | None, bytes | None, str | None]:
-    route_files = _normalize_uploaded_route_files(uploaded_files)
-    if not route_files:
-        return None, None, None
-    parsed_imports: list[ParsedTcxRouteImport] = []
-    file_payloads: list[bytes] = []
-    for uploaded_file in route_files:
-        file_name = str(getattr(uploaded_file, "name", "") or "").strip()
-        if not file_name:
-            continue
-        try:
-            file_bytes = uploaded_file.getvalue()
-        except Exception:
-            return None, None, f"Could not read {file_name}."
-        try:
-            parsed_imports.append(parse_tcx_bytes(file_bytes))
-        except TcxParseError as exc:
-            return None, None, f"{file_name}: {exc}"
-        file_payloads.append(file_bytes)
-    if not parsed_imports:
-        return None, None, None
-    combined = combine_tcx_route_imports(parsed_imports)
-    if not combined:
-        return None, None, None
-    return combined, b"\n\n".join(file_payloads), None
-
-
-def sync_hike_route_import(
-    *,
-    repository: HikeJournalRepository,
-    storage: StorageService,
-    hike_id: str,
-    uploaded_file,
-    existing_route_import: dict[str, Any] | None,
-    remove_existing: bool,
-) -> tuple[dict[str, Any] | None, str | None]:
-    active_route_import = existing_route_import
-    parsed: ParsedTcxRouteImport | None = None
-    file_bytes: bytes | None = None
-    if uploaded_file:
-        parsed, file_bytes, error = parse_uploaded_route_import(uploaded_file)
-        if error:
-            return active_route_import, error
-
-    if remove_existing and existing_route_import:
-        try:
-            deleted = repository.delete_hike_route_import(hike_id)
-        except Exception:
-            return active_route_import, "Run sql/hike_route_imports_migration.sql before deleting imported routes."
-        if deleted and deleted.get("source_storage_path"):
-            storage.delete_file(str(deleted["source_storage_path"]))
-        active_route_import = None
-
-    if not uploaded_file or parsed is None or file_bytes is None:
-        return active_route_import, None
-
-    storage_path, public_url = storage.upload_hike_route_import(hike_id, file_bytes)
-    payload = {
-        "source_type": "mapmyrun_tcx_collection" if len(_normalize_uploaded_route_files(uploaded_file)) > 1 else "mapmyrun_tcx",
-        "source_file_name": _route_import_source_name(uploaded_file),
-        "source_storage_path": storage_path,
-        "source_public_url": public_url,
-        "started_at": parsed.started_at,
-        "distance_miles": round(parsed.distance_miles, 3) if parsed.distance_miles is not None else None,
-        "duration_seconds": parsed.duration_seconds,
-        "track_point_count": parsed.track_point_count,
-        "start_lat": parsed.start_latitude,
-        "start_lng": parsed.start_longitude,
-        "end_lat": parsed.end_latitude,
-        "end_lng": parsed.end_longitude,
-        "track_geojson": parsed.track_geojson,
-    }
-    try:
-        updated = repository.upsert_hike_route_import(hike_id, payload)
-    except Exception:
-        storage.delete_file(storage_path)
-        return active_route_import, "Run sql/hike_route_imports_migration.sql before saving imported routes."
-    old_storage_path = str((existing_route_import or {}).get("source_storage_path") or "").strip()
-    if old_storage_path and old_storage_path != storage_path:
-        storage.delete_file(old_storage_path)
-    return updated, None
-
-
-def delete_hike_and_assets(repository: HikeJournalRepository, storage: StorageService, hike_id: str) -> None:
-    photos = repository.list_photos(hike_id)
-    route_import = repository.get_hike_route_import(hike_id)
-    storage_paths = [
-        str(photo.get("storage_path") or "").strip()
-        for photo in photos
-        if str(photo.get("storage_path") or "").strip()
-    ]
-    route_storage_path = str((route_import or {}).get("source_storage_path") or "").strip()
-    if route_storage_path:
-        storage_paths.append(route_storage_path)
-
-    repository.delete_hike(hike_id)
-
-    for storage_path in storage_paths:
-        try:
-            storage.delete_file(storage_path)
-        except Exception:
-            pass
-
-
-def _coordinates_to_route_points(coordinates: list[Any]) -> list[dict[str, float]]:
-    points: list[dict[str, float]] = []
-    for coordinate in coordinates:
-        if not isinstance(coordinate, (list, tuple)) or len(coordinate) < 2:
-            continue
-        try:
-            lng = float(coordinate[0])
-            lat = float(coordinate[1])
-        except (TypeError, ValueError):
-            continue
-        points.append({"lat": lat, "lng": lng})
-    return points
-
-
-def route_import_to_route_groups(route_import: dict[str, Any] | None) -> list[list[dict[str, float]]]:
-    if not route_import:
-        return []
-    geojson = route_import.get("track_geojson") or {}
-    coordinates = geojson.get("coordinates") if isinstance(geojson, dict) else None
-    if not isinstance(coordinates, list):
-        return []
-    if geojson.get("type") == "MultiLineString":
-        return [
-            points
-            for points in (
-                _coordinates_to_route_points(segment)
-                for segment in coordinates
-                if isinstance(segment, list)
-            )
-            if len(points) >= 2
-        ]
-    points = _coordinates_to_route_points(coordinates)
-    return [points] if len(points) >= 2 else []
-
-
-def route_import_to_route_points(route_import: dict[str, Any] | None) -> list[dict[str, float]]:
-    return [
-        point
-        for route_group in route_import_to_route_groups(route_import)
-        for point in route_group
-    ]
-
-
-def count_unique_species(observations: list[dict[str, Any]]) -> int:
-    return len({build_species_group_key(observation) for observation in observations if build_species_group_key(observation)})
-
-
-def count_unique_species_by_key(observations: list[dict[str, Any]], key: str) -> dict[str, int]:
-    buckets: dict[str, set[str]] = defaultdict(set)
-    for observation in observations:
-        record_key = observation.get(key)
-        if not record_key:
-            continue
-        buckets[str(record_key)].add(build_species_group_key(observation))
-    return {bucket_key: len(values) for bucket_key, values in buckets.items()}
-
-
-def compute_total_mileage(hikes: list[dict[str, Any]]) -> float:
-    total = 0.0
-    for hike in hikes:
-        try:
-            distance = float(hike.get("distance_miles"))
-        except (TypeError, ValueError):
-            continue
-        total += distance
-    return total
-
-
-def _route_progress_label(progress: float) -> str:
-    if progress <= 0.2:
-        return "Start of hike"
-    if progress <= 0.45:
-        return "Early miles"
-    if progress <= 0.7:
-        return "Mid-hike"
-    if progress <= 0.9:
-        return "Late miles"
-    return "Finish stretch"
-
-
-def _haversine_distance_miles(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
-    radius_miles = 3958.7613
-    lat1_rad = math.radians(lat1)
-    lat2_rad = math.radians(lat2)
-    delta_lat = math.radians(lat2 - lat1)
-    delta_lng = math.radians(lng2 - lng1)
-    a = math.sin(delta_lat / 2) ** 2 + math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(delta_lng / 2) ** 2
-    return 2 * radius_miles * math.asin(min(1.0, math.sqrt(a)))
-
-
-def annotate_photos_with_route_context(
-    photos: list[dict[str, Any]],
-    *,
-    route_import: dict[str, Any] | None,
-    hike_distance_miles: float | None,
-) -> list[dict[str, Any]]:
-    route_points = route_import_to_route_points(route_import)
-    if len(route_points) < 2 or not photos:
-        return photos
-
-    cumulative_miles = [0.0]
-    total_line_distance = 0.0
-    for index in range(1, len(route_points)):
-        segment = _haversine_distance_miles(
-            route_points[index - 1]["lat"],
-            route_points[index - 1]["lng"],
-            route_points[index]["lat"],
-            route_points[index]["lng"],
-        )
-        total_line_distance += segment
-        cumulative_miles.append(total_line_distance)
-    reference_distance = float(hike_distance_miles or 0.0) or total_line_distance
-
-    for photo in photos:
-        photo.pop("route_context_label", None)
-        lat = photo.get("lat")
-        lng = photo.get("lng")
-        if lat is None or lng is None:
-            continue
-        nearest_index = 0
-        nearest_distance = None
-        for index, point in enumerate(route_points):
-            distance_to_point = (float(point["lat"]) - float(lat)) ** 2 + (float(point["lng"]) - float(lng)) ** 2
-            if nearest_distance is None or distance_to_point < nearest_distance:
-                nearest_distance = distance_to_point
-                nearest_index = index
-        progress = nearest_index / max(1, len(route_points) - 1)
-        approx_mile = reference_distance * progress
-        photo["route_context_label"] = f"{_route_progress_label(progress)} • approx mile {approx_mile:.1f}"
-    return photos
 
 
 def get_user_context() -> dict[str, Any]:
@@ -1962,161 +908,24 @@ def navigate_to(
     map_photo_id: str | None = None,
     scope: str | None = None,
 ) -> None:
-    st.session_state.active_view = view
-    st.session_state.pending_view = view
-    st.query_params["view"] = view
-    for key, value in get_query_state_for_view(view).items():
-        st.query_params[key] = value
-    if scope:
-        st.query_params["scope"] = scope
-    elif "scope" in st.query_params:
-        del st.query_params["scope"]
-    if hike_id:
-        st.session_state.selected_hike_id = hike_id
-        st.query_params["hike"] = hike_id
-    else:
-        st.session_state.selected_hike_id = None
-        if "hike" in st.query_params:
-            del st.query_params["hike"]
-    if photo_id:
-        st.query_params["photo"] = photo_id
-    elif "photo" in st.query_params:
-        del st.query_params["photo"]
-    if map_photo_id:
-        st.query_params["map_photo"] = map_photo_id
-    elif "map_photo" in st.query_params:
-        del st.query_params["map_photo"]
+    apply_navigation(
+        st.session_state,
+        st.query_params,
+        view=view,
+        hike_id=hike_id,
+        photo_id=photo_id,
+        map_photo_id=map_photo_id,
+        scope=scope,
+    )
     st.rerun()
 
 
 def sync_pagination_state_from_query_params() -> None:
-    current_signature = tuple(
-        (key, str(st.query_params.get(key, "")))
-        for key in [
-            "journal_page",
-            "journal_page_size",
-            "species_page",
-            "species_page_size",
-            "species_review_mode",
-            "species_review_stage",
-            "species_log_page",
-            "species_log_page_size",
-            "species_log_focus_key",
-            "species_log_record_open",
-            "map_layer_mode",
-            "map_species_filter",
-            "species_log_query",
-            "species_log_hike_filter",
-            "species_log_sort",
-            "species_log_posted_filter",
-            "species_log_mapped_only",
-            "species_log_include_secondary",
-            "map_photo_range_start",
-            "map_photo_range_end",
-        ]
-    )
-    if st.session_state.query_state_signature == current_signature:
-        return
-
-    _sync_positive_int_query_param("journal_page", minimum=1)
-    _sync_positive_int_query_param("species_page", minimum=1)
-    _sync_positive_int_query_param("journal_page_size", minimum=0)
-    _sync_positive_int_query_param("species_page_size", minimum=0)
-    _sync_string_query_param("species_review_mode")
-    _sync_string_query_param("species_review_stage")
-    _sync_positive_int_query_param("species_log_page", minimum=1)
-    _sync_positive_int_query_param("species_log_page_size", minimum=0)
-    _sync_string_query_param("species_log_focus_key")
-    _sync_bool_query_param("species_log_record_open")
-    _sync_string_query_param("map_layer_mode")
-    _sync_string_query_param("map_species_filter")
-    _sync_string_query_param("species_log_query")
-    _sync_string_query_param("species_log_hike_filter")
-    _sync_string_query_param("species_log_sort")
-    _sync_string_query_param("species_log_posted_filter")
-    _sync_bool_query_param("species_log_mapped_only")
-    _sync_bool_query_param("species_log_include_secondary")
-    map_range_start = _parse_positive_int_query_param("map_photo_range_start", minimum=1)
-    map_range_end = _parse_positive_int_query_param("map_photo_range_end", minimum=1)
-    if map_range_start is not None and map_range_end is not None:
-        st.session_state.map_photo_range = (map_range_start, map_range_end)
-    st.session_state.query_state_signature = current_signature
+    hydrate_query_state(st.session_state, st.query_params)
 
 
 def get_query_state_for_view(view: str) -> dict[str, str]:
-    if view == "Journal":
-        return {
-            "journal_page": str(int(st.session_state.get("journal_page", 1))),
-            "journal_page_size": str(int(st.session_state.get("journal_page_size", 9))),
-        }
-    if view == "Species Review":
-        return {
-            "species_page": str(int(st.session_state.get("species_page", 1))),
-            "species_page_size": str(int(st.session_state.get("species_page_size", 6))),
-            "species_review_mode": str(st.session_state.get("species_review_mode", "Review")),
-            "species_review_stage": str(st.session_state.get("species_review_stage", "All")),
-        }
-    if view == "Map":
-        query = {
-            "map_layer_mode": str(st.session_state.get("map_layer_mode", "Both")),
-            "map_species_filter": str(st.session_state.get("map_species_filter", "All confirmed species")),
-        }
-        map_range = st.session_state.get("map_photo_range")
-        if isinstance(map_range, (tuple, list)) and len(map_range) == 2:
-            query["map_photo_range_start"] = str(int(map_range[0]))
-            query["map_photo_range_end"] = str(int(map_range[1]))
-        return query
-    if view == "Species Log":
-        return {
-            "species_log_query": str(st.session_state.get("species_log_query", "")).strip(),
-            "species_log_page": str(int(st.session_state.get("species_log_page", 1))),
-            "species_log_page_size": str(int(st.session_state.get("species_log_page_size", 8))),
-            "species_log_hike_filter": str(st.session_state.get("species_log_hike_filter", "All hikes")),
-            "species_log_sort": str(st.session_state.get("species_log_sort", "Most recent")),
-            "species_log_posted_filter": str(st.session_state.get("species_log_posted_filter", "All")),
-            "species_log_mapped_only": "1" if st.session_state.get("species_log_mapped_only") else "0",
-            "species_log_include_secondary": "1" if st.session_state.get("species_log_include_secondary", True) else "0",
-            "species_log_focus_key": str(st.session_state.get("species_log_focus_key") or ""),
-            "species_log_record_open": "1" if st.session_state.get("species_log_record_open") else "0",
-        }
-    return {}
-
-
-def _sync_positive_int_query_param(key: str, *, minimum: int) -> None:
-    parsed = _parse_positive_int_query_param(key, minimum=minimum)
-    if parsed is not None:
-        st.session_state[key] = parsed
-
-
-def _parse_positive_int_query_param(key: str, *, minimum: int) -> int | None:
-    raw_value = st.query_params.get(key)
-    if raw_value is None:
-        return None
-    try:
-        parsed = int(str(raw_value))
-    except (TypeError, ValueError):
-        return None
-    if parsed < minimum:
-        return None
-    return parsed
-
-
-def _sync_string_query_param(key: str) -> None:
-    raw_value = st.query_params.get(key)
-    if raw_value is None:
-        return
-    st.session_state[key] = str(raw_value)
-
-
-def _sync_bool_query_param(key: str) -> None:
-    raw_value = st.query_params.get(key)
-    if raw_value is None:
-        return
-    normalized = str(raw_value).strip().lower()
-    if normalized in {"1", "true", "yes", "on"}:
-        st.session_state[key] = True
-    elif normalized in {"0", "false", "no", "off"}:
-        st.session_state[key] = False
+    return query_state_for_view(view, st.session_state)
 
 
 @st.dialog("New Hike", width="large")
@@ -2416,298 +1225,22 @@ def render_library_tab(
     cover_photos_by_id: dict[str, dict[str, Any]],
     user_context: dict[str, Any],
 ) -> None:
-    st.markdown("<div id='library-top'></div>", unsafe_allow_html=True)
-    if st.session_state.location_library_notice:
-        st.success(str(st.session_state.location_library_notice))
-        st.session_state.location_library_notice = None
-    total_photo_count = len(photo_refs)
-    total_confirmed_count = count_unique_species(confirmed_observations)
-    total_outing_count = len(hikes)
-    total_logged_miles = compute_total_mileage(hikes)
-    featured_hike = next(
-        (
-            hike
-            for hike in sorted(hikes, key=lambda item: str(item.get("hike_date") or ""), reverse=True)
-            if hike.get("cover_photo_id") and str(hike.get("cover_photo_id")) in cover_photos_by_id
-        ),
-        None,
+    render_library_view(
+        repository,
+        storage,
+        hikes,
+        photo_refs,
+        confirmed_observations,
+        cover_photos_by_id,
+        user_context,
+        navigate_to=navigate_to,
+        paginate_items=paginate_items,
+        render_back_to_top_link=render_back_to_top_link,
+        render_create_hike_dialog=render_create_hike_dialog,
+        render_edit_hike_dialog=render_edit_hike_dialog,
+        render_quick_upload_dialog=render_quick_upload_dialog,
+        reset_library_page=reset_library_page,
     )
-    featured_photo = cover_photos_by_id.get(str(featured_hike.get("cover_photo_id"))) if featured_hike else None
-    featured_image = (
-        f'<img class="library-hero-media" src="{escape(str(featured_photo.get("public_url")), quote=True)}" alt="" decoding="async">'
-        if featured_photo and featured_photo.get("public_url")
-        else ""
-    )
-    featured_action = (
-        f'<a class="library-hero-action" href="?view=Journal&amp;hike={quote(str(featured_hike["id"]))}" target="_self">Continue {escape(str(featured_hike.get("title") or "latest outing"))}</a>'
-        if featured_hike
-        else ""
-    )
-    standalone_photos = [
-        photo for photo in fetch_standalone_photos()
-        if record_visible_for_user(photo, {hike["id"] for hike in hikes}, user_context)
-    ]
-    st.markdown(
-        f"""
-        <section class="library-hero{' library-hero--photo' if featured_image else ''}">
-            {featured_image}
-            <div class="library-hero-scrim"></div>
-            <div class="library-hero-copy">
-                <p class="library-hero-label">Field journal · Florida</p>
-                <h1 class="library-hero-title">HikeJournal</h1>
-                <p class="library-hero-body">Outings, photographs, maps, and species observations in one living field record.</p>
-                {featured_action}
-            </div>
-        </section>
-        <div class="library-index-line">
-            <span>{total_outing_count} outings</span>
-            <span>{format_total_miles(total_logged_miles)}</span>
-            <span>{total_photo_count} photographs</span>
-            <span>{total_confirmed_count} species</span>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    st.write("")
-
-    with st.container(key="library_filters"):
-        controls = st.columns([0.44, 0.24, 0.16, 0.16], gap="small")
-        query = controls[0].text_input(
-            "Search hikes",
-            placeholder="Bronson, Black Bear, scrub, loop...",
-            label_visibility="collapsed",
-            key="library_query",
-            on_change=reset_library_page,
-        )
-        archive_mode = controls[1].segmented_control(
-            "Browse",
-            ["Everything", "Current outings", "Archived outings", "Everyday"],
-            default="Current outings",
-            key="library_archive_mode",
-            label_visibility="collapsed",
-            on_change=reset_library_page,
-        )
-        sort_order = controls[2].selectbox("Sort", ["Newest first", "Oldest first", "Title"], label_visibility="collapsed", key="library_sort", on_change=reset_library_page)
-        group_by = controls[3].selectbox("Group", ["Month", "Year", "None"], label_visibility="collapsed", key="library_group_by", on_change=reset_library_page)
-    with st.container(key="library_action_rail"):
-        action_rail = st.columns([0.62, 0.18, 0.2], gap="small")
-        action_rail[0].markdown(
-            "<div class='library-rail-note'>Browse current outings, archived outings, or everyday sightings without losing the shape of the archive.</div>",
-            unsafe_allow_html=True,
-        )
-        if action_rail[1].button("Quick upload", use_container_width=True, type="secondary", key="library_quick_upload"):
-            render_quick_upload_dialog(storage, repository, user_context)
-        if action_rail[2].button("New hike", use_container_width=True, type="primary"):
-            render_create_hike_dialog(repository, storage, user_context)
-
-    photo_counts = count_records_by_key(photo_refs, "hike_id")
-    confirmed_counts = count_unique_species_by_key(confirmed_observations, "hike_id")
-    hike_scope = {
-        "Everything": "All",
-        "Current outings": "Active",
-        "Archived outings": "Archived",
-        "Everyday": "All",
-    }.get(archive_mode, "Active")
-    library_items = list(filter_hike_library(hikes, query=query, scope=hike_scope, sort_order=sort_order))
-    standalone_item = build_standalone_library_item(
-        photos=standalone_photos,
-        confirmed_observations=confirmed_observations,
-        query=query,
-        scope="All" if archive_mode in {"Everything", "Everyday"} else "Active",
-    )
-    show_hikes = archive_mode in {"Everything", "Current outings", "Archived outings"}
-    show_standalone = archive_mode in {"Everything", "Everyday"}
-
-    if not library_items and not (show_standalone and standalone_item):
-        st.info("Nothing matched this library view yet.")
-        return
-    if show_standalone and not show_hikes and not standalone_item:
-        st.info("No standalone sightings matched that search yet.")
-        return
-
-    if show_standalone and standalone_item:
-        st.markdown("<div class='library-section-label'>Everyday sightings</div>", unsafe_allow_html=True)
-        with st.container(key="library_card_standalone"):
-            st.markdown("<div class='library-row-shell library-row-shell--standalone'>", unsafe_allow_html=True)
-            standalone_row = st.columns([0.22, 0.5, 0.28], gap="large")
-            cover_photo = standalone_item.get("_cover_photo")
-            with standalone_row[0]:
-                if cover_photo:
-                    render_clickable_photo(cover_photo, selected_hike_id=None, variant="library-cover", scope="standalone")
-                else:
-                    st.markdown(
-                        """
-                        <a class="library-cover-placeholder" href="?view=Journal&scope=standalone" target="_self">
-                            <div class="library-cover-mark">S</div>
-                            <div class="library-cover-copy">Open your standalone photo journal</div>
-                        </a>
-                        """,
-                        unsafe_allow_html=True,
-                    )
-            with standalone_row[1]:
-                standalone_notes = (standalone_item.get("notes") or "").strip()
-                if len(standalone_notes) > 180:
-                    standalone_notes = standalone_notes[:177].rstrip() + "..."
-                st.markdown(
-                    f"""
-                    <div class="library-row-copy">
-                        <div class="library-row-kicker">Always available</div>
-                        <p class="library-row-title">{escape(standalone_item.get("title") or "Everyday sightings")}</p>
-                        <p class="library-row-subtitle">{escape(standalone_item.get("location_name") or "Neighborhood finds, one-off sightings, and quick uploads that were never part of a formal outing.")}</p>
-                        <div class="library-row-stats">
-                            <span>Standalone archive</span>
-                            <span>{standalone_item.get('_photo_count', 0)} photos</span>
-                            <span>{standalone_item.get('_confirmed_count', 0)} unique species</span>
-                        </div>
-                        {f"<p class='library-row-notes'>{escape(standalone_notes)}</p>" if standalone_notes else ""}
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-            with standalone_row[2]:
-                st.markdown(
-                    f"""
-                    <div class="library-action-intro">
-                        <span class="library-action-count">{standalone_item.get('_photo_count', 0)} photos</span>
-                        <span class="library-action-separator">•</span>
-                        <span>{standalone_item.get('_confirmed_count', 0)} unique species</span>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-                if st.button("Open photos", key=f"library_open_{standalone_item['id']}", use_container_width=True):
-                    navigate_to(view="Journal", scope="standalone")
-                utility_markup = (
-                    "<a class='library-inline-action' href='?view=Map&scope=global' target='_self'>Master map</a>"
-                    "<a class='library-inline-action' href='?view=Species%20Log' target='_self'>Sightings log</a>"
-                )
-                st.markdown(f"<div class='library-row-utility'>{utility_markup}</div>", unsafe_allow_html=True)
-            st.markdown("</div>", unsafe_allow_html=True)
-        if show_hikes and library_items:
-            st.divider()
-
-    page_hikes: list[dict[str, Any]] = []
-    total_pages = 1
-    if show_hikes and library_items:
-        outings_label = {
-            "Current outings": "Current outings",
-            "Archived outings": "Archived outings",
-        }.get(archive_mode, "Outings")
-        st.markdown(f"<div class='library-section-label'>{escape(outings_label)}</div>", unsafe_allow_html=True)
-        page_hikes, total_pages = paginate_items(library_items, "library_page", "library_page_size")
-        with st.container(key="library_toolbar"):
-            library_toolbar = st.columns([0.16, 0.14, 0.44, 0.26], gap="small")
-            page_size_options = [6, 8, 12, 18, 0]
-            page_size = library_toolbar[0].selectbox(
-                "Per page",
-                page_size_options,
-                index=page_size_options.index(st.session_state.library_page_size),
-                key="library_page_size_select",
-                format_func=lambda value: "All" if value == 0 else str(value),
-            )
-            if page_size != st.session_state.library_page_size:
-                st.session_state.library_page_size = page_size
-                st.session_state.library_page = 1
-                st.rerun()
-            requested_page = library_toolbar[1].number_input(
-                "Page",
-                min_value=1,
-                max_value=total_pages,
-                value=st.session_state.library_page,
-                step=1,
-                key="library_page_number",
-            )
-            if requested_page != st.session_state.library_page:
-                st.session_state.library_page = int(requested_page)
-                st.rerun()
-            library_toolbar[2].markdown(
-                f"<div class='utility-rail-status'>{len(page_hikes)} outings on this page • {len(library_items)} matched overall</div>",
-                unsafe_allow_html=True,
-            )
-            with library_toolbar[3].popover("Manage"):
-                st.caption(f"Page {st.session_state.library_page} of {total_pages}")
-                nav_cols = st.columns(2, gap="small")
-                if nav_cols[0].button("Previous", key="library_prev_page", use_container_width=True, disabled=st.session_state.library_page <= 1):
-                    st.session_state.library_page -= 1
-                    st.rerun()
-                if nav_cols[1].button("Next", key="library_next_page", use_container_width=True, disabled=st.session_state.library_page >= total_pages):
-                    st.session_state.library_page += 1
-                    st.rerun()
-
-    if show_hikes and not library_items and show_standalone and standalone_item:
-        return
-    if show_hikes and not library_items:
-        st.info("No outings matched that search.")
-        return
-
-    grouped_hikes = group_hikes_for_library(page_hikes, group_by) if page_hikes else []
-    rendered_index = 0
-    total_hikes = len(page_hikes)
-    for group_label, group_items in grouped_hikes:
-        if group_label:
-            st.markdown(f"<div class='library-group-label'>{escape(group_label)}</div>", unsafe_allow_html=True)
-        for hike in group_items:
-            cover_photo = cover_photos_by_id.get(str(hike.get("cover_photo_id")))
-            title = hike.get("title") or "Untitled hike"
-            location_name = format_hike_location_label(hike)
-            distance_label = f"{float(hike.get('distance_miles') or 0):.1f} mi" if hike.get("distance_miles") is not None else "Distance n/a"
-            photo_count = hike.get('_photo_count', photo_counts.get(hike['id'], 0))
-            confirmed_count = hike.get('_confirmed_count', confirmed_counts.get(hike['id'], 0))
-            archived_markup = "<span class='library-row-status'>Archived</span>" if hike.get("is_archived") else ""
-            notes = (hike.get("notes") or "").strip()
-            if len(notes) > 180:
-                notes = notes[:177].rstrip() + "..."
-            with st.container(key=f"library_card_{hike['id']}"):
-                st.markdown("<div class='library-row-shell'>", unsafe_allow_html=True)
-                row = st.columns([0.22, 0.5, 0.28], gap="large")
-                with row[0]:
-                    render_library_cover(cover_photo, hike_id=hike["id"], title=title)
-                with row[1]:
-                    st.markdown(
-                        f"""
-                        <div class="library-row-copy">
-                            <div class="library-row-kicker">{escape(str(hike.get('hike_date') or 'Undated outing'))}{archived_markup}</div>
-                            <p class="library-row-title">{escape(title)}</p>
-                            <p class="library-row-subtitle">{escape(location_name)}</p>
-                            <div class="library-row-stats">
-                                <span>{distance_label}</span>
-                                <span>{photo_count} photos</span>
-                                <span>{confirmed_count} unique species</span>
-                            </div>
-                            {f"<p class='library-row-notes'>{escape(notes)}</p>" if notes else ""}
-                        </div>
-                        """,
-                        unsafe_allow_html=True,
-                    )
-                with row[2]:
-                    st.markdown(
-                        f"""
-                        <div class="library-action-intro">
-                            <span class="library-action-count">{photo_count} photos</span>
-                            <span class="library-action-separator">•</span>
-                            <span>{confirmed_count} unique species</span>
-                        </div>
-                        """,
-                        unsafe_allow_html=True,
-                    )
-                    top_action_cols = st.columns(2, gap="small")
-                    if top_action_cols[0].button("Open", key=f"library_open_{hike['id']}", use_container_width=True):
-                        navigate_to(view="Journal", hike_id=hike["id"])
-                    if top_action_cols[1].button("Manage", key=f"library_manage_{hike['id']}", use_container_width=True, type="primary"):
-                        render_edit_hike_dialog(repository, storage, hike)
-                    bottom_action_cols = st.columns(2, gap="small")
-                    if bottom_action_cols[0].button("Map", key=f"library_map_{hike['id']}", use_container_width=True, type="secondary"):
-                        navigate_to(view="Map", hike_id=hike["id"])
-                    if bottom_action_cols[1].button("Sightings", key=f"library_sightings_{hike['id']}", use_container_width=True, type="secondary"):
-                        st.session_state.species_log_hike_filter = title
-                        navigate_to(view="Species Log")
-                st.markdown("</div>", unsafe_allow_html=True)
-            rendered_index += 1
-            if rendered_index < total_hikes:
-                st.divider()
-    if show_hikes and st.session_state.library_page_size == 0 and page_hikes:
-        render_back_to_top_link("library-top")
-
 
 def render_standalone_journal_tab(
     repository: HikeJournalRepository,
@@ -3385,363 +1918,37 @@ def render_map_tab(
     selected_hike: dict[str, Any] | None,
     route_imports_by_hike: dict[str, dict[str, Any]],
 ) -> None:
-    if selected_hike:
-        section_heading(
-            "Outing map",
-            "Route and observations",
-            "Follow the track, open geotagged photographs, and inspect confirmed species in place.",
-        )
-    else:
-        section_heading(
-            "Master map",
-            "Your field record in place",
-            "Browse geotagged photographs across every outing and filter the confirmed species layered over them.",
-        )
-    st.write("")
-    geotagged_photos = [photo for photo in photos if photo.get("lat") is not None and photo.get("lng") is not None]
-    imported_route_groups: list[list[dict[str, float]]] = []
-    if selected_hike:
-        imported_route_groups = route_import_to_route_groups(route_imports_by_hike.get(str(selected_hike["id"])))
-    else:
-        imported_route_groups = [
-            points
-            for route_import in route_imports_by_hike.values()
-            for points in route_import_to_route_groups(route_import)
-        ]
-
-    if not geotagged_photos and not imported_route_groups:
-        timestamped_photos = len([photo for photo in photos if photo.get("taken_at")])
-        st.warning(
-            "No map coordinates are available for the photos in view yet."
-        )
-        if photos:
-            st.caption(
-                f"{len(photos)} photos are loaded. {timestamped_photos} include capture times, but none of them currently include GPS coordinates."
-            )
-        return
-
-    confirmed_species = []
-    for photo in geotagged_photos:
-        for observation in observations_by_photo.get(photo["id"], []):
-            if observation.get("status") == "confirmed":
-                confirmed_species.append((photo, observation))
-
-    focused_photo_id = str(st.query_params.get("map_photo")) if st.query_params.get("map_photo") else None
-    focused_index = None
-    if focused_photo_id:
-        ordered_for_focus = sorted(
-            geotagged_photos,
-            key=lambda photo: (photo.get("taken_at") or "", photo.get("created_at") or "", photo["id"]),
-        )
-        for index, photo in enumerate(ordered_for_focus, start=1):
-            if photo["id"] == focused_photo_id:
-                focused_index = index
-                break
-
-    unique_species = sorted(
-        {
-            observation.get("common_name") or observation.get("scientific_name") or "Confirmed species"
-            for _, observation in confirmed_species
-        }
+    render_map_view(
+        photos,
+        observations_by_photo,
+        primary_observation_by_photo,
+        selected_hike=selected_hike,
+        route_imports_by_hike=route_imports_by_hike,
+        format_confidence_label=format_confidence_label,
     )
-    valid_layer_modes = {"Both", "Photos", "Species"}
-    if st.session_state.get("map_layer_mode") not in valid_layer_modes:
-        st.session_state.map_layer_mode = "Both"
-    valid_species_filters = {"All confirmed species", *unique_species}
-    if st.session_state.get("map_species_filter") not in valid_species_filters:
-        st.session_state.map_species_filter = "All confirmed species"
-    control_cols = st.columns([0.26, 0.26, 0.22, 0.26], gap="small")
-    layer_mode = control_cols[0].radio(
-        "Map layer",
-        ["Both", "Photos", "Species"],
-        horizontal=True,
-        label_visibility="collapsed",
-        key="map_layer_mode",
-    )
-    species_filter = control_cols[1].selectbox(
-        "Species filter",
-        ["All confirmed species", *unique_species],
-        label_visibility="collapsed",
-        key="map_species_filter",
-    )
-    photo_count = len(geotagged_photos)
-    max_index = max(1, photo_count)
-    if focused_index:
-        st.session_state.map_photo_range = (focused_index, focused_index)
-    else:
-        current_range = st.session_state.get("map_photo_range", (1, max_index))
-        if not (
-            isinstance(current_range, (tuple, list))
-            and len(current_range) == 2
-        ):
-            current_range = (1, max_index)
-        start_value = min(max(1, int(current_range[0])), max_index)
-        end_value = min(max(start_value, int(current_range[1])), max_index)
-        st.session_state.map_photo_range = (start_value, end_value)
-    segment = control_cols[2].slider(
-        "Photo range",
-        min_value=1,
-        max_value=max_index,
-        key="map_photo_range",
-        label_visibility="collapsed",
-    )
-    scope_label = "in this outing" if selected_hike else "across your library"
-    control_cols[3].caption(f"{photo_count} geotagged photos • {len(unique_species)} unique species {scope_label}")
-
-    ordered_photos = sorted(geotagged_photos, key=lambda photo: (photo.get("taken_at") or "", photo.get("created_at") or "", photo["id"]))
-    start_index, end_index = segment
-    segment_photos = ordered_photos[start_index - 1 : end_index]
-
-    geotagged_points = []
-    species_points = []
-    route_groups: list[list[dict[str, Any]]] = []
-    route_points = []
-    route_points_by_hike: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for sequence, photo in enumerate(segment_photos, start=start_index):
-        primary_observation = primary_observation_by_photo.get(photo["id"])
-        title = primary_observation.get("common_name") if primary_observation else "Trail photo"
-        geotagged_points.append(
-            {
-                "photo_id": photo["id"],
-                "hike_id": photo["hike_id"],
-                "lat": photo["lat"],
-                "lng": photo["lng"],
-                "title": title,
-                "subtitle": f"Photo {sequence} • {format_photo_meta(photo)}",
-                "image_url": get_photo_thumbnail_url(photo),
-            }
-        )
-        if selected_hike:
-            route_points.append({"lat": photo["lat"], "lng": photo["lng"]})
-        else:
-            if photo.get("hike_id"):
-                route_points_by_hike[str(photo["hike_id"])].append({"lat": photo["lat"], "lng": photo["lng"]})
-        for observation in observations_by_photo.get(photo["id"], []):
-            if observation.get("status") != "confirmed":
-                continue
-            species_name = observation.get("common_name") or observation.get("scientific_name") or "Confirmed species"
-            if species_filter != "All confirmed species" and species_name != species_filter:
-                continue
-            role = "Primary" if observation.get("is_primary") else "Secondary"
-            species_points.append(
-                {
-                    "photo_id": photo["id"],
-                    "hike_id": photo["hike_id"],
-                    "lat": photo["lat"],
-                    "lng": photo["lng"],
-                    "title": species_name,
-                    "subtitle": f"{role} • {observation.get('scientific_name') or ''} • {format_confidence_label(observation)}",
-                    "image_url": get_photo_thumbnail_url(photo),
-                }
-            )
-
-    if layer_mode == "Photos":
-        species_points = []
-    elif layer_mode == "Species":
-        geotagged_points = []
-
-    if selected_hike:
-        route_groups = imported_route_groups or ([route_points] if len(route_points) >= 2 else [])
-    else:
-        route_groups = list(imported_route_groups)
-        for hike_id, points in route_points_by_hike.items():
-            if hike_id in route_imports_by_hike:
-                continue
-            if len(points) >= 2:
-                route_groups.append(points)
-
-    render_rich_map(
-        photos=photos,
-        route_groups=route_groups,
-        geotagged_points=geotagged_points,
-        species_points=species_points,
-        focused_photo_id=focused_photo_id,
-        source_view="Map",
-    )
-    if focused_photo_id:
-        st.caption("Centered on the photo you opened from the journal.")
-        if "map_photo" in st.query_params:
-            del st.query_params["map_photo"]
-        if st.query_params.get("view") == "Map":
-            del st.query_params["view"]
-
 
 def render_species_log_tab(
     repository: HikeJournalRepository,
     inat_client: InatClient,
     hikes: list[dict[str, Any]],
-    species_log_context: dict[str, Any],
+    context: dict[str, Any],
 ) -> None:
-    components.html(
-        """
-        <script>
-        (function () {
-          const doc = window.parent && window.parent.document ? window.parent.document : document;
-          if (!doc || doc.__hjSpeciesLogEncounterCleanupInstalled) return;
-          const prune = () => {
-            doc.querySelectorAll('.species-log-encounter').forEach((node) => {
-              if (!node.children.length && !(node.textContent || '').trim()) {
-                node.remove();
-              }
-            });
-          };
-          prune();
-          const observer = new MutationObserver(prune);
-          observer.observe(doc.body, { childList: true, subtree: true });
-          doc.__hjSpeciesLogEncounterCleanupInstalled = true;
-        })();
-        </script>
-        """,
-        height=0,
-        width=0,
+    render_species_log_view(
+        repository,
+        inat_client,
+        hikes,
+        context,
+        quick_upload_hike_filter=QUICK_UPLOAD_HIKE_FILTER,
+        build_species_log_record_href=build_species_log_record_href,
+        paginate_items=paginate_items,
+        render_back_to_top_link=render_back_to_top_link,
+        render_species_log_inat_sync_panel=render_species_log_inat_sync_panel,
+        render_species_log_toolbar=render_species_log_toolbar,
+        render_species_record_dialog=render_species_record_dialog,
+        reset_species_log_page=reset_species_log_page,
+        resolve_page_size=resolve_page_size,
+        set_species_log_record_query_state=set_species_log_record_query_state,
     )
-    st.markdown("<div id='species-log-top'></div>", unsafe_allow_html=True)
-    section_heading(
-        "Species Log",
-        "Field index",
-        "Search the species record, then open an entry to revisit where and when it was observed.",
-    )
-    st.write("")
-
-    all_species = species_log_context.get("all_species", [])
-    species_rows = species_log_context.get("species_rows", [])
-    representative_observations = species_log_context.get("representative_observations", {})
-    posted_observations = species_log_context.get("posted_observations", [])
-    if not all_species:
-        st.info("Confirmed species will appear here once you begin reviewing photos.")
-        return
-
-    hike_options = ["All hikes", QUICK_UPLOAD_HIKE_FILTER, *[hike.get("title") or "Untitled hike" for hike in hikes]]
-    valid_hike_filter = st.session_state.get("species_log_hike_filter", "All hikes")
-    if valid_hike_filter not in hike_options:
-        st.session_state.species_log_hike_filter = "All hikes"
-    sort_options = ["Most recent", "Most seen", "A-Z", "Newest species first"]
-    if st.session_state.get("species_log_sort") not in sort_options:
-        st.session_state.species_log_sort = "Most recent"
-
-    with st.container(key="species_log_filters"):
-        controls = st.columns([0.28, 0.18, 0.14, 0.12, 0.14, 0.14], gap="small")
-        query = controls[0].text_input(
-            "Search species",
-            placeholder="Blueberry, milkweed, duck potato, Vaccinium, oak...",
-            key="species_log_query",
-            label_visibility="collapsed",
-            on_change=reset_species_log_page,
-        )
-        controls[1].selectbox(
-            "Hike filter",
-            hike_options,
-            key="species_log_hike_filter",
-            label_visibility="collapsed",
-            on_change=reset_species_log_page,
-        )
-        controls[2].toggle(
-            "Mapped only",
-            key="species_log_mapped_only",
-            on_change=reset_species_log_page,
-        )
-        controls[3].selectbox(
-            "Posted filter",
-            ["All", "Posted", "Not posted"],
-            key="species_log_posted_filter",
-            label_visibility="collapsed",
-            on_change=reset_species_log_page,
-        )
-        controls[4].toggle(
-            "Include secondary",
-            key="species_log_include_secondary",
-            on_change=reset_species_log_page,
-        )
-        controls[5].selectbox(
-            "Sort species",
-            sort_options,
-            key="species_log_sort",
-            label_visibility="collapsed",
-            on_change=reset_species_log_page,
-        )
-
-    render_species_log_inat_sync_panel(repository, inat_client, posted_observations)
-
-    if not species_rows:
-        st.info("No confirmed species matched that search.")
-        return
-
-    page_rows, total_pages = paginate_items(species_rows, "species_log_page", "species_log_page_size")
-    render_species_log_toolbar(species_rows, page_rows, total_pages)
-
-    total_sightings = sum(row["sighting_count"] for row in species_rows)
-    current_page_size = resolve_page_size(len(species_rows), st.session_state.species_log_page_size)
-    visible_start = 0 if not page_rows else ((st.session_state.species_log_page - 1) * current_page_size) + 1
-    visible_end = 0 if not page_rows else visible_start + len(page_rows) - 1
-    st.markdown(
-        f"<div class='species-log-results'>{len(species_rows)} species matched • {total_sightings} confirmed sightings"
-        + (f" • showing {visible_start}-{visible_end}" if page_rows else "")
-        + "</div>",
-        unsafe_allow_html=True,
-    )
-    page_keys = [row["key"] for row in page_rows]
-    if not page_keys:
-        st.info("No confirmed species matched that search.")
-        return
-    if st.session_state.species_log_focus_key not in page_keys:
-        st.session_state.species_log_focus_key = page_keys[0]
-
-    species_lookup = {row["key"]: row for row in page_rows}
-    st.markdown(
-        f"""
-        <div class='species-log-index-head species-log-index-head--browse'>
-            <p class='workspace-lane-label'>Browse species in view</p>
-            <p class='species-log-index-caption'>{len(page_rows)} record{'s' if len(page_rows) != 1 else ''} on this page. Open a species when you want to step into its full record.</p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    index_chunk_size = 4
-    for start in range(0, len(page_rows), index_chunk_size):
-        chunk = page_rows[start:start + index_chunk_size]
-        index_cols = st.columns(index_chunk_size, gap="small")
-        for idx, row in enumerate(chunk):
-            thumb_url = get_photo_thumbnail_url(row["lead_photo"])
-            is_current_focus = row["key"] == st.session_state.species_log_focus_key
-            is_open_record = is_current_focus and st.session_state.species_log_record_open
-            record_href = build_species_log_record_href(row["key"])
-            with index_cols[idx]:
-                st.markdown(
-                    f"""
-                    <a class='species-log-index-card-link' href='{escape(record_href)}' target='_self'>
-                    <div class='species-log-index-card{" species-log-index-card--active" if is_current_focus else ""}{" species-log-index-card--open" if is_open_record else ""}'>
-                        <img class='species-log-index-thumb' src='{escape(thumb_url)}' alt='{escape(row["common_name"])}'>
-                        <div class='species-log-index-card-body'>
-                            <div class='species-log-index-card-state'>{"Open now" if is_open_record else ("Last opened" if is_current_focus else "Species record")}</div>
-                            <div class='species-log-index-card-title'>{escape(row["common_name"])}</div>
-                            {f"<div class='species-log-index-card-subtitle'>{escape(row['scientific_name'])}</div>" if row.get('scientific_name') else ""}
-                            <div class='species-log-index-card-meta'>{row['sighting_count']} sighting{'s' if row['sighting_count'] != 1 else ''} • {row['hike_count']} hike{'s' if row['hike_count'] != 1 else ''}</div>
-                        </div>
-                    </div>
-                    </a>
-                    """,
-                    unsafe_allow_html=True,
-                )
-                if st.button(
-                    "Open record",
-                    key=f"species_log_focus_{row['key']}",
-                    use_container_width=True,
-                    type="primary" if row["key"] == st.session_state.species_log_focus_key else "secondary",
-                ):
-                    st.session_state.species_log_focus_key = row["key"]
-                    st.session_state.species_log_record_open = True
-                    set_species_log_record_query_state(row["key"], True)
-                    st.rerun()
-    if (
-        st.session_state.species_log_record_open
-        and st.session_state.species_log_focus_key in species_lookup
-        and not st.session_state.viewer_open
-        and not st.session_state.inat_token_dialog_open
-    ):
-        render_species_record_dialog(repository, page_rows, species_lookup, representative_observations)
-    if st.session_state.species_log_page_size == 0 and page_rows:
-        render_back_to_top_link("species-log-top")
-
 
 def render_species_log_inat_sync_panel(
     repository: HikeJournalRepository,
@@ -5586,186 +3793,6 @@ def get_primary_observation(photo_observations: list[dict[str, Any]]) -> dict[st
     return min(photo_observations, key=observation_priority)
 
 
-def filter_hikes_for_user(
-    hikes: list[dict[str, Any]],
-    user_context: dict[str, Any],
-) -> list[dict[str, Any]]:
-    if user_context["mode"] == "local-dev":
-        return hikes
-
-    email = normalize_email(user_context.get("email"))
-    subject = user_context.get("subject")
-    visible = []
-    for hike in hikes:
-        owner_email = normalize_email(hike.get("owner_email"))
-        owner_subject = hike.get("owner_subject")
-        if owner_subject and subject and owner_subject == subject:
-            visible.append(hike)
-            continue
-        if owner_email and email and owner_email == email:
-            visible.append(hike)
-            continue
-        if not owner_email and not owner_subject and not user_context["auth_configured"]:
-            visible.append(hike)
-    return visible
-
-
-def user_owns_record(record: dict[str, Any], user_context: dict[str, Any]) -> bool:
-    if user_context["mode"] == "local-dev":
-        return True
-    email = normalize_email(user_context.get("email"))
-    subject = user_context.get("subject")
-    owner_email = normalize_email(record.get("owner_email"))
-    owner_subject = record.get("owner_subject")
-    if owner_subject and subject and owner_subject == subject:
-        return True
-    if owner_email and email and owner_email == email:
-        return True
-    return False
-
-
-def record_visible_for_user(
-    record: dict[str, Any],
-    visible_hike_ids: set[str],
-    user_context: dict[str, Any],
-) -> bool:
-    hike_id = record.get("hike_id")
-    if hike_id and hike_id in visible_hike_ids:
-        return True
-    if not hike_id:
-        return user_owns_record(record, user_context)
-    return False
-
-
-def filter_hike_library(
-    hikes: list[dict[str, Any]],
-    *,
-    query: str,
-    scope: str,
-    sort_order: str,
-) -> list[dict[str, Any]]:
-    normalized_query = query.strip().lower()
-    filtered = []
-    for hike in hikes:
-        is_archived = bool(hike.get("is_archived"))
-        if scope == "Active" and is_archived:
-            continue
-        if scope == "Archived" and not is_archived:
-            continue
-        location_tag_text = " ".join(
-            str(tag.get("name") or "")
-            for tag in hike.get("location_tags") or []
-        )
-        haystack = " ".join(
-            str(hike.get(field) or "")
-            for field in ["title", "location_name", "notes", "hike_date"]
-        )
-        haystack = f"{haystack} {location_tag_text}".lower()
-        if normalized_query and normalized_query not in haystack:
-            continue
-        filtered.append(hike)
-
-    if sort_order == "Oldest first":
-        filtered.sort(key=lambda hike: (str(hike.get("hike_date") or ""), str(hike.get("created_at") or "")))
-    elif sort_order == "Title":
-        filtered.sort(key=lambda hike: (str(hike.get("title") or "").lower(), str(hike.get("hike_date") or "")), reverse=False)
-    else:
-        filtered.sort(key=lambda hike: (str(hike.get("hike_date") or ""), str(hike.get("created_at") or "")), reverse=True)
-    return filtered
-
-
-def group_hikes_for_library(hikes: list[dict[str, Any]], group_by: str) -> list[tuple[str | None, list[dict[str, Any]]]]:
-    if group_by == "None":
-        return [(None, hikes)]
-    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for hike in hikes:
-        hike_date = _parse_date(hike.get("hike_date"))
-        label = hike_date.strftime("%Y") if group_by == "Year" else hike_date.strftime("%B %Y")
-        grouped[label].append(hike)
-    return list(grouped.items())
-
-
-def format_hike_choice(hike: dict[str, Any]) -> str:
-    archive_prefix = "Archived • " if hike.get("is_archived") else ""
-    location = format_hike_location_label(hike, fallback="Unknown place")
-    return f"{archive_prefix}{hike.get('title') or 'Untitled hike'} • {hike.get('hike_date') or ''} • {location}"
-
-
-def parse_collaborator_lines(value: str) -> list[str]:
-    emails = []
-    seen = set()
-    for raw in value.splitlines():
-        email = normalize_email(raw)
-        if not email or email in seen:
-            continue
-        seen.add(email)
-        emails.append(email)
-    return emails
-
-
-def count_records_by_key(records: list[dict[str, Any]], key: str) -> dict[str, int]:
-    counts: dict[str, int] = defaultdict(int)
-    for record in records:
-        record_key = record.get(key)
-        if record_key:
-            counts[record_key] += 1
-    return counts
-
-
-def group_records_by_key(records: list[dict[str, Any]], key: str) -> dict[str, list[dict[str, Any]]]:
-    groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for record in records:
-        record_key = record.get(key)
-        if record_key:
-            groups[str(record_key)].append(record)
-    return groups
-
-
-def build_standalone_library_item(
-    *,
-    photos: list[dict[str, Any]],
-    confirmed_observations: list[dict[str, Any]],
-    query: str,
-    scope: str,
-) -> dict[str, Any] | None:
-    if not photos or scope == "Archived":
-        return None
-    latest_photo = max(
-        photos,
-        key=lambda photo: (photo.get("taken_at") or "", photo.get("created_at") or "", photo["id"]),
-    )
-    confirmed_count = count_unique_species([record for record in confirmed_observations if not record.get("hike_id")])
-    title = "Everyday Sightings"
-    location_name = "Photos and species notes not attached to a hike yet."
-    notes = "A catch-all journal for quick uploads, neighborhood finds, and anything you want to identify outside a formal outing."
-    search_haystack = " ".join(
-        [
-            title,
-            location_name,
-            notes,
-            str(latest_photo.get("taken_at") or latest_photo.get("created_at") or ""),
-        ]
-    ).lower()
-    normalized_query = query.strip().lower()
-    if normalized_query and normalized_query not in search_haystack:
-        return None
-    date_value = latest_photo.get("taken_at") or latest_photo.get("created_at") or ""
-    date_label = str(date_value)[:10] if date_value else "Anytime"
-    return {
-        "id": "__standalone__",
-        "title": title,
-        "location_name": location_name,
-        "notes": notes,
-        "hike_date": date_label,
-        "created_at": latest_photo.get("created_at"),
-        "is_archived": False,
-        "_is_standalone": True,
-        "_cover_photo": latest_photo,
-        "_photo_count": len(photos),
-        "_confirmed_count": confirmed_count,
-    }
-
-
 def build_species_log_context(
     *,
     hikes: list[dict[str, Any]],
@@ -5940,61 +3967,6 @@ def build_species_log_context(
         "viewer_photos": ordered_viewer_photos,
         "viewer_observations": ordered_viewer_observations,
     }
-
-
-def build_species_group_key(observation: dict[str, Any]) -> str:
-    scientific = (observation.get("scientific_name") or "").strip().lower()
-    common = (observation.get("common_name") or "").strip().lower()
-    if scientific:
-        return f"scientific:{scientific}"
-    if common:
-        return f"common:{common}"
-    taxon_id = observation.get("taxon_id")
-    if taxon_id not in (None, ""):
-        return f"taxon:{taxon_id}"
-    return "unknown"
-
-
-def _entry_sort_datetime(entry: dict[str, Any]) -> datetime:
-    photo = entry.get("photo") or {}
-    hike = entry.get("hike") or {}
-    parsed_taken = _parse_datetime(photo.get("taken_at"))
-    if parsed_taken:
-        return parsed_taken
-    hike_date = hike.get("hike_date")
-    if hike_date:
-        return datetime.combine(_parse_date(hike_date), datetime.min.time())
-    return datetime.min
-
-
-def format_species_log_date_label(value: datetime) -> str:
-    if value == datetime.min:
-        return "Unknown date"
-    return value.strftime("%b %d, %Y")
-
-
-def _format_species_log_focus_label(row: dict[str, Any]) -> str:
-    common_name = row.get("common_name") or "Unknown species"
-    scientific_name = row.get("scientific_name") or ""
-    sightings = int(row.get("sighting_count") or 0)
-    if scientific_name:
-        return f"{common_name} — {scientific_name} · {sightings}"
-    return f"{common_name} · {sightings}"
-
-
-def normalize_email(value: Any) -> str | None:
-    if value is None:
-        return None
-    text = str(value).strip().lower()
-    return text or None
-
-
-def photo_owner_subject(hike: dict[str, Any] | None, user_context: dict[str, Any]) -> str | None:
-    return (hike or {}).get("owner_subject") or user_context.get("subject")
-
-
-def photo_owner_email(hike: dict[str, Any] | None, user_context: dict[str, Any]) -> str | None:
-    return normalize_email((hike or {}).get("owner_email")) or normalize_email(user_context.get("email"))
 
 
 def paginate_photos(photos: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
@@ -7848,28 +5820,20 @@ def render_back_to_top_link(anchor_id: str) -> None:
 
 
 def build_internal_view_href(*, view: str, hike_id: str | None = None, scope: str | None = None) -> str:
-    params: dict[str, Any] = {"view": view}
-    params.update(get_query_state_for_view(view))
-    if hike_id:
-        params["hike"] = hike_id
-    if scope:
-        params["scope"] = scope
-    return f"?{urlencode(params, quote_via=quote)}"
+    return build_view_href(
+        view=view,
+        state=st.session_state,
+        hike_id=hike_id,
+        scope=scope,
+    )
 
 
 def build_species_log_record_href(focus_key: str) -> str:
-    params = {"view": "Species Log", **get_query_state_for_view("Species Log")}
-    params["species_log_focus_key"] = str(focus_key)
-    params["species_log_record_open"] = "1"
-    return f"?{urlencode(params, quote_via=quote)}"
+    return build_species_record_href(focus_key, st.session_state)
 
 
 def set_species_log_record_query_state(focus_key: str | None, is_open: bool) -> None:
-    if focus_key:
-        st.query_params["species_log_focus_key"] = str(focus_key)
-    elif "species_log_focus_key" in st.query_params:
-        del st.query_params["species_log_focus_key"]
-    st.query_params["species_log_record_open"] = "1" if is_open else "0"
+    update_species_record_query_state(st.query_params, focus_key, is_open)
 
 
 def render_bottom_review_handoff(*, anchor_id: str, selected_count: int, hike_id: str | None = None) -> None:
@@ -7890,14 +5854,7 @@ def render_bottom_review_handoff(*, anchor_id: str, selected_count: int, hike_id
 
 
 def sync_viewer_from_query_params(photos: list[dict[str, Any]]) -> None:
-    photo_id = st.query_params.get("photo")
-    if not photo_id:
-        return
-    for index, photo in enumerate(photos):
-        if photo["id"] == str(photo_id):
-            st.session_state.viewer_open = True
-            st.session_state.viewer_index = index
-            break
+    sync_viewer_state(st.session_state, st.query_params, photos)
 
 
 def _download_public_image(public_url: str) -> bytes:

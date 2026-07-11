@@ -255,16 +255,6 @@ class HikeJournalRepository:
             )
         )
 
-    def list_all_photos(self) -> list[dict[str, Any]]:
-        return self._select_all_rows(
-            lambda: (
-                self.client.table("photos")
-                .select("*")
-                .order("taken_at")
-                .order("created_at")
-            )
-        )
-
     def list_standalone_photos(self) -> list[dict[str, Any]]:
         return self._select_all_rows(
             lambda: (
@@ -417,31 +407,6 @@ class HikeJournalRepository:
         self.client.table("photos").delete().eq("hike_id", hike_id).execute()
         self.client.table("hikes").delete().eq("id", hike_id).execute()
 
-    def list_hike_collaborators(self) -> list[dict[str, Any]]:
-        try:
-            response = (
-                self.client.table("hike_collaborators")
-                .select("*")
-                .order("created_at")
-                .execute()
-            )
-            return response.data or []
-        except Exception:
-            return []
-
-    def replace_hike_collaborators(self, hike_id: str, collaborator_emails: list[str]) -> None:
-        try:
-            self.client.table("hike_collaborators").delete().eq("hike_id", hike_id).execute()
-            payload = [
-                {"hike_id": hike_id, "collaborator_email": email.strip().lower()}
-                for email in collaborator_emails
-                if email.strip()
-            ]
-            if payload:
-                self.client.table("hike_collaborators").insert(payload).execute()
-        except Exception as exc:
-            raise RuntimeError("The database needs the auth and sharing migration before collaborators can be managed.") from exc
-
     def list_observations(self, hike_id: str) -> list[dict[str, Any]]:
         try:
             return self._select_all_rows(
@@ -459,25 +424,6 @@ class HikeJournalRepository:
                     self.client.table("species_observations")
                     .select("*")
                     .eq("hike_id", hike_id)
-                    .order("identified_at", desc=True)
-                )
-            )
-
-    def list_all_observations(self) -> list[dict[str, Any]]:
-        try:
-            return self._select_all_rows(
-                lambda: (
-                    self.client.table("species_observations")
-                    .select("*")
-                    .order("is_primary", desc=True)
-                    .order("identified_at", desc=True)
-                )
-            )
-        except Exception:
-            return self._select_all_rows(
-                lambda: (
-                    self.client.table("species_observations")
-                    .select("*")
                     .order("identified_at", desc=True)
                 )
             )
@@ -572,17 +518,6 @@ class HikeJournalRepository:
             )
             rows.extend(response.data or [])
         return rows
-
-    def list_confirmed_observations(self) -> list[dict[str, Any]]:
-        return self._select_all_rows(
-            lambda: (
-                self.client.table("species_observations")
-                .select("*")
-                .eq("status", "confirmed")
-                .order("common_name")
-                .order("identified_at", desc=True)
-            )
-        )
 
     def list_confirmed_observation_hike_refs(self) -> list[dict[str, Any]]:
         return self._select_all_rows(

@@ -183,6 +183,26 @@ This roadmap is the practical bridge between "great home-built app" and "stable,
 - Build after:
   - only small UX upgrades while the seam work is underway
 
+### Status
+
+- In progress
+
+### Stabilization completed
+
+- Moved top-level application orchestration into `hike_journal/application.py`.
+- Centralized session defaults in `hike_journal/ui/state.py`.
+- Centralized cached repository reads and invalidation in `hike_journal/queries.py`.
+- Isolated query-parameter hydration, navigation state, URL construction, and viewer selection in `hike_journal/navigation.py`.
+- Isolated standalone-journal activation and record filtering from the main controller.
+- Extracted Library, Map, and Species Log renderers behind tested callback contracts.
+- Added authenticated route verification for Library, Map, Species Log, hike Journal, and standalone Journal.
+
+### Next stabilization seam
+
+1. Extract Journal rendering and photo-management orchestration.
+2. Extract Species Review selection state before moving its renderer.
+3. Split publishing orchestration only after its state transitions have direct characterization coverage.
+
 ### File targets
 
 - [/Users/adl/Documents/Playground/hike-journal/app.py](/Users/adl/Documents/Playground/hike-journal/app.py)
