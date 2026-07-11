@@ -1552,6 +1552,19 @@ h1, h2, h3 {
   color: rgba(31,42,38,0.56);
 }
 
+[class*="st-key-photo_species_actions_"] {
+  max-width: 36rem;
+  margin: 0.55rem 0 0.35rem;
+}
+
+[class*="st-key-photo_species_actions_"] [data-testid="stHorizontalBlock"] {
+  gap: 0.65rem;
+}
+
+[class*="st-key-photo_species_actions_"] button {
+  min-height: 2.85rem !important;
+}
+
 .utility-rail-status {
   padding-top: 2.1rem;
   color: rgba(31,42,38,0.68);
@@ -1897,6 +1910,19 @@ body {
 
   .hero-shell {
     display: none;
+  }
+
+  [class*="st-key-photo_species_actions_"] {
+    max-width: none;
+  }
+
+  [class*="st-key-photo_species_actions_"] [data-testid="stHorizontalBlock"] {
+    flex-wrap: wrap !important;
+  }
+
+  [class*="st-key-photo_species_actions_"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
+    flex: 1 1 100% !important;
+    width: 100% !important;
   }
 
   .library-hero {

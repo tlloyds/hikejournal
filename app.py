@@ -2778,14 +2778,16 @@ def render_standalone_journal_tab(
                 render_secondary_species_summary(photo_observations, primary_observation["id"])
             else:
                 st.caption("No species attached to this photo yet.")
-            render_add_species_popover(repository, inat_client, None, photo, photo_observations, key_prefix=f"standalone_add_{photo['id']}")
-            if not primary_observation and st.button(
-                "Tag known species",
-                key=f"standalone_tag_known_{photo['id']}",
-                use_container_width=True,
-                disabled=not known_species,
-            ):
-                open_known_species_dialog(repository, inat_client, [photo], known_species)
+            render_photo_species_actions(
+                repository,
+                inat_client,
+                photo,
+                photo_observations,
+                primary_observation,
+                known_species,
+                hike_id=None,
+                key_prefix="standalone",
+            )
             control_cols = st.columns([0.45, 0.35, 0.2], gap="small")
             selected = photo.get("processing_status") == REVIEW_QUEUE_STATUS
             checkbox_key = f"photo_select_{photo['id']}"
@@ -3049,14 +3051,16 @@ def render_journal_tab(
                 render_secondary_species_summary(photo_observations, primary_observation["id"])
             else:
                 st.caption("No species attached to this photo yet.")
-            render_add_species_popover(repository, inat_client, selected_hike.get("id"), photo, photo_observations, key_prefix=f"journal_add_{photo['id']}")
-            if not primary_observation and st.button(
-                "Tag known species",
-                key=f"journal_tag_known_{photo['id']}",
-                use_container_width=True,
-                disabled=not known_species,
-            ):
-                open_known_species_dialog(repository, inat_client, [photo], known_species)
+            render_photo_species_actions(
+                repository,
+                inat_client,
+                photo,
+                photo_observations,
+                primary_observation,
+                known_species,
+                hike_id=selected_hike.get("id"),
+                key_prefix="journal",
+            )
             control_cols = st.columns([0.4, 0.3, 0.3], gap="small")
             selected = photo.get("processing_status") == REVIEW_QUEUE_STATUS
             checkbox_key = f"photo_select_{photo['id']}"
@@ -4676,6 +4680,53 @@ def render_alternate_suggestions(
             st.rerun()
 
 
+def render_photo_species_actions(
+    repository: HikeJournalRepository,
+    inat_client: InatClient,
+    photo: dict[str, Any],
+    photo_observations: list[dict[str, Any]],
+    primary_observation: dict[str, Any] | None,
+    known_species: list[dict[str, Any]],
+    *,
+    hike_id: str | None,
+    key_prefix: str,
+) -> None:
+    popover_key_prefix = f"{key_prefix}_add_{photo['id']}"
+    if primary_observation:
+        render_add_species_popover(
+            repository,
+            inat_client,
+            hike_id,
+            photo,
+            photo_observations,
+            key_prefix=popover_key_prefix,
+        )
+        return
+
+    with st.container(key=f"photo_species_actions_{photo['id']}"):
+        action_cols = st.columns(2, gap="small")
+        with action_cols[0]:
+            if st.button(
+                "Tag known species",
+                key=f"{key_prefix}_tag_known_{photo['id']}",
+                use_container_width=True,
+                type="primary",
+                disabled=not known_species,
+            ):
+                open_known_species_dialog(repository, inat_client, [photo], known_species)
+        with action_cols[1]:
+            render_add_species_popover(
+                repository,
+                inat_client,
+                hike_id,
+                photo,
+                photo_observations,
+                key_prefix=popover_key_prefix,
+                label="Search all species",
+                use_container_width=True,
+            )
+
+
 def render_add_species_popover(
     repository: HikeJournalRepository,
     inat_client: InatClient,
@@ -4684,9 +4735,11 @@ def render_add_species_popover(
     photo_observations: list[dict[str, Any]],
     *,
     key_prefix: str,
+    label: str = "Add another species",
+    use_container_width: bool = False,
 ) -> None:
     existing_taxon_ids = {int(observation["taxon_id"]) for observation in photo_observations if observation.get("taxon_id") is not None}
-    with st.popover("Add another species"):
+    with st.popover(label, use_container_width=use_container_width):
         query = st.text_input("Search species", key=f"{key_prefix}_query", placeholder="Bee, duck potato, Vaccinium...")
         results: list[dict[str, Any]] = []
         if query.strip():
