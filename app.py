@@ -103,6 +103,8 @@ if "species_selected_ids" not in st.session_state:
     st.session_state.species_selected_ids = set()
 if "known_species_selected_ids" not in st.session_state:
     st.session_state.known_species_selected_ids = set()
+if "known_species_notice" not in st.session_state:
+    st.session_state.known_species_notice = None
 if "species_review_filter" not in st.session_state:
     st.session_state.species_review_filter = "All"
 if "species_review_stage" not in st.session_state:
@@ -2730,6 +2732,7 @@ def render_standalone_journal_tab(
     render_photo_management_toolbar(repository, storage, page_photos, photos, total_pages)
     render_known_species_assignment_toolbar(
         repository,
+        inat_client,
         page_photos,
         photos,
         primary_observation_by_photo,
@@ -2771,7 +2774,7 @@ def render_standalone_journal_tab(
                 use_container_width=True,
                 disabled=not known_species,
             ):
-                open_known_species_dialog(repository, [photo], known_species)
+                open_known_species_dialog(repository, inat_client, [photo], known_species)
             control_cols = st.columns([0.45, 0.35, 0.2], gap="small")
             selected = photo.get("processing_status") == REVIEW_QUEUE_STATUS
             checkbox_key = f"photo_select_{photo['id']}"
@@ -3000,6 +3003,7 @@ def render_journal_tab(
     render_photo_management_toolbar(repository, storage, page_photos, photos, total_pages)
     render_known_species_assignment_toolbar(
         repository,
+        inat_client,
         page_photos,
         photos,
         primary_observation_by_photo,
@@ -3041,7 +3045,7 @@ def render_journal_tab(
                 use_container_width=True,
                 disabled=not known_species,
             ):
-                open_known_species_dialog(repository, [photo], known_species)
+                open_known_species_dialog(repository, inat_client, [photo], known_species)
             control_cols = st.columns([0.4, 0.3, 0.3], gap="small")
             selected = photo.get("processing_status") == REVIEW_QUEUE_STATUS
             checkbox_key = f"photo_select_{photo['id']}"
@@ -4228,6 +4232,7 @@ def render_selection_toolbar(repository: HikeJournalRepository, photos: list[dic
 
 def render_known_species_assignment_toolbar(
     repository: HikeJournalRepository,
+    inat_client: InatClient,
     page_photos: list[dict[str, Any]],
     all_photos: list[dict[str, Any]],
     primary_observation_by_photo: dict[str, dict[str, Any]],
@@ -4235,6 +4240,9 @@ def render_known_species_assignment_toolbar(
     *,
     key_prefix: str,
 ) -> None:
+    if st.session_state.known_species_notice:
+        st.success(str(st.session_state.known_species_notice))
+        st.session_state.known_species_notice = None
     available_photos = [photo for photo in all_photos if photo["id"] not in primary_observation_by_photo]
     available_ids = {str(photo["id"]) for photo in available_photos}
     st.session_state.known_species_selected_ids = {
@@ -4256,7 +4264,7 @@ def render_known_species_assignment_toolbar(
         disabled=not selected_photos or not known_species,
         help="Confirm a species from your journal without using computer vision or entering Species Review.",
     ):
-        open_known_species_dialog(repository, selected_photos, known_species)
+        open_known_species_dialog(repository, inat_client, selected_photos, known_species)
     if cols[2].button(
         "Select page",
         key=f"{key_prefix}_select_known_species_page",
@@ -4322,6 +4330,12 @@ def render_species_summary(
     show_details: bool,
     show_confidence: bool = True,
 ) -> None:
+    if (
+        observation.get("source") == "known_species"
+        and not get_taxon_enrichment(observation)
+        and ensure_taxon_enrichment(repository, inat_client, observation)
+    ):
+        st.rerun()
     render_observation_badge(observation.get("status", "pending"))
     confidence = format_confidence_label(observation) if show_confidence else "&nbsp;"
     info_cols = st.columns([0.88, 0.12], gap="small")
@@ -5301,20 +5315,21 @@ def clean_summary_text(value: str) -> str:
     return re.sub(r"\s+", " ", without_tags).strip()
 
 
-def ensure_taxon_enrichment(repository: HikeJournalRepository, inat_client: InatClient, observation: dict[str, Any]) -> None:
+def ensure_taxon_enrichment(repository: HikeJournalRepository, inat_client: InatClient, observation: dict[str, Any]) -> bool:
     raw_payload = dict(observation.get("raw_response_json") or {})
     enrichment = raw_payload.get("taxon_enrichment")
     if raw_payload.get("manual_override"):
-        return
+        return False
     taxon_id = observation.get("taxon_id")
     if enrichment or not taxon_id:
-        return
+        return bool(enrichment)
     try:
         raw_payload["taxon_enrichment"] = inat_client.fetch_taxon_enrichment(int(taxon_id))
         repository.update_observation_raw_payload(observation["id"], raw_payload)
         invalidate_data_cache()
+        return True
     except (InatConfigurationError, InatRequestError, ValueError):
-        return
+        return False
 
 
 def sync_species_override_payload(
@@ -6015,9 +6030,20 @@ def format_known_species_option(species: dict[str, Any]) -> str:
 
 def assign_known_species_to_photos(
     repository: HikeJournalRepository,
+    inat_client: InatClient,
     photos: list[dict[str, Any]],
     species: dict[str, Any],
 ) -> int:
+    source_observation_id = str(species.get("source_observation_id") or "")
+    source_observations = repository.list_observations_by_ids([source_observation_id]) if source_observation_id else []
+    source_raw_payload = dict(source_observations[0].get("raw_response_json") or {}) if source_observations else {}
+    taxon_enrichment = source_raw_payload.get("taxon_enrichment")
+    if not isinstance(taxon_enrichment, dict) and species.get("taxon_id"):
+        try:
+            taxon_enrichment = inat_client.fetch_taxon_enrichment(int(species["taxon_id"]))
+        except (InatConfigurationError, InatRequestError, ValueError):
+            taxon_enrichment = None
+
     assigned_photo_ids: list[str] = []
     try:
         for photo in photos:
@@ -6030,10 +6056,11 @@ def assign_known_species_to_photos(
                 source="known_species",
                 raw_payload={
                     "known_species_assignment": {
-                        "source_observation_id": species.get("source_observation_id"),
+                        "source_observation_id": source_observation_id or None,
                         "catalog_seen_count": int(species.get("seen_count") or 0),
                         "assigned_at": datetime.now(UTC).isoformat(),
-                    }
+                    },
+                    **({"taxon_enrichment": taxon_enrichment} if isinstance(taxon_enrichment, dict) else {}),
                 },
                 is_primary=True,
                 status="confirmed",
@@ -6050,6 +6077,7 @@ def assign_known_species_to_photos(
 @st.dialog("Assign known species", width="medium")
 def render_known_species_dialog(
     repository: HikeJournalRepository,
+    inat_client: InatClient,
     photos: list[dict[str, Any]],
     known_species: list[dict[str, Any]],
 ) -> None:
@@ -6070,30 +6098,25 @@ def render_known_species_dialog(
         type="primary",
         disabled=selected_species is None,
     ):
-        assigned_count = assign_known_species_to_photos(repository, photos, selected_species)
+        assigned_count = assign_known_species_to_photos(repository, inat_client, photos, selected_species)
         clear_species_selection(photos)
         clear_known_species_selection(photos)
         invalidate_data_cache()
-        st.session_state.species_review_mode = "Publish"
-        st.session_state.publish_filter = "Ready to post"
-        st.session_state.publish_page = 1
-        st.session_state.publish_batch_notice = {
-            "level": "success",
-            "message": (
-                f"Assigned {format_known_species_option(selected_species).split(' · ')[0]} to "
-                f"{assigned_count} photo{'s' if assigned_count != 1 else ''}. Ready to publish."
-            ),
-        }
-        navigate_to(view="Species Review")
+        st.session_state.known_species_notice = (
+            f"Assigned {format_known_species_option(selected_species).split(' · ')[0]} to "
+            f"{assigned_count} photo{'s' if assigned_count != 1 else ''}. Ready to publish."
+        )
+        st.rerun()
 
 
 def open_known_species_dialog(
     repository: HikeJournalRepository,
+    inat_client: InatClient,
     photos: list[dict[str, Any]],
     known_species: list[dict[str, Any]],
 ) -> None:
     st.session_state.pop("known_species_assignment_option", None)
-    render_known_species_dialog(repository, photos, known_species)
+    render_known_species_dialog(repository, inat_client, photos, known_species)
 
 
 def render_species_management_toolbar(
