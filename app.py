@@ -48,7 +48,7 @@ from hike_journal.services.inat import (
     save_oauth_token_payload_for_user,
 )
 from hike_journal.services.repositories import HikeJournalRepository
-from hike_journal.services.species_identification import select_shared_candidate
+from hike_journal.services.species_identification import build_known_species_catalog, select_shared_candidate
 from hike_journal.services.storage import StorageService
 from hike_journal.services.supabase_client import get_supabase
 from hike_journal.services.tcx import (
@@ -101,6 +101,8 @@ if "species_page_size" not in st.session_state:
     st.session_state.species_page_size = 6
 if "species_selected_ids" not in st.session_state:
     st.session_state.species_selected_ids = set()
+if "known_species_selected_ids" not in st.session_state:
+    st.session_state.known_species_selected_ids = set()
 if "species_review_filter" not in st.session_state:
     st.session_state.species_review_filter = "All"
 if "species_review_stage" not in st.session_state:
@@ -572,6 +574,7 @@ def main() -> None:
         for observation in fetch_confirmed_observations_light()
         if record_visible_for_user(observation, visible_hike_ids, user_context)
     ] if visible_hikes else []
+    known_species_catalog = build_known_species_catalog(visible_confirmed_observations)
     visible_unique_species_count = count_unique_species(visible_confirmed_observations)
     total_logged_miles = compute_total_mileage(visible_hikes)
 
@@ -637,9 +640,20 @@ def main() -> None:
                 observations_by_photo,
                 primary_observation_by_photo,
                 user_context,
+                known_species_catalog,
             )
         else:
-            render_journal_tab(repository, storage, inat_client, selected_hike, photos, observations_by_photo, primary_observation_by_photo, route_import)
+            render_journal_tab(
+                repository,
+                storage,
+                inat_client,
+                selected_hike,
+                photos,
+                observations_by_photo,
+                primary_observation_by_photo,
+                route_import,
+                known_species_catalog,
+            )
     elif st.session_state.active_view == "Species Review":
         render_species_tab(
             repository,
@@ -2690,6 +2704,7 @@ def render_standalone_journal_tab(
     observations_by_photo: dict[str, list[dict[str, Any]]],
     primary_observation_by_photo: dict[str, dict[str, Any]],
     user_context: dict[str, Any],
+    known_species: list[dict[str, Any]],
 ) -> None:
     st.markdown("<div id='journal-top'></div>", unsafe_allow_html=True)
     section_heading(
@@ -2713,6 +2728,14 @@ def render_standalone_journal_tab(
     st.markdown("### Photo Field Notes")
     page_photos, total_pages = paginate_photos(photos)
     render_photo_management_toolbar(repository, storage, page_photos, photos, total_pages)
+    render_known_species_assignment_toolbar(
+        repository,
+        page_photos,
+        photos,
+        primary_observation_by_photo,
+        known_species,
+        key_prefix="standalone",
+    )
     for index, photo in enumerate(page_photos):
         primary_observation = primary_observation_by_photo.get(photo["id"])
         photo_observations = observations_by_photo.get(photo["id"], [])
@@ -2742,18 +2765,36 @@ def render_standalone_journal_tab(
             else:
                 st.caption("No species attached to this photo yet.")
             render_add_species_popover(repository, inat_client, None, photo, photo_observations, key_prefix=f"standalone_add_{photo['id']}")
-            control_cols = st.columns([0.38, 0.26, 0.18, 0.18], gap="small")
+            if not primary_observation and st.button(
+                "Tag known species",
+                key=f"standalone_tag_known_{photo['id']}",
+                use_container_width=True,
+                disabled=not known_species,
+            ):
+                open_known_species_dialog(repository, [photo], known_species)
+            control_cols = st.columns([0.45, 0.35, 0.2], gap="small")
             selected = photo.get("processing_status") == REVIEW_QUEUE_STATUS
             checkbox_key = f"photo_select_{photo['id']}"
             if checkbox_key not in st.session_state:
                 st.session_state[checkbox_key] = selected
             with control_cols[0]:
                 st.checkbox(
-                    "Select for species review",
+                    "Queue for review",
                     key=checkbox_key,
                     on_change=sync_journal_review_checkbox,
                     args=(repository, photo["id"], checkbox_key),
                 )
+            if not primary_observation:
+                known_species_key = f"known_species_select_{photo['id']}"
+                if known_species_key not in st.session_state:
+                    st.session_state[known_species_key] = photo["id"] in st.session_state.known_species_selected_ids
+                with control_cols[1]:
+                    st.checkbox(
+                        "Bulk select",
+                        key=known_species_key,
+                        on_change=sync_known_species_checkbox,
+                        args=(photo["id"], known_species_key),
+                    )
             if st.session_state.delete_mode:
                 delete_key = f"delete_photo_{photo['id']}"
                 current_delete = photo["id"] in st.session_state.delete_photo_ids
@@ -2779,6 +2820,7 @@ def render_journal_tab(
     observations_by_photo: dict[str, list[dict[str, Any]]],
     primary_observation_by_photo: dict[str, dict[str, Any]],
     route_import: dict[str, Any] | None,
+    known_species: list[dict[str, Any]],
 ) -> None:
     st.markdown("<div id='journal-top'></div>", unsafe_allow_html=True)
     section_heading(
@@ -2956,6 +2998,14 @@ def render_journal_tab(
     st.markdown("### Photo Field Notes")
     page_photos, total_pages = paginate_photos(photos)
     render_photo_management_toolbar(repository, storage, page_photos, photos, total_pages)
+    render_known_species_assignment_toolbar(
+        repository,
+        page_photos,
+        photos,
+        primary_observation_by_photo,
+        known_species,
+        key_prefix=f"hike_{selected_hike['id']}",
+    )
     for index, photo in enumerate(page_photos):
         primary_observation = primary_observation_by_photo.get(photo["id"])
         photo_observations = observations_by_photo.get(photo["id"], [])
@@ -2985,14 +3035,21 @@ def render_journal_tab(
             else:
                 st.caption("No species attached to this photo yet.")
             render_add_species_popover(repository, inat_client, selected_hike.get("id"), photo, photo_observations, key_prefix=f"journal_add_{photo['id']}")
-            control_cols = st.columns([0.38, 0.26, 0.18, 0.18], gap="small")
+            if not primary_observation and st.button(
+                "Tag known species",
+                key=f"journal_tag_known_{photo['id']}",
+                use_container_width=True,
+                disabled=not known_species,
+            ):
+                open_known_species_dialog(repository, [photo], known_species)
+            control_cols = st.columns([0.4, 0.3, 0.3], gap="small")
             selected = photo.get("processing_status") == REVIEW_QUEUE_STATUS
             checkbox_key = f"photo_select_{photo['id']}"
             if checkbox_key not in st.session_state:
                 st.session_state[checkbox_key] = selected
             with control_cols[0]:
                 st.checkbox(
-                    "Select for species review",
+                    "Queue for review",
                     key=checkbox_key,
                     on_change=sync_journal_review_checkbox,
                     args=(repository, photo["id"], checkbox_key),
@@ -3010,17 +3067,27 @@ def render_journal_tab(
                     invalidate_data_cache()
                     st.success("Saved this as the hike cover photo.")
                     st.rerun()
+            if not primary_observation:
+                known_species_key = f"known_species_select_{photo['id']}"
+                if known_species_key not in st.session_state:
+                    st.session_state[known_species_key] = photo["id"] in st.session_state.known_species_selected_ids
+                with control_cols[2]:
+                    st.checkbox(
+                        "Bulk select",
+                        key=known_species_key,
+                        on_change=sync_known_species_checkbox,
+                        args=(photo["id"], known_species_key),
+                    )
             if st.session_state.delete_mode:
                 delete_key = f"delete_photo_{photo['id']}"
                 current_delete = photo["id"] in st.session_state.delete_photo_ids
                 if delete_key not in st.session_state:
                     st.session_state[delete_key] = current_delete
-                with control_cols[2]:
-                    delete_toggle = st.checkbox("Mark to delete", key=delete_key)
-                    if delete_toggle:
-                        st.session_state.delete_photo_ids.add(photo["id"])
-                    else:
-                        st.session_state.delete_photo_ids.discard(photo["id"])
+                delete_toggle = st.checkbox("Mark to delete", key=delete_key)
+                if delete_toggle:
+                    st.session_state.delete_photo_ids.add(photo["id"])
+                else:
+                    st.session_state.delete_photo_ids.discard(photo["id"])
         if index < len(page_photos) - 1:
             st.divider()
     render_bottom_review_handoff(anchor_id="journal-top", selected_count=review_selected_count, hike_id=str(selected_hike["id"]))
@@ -4157,6 +4224,73 @@ def render_selection_toolbar(repository: HikeJournalRepository, photos: list[dic
         reset_journal_review_widget_state(photo_ids)
         invalidate_data_cache()
         st.rerun()
+
+
+def render_known_species_assignment_toolbar(
+    repository: HikeJournalRepository,
+    page_photos: list[dict[str, Any]],
+    all_photos: list[dict[str, Any]],
+    primary_observation_by_photo: dict[str, dict[str, Any]],
+    known_species: list[dict[str, Any]],
+    *,
+    key_prefix: str,
+) -> None:
+    available_photos = [photo for photo in all_photos if photo["id"] not in primary_observation_by_photo]
+    available_ids = {str(photo["id"]) for photo in available_photos}
+    st.session_state.known_species_selected_ids = {
+        str(photo_id)
+        for photo_id in st.session_state.known_species_selected_ids
+        if str(photo_id) in available_ids
+    }
+    selected_photos = [
+        photo for photo in available_photos if str(photo["id"]) in st.session_state.known_species_selected_ids
+    ]
+    selected_count = len(selected_photos)
+    cols = st.columns([0.38, 0.24, 0.2, 0.18], gap="small")
+    cols[0].caption(f"{selected_count} untagged photo{'s' if selected_count != 1 else ''} selected for bulk tagging")
+    if cols[1].button(
+        f"Bulk assign ({selected_count})",
+        key=f"{key_prefix}_assign_known_species",
+        use_container_width=True,
+        type="primary",
+        disabled=not selected_photos or not known_species,
+        help="Confirm a species from your journal without using computer vision or entering Species Review.",
+    ):
+        open_known_species_dialog(repository, selected_photos, known_species)
+    if cols[2].button(
+        "Select page",
+        key=f"{key_prefix}_select_known_species_page",
+        use_container_width=True,
+        disabled=not available_photos,
+    ):
+        for photo in page_photos:
+            if photo["id"] in primary_observation_by_photo:
+                continue
+            st.session_state.known_species_selected_ids.add(str(photo["id"]))
+            st.session_state[f"known_species_select_{photo['id']}"] = True
+        st.rerun()
+    if cols[3].button(
+        "Clear",
+        key=f"{key_prefix}_clear_known_species_selection",
+        use_container_width=True,
+        disabled=not selected_photos,
+    ):
+        clear_known_species_selection(selected_photos)
+        st.rerun()
+
+
+def sync_known_species_checkbox(photo_id: str, checkbox_key: str) -> None:
+    if st.session_state.get(checkbox_key):
+        st.session_state.known_species_selected_ids.add(str(photo_id))
+    else:
+        st.session_state.known_species_selected_ids.discard(str(photo_id))
+
+
+def clear_known_species_selection(photos: list[dict[str, Any]]) -> None:
+    for photo in photos:
+        photo_id = str(photo["id"])
+        st.session_state.known_species_selected_ids.discard(photo_id)
+        st.session_state[f"known_species_select_{photo_id}"] = False
 
 
 def sync_journal_review_checkbox(
@@ -5869,6 +6003,97 @@ def open_smart_id_plan(
         photos_to_process,
         primary_observation_by_photo,
     )
+
+
+def format_known_species_option(species: dict[str, Any]) -> str:
+    common_name = str(species.get("common_name") or species.get("scientific_name") or "Unknown species")
+    scientific_name = str(species.get("scientific_name") or "")
+    name = f"{common_name} — {scientific_name}" if scientific_name and scientific_name != common_name else common_name
+    seen_count = int(species.get("seen_count") or 0)
+    return f"{name} · {seen_count} prior record{'s' if seen_count != 1 else ''}"
+
+
+def assign_known_species_to_photos(
+    repository: HikeJournalRepository,
+    photos: list[dict[str, Any]],
+    species: dict[str, Any],
+) -> int:
+    assigned_photo_ids: list[str] = []
+    try:
+        for photo in photos:
+            repository.create_manual_observation(
+                hike_id=photo.get("hike_id"),
+                photo_id=photo["id"],
+                taxon_id=species.get("taxon_id"),
+                common_name=species.get("common_name"),
+                scientific_name=species.get("scientific_name"),
+                source="known_species",
+                raw_payload={
+                    "known_species_assignment": {
+                        "source_observation_id": species.get("source_observation_id"),
+                        "catalog_seen_count": int(species.get("seen_count") or 0),
+                        "assigned_at": datetime.now(UTC).isoformat(),
+                    }
+                },
+                is_primary=True,
+                status="confirmed",
+                owner_subject=photo.get("owner_subject"),
+                owner_email=photo.get("owner_email"),
+            )
+            assigned_photo_ids.append(str(photo["id"]))
+    finally:
+        if assigned_photo_ids:
+            repository.update_photo_processing_statuses(assigned_photo_ids, "ready")
+    return len(assigned_photo_ids)
+
+
+@st.dialog("Assign known species", width="medium")
+def render_known_species_dialog(
+    repository: HikeJournalRepository,
+    photos: list[dict[str, Any]],
+    known_species: list[dict[str, Any]],
+) -> None:
+    st.markdown(f"**{len(photos)} selected photo{'s' if len(photos) != 1 else ''}**")
+    st.caption("Choose a species already established in your journal. This skips computer vision, confirms the ID, and sends the photos to Publishing.")
+    selected_species = st.selectbox(
+        "Known species",
+        known_species,
+        index=None,
+        key="known_species_assignment_option",
+        format_func=format_known_species_option,
+        placeholder="Start typing a common or scientific name...",
+    )
+    if st.button(
+        f"Assign to {len(photos)} photo{'s' if len(photos) != 1 else ''}",
+        key="known_species_assignment_submit",
+        use_container_width=True,
+        type="primary",
+        disabled=selected_species is None,
+    ):
+        assigned_count = assign_known_species_to_photos(repository, photos, selected_species)
+        clear_species_selection(photos)
+        clear_known_species_selection(photos)
+        invalidate_data_cache()
+        st.session_state.species_review_mode = "Publish"
+        st.session_state.publish_filter = "Ready to post"
+        st.session_state.publish_page = 1
+        st.session_state.publish_batch_notice = {
+            "level": "success",
+            "message": (
+                f"Assigned {format_known_species_option(selected_species).split(' · ')[0]} to "
+                f"{assigned_count} photo{'s' if assigned_count != 1 else ''}. Ready to publish."
+            ),
+        }
+        navigate_to(view="Species Review")
+
+
+def open_known_species_dialog(
+    repository: HikeJournalRepository,
+    photos: list[dict[str, Any]],
+    known_species: list[dict[str, Any]],
+) -> None:
+    st.session_state.pop("known_species_assignment_option", None)
+    render_known_species_dialog(repository, photos, known_species)
 
 
 def render_species_management_toolbar(

@@ -3,6 +3,44 @@ from __future__ import annotations
 from typing import Any
 
 
+def build_known_species_catalog(observations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    catalog: dict[str, dict[str, Any]] = {}
+    for observation in observations:
+        common_name = str(observation.get("common_name") or "").strip()
+        scientific_name = str(observation.get("scientific_name") or "").strip()
+        taxon_id = observation.get("taxon_id")
+        if not common_name and not scientific_name:
+            continue
+        identity = (
+            f"taxon:{taxon_id}"
+            if taxon_id not in (None, "")
+            else f"name:{(scientific_name or common_name).casefold()}"
+        )
+        entry = catalog.setdefault(
+            identity,
+            {
+                "taxon_id": int(taxon_id) if taxon_id not in (None, "") else None,
+                "common_name": common_name or scientific_name,
+                "scientific_name": scientific_name or common_name,
+                "source_observation_id": observation.get("id"),
+                "seen_count": 0,
+            },
+        )
+        entry["seen_count"] += 1
+        if not entry.get("common_name") and common_name:
+            entry["common_name"] = common_name
+        if not entry.get("scientific_name") and scientific_name:
+            entry["scientific_name"] = scientific_name
+
+    return sorted(
+        catalog.values(),
+        key=lambda entry: (
+            str(entry.get("common_name") or entry.get("scientific_name") or "").casefold(),
+            str(entry.get("scientific_name") or "").casefold(),
+        ),
+    )
+
+
 def select_shared_candidate(
     aggregate_candidates: list[dict[str, Any]],
     *,
