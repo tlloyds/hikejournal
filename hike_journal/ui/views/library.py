@@ -116,7 +116,7 @@ def render_library_view(
     with st.container(key="library_action_rail"):
         action_rail = st.columns([0.62, 0.18, 0.2], gap="small")
         action_rail[0].markdown(
-            "<div class='library-rail-note'>Browse current outings, archived outings, or everyday sightings without losing the shape of the archive.</div>",
+            "<div class='library-rail-note'>Browse current outings, archived outings, or everyday sightings.</div>",
             unsafe_allow_html=True,
         )
         if action_rail[1].button("Quick upload", use_container_width=True, type="secondary", key="library_quick_upload"):
