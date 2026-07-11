@@ -1,4 +1,4 @@
-from hike_journal.services.species_identification import select_shared_candidate
+from hike_journal.services.species_identification import build_known_species_catalog, select_shared_candidate
 
 
 def candidate(taxon_id: int, *, support: int, top1: int) -> dict:
@@ -35,3 +35,33 @@ def test_two_photo_group_requires_both_top_choices_to_agree() -> None:
     )
 
     assert selected is None
+
+
+def test_known_species_catalog_deduplicates_taxa_and_counts_prior_records() -> None:
+    catalog = build_known_species_catalog(
+        [
+            {"id": "obs-1", "taxon_id": 101, "common_name": "Southern dewberry", "scientific_name": "Rubus trivialis"},
+            {"id": "obs-2", "taxon_id": 101, "common_name": "southern dewberry", "scientific_name": "Rubus trivialis"},
+            {"id": "obs-3", "taxon_id": 202, "common_name": "Gallberry", "scientific_name": "Ilex glabra"},
+        ]
+    )
+
+    assert [entry["taxon_id"] for entry in catalog] == [202, 101]
+    assert catalog[1]["seen_count"] == 2
+    assert catalog[1]["source_observation_id"] == "obs-1"
+
+
+def test_known_species_catalog_keeps_name_only_manual_taxa() -> None:
+    catalog = build_known_species_catalog(
+        [{"id": "obs-1", "taxon_id": None, "common_name": "Local morph", "scientific_name": "Species example"}]
+    )
+
+    assert catalog == [
+        {
+            "taxon_id": None,
+            "common_name": "Local morph",
+            "scientific_name": "Species example",
+            "source_observation_id": "obs-1",
+            "seen_count": 1,
+        }
+    ]
