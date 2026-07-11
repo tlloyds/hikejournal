@@ -558,6 +558,21 @@ class HikeJournalRepository:
             rows.extend(response.data or [])
         return rows
 
+    def list_species_log_photo_preferences(self, observation_ids: list[str]) -> list[dict[str, Any]]:
+        normalized_ids = [str(observation_id) for observation_id in observation_ids if str(observation_id).strip()]
+        if not normalized_ids:
+            return []
+        rows: list[dict[str, Any]] = []
+        for chunk_ids in self._chunks(normalized_ids):
+            response = (
+                self.client.table("species_observations")
+                .select("id,species_log_main_photo:raw_response_json->species_log_main_photo")
+                .in_("id", chunk_ids)
+                .execute()
+            )
+            rows.extend(response.data or [])
+        return rows
+
     def list_confirmed_observations(self) -> list[dict[str, Any]]:
         return self._select_all_rows(
             lambda: (

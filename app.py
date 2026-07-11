@@ -48,7 +48,12 @@ from hike_journal.services.inat import (
     save_oauth_token_payload_for_user,
 )
 from hike_journal.services.repositories import HikeJournalRepository
-from hike_journal.services.species_identification import build_known_species_catalog, select_shared_candidate
+from hike_journal.services.species_identification import (
+    build_known_species_catalog,
+    is_species_log_main_photo,
+    select_shared_candidate,
+    update_species_log_main_photo_payload,
+)
 from hike_journal.services.storage import StorageService
 from hike_journal.services.supabase_client import get_supabase
 from hike_journal.services.tcx import (
@@ -808,6 +813,11 @@ def fetch_observations_by_ids(observation_ids: tuple[str, ...]) -> list[dict[str
 
 
 @st.cache_data(show_spinner=False)
+def fetch_species_log_photo_preferences(observation_ids: tuple[str, ...]) -> list[dict[str, Any]]:
+    return HikeJournalRepository(get_supabase()).list_species_log_photo_preferences(list(observation_ids))
+
+
+@st.cache_data(show_spinner=False)
 def fetch_observations_for_photo_ids(photo_ids: tuple[str, ...]) -> list[dict[str, Any]]:
     return HikeJournalRepository(get_supabase()).list_observations_for_photo_ids(list(photo_ids))
 
@@ -837,6 +847,7 @@ def invalidate_data_cache() -> None:
     fetch_confirmed_observations_light.clear()
     fetch_photo_records_for_ids.clear()
     fetch_observations_by_ids.clear()
+    fetch_species_log_photo_preferences.clear()
     fetch_observations_for_photo_ids.clear()
     fetch_confirmed_observation_hike_refs.clear()
 
@@ -3723,7 +3734,7 @@ def render_species_log_tab(
         and not st.session_state.viewer_open
         and not st.session_state.inat_token_dialog_open
     ):
-        render_species_record_dialog(page_rows, species_lookup, representative_observations)
+        render_species_record_dialog(repository, page_rows, species_lookup, representative_observations)
     if st.session_state.species_log_page_size == 0 and page_rows:
         render_back_to_top_link("species-log-top")
 
@@ -3952,8 +3963,57 @@ def dismiss_species_record_dialog() -> None:
     st.session_state.species_log_record_open = False
 
 
+def set_species_log_main_photo(
+    repository: HikeJournalRepository,
+    species_observations: list[dict[str, Any]],
+    selected_observation: dict[str, Any],
+) -> None:
+    selected_id = str(selected_observation["id"])
+    observation_ids_to_update = {
+        str(observation["id"])
+        for observation in species_observations
+        if is_species_log_main_photo(observation) or str(observation["id"]) == selected_id
+    }
+    full_observations = repository.list_observations_by_ids(list(observation_ids_to_update))
+    for observation in full_observations:
+        observation_id = str(observation["id"])
+        should_select = observation_id == selected_id
+        if should_select == is_species_log_main_photo(observation):
+            continue
+        repository.update_observation_raw_payload(
+            observation_id,
+            update_species_log_main_photo_payload(
+                observation.get("raw_response_json"),
+                selected=should_select,
+            ),
+        )
+    invalidate_data_cache()
+    st.session_state.species_log_main_photo_notice = "Saved this as the Species Log main photo."
+
+
+def render_species_log_main_photo_action(
+    *,
+    repository: HikeJournalRepository,
+    species_observations: list[dict[str, Any]],
+    observation: dict[str, Any],
+    key: str,
+    use_container_width: bool = True,
+) -> None:
+    is_selected = is_species_log_main_photo(observation)
+    if st.button(
+        "Main photo" if is_selected else "Use as main photo",
+        key=key,
+        use_container_width=use_container_width,
+        disabled=is_selected,
+        type="primary" if is_selected else "secondary",
+    ):
+        set_species_log_main_photo(repository, species_observations, observation)
+        st.rerun()
+
+
 @st.dialog("Species record", width="large", on_dismiss=dismiss_species_record_dialog)
 def render_species_record_dialog(
+    repository: HikeJournalRepository,
     page_rows: list[dict[str, Any]],
     species_lookup: dict[str, dict[str, Any]],
     representative_observations: dict[str, dict[str, Any]],
@@ -3968,7 +4028,12 @@ def render_species_record_dialog(
     common_name = focus_row["common_name"]
     scientific_name = focus_row["scientific_name"]
     lead_photo = focus_row["lead_photo"]
+    lead_observation = focus_row["lead_entry"]["observation"]
     focus_index = page_keys.index(st.session_state.species_log_focus_key)
+
+    if st.session_state.get("species_log_main_photo_notice"):
+        st.success(str(st.session_state.species_log_main_photo_notice))
+        st.session_state.species_log_main_photo_notice = None
 
     focus_nav_cols = st.columns([0.58, 0.14, 0.14, 0.14], gap="small")
     focus_nav_cols[0].markdown(
@@ -4005,6 +4070,12 @@ def render_species_record_dialog(
             selected_hike_id=None,
             source_view="Species Log",
             variant="species-log-lead",
+        )
+        render_species_log_main_photo_action(
+            repository=repository,
+            species_observations=focus_row["species_observations"],
+            observation=lead_observation,
+            key=f"species_log_lead_main_{focus_row['key']}",
         )
     with summary_cols[1]:
         st.markdown(
@@ -4076,6 +4147,12 @@ def render_species_record_dialog(
                 source_view="Species Log",
                 variant="species-log-encounter-lead",
             )
+            render_species_log_main_photo_action(
+                repository=repository,
+                species_observations=focus_row["species_observations"],
+                observation=lead_entry["observation"],
+                key=f"species_log_encounter_main_{focus_row['key']}_{encounter_index}_lead",
+            )
         with encounter_cols[1]:
             st.markdown(
                 f"""
@@ -4109,6 +4186,12 @@ def render_species_record_dialog(
                             selected_hike_id=None,
                             source_view="Species Log",
                             variant="species-log-thumb",
+                        )
+                        render_species_log_main_photo_action(
+                            repository=repository,
+                            species_observations=focus_row["species_observations"],
+                            observation=entry["observation"],
+                            key=f"species_log_encounter_main_{focus_row['key']}_{encounter_index}_{idx}",
                         )
                 st.markdown("<div class='species-log-thumb-label'>More from this outing</div>", unsafe_allow_html=True)
                 if len(encounter["entries"]) > 3:
@@ -4185,6 +4268,31 @@ def render_photo_viewer(
     else:
         st.caption("No species has been attached to this photo yet.")
         render_add_species_popover(repository, inat_client, photo.get("hike_id"), photo, photo_observations, key_prefix=f"viewer_add_{photo['id']}")
+
+    if st.session_state.get("active_view") == "Species Log":
+        focus_key = st.session_state.get("species_log_focus_key")
+        focused_observation = next(
+            (
+                candidate
+                for candidate in photo_observations
+                if build_species_group_key(candidate) == focus_key and candidate.get("status") == "confirmed"
+            ),
+            None,
+        )
+        if focused_observation:
+            focused_species_observations = [
+                candidate
+                for grouped_observations in observations_by_photo.values()
+                for candidate in grouped_observations
+                if build_species_group_key(candidate) == focus_key and candidate.get("status") == "confirmed"
+            ]
+            render_species_log_main_photo_action(
+                repository=repository,
+                species_observations=focused_species_observations,
+                observation=focused_observation,
+                key=f"viewer_species_log_main_{photo['id']}_{focused_observation['id']}",
+                use_container_width=True,
+            )
 
     controls = st.columns([1, 1, 1, 1])
     if controls[0].button("Previous", use_container_width=True, key="viewer_previous"):
@@ -5601,8 +5709,18 @@ def build_species_log_context(
     posted_filter = str(st.session_state.get("species_log_posted_filter", "All"))
     taxon_search_hints = build_species_taxon_search_hints(query, inat_client)
 
+    observation_ids = tuple(str(observation["id"]) for observation in confirmed_observations if observation.get("id"))
+    preference_rows = fetch_species_log_photo_preferences(observation_ids) if observation_ids else []
+    preference_by_id = {
+        str(row["id"]): row.get("species_log_main_photo") is True
+        for row in preference_rows
+    }
+
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for observation in confirmed_observations:
+    for lightweight_observation in confirmed_observations:
+        observation = dict(lightweight_observation)
+        if preference_by_id.get(str(observation.get("id"))):
+            observation["raw_response_json"] = {"species_log_main_photo": True}
         photo = photo_by_id.get(observation.get("photo_id"))
         if not photo:
             continue
@@ -5657,9 +5775,11 @@ def build_species_log_context(
             ),
             reverse=True,
         )
-        representative_observation = representative_observations.get(
-            entries_sorted[0]["observation"]["id"], entries_sorted[0]["observation"]
+        preferred_entry = next(
+            (entry for entry in entries_sorted if is_species_log_main_photo(entry["observation"])),
+            entries_sorted[0],
         )
+        representative_observation = preferred_entry["observation"]
         encounters_by_hike: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for entry in entries_sorted:
             encounter_key = str(entry["hike"].get("id") or entry["observation"].get("hike_id") or f"standalone:{entry['photo']['id']}")
@@ -5675,6 +5795,13 @@ def build_species_log_context(
                 ),
                 reverse=True,
             )
+            preferred_encounter_entry = next(
+                (entry for entry in encounter_entries if is_species_log_main_photo(entry["observation"])),
+                None,
+            )
+            if preferred_encounter_entry:
+                encounter_entries.remove(preferred_encounter_entry)
+                encounter_entries.insert(0, preferred_encounter_entry)
             encounters.append(
                 {
                     "hike": encounter_entries[0]["hike"],
@@ -5695,7 +5822,9 @@ def build_species_log_context(
                 "observation": representative_observation,
                 "common_name": common_name,
                 "scientific_name": scientific_name,
-                "lead_photo": entries_sorted[0]["photo"],
+                "lead_photo": preferred_entry["photo"],
+                "lead_entry": preferred_entry,
+                "species_observations": [entry["observation"] for entry in entries_sorted],
                 "sighting_count": len(entries_sorted),
                 "hike_count": len({entry["hike"].get("id") for entry in entries_sorted if entry.get("hike")}),
                 "first_seen_label": format_species_log_date_label(earliest_seen),
