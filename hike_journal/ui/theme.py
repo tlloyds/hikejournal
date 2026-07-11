@@ -622,6 +622,11 @@ h1, h2, h3 {
   border-radius: 16px;
 }
 
+[class*="st-key-species_log_lead_main_"],
+[class*="st-key-species_log_encounter_main_"] {
+  margin-top: 0.625rem;
+}
+
 .photo-link--publish-thumb img {
   aspect-ratio: 1 / 1;
   width: 100%;
