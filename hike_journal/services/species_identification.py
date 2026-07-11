@@ -3,6 +3,27 @@ from __future__ import annotations
 from typing import Any
 
 
+SPECIES_LOG_MAIN_PHOTO_KEY = "species_log_main_photo"
+
+
+def is_species_log_main_photo(observation: dict[str, Any]) -> bool:
+    raw_payload = observation.get("raw_response_json") or {}
+    return isinstance(raw_payload, dict) and raw_payload.get(SPECIES_LOG_MAIN_PHOTO_KEY) is True
+
+
+def update_species_log_main_photo_payload(
+    raw_payload: dict[str, Any] | None,
+    *,
+    selected: bool,
+) -> dict[str, Any]:
+    updated_payload = dict(raw_payload or {})
+    if selected:
+        updated_payload[SPECIES_LOG_MAIN_PHOTO_KEY] = True
+    else:
+        updated_payload.pop(SPECIES_LOG_MAIN_PHOTO_KEY, None)
+    return updated_payload
+
+
 def build_known_species_catalog(observations: list[dict[str, Any]]) -> list[dict[str, Any]]:
     catalog: dict[str, dict[str, Any]] = {}
     for observation in observations:

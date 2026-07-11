@@ -1,4 +1,9 @@
-from hike_journal.services.species_identification import build_known_species_catalog, select_shared_candidate
+from hike_journal.services.species_identification import (
+    build_known_species_catalog,
+    is_species_log_main_photo,
+    select_shared_candidate,
+    update_species_log_main_photo_payload,
+)
 
 
 def candidate(taxon_id: int, *, support: int, top1: int) -> dict:
@@ -65,3 +70,21 @@ def test_known_species_catalog_keeps_name_only_manual_taxa() -> None:
             "seen_count": 1,
         }
     ]
+
+
+def test_species_log_main_photo_payload_preserves_existing_metadata() -> None:
+    original = {"taxon_enrichment": {"rank": "species"}, "source": "known_species"}
+
+    selected = update_species_log_main_photo_payload(original, selected=True)
+    cleared = update_species_log_main_photo_payload(selected, selected=False)
+
+    assert selected["species_log_main_photo"] is True
+    assert selected["taxon_enrichment"] == {"rank": "species"}
+    assert "species_log_main_photo" not in original
+    assert cleared == original
+
+
+def test_species_log_main_photo_requires_explicit_true_flag() -> None:
+    assert is_species_log_main_photo({"raw_response_json": {"species_log_main_photo": True}})
+    assert not is_species_log_main_photo({"raw_response_json": {"species_log_main_photo": False}})
+    assert not is_species_log_main_photo({"raw_response_json": None})
