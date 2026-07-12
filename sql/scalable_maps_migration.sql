@@ -49,7 +49,10 @@ begin
         new.track_geom := null;
         return new;
     end if;
-    parsed := st_setsrid(st_geomfromgeojson(new.track_geojson::text), 4326);
+    -- TCX imports may include elevation as a third coordinate. The web map is
+    -- spatially indexed in 2D, while the original elevation remains preserved
+    -- in track_geojson for route metadata and future use.
+    parsed := st_force2d(st_setsrid(st_geomfromgeojson(new.track_geojson::text), 4326));
     if geometrytype(parsed) = 'LINESTRING' then
         new.track_geom := st_multi(parsed);
     elsif geometrytype(parsed) = 'MULTILINESTRING' then
@@ -74,9 +77,9 @@ for each row execute procedure public.sync_hike_route_geom();
 update public.hike_route_imports
 set track_geom = case
     when track_geojson->>'type' = 'LineString' then
-        st_multi(st_setsrid(st_geomfromgeojson(track_geojson::text), 4326))
+        st_multi(st_force2d(st_setsrid(st_geomfromgeojson(track_geojson::text), 4326)))
     when track_geojson->>'type' = 'MultiLineString' then
-        st_setsrid(st_geomfromgeojson(track_geojson::text), 4326)
+        st_force2d(st_setsrid(st_geomfromgeojson(track_geojson::text), 4326))
     else null
 end
 where track_geom is null
