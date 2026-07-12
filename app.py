@@ -2176,6 +2176,67 @@ def reset_journal_review_widget_state(photo_ids: list[str]) -> None:
             del st.session_state[checkbox_key]
 
 
+def _start_species_info_save(save_key: str) -> None:
+    st.session_state[save_key] = True
+
+
+@st.dialog("Edit species", width="small")
+def render_species_edit_dialog(
+    repository: HikeJournalRepository,
+    observation: dict[str, Any],
+    *,
+    key_prefix: str,
+) -> None:
+    save_key = f"{key_prefix}_species_save_in_progress"
+    with st.form(f"{key_prefix}_species_form", enter_to_submit=False):
+        common_name = st.text_input("Common name", value=observation.get("common_name") or "", key=f"{key_prefix}_common_name")
+        scientific_name = st.text_input("Scientific name", value=observation.get("scientific_name") or "", key=f"{key_prefix}_scientific_name")
+        role = st.selectbox(
+            "Role",
+            ["Primary subject", "Secondary species"],
+            index=0 if observation.get("is_primary") else 1,
+            key=f"{key_prefix}_role",
+        )
+        submitted = st.form_submit_button(
+            "Save species info",
+            use_container_width=True,
+            disabled=bool(st.session_state.get(save_key)),
+            on_click=_start_species_info_save,
+            args=(save_key,),
+        )
+    if not submitted:
+        return
+
+    original_common = (observation.get("common_name") or "").strip()
+    original_scientific = (observation.get("scientific_name") or "").strip()
+    next_common = common_name.strip()
+    next_scientific = scientific_name.strip()
+    changed_names = (next_common != original_common) or (next_scientific != original_scientific)
+    manual_correction_from_rejected = changed_names and observation.get("status") == "rejected"
+    try:
+        with st.spinner("Saving species info..."):
+            updated = repository.update_observation_details(
+                observation["id"],
+                common_name=common_name,
+                scientific_name=scientific_name,
+                photo_id=observation.get("photo_id"),
+                is_primary=role == "Primary subject",
+                status="confirmed" if manual_correction_from_rejected else None,
+                source="manual_override" if manual_correction_from_rejected else None,
+                taxon_id=None if manual_correction_from_rejected else observation.get("taxon_id"),
+                clear_confidence=manual_correction_from_rejected,
+            )
+            sync_species_override_payload(repository, observation, updated)
+    except Exception as exc:
+        st.session_state[save_key] = False
+        st.error(f"Could not save species info: {exc}")
+        return
+
+    st.session_state[save_key] = False
+    invalidate_data_cache()
+    st.rerun()
+
+
 def render_species_summary(
     repository: HikeJournalRepository,
     observation: dict[str, Any],
@@ -2242,37 +2303,8 @@ def render_species_summary(
             key_prefix=key_prefix,
         )
     with info_cols[1]:
-        with st.popover("✎"):
-            with st.form(f"{key_prefix}_species_form", enter_to_submit=False):
-                common_name = st.text_input("Common name", value=observation.get("common_name") or "", key=f"{key_prefix}_common_name")
-                scientific_name = st.text_input("Scientific name", value=observation.get("scientific_name") or "", key=f"{key_prefix}_scientific_name")
-                role = st.selectbox(
-                    "Role",
-                    ["Primary subject", "Secondary species"],
-                    index=0 if observation.get("is_primary") else 1,
-                    key=f"{key_prefix}_role",
-                )
-                if st.form_submit_button("Save species info", use_container_width=True):
-                    original_common = (observation.get("common_name") or "").strip()
-                    original_scientific = (observation.get("scientific_name") or "").strip()
-                    next_common = common_name.strip()
-                    next_scientific = scientific_name.strip()
-                    changed_names = (next_common != original_common) or (next_scientific != original_scientific)
-                    manual_correction_from_rejected = changed_names and observation.get("status") == "rejected"
-                    updated = repository.update_observation_details(
-                        observation["id"],
-                        common_name=common_name,
-                        scientific_name=scientific_name,
-                        photo_id=observation.get("photo_id"),
-                        is_primary=role == "Primary subject",
-                        status="confirmed" if manual_correction_from_rejected else None,
-                        source="manual_override" if manual_correction_from_rejected else None,
-                        taxon_id=None if manual_correction_from_rejected else observation.get("taxon_id"),
-                        clear_confidence=manual_correction_from_rejected,
-                    )
-                    sync_species_override_payload(repository, observation, updated)
-                    invalidate_data_cache()
-                    st.rerun()
+        if st.button("✎ ▾", key=f"{key_prefix}_edit_species", help="Edit species"):
+            render_species_edit_dialog(repository, observation, key_prefix=key_prefix)
 
 
 def render_secondary_species_summary(photo_observations: list[dict[str, Any]], primary_observation_id: str | None) -> None:
