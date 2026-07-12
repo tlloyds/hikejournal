@@ -3677,7 +3677,8 @@ def render_smart_id_plan_dialog(
         key="smart_id_run_reviewed_plan",
         use_container_width=True,
         type="primary",
-        disabled=not planned_groups,
+        disabled=not planned_groups or st.session_state.get("smart_id_plan_submission_started", False),
+        on_click=mark_smart_id_plan_submission_started,
     ):
         processed_count = process_smart_species_photo_groups(
             repository,
@@ -3699,6 +3700,7 @@ def open_smart_id_plan(
     photos_to_process: list[dict[str, Any]],
     primary_observation_by_photo: dict[str, dict[str, Any]],
 ) -> None:
+    st.session_state.smart_id_plan_submission_started = False
     for photo in photos_to_process:
         st.session_state.pop(f"smart_id_separate_{photo['id']}", None)
     render_smart_id_plan_dialog(
@@ -3707,6 +3709,10 @@ def open_smart_id_plan(
         photos_to_process,
         primary_observation_by_photo,
     )
+
+
+def mark_smart_id_plan_submission_started() -> None:
+    st.session_state.smart_id_plan_submission_started = True
 
 
 def format_known_species_option(species: dict[str, Any]) -> str:
