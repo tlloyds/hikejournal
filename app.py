@@ -4282,7 +4282,12 @@ def render_publish_plan_dialog(
         key="publish_confirm_encounter_plan",
         use_container_width=True,
         type="primary",
-        disabled=not planned_groups or bool(oversized_groups),
+        disabled=(
+            not planned_groups
+            or bool(oversized_groups)
+            or st.session_state.get("publish_plan_submission_started", False)
+        ),
+        on_click=mark_publish_plan_submission_started,
     ):
         processed_ids = post_publish_encounter_plan(repository, inat_client, planned_groups)
         processed_rows = [
@@ -4300,9 +4305,14 @@ def open_publish_plan(
     inat_client: InatClient,
     rows: list[dict[str, Any]],
 ) -> None:
+    st.session_state.publish_plan_submission_started = False
     for row in rows:
         st.session_state.pop(f"publish_plan_split_{row['photo']['id']}", None)
     render_publish_plan_dialog(repository, inat_client, rows)
+
+
+def mark_publish_plan_submission_started() -> None:
+    st.session_state.publish_plan_submission_started = True
 
 
 def post_publish_encounter_plan(
