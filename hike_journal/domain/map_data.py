@@ -73,6 +73,34 @@ def empty_feature_collection(**meta: Any) -> dict[str, Any]:
     return {"type": "FeatureCollection", "features": [], "meta": meta}
 
 
+def route_geojson_to_2d_multiline(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    coordinates = value.get("coordinates")
+    if not isinstance(coordinates, list):
+        return None
+    groups = coordinates if value.get("type") == "MultiLineString" else [coordinates]
+    clean_groups: list[list[list[float]]] = []
+    for group in groups:
+        if not isinstance(group, list):
+            continue
+        clean_group: list[list[float]] = []
+        for point in group:
+            if not isinstance(point, (list, tuple)) or len(point) < 2:
+                continue
+            try:
+                lng, lat = float(point[0]), float(point[1])
+            except (TypeError, ValueError):
+                continue
+            if isfinite(lng) and isfinite(lat):
+                clean_group.append([lng, lat])
+        if len(clean_group) >= 2:
+            clean_groups.append(clean_group)
+    if not clean_groups:
+        return None
+    return {"type": "MultiLineString", "coordinates": clean_groups}
+
+
 def normalize_rpc_payload(value: Any, *, include_meta: bool = False) -> dict[str, Any]:
     if isinstance(value, list) and len(value) == 1 and isinstance(value[0], dict):
         value = value[0]

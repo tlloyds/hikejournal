@@ -6,6 +6,7 @@ from hike_journal.domain.map_data import (
     fallback_route_features,
     normalize_bounds,
     normalize_rpc_payload,
+    route_geojson_to_2d_multiline,
     viewport_from_value,
 )
 
@@ -14,6 +15,18 @@ def test_spatial_migration_flattens_elevation_coordinates() -> None:
     migration = Path("sql/scalable_maps_migration.sql").read_text(encoding="utf-8").lower()
 
     assert migration.count("st_force2d") >= 3
+
+
+def test_route_geojson_to_2d_multiline_strips_tcx_elevation() -> None:
+    result = route_geojson_to_2d_multiline({
+        "type": "LineString",
+        "coordinates": [[-81.0, 28.0, 12.5], [-81.1, 28.1, 14.0]],
+    })
+
+    assert result == {
+        "type": "MultiLineString",
+        "coordinates": [[[-81.0, 28.0], [-81.1, 28.1]]],
+    }
 
 
 def test_viewport_rejects_untrusted_component_values() -> None:

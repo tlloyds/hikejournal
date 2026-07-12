@@ -7,7 +7,13 @@ from typing import Any
 from supabase import Client
 
 from hike_journal.models import HikeDraft, SpeciesCandidate
-from hike_journal.domain.map_data import MAX_VIEWPORT_FEATURES, MapViewport, empty_feature_collection, normalize_rpc_payload
+from hike_journal.domain.map_data import (
+    MAX_VIEWPORT_FEATURES,
+    MapViewport,
+    empty_feature_collection,
+    normalize_rpc_payload,
+    route_geojson_to_2d_multiline,
+)
 
 
 LIGHTWEIGHT_OBSERVATION_COLUMNS = (
@@ -211,12 +217,32 @@ class HikeJournalRepository:
     def upsert_hike_route_import(self, hike_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         normalized_payload = dict(payload)
         normalized_payload["hike_id"] = hike_id
+        spatial_geometry = route_geojson_to_2d_multiline(normalized_payload.get("track_geojson"))
         response = (
             self.client.table("hike_route_imports")
             .upsert(normalized_payload, on_conflict="hike_id")
             .execute()
         )
-        return response.data[0]
+        saved = response.data[0]
+        if spatial_geometry:
+            try:
+                # Keep this separate from the GeoJSON upsert. Older trigger
+                # versions can reject 3D TCX coordinates and overwrite
+                # track_geom; a geometry-only update is not handled by that
+                # trigger and makes route imports self-healing.
+                spatial_response = (
+                    self.client.table("hike_route_imports")
+                    .update({"track_geom": spatial_geometry})
+                    .eq("hike_id", hike_id)
+                    .execute()
+                )
+                if spatial_response.data:
+                    saved = spatial_response.data[0]
+            except Exception:
+                # Projects that have not run the scalable map migration still
+                # retain the route import and can be migrated later.
+                pass
+        return saved
 
     def delete_hike_route_import(self, hike_id: str) -> dict[str, Any] | None:
         existing = self.get_hike_route_import(hike_id)
