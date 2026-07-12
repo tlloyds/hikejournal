@@ -70,9 +70,26 @@ def test_app_map_wrapper_forwards_confidence_formatter(monkeypatch) -> None:
     captured = {}
     monkeypatch.setattr(app, "render_map_view", lambda *args, **kwargs: captured.update(kwargs))
 
-    app.render_map_tab([], {}, {}, selected_hike=None, route_imports_by_hike={})
+    app.render_map_tab(object(), [], {}, selected_hike=None)
 
     assert captured["format_confidence_label"] is app.format_confidence_label
+
+
+def test_login_gate_uses_wordmark_hero_and_left_aligned_action(monkeypatch) -> None:
+    captured = {}
+    monkeypatch.setattr(app, "render_hero", lambda *args, **kwargs: captured.update(kwargs))
+    monkeypatch.setattr(app, "section_heading", lambda *args, **kwargs: None)
+    monkeypatch.setattr(app.st, "write", lambda *args, **kwargs: None)
+    monkeypatch.setattr(app.st, "button", lambda *args, **kwargs: False)
+    monkeypatch.setattr(
+        app.st,
+        "columns",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("Login action must not use centering columns")),
+    )
+
+    app.render_login_gate()
+
+    assert captured["login_mode"] is True
 
 
 def test_app_species_log_wrapper_forwards_every_callback(monkeypatch) -> None:

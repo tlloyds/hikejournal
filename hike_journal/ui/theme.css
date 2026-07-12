@@ -2538,6 +2538,11 @@ h1, h2, h3,
   line-height: 1;
 }
 
+.hero-shell--login .hero-brand {
+  font-family: 'Manrope', sans-serif;
+  font-weight: 800;
+}
+
 .hero-subcopy {
   margin-top: 0.7rem;
   line-height: 1.55;

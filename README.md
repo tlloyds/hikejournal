@@ -8,7 +8,7 @@ HikeJournal is a private field journal for specific hikes on specific dates. It 
 - Supabase Postgres + Storage for persistence
 - Pillow for EXIF handling and image optimization
 - Requests for the iNaturalist integration
-- Pydeck for the map view
+- MapLibre GL JS for the interactive map, with PostGIS viewport RPCs
 
 ## Setup
 
@@ -19,7 +19,8 @@ HikeJournal is a private field journal for specific hikes on specific dates. It 
    ```
 3. Copy `.env.example` to `.env` and fill in your Supabase values.
 4. Run the SQL in [sql/schema.sql](/Users/adl/Documents/Playground/hike-journal/sql/schema.sql).
-5. Start the app:
+5. Run `sql/scalable_maps_migration.sql` to add PostGIS indexes and viewport map RPCs.
+6. Start the app:
    ```bash
    streamlit run app.py
    ```

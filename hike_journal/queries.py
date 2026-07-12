@@ -37,6 +37,14 @@ def fetch_all_hike_route_imports() -> list[dict[str, Any]]:
     return _repository().list_hike_route_imports()
 
 
+@st.cache_data(show_spinner=False, ttl=60)
+def fetch_unindexed_map_routes(visible_hike_ids: tuple[str, ...], hike_id: str | None) -> list[dict[str, Any]]:
+    return _repository().list_unindexed_map_routes(
+        visible_hike_ids=list(visible_hike_ids),
+        hike_id=hike_id,
+    )
+
+
 @st.cache_data(show_spinner=False)
 def fetch_hike_photos(hike_id: str) -> list[dict[str, Any]]:
     return _repository().list_photos(hike_id)
@@ -128,6 +136,7 @@ _CACHED_QUERIES = (
     fetch_hike_location_tags,
     fetch_hike_route_import,
     fetch_all_hike_route_imports,
+    fetch_unindexed_map_routes,
     fetch_hike_photos,
     fetch_standalone_photos,
     fetch_hike_map_photos,

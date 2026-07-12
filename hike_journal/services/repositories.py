@@ -7,6 +7,7 @@ from typing import Any
 from supabase import Client
 
 from hike_journal.models import HikeDraft, SpeciesCandidate
+from hike_journal.domain.map_data import MAX_VIEWPORT_FEATURES, MapViewport, empty_feature_collection, normalize_rpc_payload
 
 
 LIGHTWEIGHT_OBSERVATION_COLUMNS = (
@@ -287,6 +288,236 @@ class HikeJournalRepository:
             return query
 
         return self._select_all_rows(query_factory)
+
+    def get_map_summary(self, *, visible_hike_ids: list[str], hike_id: str | None = None) -> dict[str, Any]:
+        params = {"p_hike_ids": visible_hike_ids, "p_hike_id": hike_id}
+        try:
+            response = self.client.rpc("map_summary", params).execute()
+            payload = response.data
+            if isinstance(payload, list) and len(payload) == 1:
+                payload = payload[0]
+            if isinstance(payload, dict):
+                payload["spatial_rpc_ready"] = True
+                return payload
+        except Exception:
+            pass
+
+        # Compatibility path while the spatial migration is being applied.
+        photos = [
+            photo for photo in self.list_map_photos(hike_id)
+            if str(photo.get("hike_id") or "") in set(visible_hike_ids)
+        ]
+        observations = self.list_lightweight_observations(status="confirmed", hike_id=hike_id)
+        photo_ids = {str(photo.get("id")) for photo in photos}
+        species = sorted({
+            str(observation.get("common_name") or observation.get("scientific_name") or "Confirmed species")
+            for observation in observations
+            if str(observation.get("photo_id") or "") in photo_ids
+        })
+        bounds = None
+        if photos:
+            lngs = [float(photo["lng"]) for photo in photos]
+            lats = [float(photo["lat"]) for photo in photos]
+            bounds = [min(lngs), min(lats), max(lngs), max(lats)]
+        return {
+            "photo_count": len(photos),
+            "species_count": len(species),
+            "species": species,
+            "bounds": bounds,
+            "spatial_rpc_ready": False,
+        }
+
+    def get_map_viewport(
+        self,
+        *,
+        visible_hike_ids: list[str],
+        hike_id: str | None,
+        viewport: MapViewport,
+        layer_mode: str,
+        species_filter: str,
+        range_start: int,
+        range_end: int,
+    ) -> dict[str, Any]:
+        params = {
+            "p_hike_ids": visible_hike_ids,
+            "p_hike_id": hike_id,
+            "p_west": viewport.west,
+            "p_south": viewport.south,
+            "p_east": viewport.east,
+            "p_north": viewport.north,
+            "p_zoom": viewport.zoom,
+            "p_layer_mode": layer_mode,
+            "p_species_filter": species_filter,
+            "p_range_start": range_start,
+            "p_range_end": range_end,
+            "p_max_features": MAX_VIEWPORT_FEATURES,
+        }
+        try:
+            response = self.client.rpc("map_viewport", params).execute()
+            return normalize_rpc_payload(response.data, include_meta=True)
+        except Exception:
+            return self._fallback_map_viewport(
+                visible_hike_ids=visible_hike_ids,
+                hike_id=hike_id,
+                viewport=viewport,
+                layer_mode=layer_mode,
+                species_filter=species_filter,
+            )
+
+    def _fallback_map_viewport(
+        self,
+        *,
+        visible_hike_ids: list[str],
+        hike_id: str | None,
+        viewport: MapViewport,
+        layer_mode: str,
+        species_filter: str,
+    ) -> dict[str, Any]:
+        query = (
+            self.client.table("photos")
+            .select("id,hike_id,lat,lng,taken_at,created_at")
+            .in_("hike_id", [hike_id] if hike_id else visible_hike_ids)
+            .gte("lat", viewport.south)
+            .lte("lat", viewport.north)
+            .gte("lng", viewport.west)
+            .lte("lng", viewport.east)
+            .order("taken_at")
+            .limit(min(MAX_VIEWPORT_FEATURES, 500))
+        )
+        photos = query.execute().data or []
+        photo_ids = [str(photo["id"]) for photo in photos]
+        observations: list[dict[str, Any]] = []
+        for chunk_ids in self._chunks(photo_ids, 200):
+            try:
+                response = (
+                    self.client.table("species_observations")
+                    .select(LIGHTWEIGHT_OBSERVATION_COLUMNS)
+                    .in_("photo_id", chunk_ids)
+                    .eq("status", "confirmed")
+                    .execute()
+                )
+                observations.extend(response.data or [])
+            except Exception:
+                # Photo markers remain useful while the migration is pending.
+                break
+        observations_by_photo: dict[str, list[dict[str, Any]]] = {}
+        for observation in observations:
+            observations_by_photo.setdefault(str(observation.get("photo_id")), []).append(observation)
+        features: list[dict[str, Any]] = []
+        for photo in photos:
+            photo_observations = observations_by_photo.get(str(photo["id"]), [])
+            primary = next((item for item in photo_observations if item.get("is_primary")), None)
+            if layer_mode in {"Both", "Photos"}:
+                features.append(self._map_point_feature(photo, layer="photo", title=(primary or {}).get("common_name") or "Trail photo"))
+            if layer_mode in {"Both", "Species"}:
+                for observation in photo_observations:
+                    name = observation.get("common_name") or observation.get("scientific_name") or "Confirmed species"
+                    if species_filter not in {"", "All confirmed species", name}:
+                        continue
+                    features.append(self._map_point_feature(photo, layer="species", title=name))
+        return {
+            "type": "FeatureCollection",
+            "features": features[:MAX_VIEWPORT_FEATURES],
+            "meta": {"matched": len(features), "clustered": False, "fallback": True},
+        }
+
+    @staticmethod
+    def _map_point_feature(photo: dict[str, Any], *, layer: str, title: str) -> dict[str, Any]:
+        return {
+            "type": "Feature",
+            "geometry": {"type": "Point", "coordinates": [photo["lng"], photo["lat"]]},
+            "properties": {
+                "kind": "point",
+                "layer": layer,
+                "photo_id": photo["id"],
+                "hike_id": photo.get("hike_id"),
+                "title": title,
+            },
+        }
+
+    def get_map_routes_viewport(
+        self,
+        *,
+        visible_hike_ids: list[str],
+        hike_id: str | None,
+        viewport: MapViewport,
+    ) -> dict[str, Any]:
+        params = {
+            "p_hike_ids": visible_hike_ids,
+            "p_hike_id": hike_id,
+            "p_west": viewport.west,
+            "p_south": viewport.south,
+            "p_east": viewport.east,
+            "p_north": viewport.north,
+            "p_zoom": viewport.zoom,
+        }
+        try:
+            response = self.client.rpc("map_routes_viewport", params).execute()
+            return normalize_rpc_payload(response.data)
+        except Exception:
+            return empty_feature_collection(fallback=True)
+
+    def get_map_route_index_status(self, *, visible_hike_ids: list[str], hike_id: str | None) -> tuple[int, int]:
+        scoped_ids = [hike_id] if hike_id else visible_hike_ids
+        if not scoped_ids:
+            return 0, 0
+        try:
+            total_response = (
+                self.client.table("hike_route_imports")
+                .select("id", count="exact")
+                .in_("hike_id", scoped_ids)
+                .limit(0)
+                .execute()
+            )
+            indexed_response = (
+                self.client.table("hike_route_imports")
+                .select("id", count="exact")
+                .in_("hike_id", scoped_ids)
+                .not_.is_("track_geom", "null")
+                .limit(0)
+                .execute()
+            )
+            return int(total_response.count or 0), int(indexed_response.count or 0)
+        except Exception:
+            return 0, 0
+
+    def list_unindexed_map_routes(self, *, visible_hike_ids: list[str], hike_id: str | None) -> list[dict[str, Any]]:
+        scoped_ids = [hike_id] if hike_id else visible_hike_ids
+        if not scoped_ids:
+            return []
+        try:
+            response = (
+                self.client.table("hike_route_imports")
+                .select("hike_id,track_point_count,track_geojson")
+                .in_("hike_id", scoped_ids)
+                .is_("track_geom", "null")
+                .execute()
+            )
+            return response.data or []
+        except Exception:
+            return []
+
+    def get_map_photo_detail(self, *, photo_id: str, visible_hike_ids: list[str]) -> dict[str, Any] | None:
+        try:
+            response = self.client.rpc(
+                "map_photo_detail",
+                {"p_photo_id": photo_id, "p_hike_ids": visible_hike_ids},
+            ).execute()
+            payload = response.data
+            if isinstance(payload, list) and len(payload) == 1:
+                payload = payload[0]
+            if isinstance(payload, dict) and payload.get("photo_id"):
+                return payload
+        except Exception:
+            pass
+        records = self.list_photo_records_for_ids([photo_id])
+        if not records or str(records[0].get("hike_id") or "") not in set(visible_hike_ids):
+            return None
+        photo = dict(records[0])
+        photo["photo_id"] = photo["id"]
+        photo["image_url"] = photo.get("public_url")
+        photo["observations"] = self.list_lightweight_observations(photo_ids=[photo_id], status="confirmed")
+        return photo
 
     def list_review_queue_photos(self) -> list[dict[str, Any]]:
         return self._select_all_rows(

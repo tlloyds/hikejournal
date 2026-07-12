@@ -1,28 +1,28 @@
 from __future__ import annotations
 
-from collections import defaultdict
 from typing import Any
 
 import streamlit as st
 
-from hike_journal.domain.routes import route_import_to_route_groups
-from hike_journal.ui.components import (
-    format_photo_meta,
-    get_photo_thumbnail_url,
-    render_rich_map,
-    section_heading,
-)
+from hike_journal.domain.map_data import bounds_from_point_features, fallback_route_features, normalize_bounds, viewport_from_value
+from hike_journal.queries import fetch_unindexed_map_routes
+from hike_journal.services.repositories import HikeJournalRepository
+from hike_journal.ui.components import section_heading
+from hike_journal.ui.map_component import map_viewer_url, render_maplibre
+
+
+DEFAULT_MASTER_MAP_PHOTO_LIMIT = 250
 
 
 def render_map_view(
-    photos: list[dict[str, Any]],
-    observations_by_photo: dict[str, list[dict[str, Any]]],
-    primary_observation_by_photo: dict[str, dict[str, Any]],
+    repository: HikeJournalRepository,
+    visible_hikes: list[dict[str, Any]],
+    user_context: dict[str, Any],
     *,
     selected_hike: dict[str, Any] | None,
-    route_imports_by_hike: dict[str, dict[str, Any]],
     format_confidence_label: Any,
 ) -> None:
+    del user_context  # visibility is represented by visible_hikes
     if selected_hike:
         section_heading(
             "Outing map",
@@ -36,169 +36,140 @@ def render_map_view(
             "Browse geotagged photographs across every outing and filter the confirmed species layered over them.",
         )
     st.write("")
-    geotagged_photos = [photo for photo in photos if photo.get("lat") is not None and photo.get("lng") is not None]
-    imported_route_groups: list[list[dict[str, float]]] = []
-    if selected_hike:
-        imported_route_groups = route_import_to_route_groups(route_imports_by_hike.get(str(selected_hike["id"])))
-    else:
-        imported_route_groups = [
-            points
-            for route_import in route_imports_by_hike.values()
-            for points in route_import_to_route_groups(route_import)
-        ]
 
-    if not geotagged_photos and not imported_route_groups:
-        timestamped_photos = len([photo for photo in photos if photo.get("taken_at")])
-        st.warning(
-            "No map coordinates are available for the photos in view yet."
-        )
-        if photos:
-            st.caption(
-                f"{len(photos)} photos are loaded. {timestamped_photos} include capture times, but none of them currently include GPS coordinates."
-            )
-        return
+    visible_hike_ids = [str(hike["id"]) for hike in visible_hikes if hike.get("id")]
+    selected_hike_id = str(selected_hike["id"]) if selected_hike else None
+    summary = repository.get_map_summary(visible_hike_ids=visible_hike_ids, hike_id=selected_hike_id)
+    photo_count = max(0, int(summary.get("photo_count") or 0))
+    species_names = [str(name) for name in summary.get("species") or [] if str(name).strip()]
+    species_count = int(summary.get("species_count") or len(species_names))
 
-    confirmed_species = []
-    for photo in geotagged_photos:
-        for observation in observations_by_photo.get(photo["id"], []):
-            if observation.get("status") == "confirmed":
-                confirmed_species.append((photo, observation))
-
-    focused_photo_id = str(st.query_params.get("map_photo")) if st.query_params.get("map_photo") else None
-    focused_index = None
-    if focused_photo_id:
-        ordered_for_focus = sorted(
-            geotagged_photos,
-            key=lambda photo: (photo.get("taken_at") or "", photo.get("created_at") or "", photo["id"]),
-        )
-        for index, photo in enumerate(ordered_for_focus, start=1):
-            if photo["id"] == focused_photo_id:
-                focused_index = index
-                break
-
-    unique_species = sorted(
-        {
-            observation.get("common_name") or observation.get("scientific_name") or "Confirmed species"
-            for _, observation in confirmed_species
-        }
-    )
     valid_layer_modes = {"Both", "Photos", "Species"}
     if st.session_state.get("map_layer_mode") not in valid_layer_modes:
         st.session_state.map_layer_mode = "Both"
-    valid_species_filters = {"All confirmed species", *unique_species}
+    valid_species_filters = {"All confirmed species", *species_names}
     if st.session_state.get("map_species_filter") not in valid_species_filters:
         st.session_state.map_species_filter = "All confirmed species"
-    control_cols = st.columns([0.26, 0.26, 0.22, 0.26], gap="small")
-    layer_mode = control_cols[0].radio(
+
+    controls = st.columns([0.24, 0.28, 0.25, 0.23], gap="small")
+    layer_mode = controls[0].radio(
         "Map layer",
         ["Both", "Photos", "Species"],
         horizontal=True,
         label_visibility="collapsed",
         key="map_layer_mode",
     )
-    species_filter = control_cols[1].selectbox(
+    species_filter = controls[1].selectbox(
         "Species filter",
-        ["All confirmed species", *unique_species],
+        ["All confirmed species", *species_names],
         label_visibility="collapsed",
         key="map_species_filter",
+        disabled=layer_mode == "Photos",
     )
-    photo_count = len(geotagged_photos)
+
     max_index = max(1, photo_count)
-    if focused_index:
-        st.session_state.map_photo_range = (focused_index, focused_index)
-    else:
-        current_range = st.session_state.get("map_photo_range", (1, max_index))
-        if not (
-            isinstance(current_range, (tuple, list))
-            and len(current_range) == 2
-        ):
-            current_range = (1, max_index)
-        start_value = min(max(1, int(current_range[0])), max_index)
-        end_value = min(max(start_value, int(current_range[1])), max_index)
-        st.session_state.map_photo_range = (start_value, end_value)
-    segment = control_cols[2].slider(
+    map_scope = selected_hike_id or "master"
+    scope_changed = st.session_state.get("map_photo_range_scope") not in {None, map_scope}
+    range_is_new = "map_photo_range" not in st.session_state or scope_changed
+    if range_is_new:
+        default_start = max(1, max_index - DEFAULT_MASTER_MAP_PHOTO_LIMIT + 1) if not selected_hike else 1
+        st.session_state.map_photo_range = (default_start, max_index)
+    current_range = st.session_state.get("map_photo_range", (1, max_index))
+    start = min(max(1, int(current_range[0])), max_index)
+    end = min(max(start, int(current_range[1])), max_index)
+    st.session_state.map_photo_range = (start, end)
+    st.session_state.map_photo_range_scope = map_scope
+    photo_range = controls[2].slider(
         "Photo range",
         min_value=1,
         max_value=max_index,
         key="map_photo_range",
         label_visibility="collapsed",
+        disabled=photo_count == 0,
     )
+    displayed_count = 0 if photo_count == 0 else photo_range[1] - photo_range[0] + 1
     scope_label = "in this outing" if selected_hike else "across your library"
-    control_cols[3].caption(f"{photo_count} geotagged photos • {len(unique_species)} unique species {scope_label}")
+    controls[3].caption(f"{displayed_count:,} of {photo_count:,} photos • {species_count:,} species {scope_label}")
 
-    ordered_photos = sorted(geotagged_photos, key=lambda photo: (photo.get("taken_at") or "", photo.get("created_at") or "", photo["id"]))
-    start_index, end_index = segment
-    segment_photos = ordered_photos[start_index - 1 : end_index]
+    fit_bounds = normalize_bounds(summary.get("bounds"))
+    component_key = f"maplibre_{map_scope}"
+    component_state = st.session_state.get(component_key, {})
+    viewport_value = component_state.get("viewport") if isinstance(component_state, dict) else None
+    range_signature = (int(photo_range[0]), int(photo_range[1]))
+    range_state_key = f"maplibre_range_signature_{map_scope}"
+    previous_range_signature = st.session_state.get(range_state_key)
+    range_changed = previous_range_signature is not None and previous_range_signature != range_signature
+    st.session_state[range_state_key] = range_signature
+    should_refit = viewport_value is None or range_changed
+    viewport = viewport_from_value(None if should_refit else viewport_value, fallback_bounds=fit_bounds)
 
-    geotagged_points = []
-    species_points = []
-    route_groups: list[list[dict[str, Any]]] = []
-    route_points = []
-    route_points_by_hike: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for sequence, photo in enumerate(segment_photos, start=start_index):
-        primary_observation = primary_observation_by_photo.get(photo["id"])
-        title = primary_observation.get("common_name") if primary_observation else "Trail photo"
-        geotagged_points.append(
-            {
-                "photo_id": photo["id"],
-                "hike_id": photo["hike_id"],
-                "lat": photo["lat"],
-                "lng": photo["lng"],
-                "title": title,
-                "subtitle": f"Photo {sequence} • {format_photo_meta(photo)}",
-                "image_url": get_photo_thumbnail_url(photo),
-            }
-        )
-        if selected_hike:
-            route_points.append({"lat": photo["lat"], "lng": photo["lng"]})
-        else:
-            if photo.get("hike_id"):
-                route_points_by_hike[str(photo["hike_id"])].append({"lat": photo["lat"], "lng": photo["lng"]})
-        for observation in observations_by_photo.get(photo["id"], []):
-            if observation.get("status") != "confirmed":
-                continue
-            species_name = observation.get("common_name") or observation.get("scientific_name") or "Confirmed species"
-            if species_filter != "All confirmed species" and species_name != species_filter:
-                continue
-            role = "Primary" if observation.get("is_primary") else "Secondary"
-            species_points.append(
-                {
-                    "photo_id": photo["id"],
-                    "hike_id": photo["hike_id"],
-                    "lat": photo["lat"],
-                    "lng": photo["lng"],
-                    "title": species_name,
-                    "subtitle": f"{role} • {observation.get('scientific_name') or ''} • {format_confidence_label(observation)}",
-                    "image_url": get_photo_thumbnail_url(photo),
-                }
-            )
-
-    if layer_mode == "Photos":
-        species_points = []
-    elif layer_mode == "Species":
-        geotagged_points = []
-
-    if selected_hike:
-        route_groups = imported_route_groups or ([route_points] if len(route_points) >= 2 else [])
-    else:
-        route_groups = list(imported_route_groups)
-        for hike_id, points in route_points_by_hike.items():
-            if hike_id in route_imports_by_hike:
-                continue
-            if len(points) >= 2:
-                route_groups.append(points)
-
-    render_rich_map(
-        photos=photos,
-        route_groups=route_groups,
-        geotagged_points=geotagged_points,
-        species_points=species_points,
-        focused_photo_id=focused_photo_id,
-        source_view="Map",
+    markers = repository.get_map_viewport(
+        visible_hike_ids=visible_hike_ids,
+        hike_id=selected_hike_id,
+        viewport=viewport,
+        layer_mode=layer_mode,
+        species_filter=species_filter,
+        range_start=photo_range[0],
+        range_end=photo_range[1],
     )
-    if focused_photo_id:
-        st.caption("Centered on the photo you opened from the journal.")
-        if "map_photo" in st.query_params:
-            del st.query_params["map_photo"]
-        if st.query_params.get("view") == "Map":
-            del st.query_params["view"]
+    routes = repository.get_map_routes_viewport(
+        visible_hike_ids=visible_hike_ids,
+        hike_id=selected_hike_id,
+        viewport=viewport,
+    )
+    route_count, indexed_route_count = repository.get_map_route_index_status(
+        visible_hike_ids=visible_hike_ids,
+        hike_id=selected_hike_id,
+    )
+    if indexed_route_count < route_count:
+        transitional_routes = fallback_route_features(
+            fetch_unindexed_map_routes(tuple(visible_hike_ids), selected_hike_id),
+            visible_hike_ids=set(visible_hike_ids),
+            selected_hike_id=selected_hike_id,
+            viewport=viewport,
+        )
+        routes["features"] = [*(routes.get("features") or []), *(transitional_routes.get("features") or [])]
+    if not summary.get("spatial_rpc_ready") and not routes.get("features"):
+        routes = fallback_route_features(
+            repository.list_hike_route_imports(),
+            visible_hike_ids=set(visible_hike_ids),
+            selected_hike_id=selected_hike_id,
+            viewport=viewport,
+        )
+
+    selection = component_state.get("selection") if isinstance(component_state, dict) else None
+    selected_photo_id = str((selection or {}).get("photo_id") or st.query_params.get("map_photo") or "").strip()
+    detail = repository.get_map_photo_detail(photo_id=selected_photo_id, visible_hike_ids=visible_hike_ids) if selected_photo_id else None
+    if detail:
+        for observation in detail.get("observations") or []:
+            observation["confidence_label"] = format_confidence_label(observation)
+        detail["viewer_url"] = map_viewer_url(detail, selected_hike_id=selected_hike_id)
+
+    requested_fit_bounds = (bounds_from_point_features(markers) or fit_bounds) if should_refit else None
+    fit_request = f"{map_scope}:{range_signature[0]}:{range_signature[1]}" if should_refit else None
+
+    if not summary.get("spatial_rpc_ready"):
+        st.info("The map is using its compatibility query path. Apply sql/scalable_maps_migration.sql to enable spatial clustering and zoom-aware route queries.")
+    elif indexed_route_count < route_count:
+        st.info(
+            f"{route_count - indexed_route_count} saved routes still need their spatial backfill. "
+            "They are shown through the compatibility path for now; rerun sql/scalable_maps_migration.sql to index them."
+        )
+    if photo_count == 0 and not routes.get("features"):
+        st.warning("No map coordinates are available for the photos in view yet.")
+        return
+
+    render_maplibre(
+        key=component_key,
+        markers=markers,
+        routes=routes,
+        fit_bounds=requested_fit_bounds,
+        fit_request=fit_request,
+        detail=detail,
+    )
+
+    meta = markers.get("meta") or {}
+    matched = int(meta.get("matched") or 0)
+    if matched:
+        mode = "clustered" if meta.get("clustered") else "visible"
+        st.caption(f"{matched:,} map records in this area • {mode} for zoom {viewport.zoom:.1f}")

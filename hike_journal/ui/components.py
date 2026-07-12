@@ -5,10 +5,7 @@ from html import escape
 from typing import Any
 from urllib.parse import quote, urlencode
 
-import folium
 import streamlit as st
-from folium.plugins import Fullscreen, MarkerCluster, MiniMap
-import streamlit.components.v1 as components
 
 
 def get_photo_derivatives(photo: dict[str, Any]) -> dict[str, Any]:
@@ -32,6 +29,7 @@ def render_hero(
     route_import: dict[str, Any] | None = None,
     total_miles: float | None = None,
     cover_photo_url: str | None = None,
+    login_mode: bool = False,
 ) -> None:
     if selected_hike:
         title = selected_hike["title"]
@@ -76,6 +74,8 @@ def render_hero(
         ]
 
     hero_class = "hero-shell hero-shell--photo" if cover_photo_url else "hero-shell"
+    if login_mode:
+        hero_class += " hero-shell--login"
     photo_markup = (
         f'<img class="hero-media" src="{escape(cover_photo_url, quote=True)}" alt="" decoding="async">'
         if cover_photo_url
@@ -98,7 +98,6 @@ def render_hero(
         </section>
         """
     )
-
 
 def section_heading(label: str, title: str, body: str) -> None:
     st.markdown(
@@ -300,145 +299,4 @@ def render_library_cover(photo: dict[str, Any] | None, *, hike_id: str, title: s
         </a>
         """,
         unsafe_allow_html=True,
-    )
-
-
-def render_rich_map(
-    *,
-    photos: list[dict[str, Any]],
-    route_groups: list[list[dict[str, Any]]],
-    geotagged_points: list[dict[str, Any]],
-    species_points: list[dict[str, Any]],
-    focused_photo_id: str | None = None,
-    source_view: str = "Map",
-) -> None:
-    flattened_route_points = [point for group in route_groups for point in group]
-    if not geotagged_points and not species_points and not flattened_route_points:
-        st.info("No geotagged photos are available for this hike yet.")
-        return
-
-    all_points = geotagged_points + species_points
-    focused_point = next((point for point in all_points if point.get("photo_id") == focused_photo_id), None)
-    center_source = all_points or flattened_route_points
-    center_lat = focused_point["lat"] if focused_point else sum(point["lat"] for point in center_source) / len(center_source)
-    center_lng = focused_point["lng"] if focused_point else sum(point["lng"] for point in center_source) / len(center_source)
-
-    fmap = folium.Map(location=[center_lat, center_lng], zoom_start=12, tiles=None, control_scale=True)
-
-    folium.TileLayer(
-        tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-        attr="Tiles &copy; Esri",
-        name="Satellite",
-        overlay=False,
-        control=True,
-        show=True,
-    ).add_to(fmap)
-    folium.TileLayer(
-        tiles="https://services.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}",
-        attr="Tiles &copy; Esri",
-        name="Topo",
-        overlay=False,
-        control=True,
-        show=False,
-    ).add_to(fmap)
-    folium.TileLayer(
-        tiles="CartoDB Positron",
-        name="Light",
-        overlay=False,
-        control=True,
-        show=False,
-    ).add_to(fmap)
-    folium.TileLayer(
-        tiles="OpenStreetMap",
-        name="Street",
-        overlay=False,
-        control=True,
-        show=False,
-    ).add_to(fmap)
-
-    Fullscreen(position="topright", title="Full screen", title_cancel="Exit full screen").add_to(fmap)
-    MiniMap(toggle_display=True, position="bottomright").add_to(fmap)
-
-    bounds: list[tuple[float, float]] = []
-    for route_points in route_groups:
-        if len(route_points) < 2:
-            continue
-        # Soft outer trace keeps the hike legible on satellite imagery.
-        folium.PolyLine(
-            [(point["lat"], point["lng"]) for point in route_points],
-            color="#F6F0E4",
-            weight=8,
-            opacity=0.64,
-        ).add_to(fmap)
-        folium.PolyLine(
-            [(point["lat"], point["lng"]) for point in route_points],
-            color="#30473A",
-            weight=4.5,
-            opacity=0.94,
-            tooltip="Hike path",
-        ).add_to(fmap)
-        bounds.extend((point["lat"], point["lng"]) for point in route_points)
-
-    marker_cluster = MarkerCluster(name="Photo cluster").add_to(fmap)
-    species_layer = folium.FeatureGroup(name="Confirmed species", show=True).add_to(fmap)
-    for point in geotagged_points:
-        popup_html = _popup_html(point, source_view)
-        is_focused = point.get("photo_id") == focused_photo_id
-        folium.CircleMarker(
-            [point["lat"], point["lng"]],
-            popup=folium.Popup(popup_html, max_width=360, show=is_focused),
-            tooltip=point["title"],
-            radius=8 if is_focused else 5,
-            color="#30473A" if is_focused else "#F6F0E4",
-            weight=3 if is_focused else 1.5,
-            fill=True,
-            fill_color="#F3EBDD" if is_focused else "#89B8C7",
-            fill_opacity=0.88,
-        ).add_to(marker_cluster)
-        bounds.append((point["lat"], point["lng"]))
-
-    for point in species_points:
-        popup_html = _popup_html(point, source_view)
-        is_focused = point.get("photo_id") == focused_photo_id
-        folium.CircleMarker(
-            [point["lat"], point["lng"]],
-            radius=10 if is_focused else 8,
-            color="#F6F0E4",
-            weight=3 if is_focused else 2,
-            fill=True,
-            fill_color="#B88C5A" if is_focused else "#30473A",
-            fill_opacity=0.92,
-            popup=folium.Popup(popup_html, max_width=360, show=is_focused),
-            tooltip=point["title"],
-        ).add_to(species_layer)
-        bounds.append((point["lat"], point["lng"]))
-
-    if bounds:
-        fmap.fit_bounds(bounds, padding=(24, 24))
-
-    folium.LayerControl(collapsed=False).add_to(fmap)
-    components.html(fmap._repr_html_(), height=620, scrolling=False)
-
-
-def _popup_html(point: dict[str, Any], source_view: str) -> str:
-    hike_id = point.get("hike_id")
-    href = _build_internal_href(
-        source_view=source_view,
-        hike_id=str(hike_id) if hike_id else None,
-        photo_id=point["photo_id"],
-    )
-    title = escape(point.get("title") or "Trail photo")
-    subtitle = escape(point.get("subtitle") or "")
-    image_url = escape(point.get("image_url") or "")
-    image_block = f'<img src="{image_url}" style="display:block;width:100%;max-width:300px;height:180px;object-fit:cover;border-radius:14px;margin-bottom:10px;">' if image_url else ""
-    return (
-        f"<div style='width:300px;font-family:Manrope,sans-serif;'>"
-        f"{image_block}"
-        f"<div style='font-weight:800;font-size:15px;color:#1F2A26;margin-bottom:6px;'>{title}</div>"
-        f"<div style='font-size:13px;line-height:1.45;color:#47534d;margin-bottom:10px;'>{subtitle}</div>"
-        f"<div style='display:flex;gap:10px;flex-wrap:wrap;'>"
-        f"<a href='{href}' target='_self' style='display:inline-flex;align-items:center;gap:6px;font-weight:800;color:#30473A;text-decoration:none;'>Open viewer</a>"
-        f"<a href='{image_url}' target='_blank' rel='noopener noreferrer' style='display:inline-flex;align-items:center;gap:6px;font-weight:800;color:#30473A;text-decoration:none;'>Full image</a>"
-        f"</div>"
-        f"</div>"
     )

@@ -325,7 +325,7 @@ def is_google_auth_configured() -> bool:
 
 
 def render_login_gate() -> None:
-    render_hero(None, 0, 0, 0)
+    render_hero(None, 0, 0, 0, login_mode=True)
     st.write("")
     section_heading(
         "Sign In",
@@ -333,13 +333,11 @@ def render_login_gate() -> None:
         "Each Google account gets its own private hike library. Sign in to open yours.",
     )
     st.write("")
-    action_cols = st.columns([0.34, 0.32, 0.34])
-    with action_cols[1]:
-        if st.button("Continue with Google", use_container_width=True, type="primary"):
-            try:
-                st.login()
-            except Exception as exc:  # pragma: no cover - depends on local auth secrets
-                st.error(f"Google sign-in is not configured cleanly yet: {exc}")
+    if st.button("Continue with Google", type="primary"):
+        try:
+            st.login()
+        except Exception as exc:  # pragma: no cover - depends on local auth secrets
+            st.error(f"Google sign-in is not configured cleanly yet: {exc}")
 
 
 def render_access_denied(user_context: dict[str, Any]) -> None:
@@ -1389,19 +1387,17 @@ def render_species_tab(
     )
 
 def render_map_tab(
-    photos: list[dict[str, Any]],
-    observations_by_photo: dict[str, list[dict[str, Any]]],
-    primary_observation_by_photo: dict[str, dict[str, Any]],
+    repository: HikeJournalRepository,
+    visible_hikes: list[dict[str, Any]],
+    user_context: dict[str, Any],
     *,
     selected_hike: dict[str, Any] | None,
-    route_imports_by_hike: dict[str, dict[str, Any]],
 ) -> None:
     render_map_view(
-        photos,
-        observations_by_photo,
-        primary_observation_by_photo,
+        repository,
+        visible_hikes,
+        user_context,
         selected_hike=selected_hike,
-        route_imports_by_hike=route_imports_by_hike,
         format_confidence_label=format_confidence_label,
     )
 

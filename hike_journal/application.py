@@ -19,14 +19,11 @@ from hike_journal.domain.locations import attach_location_tags_to_hikes
 from hike_journal.domain.routes import annotate_photos_with_route_context, compute_total_mileage
 from hike_journal.queries import (
     fetch_all_hike_route_imports,
-    fetch_all_lightweight_observations,
-    fetch_all_map_photos,
     fetch_confirmed_observation_hike_refs,
     fetch_confirmed_observations_light,
     fetch_hike_lightweight_observations,
     fetch_hike_location_tags,
     fetch_hike_locations,
-    fetch_hike_map_photos,
     fetch_hike_observations,
     fetch_hike_photos,
     fetch_hike_route_import,
@@ -142,6 +139,7 @@ def run_application(actions: ApplicationActions) -> None:
         st.session_state.selected_hike_id = None
 
     visible_hike_ids = {hike["id"] for hike in visible_hikes}
+    linked_photo: dict[str, Any] | None = None
     if query_photo_id:
         linked_photos = fetch_photo_records_for_ids((str(query_photo_id),))
         linked_photo = next(
@@ -177,7 +175,7 @@ def run_application(actions: ApplicationActions) -> None:
     actions.render_mobile_shell(visible_hikes, st.session_state.active_view)
 
     route_imports_by_hike: dict[str, dict[str, Any]] = {}
-    if st.session_state.active_view in {"Map", "Species Log"} and visible_hikes:
+    if st.session_state.active_view == "Species Log" and visible_hikes:
         route_import_records = fetch_all_hike_route_imports()
         route_imports_by_hike = {
             str(item["hike_id"]): item
@@ -219,54 +217,23 @@ def run_application(actions: ApplicationActions) -> None:
         )
         observations = all_visible_observations
 
-    if st.session_state.active_view in top_level_views:
+    if st.session_state.active_view == "Library":
         library_photo_refs = [record for record in fetch_photo_hike_refs() if record_visible_for_user(record, visible_hike_ids, user_context)]
         library_confirmed_refs = [
             record for record in fetch_confirmed_observation_hike_refs() if record_visible_for_user(record, visible_hike_ids, user_context)
         ]
-        if st.session_state.active_view == "Library":
-            cover_photo_ids = tuple(
-                {
-                    str(hike.get("cover_photo_id"))
-                    for hike in visible_hikes
-                    if hike.get("cover_photo_id")
-                }
-            )
-            if cover_photo_ids:
-                library_cover_photos = {
-                    photo["id"]: photo
-                    for photo in fetch_photo_records_for_ids(cover_photo_ids)
-                }
-
-    if st.session_state.active_view == "Map":
-        if selected_hike:
-            photos = fetch_hike_map_photos(selected_hike["id"])
-            route_import = fetch_hike_route_import(selected_hike["id"])
-            annotate_photos_with_route_context(
-                photos,
-                route_import=route_import,
-                hike_distance_miles=selected_hike.get("distance_miles"),
-            )
-            if photos:
-                observations = fetch_hike_lightweight_observations(selected_hike["id"])
-        else:
-            all_visible_photos = fetch_all_map_photos() if visible_hikes else []
-            all_visible_photos = [photo for photo in all_visible_photos if record_visible_for_user(photo, visible_hike_ids, user_context)]
-            for hike_id, grouped_photos in group_records_by_key(all_visible_photos, "hike_id").items():
-                annotate_photos_with_route_context(
-                    grouped_photos,
-                    route_import=route_imports_by_hike.get(str(hike_id)),
-                    hike_distance_miles=next((hike.get("distance_miles") for hike in visible_hikes if hike["id"] == hike_id), None),
-                )
-            all_visible_observations = fetch_all_lightweight_observations() if visible_hikes else []
-            all_visible_observations = [
-                observation for observation in all_visible_observations if record_visible_for_user(observation, visible_hike_ids, user_context)
-            ]
-            confirmed_visible_observations = [
-                observation
-                for observation in fetch_confirmed_observations_light()
-                if record_visible_for_user(observation, visible_hike_ids, user_context)
-            ]
+        cover_photo_ids = tuple(
+            {
+                str(hike.get("cover_photo_id"))
+                for hike in visible_hikes
+                if hike.get("cover_photo_id")
+            }
+        )
+        if cover_photo_ids:
+            library_cover_photos = {
+                photo["id"]: photo
+                for photo in fetch_photo_records_for_ids(cover_photo_ids)
+            }
 
     if st.session_state.active_view == "Species Log":
         confirmed_visible_observations = [
@@ -344,12 +311,13 @@ def run_application(actions: ApplicationActions) -> None:
                 photo.get("created_at") or "",
             ),
         )
-    confirmed_count = len([item for item in observations if item.get("status") == "confirmed"])
-    visible_confirmed_observations = [
-        observation
-        for observation in fetch_confirmed_observations_light()
-        if record_visible_for_user(observation, visible_hike_ids, user_context)
-    ] if visible_hikes else []
+    visible_confirmed_observations = []
+    if visible_hikes and st.session_state.active_view != "Map":
+        visible_confirmed_observations = [
+            observation
+            for observation in fetch_confirmed_observations_light()
+            if record_visible_for_user(observation, visible_hike_ids, user_context)
+        ]
     known_species_catalog = build_known_species_catalog(visible_confirmed_observations)
     visible_unique_species_count = count_unique_species(visible_confirmed_observations)
     total_logged_miles = compute_total_mileage(visible_hikes)
@@ -365,7 +333,19 @@ def run_application(actions: ApplicationActions) -> None:
         viewer_photos = all_visible_photos
         viewer_observations_by_photo = all_visible_observations_by_photo
         viewer_primary_observation_by_photo = all_visible_primary_observation_by_photo
-    elif st.session_state.active_view in {"Map", "Species Log"}:
+    elif st.session_state.active_view == "Map":
+        viewer_photos = [linked_photo] if linked_photo else []
+        if linked_photo:
+            viewer_observations = fetch_observations_for_photo_ids((str(linked_photo["id"]),))
+            viewer_observations_by_photo = actions.group_observations_by_photo(viewer_observations)
+            viewer_primary_observation_by_photo = {
+                photo_id: actions.get_primary_observation(photo_observations)
+                for photo_id, photo_observations in viewer_observations_by_photo.items()
+            }
+        else:
+            viewer_observations_by_photo = {}
+            viewer_primary_observation_by_photo = {}
+    elif st.session_state.active_view == "Species Log":
         viewer_photos = all_visible_photos
         viewer_observations_by_photo = all_visible_observations_by_photo
         viewer_primary_observation_by_photo = all_visible_primary_observation_by_photo
@@ -442,22 +422,12 @@ def run_application(actions: ApplicationActions) -> None:
             all_visible_primary_observation_by_photo,
         )
     elif st.session_state.active_view == "Map":
-        if selected_hike:
-            actions.render_map_tab(
-                photos,
-                observations_by_photo,
-                primary_observation_by_photo,
-                selected_hike=selected_hike,
-                route_imports_by_hike={selected_hike["id"]: route_import} if selected_hike and route_import else {},
-            )
-        else:
-            actions.render_map_tab(
-                all_visible_photos,
-                all_visible_observations_by_photo,
-                all_visible_primary_observation_by_photo,
-                selected_hike=None,
-                route_imports_by_hike=route_imports_by_hike,
-            )
+        actions.render_map_tab(
+            repository,
+            visible_hikes,
+            user_context,
+            selected_hike=selected_hike,
+        )
     elif st.session_state.active_view == "Species Log":
         actions.render_species_log_tab(
             repository,
