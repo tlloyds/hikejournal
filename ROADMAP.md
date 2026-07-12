@@ -198,13 +198,14 @@ This roadmap is the practical bridge between "great home-built app" and "stable,
 - Extracted hike Journal and standalone Journal renderers behind one tested `JournalActions` contract.
 - Isolated Species Review queue, stage, checkbox, and bulk-selection transitions in `hike_journal/review_state.py`.
 - Extracted the Species Review renderer behind a tested `SpeciesReviewActions` contract.
+- Characterized publishing classification, filtering, pagination, and selection transitions in `hike_journal/publishing_state.py`.
+- Extracted publishing orchestration behind a tested `PublishingActions` contract.
 - Removed the Species Log preference-query waterfall by loading main-photo preferences with lightweight observations.
 - Added authenticated route verification for Library, Map, Species Log, hike Journal, and standalone Journal.
 
 ### Next stabilization seam
 
-1. Split publishing orchestration only after its state transitions have direct characterization coverage.
-2. Replace remaining broad schema fallbacks with explicit capability checks.
+1. Replace remaining broad schema fallbacks with explicit capability checks.
 
 ### File targets
 

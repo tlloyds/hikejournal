@@ -62,6 +62,12 @@ from hike_journal.review_state import (
     set_photos_selected,
     sync_visible_widget_selection,
 )
+from hike_journal.publishing_state import (
+    build_publish_rows as build_publish_rows_state,
+    count_publish_states as count_publish_states_state,
+    get_publish_state as get_publish_state_value,
+    set_publish_rows_selected,
+)
 from hike_journal.services.exif import extract_metadata
 from hike_journal.services.encounters import (
     build_publish_encounter_plan,
@@ -108,6 +114,11 @@ from hike_journal.ui.state import initialize_session_state
 from hike_journal.ui.views.library import render_library_view
 from hike_journal.ui.views.journal import JournalActions, render_journal_view, render_standalone_journal_view
 from hike_journal.ui.views.map import render_map_view
+from hike_journal.ui.views.publishing import (
+    PublishingActions,
+    render_publish_state_chip,
+    render_publishing_view,
+)
 from hike_journal.ui.views.species_log import render_species_log_view
 from hike_journal.ui.views.species_review import SpeciesReviewActions, render_species_review_view
 
@@ -3991,6 +4002,21 @@ def render_species_management_toolbar(
         st.caption("Single ID works on one outing at a time, or on a standalone batch without a hike.")
 
 
+def _publishing_actions() -> PublishingActions:
+    return PublishingActions(
+        get_inat_posting=get_inat_posting,
+        inat_connection_action_label=inat_connection_action_label,
+        invalidate_data_cache=invalidate_data_cache,
+        is_inat_client_ready=is_inat_client_ready,
+        open_inat_token_dialog=open_inat_token_dialog,
+        open_publish_plan=open_publish_plan,
+        paginate_items=paginate_items,
+        render_inat_posting_controls=render_inat_posting_controls,
+        render_publish_lane_management_controls=render_publish_lane_management_controls,
+        resolve_page_size=resolve_page_size,
+    )
+
+
 def render_publishing_section(
     repository: HikeJournalRepository,
     inat_client: InatClient,
@@ -3998,299 +4024,15 @@ def render_publishing_section(
     confirmed_observations: list[dict[str, Any]],
     photos: list[dict[str, Any]],
 ) -> None:
-    if not confirmed_observations:
-        st.info("Confirmed species will show up here once you start reviewing photos.")
-        return
-    if st.session_state.publish_batch_notice:
-        notice = st.session_state.publish_batch_notice
-        if notice.get("level") == "warning":
-            st.warning(str(notice.get("message") or "Some iNaturalist posts need attention."))
-        else:
-            st.success(str(notice.get("message") or "Finished posting to iNaturalist."))
-        st.session_state.publish_batch_notice = None
-
-    rows = build_publish_rows(hikes, confirmed_observations, photos)
-    counts = count_publish_states(rows)
-    publish_filter_labels = {
-        "Ready to post": f"Ready · {counts['Ready to post']}",
-        "Needs attention": f"Needs attention · {counts['Needs attention']}",
-        "Posted": f"Posted · {counts['Posted']}",
-        "All": f"All · {len(rows)}",
-    }
-    st.markdown(
-        """
-        <div class="publish-filter-strip">
-            <div class="publish-filter-copy">
-                <p class="workspace-lane-label">Publishing state</p>
-                <p class="publish-filter-caption">Move between what is ready to send, what needs another look, and what has already gone out.</p>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
+    render_publishing_view(
+        repository,
+        inat_client,
+        hikes,
+        confirmed_observations,
+        photos,
+        quick_upload_hike_filter=QUICK_UPLOAD_HIKE_FILTER,
+        actions=_publishing_actions(),
     )
-    selected_filter_label = st.segmented_control(
-        "Publishing filter",
-        list(publish_filter_labels.values()),
-        default=publish_filter_labels.get(st.session_state.publish_filter, publish_filter_labels["Ready to post"]),
-        key="publish_filter_switch",
-        label_visibility="collapsed",
-    )
-    publish_filter = next(
-        (key for key, value in publish_filter_labels.items() if value == selected_filter_label),
-        st.session_state.publish_filter if st.session_state.publish_filter in publish_filter_labels else "Ready to post",
-    )
-    if publish_filter != st.session_state.publish_filter:
-        st.session_state.publish_filter = publish_filter
-        reset_publish_page()
-        st.rerun()
-
-    hike_options = ["All hikes", QUICK_UPLOAD_HIKE_FILTER, *[hike.get("title") or "Untitled hike" for hike in hikes]]
-    if st.session_state.publish_hike_filter not in hike_options:
-        st.session_state.publish_hike_filter = "All hikes"
-    publish_filters = st.columns([0.68, 0.32], gap="small")
-    publish_query = publish_filters[0].text_input(
-        "Search publishing queue",
-        placeholder="Alligator, oak, mushroom...",
-        key="publish_query",
-        label_visibility="collapsed",
-        on_change=reset_publish_page,
-    )
-    publish_hike_filter = publish_filters[1].selectbox(
-        "Hike filter",
-        hike_options,
-        key="publish_hike_filter",
-        label_visibility="collapsed",
-        on_change=reset_publish_page,
-    )
-    hike_title_to_id = {
-        str(hike.get("title") or "Untitled hike"): str(hike.get("id") or "")
-        for hike in hikes
-    }
-    normalized_publish_query = publish_query.strip().casefold()
-    filtered_rows = []
-    for row in rows:
-        if publish_filter != "All" and row["publish_state"] != publish_filter:
-            continue
-        observation = row["observation"]
-        hike = row["hike"]
-        if publish_hike_filter == QUICK_UPLOAD_HIKE_FILTER and observation.get("hike_id"):
-            continue
-        if publish_hike_filter not in {"All hikes", QUICK_UPLOAD_HIKE_FILTER} and str(observation.get("hike_id") or "") != hike_title_to_id.get(publish_hike_filter):
-            continue
-        haystack = " ".join(
-            str(value or "")
-            for value in [
-                observation.get("common_name"),
-                observation.get("scientific_name"),
-                observation.get("taxon_id"),
-                hike.get("title"),
-                hike.get("location_name"),
-            ]
-        ).casefold()
-        if normalized_publish_query and normalized_publish_query not in haystack:
-            continue
-        filtered_rows.append(row)
-    synchronize_publish_selection(filtered_rows)
-
-    st.markdown(
-        f"""
-        <div class="publish-queue-summary">
-            <span>{len(filtered_rows)} in this queue</span>
-            <span>{counts['Ready to post']} ready</span>
-            <span>{counts['Needs attention']} need attention</span>
-            <span>{counts['Posted']} posted</span>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    if st.button("Refresh publishing queue", key="publish_refresh_queue", type="secondary"):
-        invalidate_data_cache()
-        st.rerun()
-
-    cols = st.columns([0.16, 0.14, 0.42, 0.1, 0.18], gap="small")
-    page_size_options = [6, 8, 12, 18, 0]
-    page_size = cols[0].selectbox(
-        "Per page",
-        page_size_options,
-        index=page_size_options.index(st.session_state.publish_page_size),
-        key="publish_page_size_select",
-        format_func=lambda value: "All" if value == 0 else str(value),
-    )
-    if page_size != st.session_state.publish_page_size:
-        st.session_state.publish_page_size = page_size
-        st.session_state.publish_page = 1
-        st.rerun()
-    total_pages = max(1, math.ceil(max(1, len(filtered_rows)) / resolve_page_size(len(filtered_rows), st.session_state.publish_page_size)))
-    requested_page = cols[1].number_input(
-        "Page",
-        min_value=1,
-        max_value=total_pages,
-        value=min(st.session_state.publish_page, total_pages),
-        step=1,
-        key="publish_page_number",
-    )
-    if requested_page != st.session_state.publish_page:
-        st.session_state.publish_page = int(requested_page)
-        st.rerun()
-    selected_ids = set(st.session_state.publish_selected_ids)
-    selected_rows = [row for row in filtered_rows if row["observation"]["id"] in selected_ids]
-    cols[2].markdown(
-        f"<div class='utility-rail-status'>{len(selected_rows)} selected • {len([row for row in filtered_rows if row['publish_state'] == 'Ready to post'])} ready</div>",
-        unsafe_allow_html=True,
-    )
-    cols[3].markdown(
-        f"<div class='utility-rail-status review-page-status'>{publish_filter}</div>",
-        unsafe_allow_html=True,
-    )
-    page_rows, total_pages = paginate_items(filtered_rows, "publish_page", "publish_page_size")
-    with cols[4].popover("Manage"):
-        st.caption(f"Page {st.session_state.publish_page} of {total_pages}")
-        nav_cols = st.columns(2, gap="small")
-        if nav_cols[0].button("Previous", key="publish_prev_page", use_container_width=True, disabled=st.session_state.publish_page <= 1):
-            st.session_state.publish_page -= 1
-            st.rerun()
-        if nav_cols[1].button("Next", key="publish_next_page", use_container_width=True, disabled=st.session_state.publish_page >= total_pages):
-            st.session_state.publish_page += 1
-            st.rerun()
-        st.divider()
-        select_cols = st.columns(2, gap="small")
-        if select_cols[0].button("Select page", key="publish_select_page", use_container_width=True):
-            for row in page_rows:
-                st.session_state.publish_selected_ids.add(row["observation"]["id"])
-                st.session_state[f"publish_select_{row['observation']['id']}"] = True
-            st.rerun()
-        if select_cols[1].button("Clear page", key="publish_clear_page", use_container_width=True):
-            for row in page_rows:
-                st.session_state.publish_selected_ids.discard(row["observation"]["id"])
-                st.session_state[f"publish_select_{row['observation']['id']}"] = False
-            st.rerun()
-
-    if not filtered_rows:
-        st.info("Nothing matches this publishing filter right now.")
-        return
-
-    selected_ready_rows = [row for row in selected_rows if row["publish_state"] == "Ready to post"]
-    action_cols = st.columns([0.3, 0.26, 0.18, 0.12, 0.14], gap="small")
-    if action_cols[0].button(
-        f"Post selected ({len(selected_ready_rows)})",
-        key="publish_post_selected",
-        use_container_width=True,
-        disabled=not is_inat_client_ready(inat_client) or not selected_ready_rows,
-    ):
-        open_publish_plan(repository, inat_client, selected_ready_rows)
-    if is_inat_client_ready(inat_client):
-        action_cols[1].button(
-            "Select ready to post",
-            key="publish_select_ready",
-            use_container_width=True,
-            type="secondary",
-            on_click=select_publish_rows,
-            args=([row for row in filtered_rows if row["publish_state"] == "Ready to post"],),
-        )
-    elif action_cols[1].button(inat_connection_action_label(inat_client), key="publish_connect_inat", use_container_width=True, type="secondary"):
-        open_inat_token_dialog()
-    action_cols[2].button(
-        "Clear selection",
-        key="publish_clear_selection",
-        use_container_width=True,
-        type="secondary",
-        disabled=not selected_rows,
-        on_click=clear_publish_selection,
-        args=(selected_rows,),
-    )
-    action_cols[3].markdown(
-        f"<div class='utility-rail-status review-page-status'>{len(selected_rows)} selected</div>",
-        unsafe_allow_html=True,
-    )
-    action_cols[4].markdown(
-        f"<div class='utility-rail-status review-page-status'>{len(filtered_rows)} in view</div>",
-        unsafe_allow_html=True,
-    )
-
-    for index, row in enumerate(page_rows):
-        photo = row["photo"]
-        observation = row["observation"]
-        hike = row["hike"]
-        posting = get_inat_posting(observation)
-        posted_label = ""
-        if posting.get("posted_at"):
-            try:
-                posted_label = format_species_log_date_label(datetime.fromisoformat(str(posting["posted_at"])))
-            except Exception:
-                posted_label = str(posting["posted_at"])[:10]
-        if index > 0:
-            st.divider()
-        row_container = st.container()
-        cols = row_container.columns([0.12, 0.5, 0.14, 0.24], gap="medium")
-        with cols[0]:
-            render_clickable_photo_with_view(
-                photo,
-                selected_hike_id=photo.get("hike_id"),
-                source_view="Species Review",
-                variant="publish-thumb",
-            )
-        with cols[1]:
-            posted_note_markup = (
-                f"<span class='publish-posted-note'>Posted {escape(posted_label)}</span>"
-                if posted_label and row["publish_state"] == "Posted"
-                else ""
-            )
-            grouped_note_markup = (
-                f"<span class='publish-posted-note'>Grouped observation • {int(posting.get('photo_count') or 1)} photos</span>"
-                if posting.get("grouped")
-                else ""
-            )
-            publish_row_markup = (
-                "<div class=\"publish-row-shell\">"
-                "<div class=\"publish-row-header\">"
-                f"{render_publish_state_chip(row['publish_state'])}"
-                f"{posted_note_markup}"
-                f"{grouped_note_markup}"
-                "</div>"
-                f"<div class=\"species-summary-name\">{escape(observation.get('common_name') or observation.get('scientific_name') or 'Unknown species')}</div>"
-                f"<div class=\"species-summary-scientific\">{escape(observation.get('scientific_name') or '')}</div>"
-                f"<div class=\"species-summary-meta\">{escape(hike.get('title') or 'Untitled outing')} • {escape(str(hike.get('hike_date') or ''))}</div>"
-                f"<p class='photo-meta publish-photo-meta'>{format_photo_meta_html(photo, selected_hike_id=photo.get('hike_id'), link_coordinates=True, include_map_link=True)}</p>"
-                "</div>"
-            )
-            st.markdown(
-                publish_row_markup,
-                unsafe_allow_html=True,
-            )
-        select_key = f"publish_select_{observation['id']}"
-        with cols[2]:
-            current_selected = observation["id"] in st.session_state.publish_selected_ids
-            if select_key not in st.session_state:
-                st.session_state[select_key] = current_selected
-            is_selected = st.checkbox("Select for publishing", key=select_key)
-            if is_selected:
-                st.session_state.publish_selected_ids.add(observation["id"])
-            else:
-                st.session_state.publish_selected_ids.discard(observation["id"])
-        with cols[3]:
-            if row["publish_state"] in {"Posted", "Ready to post", "Needs attention"}:
-                render_publish_lane_management_controls(
-                    repository,
-                    inat_client,
-                    observation,
-                    photo,
-                    key_prefix=f"publish_manage_{observation['id']}",
-                )
-                render_inat_posting_controls(
-                    repository,
-                    inat_client,
-                    observation,
-                    photo,
-                    place_guess=hike.get("location_name"),
-                    key_prefix=f"publish_row_{observation['id']}",
-                )
-
-
-def render_publish_state_chip(state: str) -> str:
-    slug = state.lower().replace(" ", "-")
-    return f"<span class='status-pill publish-{slug}'>{escape(state)}</span>"
-
 
 def render_publish_lane_management_controls(
     repository: HikeJournalRepository,
@@ -4367,19 +4109,11 @@ def render_publish_lane_management_controls(
 
 
 def get_publish_state(observation: dict[str, Any]) -> str:
-    posting = get_inat_posting(observation)
-    if posting.get("observation_id"):
-        if posting.get("photo_attached") is False:
-            return "Needs attention"
-        return "Posted"
-    return "Ready to post"
+    return get_publish_state_value(observation, get_inat_posting)
 
 
 def count_publish_states(rows: list[dict[str, Any]]) -> dict[str, int]:
-    counts = {"Ready to post": 0, "Needs attention": 0, "Posted": 0}
-    for row in rows:
-        counts[row["publish_state"]] = counts.get(row["publish_state"], 0) + 1
-    return counts
+    return count_publish_states_state(rows)
 
 
 def build_publish_rows(
@@ -4387,63 +4121,16 @@ def build_publish_rows(
     confirmed_observations: list[dict[str, Any]],
     photos: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    hike_by_id = {str(hike["id"]): hike for hike in hikes}
-    photo_by_id = {str(photo["id"]): photo for photo in photos}
-    rows: list[dict[str, Any]] = []
-    for observation in confirmed_observations:
-        photo = photo_by_id.get(str(observation.get("photo_id")))
-        if not photo:
-            continue
-        hike = hike_by_id.get(str(observation.get("hike_id")), {})
-        if not hike and not observation.get("hike_id"):
-            hike = {"title": "Standalone sighting", "hike_date": photo.get("taken_at") or photo.get("created_at") or "", "location_name": photo.get("caption") or "Not attached to a hike"}
-        rows.append(
-            {
-                "observation": observation,
-                "photo": photo,
-                "hike": hike,
-                "publish_state": get_publish_state(observation),
-            }
-        )
-    rows.sort(
-        key=lambda row: (
-            {"Needs attention": 0, "Ready to post": 1, "Posted": 2}.get(row["publish_state"], 3),
-            row["photo"].get("taken_at") or row["photo"].get("created_at") or "",
-        ),
-        reverse=False,
+    return build_publish_rows_state(
+        hikes,
+        confirmed_observations,
+        photos,
+        posting_resolver=get_inat_posting,
     )
-    return rows
-
-
-def synchronize_publish_selection(rows: list[dict[str, Any]]) -> None:
-    valid_ids = {row["observation"]["id"] for row in rows}
-    st.session_state.publish_selected_ids = {
-        observation_id for observation_id in st.session_state.publish_selected_ids if observation_id in valid_ids
-    }
-    for row in rows:
-        checkbox_key = f"publish_select_{row['observation']['id']}"
-        if checkbox_key not in st.session_state:
-            continue
-        if st.session_state[checkbox_key]:
-            st.session_state.publish_selected_ids.add(row["observation"]["id"])
-        else:
-            st.session_state.publish_selected_ids.discard(row["observation"]["id"])
 
 
 def clear_publish_selection(rows: list[dict[str, Any]]) -> None:
-    for row in rows:
-        observation_id = row["observation"]["id"]
-        st.session_state.publish_selected_ids.discard(observation_id)
-        checkbox_key = f"publish_select_{observation_id}"
-        if checkbox_key in st.session_state:
-            st.session_state[checkbox_key] = False
-
-
-def select_publish_rows(rows: list[dict[str, Any]]) -> None:
-    for row in rows:
-        observation_id = row["observation"]["id"]
-        st.session_state.publish_selected_ids.add(observation_id)
-        st.session_state[f"publish_select_{observation_id}"] = True
+    set_publish_rows_selected(st.session_state, rows, False)
 
 
 def fetch_full_observation_for_post(observation_id: str) -> dict[str, Any] | None:
@@ -5164,10 +4851,6 @@ def reset_species_log_page() -> None:
 
 def reset_library_page() -> None:
     st.session_state.library_page = 1
-
-
-def reset_publish_page() -> None:
-    st.session_state.publish_page = 1
 
 
 def dedupe_records_by_id(records: list[dict[str, Any]]) -> list[dict[str, Any]]:

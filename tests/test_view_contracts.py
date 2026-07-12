@@ -9,6 +9,7 @@ from hike_journal.ui.views.journal import (
     render_standalone_journal_view,
 )
 from hike_journal.ui.views.map import render_map_view
+from hike_journal.ui.views.publishing import PublishingActions, render_publishing_view
 from hike_journal.ui.views.species_log import render_species_log_view
 from hike_journal.ui.views.species_review import SpeciesReviewActions, render_species_review_view
 
@@ -176,3 +177,33 @@ def test_app_species_review_wrapper_forwards_action_contract(monkeypatch) -> Non
 
 def test_species_review_view_requires_the_action_contract() -> None:
     assert "actions" in signature(render_species_review_view).parameters
+
+
+def test_publishing_action_contract_contains_every_app_callback() -> None:
+    assert set(PublishingActions.__dataclass_fields__) == {
+        "get_inat_posting",
+        "inat_connection_action_label",
+        "invalidate_data_cache",
+        "is_inat_client_ready",
+        "open_inat_token_dialog",
+        "open_publish_plan",
+        "paginate_items",
+        "render_inat_posting_controls",
+        "render_publish_lane_management_controls",
+        "resolve_page_size",
+    }
+
+
+def test_app_publishing_wrapper_forwards_action_contract(monkeypatch) -> None:
+    captured = {}
+    monkeypatch.setattr(app, "render_publishing_view", lambda *args, **kwargs: captured.update(kwargs))
+
+    app.render_publishing_section(object(), object(), [], [], [])
+
+    assert isinstance(captured["actions"], PublishingActions)
+    assert captured["quick_upload_hike_filter"] == app.QUICK_UPLOAD_HIKE_FILTER
+    assert captured["actions"].open_publish_plan is app.open_publish_plan
+
+
+def test_publishing_view_requires_the_action_contract() -> None:
+    assert "actions" in signature(render_publishing_view).parameters
