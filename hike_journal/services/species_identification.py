@@ -69,6 +69,23 @@ def select_shared_candidate(
 ) -> dict[str, Any] | None:
     if photo_count < 2:
         return None
+    if photo_count == 2:
+        top_choices = [
+            candidate
+            for candidate in aggregate_candidates
+            if int(candidate.get("top1_count") or 0) > 0
+        ]
+        if not top_choices:
+            return None
+        return max(
+            top_choices,
+            key=lambda candidate: (
+                float(candidate.get("best_confidence") or 0),
+                float(candidate.get("average_confidence") or 0),
+                float(candidate.get("total_confidence") or 0),
+                int(candidate.get("support_count") or 0),
+            ),
+        )
     for candidate in aggregate_candidates:
         support_count = int(candidate.get("support_count") or 0)
         top1_count = int(candidate.get("top1_count") or 0)
