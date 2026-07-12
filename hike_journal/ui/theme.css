@@ -1832,6 +1832,25 @@ body {
   display: none !important;
 }
 
+/* Keep popover fields readable whether Streamlit mounts them inside the
+   stPopover wrapper or in BaseWeb's detached portal. */
+[data-testid="stPopover"] .stTextInput input,
+[data-testid="stPopover"] .stTextArea textarea,
+[data-baseweb="popover"] .stTextInput input,
+[data-baseweb="popover"] .stTextArea textarea {
+  color: var(--charcoal) !important;
+  -webkit-text-fill-color: var(--charcoal) !important;
+}
+
+[data-testid="stPopover"] .stTextInput input::placeholder,
+[data-testid="stPopover"] .stTextArea textarea::placeholder,
+[data-baseweb="popover"] .stTextInput input::placeholder,
+[data-baseweb="popover"] .stTextArea textarea::placeholder {
+  color: rgba(20, 35, 27, 0.62) !important;
+  -webkit-text-fill-color: rgba(20, 35, 27, 0.62) !important;
+  opacity: 1 !important;
+}
+
 [data-testid="stPopover"] .stButton button,
 [data-testid="stPopover"] .stLinkButton a {
   min-height: 2.65rem;

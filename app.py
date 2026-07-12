@@ -37,10 +37,7 @@ from hike_journal.domain.locations import (
 )
 from hike_journal.domain.routes import (
     delete_hike_and_assets,
-    format_duration_compact,
-    format_elevation_compact,
     parse_uploaded_route_import,
-    route_import_meta,
     sync_hike_route_import,
 )
 from hike_journal.domain.library import (
@@ -48,8 +45,6 @@ from hike_journal.domain.library import (
     entry_sort_datetime as _entry_sort_datetime,
     format_species_log_date_label,
     normalize_email,
-    photo_owner_email,
-    photo_owner_subject,
     record_visible_for_user,
 )
 from hike_journal.queries import (
@@ -61,6 +56,11 @@ from hike_journal.queries import (
     fetch_photo_storage_records,
     fetch_species_log_photo_preferences,
     invalidate_data_cache,
+)
+from hike_journal.review_state import (
+    clear_species_selection as clear_review_selection,
+    set_photos_selected,
+    sync_visible_widget_selection,
 )
 from hike_journal.services.exif import extract_metadata
 from hike_journal.services.encounters import (
@@ -98,7 +98,6 @@ from hike_journal.ui.components import (
     format_photo_meta,
     format_photo_meta_html,
     get_photo_thumbnail_url,
-    render_clickable_photo,
     render_clickable_photo_with_view,
     render_hero,
     render_observation_badge,
@@ -107,8 +106,10 @@ from hike_journal.ui.components import (
 from hike_journal.ui.theme import apply_theme
 from hike_journal.ui.state import initialize_session_state
 from hike_journal.ui.views.library import render_library_view
+from hike_journal.ui.views.journal import JournalActions, render_journal_view, render_standalone_journal_view
 from hike_journal.ui.views.map import render_map_view
 from hike_journal.ui.views.species_log import render_species_log_view
+from hike_journal.ui.views.species_review import SpeciesReviewActions, render_species_review_view
 
 
 st.set_page_config(page_title="HikeJournal", page_icon="🥾", layout="wide")
@@ -1242,6 +1243,27 @@ def render_library_tab(
         reset_library_page=reset_library_page,
     )
 
+def _journal_actions() -> JournalActions:
+    return JournalActions(
+        _parse_date=_parse_date,
+        paginate_photos=paginate_photos,
+        persist_uploaded_photo=persist_uploaded_photo,
+        render_alternate_suggestions=render_alternate_suggestions,
+        render_bottom_review_handoff=render_bottom_review_handoff,
+        render_known_species_assignment_toolbar=render_known_species_assignment_toolbar,
+        render_photo_management_toolbar=render_photo_management_toolbar,
+        render_photo_note_editor=render_photo_note_editor,
+        render_photo_species_actions=render_photo_species_actions,
+        render_quick_upload_dialog=render_quick_upload_dialog,
+        render_secondary_species_summary=render_secondary_species_summary,
+        render_selection_toolbar=render_selection_toolbar,
+        render_species_summary=render_species_summary,
+        sync_hike_cover_checkbox=sync_hike_cover_checkbox,
+        sync_journal_review_checkbox=sync_journal_review_checkbox,
+        sync_known_species_checkbox=sync_known_species_checkbox,
+    )
+
+
 def render_standalone_journal_tab(
     repository: HikeJournalRepository,
     storage: StorageService,
@@ -1252,112 +1274,17 @@ def render_standalone_journal_tab(
     user_context: dict[str, Any],
     known_species: list[dict[str, Any]],
 ) -> None:
-    st.markdown("<div id='journal-top'></div>", unsafe_allow_html=True)
-    section_heading(
-        "Photo Journal",
-        "Everyday sightings and standalone field notes",
-        "Keep neighborhood finds, one-off observations, and quick uploads together in one place, even when they were never part of a hike.",
-    )
-    st.write("")
-
-    top_cols = st.columns([0.76, 0.24], gap="small")
-    top_cols[0].caption("These photos still flow into species review, the master map, and your species log.")
-    if top_cols[1].button("Quick upload", key="standalone_quick_upload", use_container_width=True, type="primary"):
-        render_quick_upload_dialog(storage, repository, user_context)
-
-    if not photos:
-        st.info("No standalone photos yet. Use Quick upload whenever you want to save a sighting outside a formal hike.")
-        return
-
-    review_selected_count = len([photo for photo in photos if photo.get("processing_status") == REVIEW_QUEUE_STATUS])
-    render_selection_toolbar(repository, photos, "journal")
-    st.markdown("### Photo Field Notes")
-    page_photos, total_pages = paginate_photos(photos)
-    render_photo_management_toolbar(repository, storage, page_photos, photos, total_pages)
-    render_known_species_assignment_toolbar(
+    render_standalone_journal_view(
         repository,
+        storage,
         inat_client,
-        page_photos,
         photos,
+        observations_by_photo,
         primary_observation_by_photo,
+        user_context,
         known_species,
-        key_prefix="standalone",
+        actions=_journal_actions(),
     )
-    for index, photo in enumerate(page_photos):
-        primary_observation = primary_observation_by_photo.get(photo["id"])
-        photo_observations = observations_by_photo.get(photo["id"], [])
-        row_cols = st.columns([0.4, 0.6], gap="large")
-        with row_cols[0]:
-            render_clickable_photo(photo, selected_hike_id=None, scope="standalone")
-        with row_cols[1]:
-            st.markdown(
-                f"<p class='photo-meta'>{format_photo_meta_html(photo, selected_hike_id=None, link_coordinates=True, include_map_link=True)}</p>",
-                unsafe_allow_html=True,
-            )
-            render_photo_note_editor(repository, photo, key_prefix=f"standalone_note_{photo['id']}")
-            if primary_observation:
-                is_confirmed = primary_observation.get("status") == "confirmed"
-                render_species_summary(
-                    repository,
-                    primary_observation,
-                    inat_client=inat_client,
-                    photo=photo,
-                    place_guess=None,
-                    key_prefix=f"standalone_{photo['id']}",
-                    show_details=is_confirmed,
-                    show_confidence=not is_confirmed,
-                )
-                render_alternate_suggestions(repository, inat_client, primary_observation, photo, key_prefix=f"standalone_{photo['id']}")
-                render_secondary_species_summary(photo_observations, primary_observation["id"])
-            else:
-                st.caption("No species attached to this photo yet.")
-            render_photo_species_actions(
-                repository,
-                inat_client,
-                photo,
-                photo_observations,
-                primary_observation,
-                known_species,
-                hike_id=None,
-                key_prefix="standalone",
-            )
-            control_cols = st.columns([0.45, 0.35, 0.2], gap="small")
-            selected = photo.get("processing_status") == REVIEW_QUEUE_STATUS
-            checkbox_key = f"photo_select_{photo['id']}"
-            if checkbox_key not in st.session_state:
-                st.session_state[checkbox_key] = selected
-            with control_cols[0]:
-                st.checkbox(
-                    "Queue for review",
-                    key=checkbox_key,
-                    on_change=sync_journal_review_checkbox,
-                    args=(repository, photo["id"], checkbox_key),
-                )
-            if not primary_observation:
-                known_species_key = f"known_species_select_{photo['id']}"
-                if known_species_key not in st.session_state:
-                    st.session_state[known_species_key] = photo["id"] in st.session_state.known_species_selected_ids
-                with control_cols[1]:
-                    st.checkbox(
-                        "Bulk select",
-                        key=known_species_key,
-                        on_change=sync_known_species_checkbox,
-                        args=(photo["id"], known_species_key),
-                    )
-            if st.session_state.delete_mode:
-                delete_key = f"delete_photo_{photo['id']}"
-                current_delete = photo["id"] in st.session_state.delete_photo_ids
-                if delete_key not in st.session_state:
-                    st.session_state[delete_key] = current_delete
-                with control_cols[2]:
-                    delete_toggle = st.checkbox("Mark to delete", key=delete_key)
-                    if delete_toggle:
-                        st.session_state.delete_photo_ids.add(photo["id"])
-                    else:
-                        st.session_state.delete_photo_ids.discard(photo["id"])
-        if index < len(page_photos) - 1:
-            st.divider()
-    render_bottom_review_handoff(anchor_id="journal-top", selected_count=review_selected_count, hike_id=None)
 
 
 def render_journal_tab(
@@ -1371,278 +1298,36 @@ def render_journal_tab(
     route_import: dict[str, Any] | None,
     known_species: list[dict[str, Any]],
 ) -> None:
-    st.markdown("<div id='journal-top'></div>", unsafe_allow_html=True)
-    section_heading(
-        "Outing workspace",
-        "Details and photographs",
-        "Update the route and field notes, add photographs, or continue through the outing record below.",
-    )
-    st.write("")
-
-    left, right = st.columns([1.1, 0.9], gap="large")
-    with left:
-        hike_locations = fetch_hike_locations()
-        location_options = location_library_options(hike_locations)
-        with st.form("edit_hike_form"):
-            title = st.text_input("Title", value=selected_hike.get("title", ""))
-            hike_date = st.date_input("Date", value=_parse_date(selected_hike.get("hike_date")))
-            distance_value = float(selected_hike.get("distance_miles") or 0.0)
-            distance = st.number_input("Distance (miles)", min_value=0.0, step=0.5, value=distance_value)
-            location_name = st.text_input("Location", value=selected_hike.get("location_name") or "")
-            selected_locations = st.multiselect(
-                "Location tags",
-                options=location_options,
-                default=selected_location_defaults(selected_hike),
-                accept_new_options=True,
-                placeholder="Start typing Bronson, Chuluota, Econ...",
-            )
-            notes = st.text_area("Hike notes", value=selected_hike.get("notes") or "", height=180)
-            route_import_file = st.file_uploader(
-                "MapMyRun TCX exports",
-                type=TCX_IMPORT_TYPES,
-                accept_multiple_files=True,
-                help="Upload one or more TCX files to replace the outing route data here.",
-            )
-            use_imported_route_fields = st.checkbox("Use TCX date and distance for this outing", value=True)
-            remove_route_import = st.checkbox("Remove the saved route import", value=False)
-            if st.form_submit_button("Save hike details"):
-                parsed_route_import, _, route_import_error = parse_uploaded_route_import(route_import_file)
-                if route_import_error:
-                    st.warning(route_import_error)
-                    return
-                target_hike_date = parsed_route_import.visited_on if parsed_route_import and use_imported_route_fields and parsed_route_import.visited_on else hike_date
-                target_distance = parsed_route_import.distance_miles if parsed_route_import and use_imported_route_fields and parsed_route_import.distance_miles is not None else (distance or None)
-                saved_location_name = location_name.strip() or ", ".join(selected_locations[:3])
-                repository.update_hike(
-                    selected_hike["id"],
-                    title=title,
-                    hike_date=target_hike_date,
-                    distance_miles=target_distance,
-                    location_name=saved_location_name,
-                    notes=notes,
-                )
-                maybe_store_hike_location_tags(repository, selected_hike["id"], selected_locations, hike_locations)
-                _, route_import_error = sync_hike_route_import(
-                    repository=repository,
-                    storage=storage,
-                    hike_id=selected_hike["id"],
-                    uploaded_file=route_import_file,
-                    existing_route_import=route_import,
-                    remove_existing=remove_route_import,
-                )
-                if route_import_error:
-                    st.warning(route_import_error)
-                invalidate_data_cache()
-                st.success("Hike updated.")
-                st.rerun()
-
-        route_info_cols = st.columns([0.68, 0.32], gap="small")
-        with route_info_cols[0]:
-            st.markdown("##### Route import")
-            if route_import:
-                imported_pieces = []
-                if route_import.get("distance_miles") is not None:
-                    imported_pieces.append(f"{float(route_import['distance_miles']):.2f} mi")
-                duration_label = format_duration_compact(route_import.get("duration_seconds"))
-                if duration_label:
-                    imported_pieces.append(duration_label)
-                elevation_label = format_elevation_compact(route_import_meta(route_import).get("elevation_gain_feet"))
-                if elevation_label:
-                    imported_pieces.append(elevation_label)
-                if route_import.get("track_point_count"):
-                    imported_pieces.append(f"{int(route_import['track_point_count'])} GPS pts")
-                source_line = " • ".join(imported_pieces) or "Imported route data"
-                started_at_label = ""
-                if route_import.get("started_at"):
-                    try:
-                        started_at_label = datetime.fromisoformat(str(route_import["started_at"]).replace("Z", "+00:00")).strftime("%b %d, %Y • %I:%M %p")
-                    except ValueError:
-                        started_at_label = str(route_import["started_at"])
-                st.markdown(
-                    f"""
-                    <div class="journal-route-card">
-                        <div class="journal-route-kicker">MapMyRun TCX attached</div>
-                        <div class="journal-route-meta">{escape(source_line)}</div>
-                        <div class="journal-route-file">{escape(route_import.get("source_file_name") or "Unnamed export")}</div>
-                        {f"<div class='journal-route-file'>{escape(started_at_label)}</div>" if started_at_label else ""}
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-            else:
-                st.caption("No route export attached yet. Add a TCX file to make the outing map follow the real track instead of just connecting photo points.")
-    with right:
-        st.markdown("##### Upload photos")
-        st.caption("Photos are optimized on upload so the journal stays quick to browse.")
-        if st.session_state.journal_upload_notice:
-            st.success(str(st.session_state.journal_upload_notice))
-            st.session_state.journal_upload_notice = None
-        upload_widget_key = f"journal_upload_files_{selected_hike['id']}_{st.session_state.journal_upload_nonce}"
-        with st.form("upload_photos_form", clear_on_submit=True):
-            uploaded_files = st.file_uploader(
-                "Drop in one or many trail photos",
-                type=["jpg", "jpeg", "png", "webp", "heic"],
-                accept_multiple_files=True,
-                label_visibility="collapsed",
-                key=upload_widget_key,
-            )
-            submitted = st.form_submit_button("Upload selected photos")
-            if submitted:
-                if not uploaded_files:
-                    st.warning("Choose at least one photo to upload.")
-                else:
-                    geotagged_uploads = 0
-                    timestamped_uploads = 0
-                    total_uploads = len(uploaded_files)
-                    upload_status = st.empty()
-                    upload_progress = st.progress(0, text="Preparing photos for upload...")
-                    with st.spinner("Optimizing and uploading photos..."):
-                        for index, uploaded_file in enumerate(uploaded_files, start=1):
-                            upload_status.caption(f"Uploading photo {index} of {total_uploads}")
-                            original_bytes = uploaded_file.getvalue()
-                            metadata = extract_metadata(original_bytes)
-                            if metadata.lat is not None and metadata.lng is not None:
-                                geotagged_uploads += 1
-                            if metadata.taken_at is not None:
-                                timestamped_uploads += 1
-                            processed = optimize_image(original_bytes)
-                            persist_uploaded_photo(
-                                repository=repository,
-                                storage=storage,
-                                processed_image=processed,
-                                original_exif_json=metadata.exif_json,
-                                lat=metadata.lat,
-                                lng=metadata.lng,
-                                taken_at=metadata.taken_at,
-                                hike_id=selected_hike["id"],
-                                owner_subject=photo_owner_subject(selected_hike, st.session_state.current_user_context),
-                                owner_email=photo_owner_email(selected_hike, st.session_state.current_user_context),
-                                caption=None,
-                                processing_status="ready",
-                            )
-                            upload_progress.progress(index / total_uploads, text=f"Uploaded {index} of {total_uploads} photos")
-                    invalidate_data_cache()
-                    st.session_state.pop(upload_widget_key, None)
-                    st.session_state.journal_upload_nonce += 1
-                    st.session_state.journal_upload_notice = f"Uploaded {total_uploads} photo{'s' if total_uploads != 1 else ''}."
-                    if geotagged_uploads == 0:
-                        st.warning(
-                            "These photos were added successfully, but none of them included embedded GPS coordinates. "
-                            "If you want them to appear on the map, upload original files that still carry location data."
-                        )
-                    elif geotagged_uploads < len(uploaded_files):
-                        st.caption(
-                            f"{geotagged_uploads} of {len(uploaded_files)} photos included map coordinates. "
-                            f"{timestamped_uploads} included capture times."
-                        )
-                    st.rerun()
-
-    st.write("")
-    if not photos:
-        st.info("No photos yet. Upload a few trail photos to start this entry.")
-        return
-
-    review_selected_count = len([photo for photo in photos if photo.get("processing_status") == REVIEW_QUEUE_STATUS])
-    render_selection_toolbar(repository, photos, "journal")
-    st.markdown("### Photo Field Notes")
-    page_photos, total_pages = paginate_photos(photos)
-    render_photo_management_toolbar(repository, storage, page_photos, photos, total_pages)
-    render_known_species_assignment_toolbar(
+    render_journal_view(
         repository,
+        storage,
         inat_client,
-        page_photos,
+        selected_hike,
         photos,
+        observations_by_photo,
         primary_observation_by_photo,
+        route_import,
         known_species,
-        key_prefix=f"hike_{selected_hike['id']}",
+        actions=_journal_actions(),
     )
-    for index, photo in enumerate(page_photos):
-        primary_observation = primary_observation_by_photo.get(photo["id"])
-        photo_observations = observations_by_photo.get(photo["id"], [])
-        row_cols = st.columns([0.4, 0.6], gap="large")
-        with row_cols[0]:
-            render_clickable_photo(photo, selected_hike_id=selected_hike["id"])
-        with row_cols[1]:
-            st.markdown(
-                f"<p class='photo-meta'>{format_photo_meta_html(photo, selected_hike_id=selected_hike['id'], link_coordinates=True, include_map_link=True)}</p>",
-                unsafe_allow_html=True,
-            )
-            render_photo_note_editor(repository, photo, key_prefix=f"journal_note_{photo['id']}")
-            if primary_observation:
-                is_confirmed = primary_observation.get("status") == "confirmed"
-                render_species_summary(
-                    repository,
-                    primary_observation,
-                    inat_client=inat_client,
-                    photo=photo,
-                    place_guess=selected_hike.get("location_name"),
-                    key_prefix=f"journal_{photo['id']}",
-                    show_details=is_confirmed,
-                    show_confidence=not is_confirmed,
-                )
-                render_alternate_suggestions(repository, inat_client, primary_observation, photo, key_prefix=f"journal_{photo['id']}")
-                render_secondary_species_summary(photo_observations, primary_observation["id"])
-            else:
-                st.caption("No species attached to this photo yet.")
-            render_photo_species_actions(
-                repository,
-                inat_client,
-                photo,
-                photo_observations,
-                primary_observation,
-                known_species,
-                hike_id=selected_hike.get("id"),
-                key_prefix="journal",
-            )
-            if st.session_state.get("journal_cover_update_error"):
-                st.error(st.session_state.pop("journal_cover_update_error"))
-            control_cols = st.columns([0.4, 0.3, 0.3], gap="small")
-            selected = photo.get("processing_status") == REVIEW_QUEUE_STATUS
-            checkbox_key = f"photo_select_{photo['id']}"
-            if checkbox_key not in st.session_state:
-                st.session_state[checkbox_key] = selected
-            with control_cols[0]:
-                st.checkbox(
-                    "Queue for review",
-                    key=checkbox_key,
-                    on_change=sync_journal_review_checkbox,
-                    args=(repository, photo["id"], checkbox_key),
-                )
-            with control_cols[1]:
-                current_cover_photo_id = selected_hike.get("cover_photo_id")
-                cover_checkbox_key = f"cover_photo_select_{photo['id']}"
-                is_cover_photo = str(current_cover_photo_id or "") == str(photo["id"])
-                st.session_state[cover_checkbox_key] = is_cover_photo
-                st.checkbox(
-                    "Cover photo",
-                    key=cover_checkbox_key,
-                    on_change=sync_hike_cover_checkbox,
-                    args=(repository, selected_hike["id"], photo["id"], cover_checkbox_key),
-                )
-            if not primary_observation:
-                known_species_key = f"known_species_select_{photo['id']}"
-                if known_species_key not in st.session_state:
-                    st.session_state[known_species_key] = photo["id"] in st.session_state.known_species_selected_ids
-                with control_cols[2]:
-                    st.checkbox(
-                        "Bulk select",
-                        key=known_species_key,
-                        on_change=sync_known_species_checkbox,
-                        args=(photo["id"], known_species_key),
-                    )
-            if st.session_state.delete_mode:
-                delete_key = f"delete_photo_{photo['id']}"
-                current_delete = photo["id"] in st.session_state.delete_photo_ids
-                if delete_key not in st.session_state:
-                    st.session_state[delete_key] = current_delete
-                delete_toggle = st.checkbox("Mark to delete", key=delete_key)
-                if delete_toggle:
-                    st.session_state.delete_photo_ids.add(photo["id"])
-                else:
-                    st.session_state.delete_photo_ids.discard(photo["id"])
-        if index < len(page_photos) - 1:
-            st.divider()
-    render_bottom_review_handoff(anchor_id="journal-top", selected_count=review_selected_count, hike_id=str(selected_hike["id"]))
+
+
+def _species_review_actions() -> SpeciesReviewActions:
+    return SpeciesReviewActions(
+        build_publish_rows=build_publish_rows,
+        count_publish_states=count_publish_states,
+        paginate_items=paginate_items,
+        render_add_species_popover=render_add_species_popover,
+        render_alternate_suggestions=render_alternate_suggestions,
+        render_back_to_top_link=render_back_to_top_link,
+        render_community_id_request_controls=render_community_id_request_controls,
+        render_inat_token_manager=render_inat_token_manager,
+        render_photo_note_editor=render_photo_note_editor,
+        render_publishing_section=render_publishing_section,
+        render_secondary_species_summary=render_secondary_species_summary,
+        render_species_management_toolbar=render_species_management_toolbar,
+        render_species_summary=render_species_summary,
+    )
 
 
 def render_species_tab(
@@ -1655,260 +1340,17 @@ def render_species_tab(
     observations_by_photo: dict[str, list[dict[str, Any]]],
     primary_observation_by_photo: dict[str, dict[str, Any]],
 ) -> None:
-    st.markdown("<div id='species-top'></div>", unsafe_allow_html=True)
-    hike_by_id = {str(hike["id"]): hike for hike in hikes}
-    review_mode = st.session_state.species_review_mode
-
-    selected_photos = sorted(
-        [photo for photo in review_queue_photos if photo.get("processing_status") == REVIEW_QUEUE_STATUS],
-        key=lambda photo: (
-            0 if not primary_observation_by_photo.get(photo["id"]) else 1,
-            0 if (primary_observation_by_photo.get(photo["id"]) or {}).get("status") == "pending" else 1,
-            photo.get("taken_at") or "",
-            photo.get("created_at") or "",
-        ),
+    render_species_review_view(
+        repository,
+        inat_client,
+        hikes,
+        review_queue_photos,
+        publish_confirmed_observations,
+        publish_photos,
+        observations_by_photo,
+        primary_observation_by_photo,
+        actions=_species_review_actions(),
     )
-    review_waiting_count = len([photo for photo in selected_photos if photo["id"] not in primary_observation_by_photo])
-    review_pending_count = len(
-        [
-            photo
-            for photo in selected_photos
-            if (primary_observation_by_photo.get(photo["id"]) or {}).get("status") == "pending"
-        ]
-    )
-    review_confirmed_count = len(
-        [
-            photo
-            for photo in selected_photos
-            if (primary_observation_by_photo.get(photo["id"]) or {}).get("status") == "confirmed"
-        ]
-    )
-    review_rejected_count = len(
-        [
-            photo
-            for photo in selected_photos
-            if (primary_observation_by_photo.get(photo["id"]) or {}).get("status") == "rejected"
-        ]
-    )
-    publish_rows = build_publish_rows(hikes, publish_confirmed_observations, publish_photos)
-    publish_counts = count_publish_states(publish_rows)
-
-    if review_mode == "Publish":
-        compact_title = "Publishing queue"
-        compact_meta = (
-            f"<span>{publish_counts['Ready to post']} ready</span>"
-            f"<span>{publish_counts['Needs attention']} need attention</span>"
-            f"<span>{publish_counts['Posted']} already posted</span>"
-        )
-    else:
-        compact_title = "Review queue"
-        compact_meta = (
-            f"<span>{len(selected_photos)} queued</span>"
-            f"<span>{review_waiting_count} waiting for suggestion</span>"
-            f"<span>{review_pending_count} ready for decision</span>"
-            f"<span>{review_confirmed_count} confirmed</span>"
-        )
-
-    st.markdown(
-        f"""
-        <section class="workspace-compact-strip">
-            <div class="workspace-compact-head">
-                <p class="workspace-lane-label">Species review</p>
-                <h2 class="workspace-compact-title">{compact_title}</h2>
-            </div>
-            <div class="workspace-compact-meta">{compact_meta}</div>
-        </section>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    review_option = f"Review · {len(selected_photos)}"
-    publish_focus_count = publish_counts["Ready to post"] + publish_counts["Needs attention"]
-    publish_option = f"Publish · {publish_focus_count}"
-    current_mode_option = review_option if st.session_state.species_review_mode == "Review" else publish_option
-    st.markdown(
-        """
-        <div class="workspace-mode-strip">
-            <div class="workspace-mode-copy">
-                <p class="workspace-lane-label">Workspace</p>
-                <p class="workspace-mode-caption">Choose whether you are deciding IDs or publishing finished records.</p>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    selected_mode_option = st.segmented_control(
-        "Workspace",
-        [review_option, publish_option],
-        default=current_mode_option,
-        key="species_review_mode_switch",
-        label_visibility="collapsed",
-    )
-    selected_mode = "Review" if selected_mode_option == review_option else "Publish"
-    if selected_mode != st.session_state.species_review_mode:
-        st.session_state.species_review_mode = selected_mode
-        st.rerun()
-    st.markdown(
-        f"<div class='workspace-mode-note'>{'Move through species decisions one queue at a time.' if st.session_state.species_review_mode == 'Review' else 'Publish confirmed sightings without leaving the review workspace.'}</div>",
-        unsafe_allow_html=True,
-    )
-
-    render_inat_token_manager(inat_client, st.session_state.current_user_context)
-    st.write("")
-    if st.session_state.species_review_mode == "Review":
-        if selected_photos:
-            apply_species_review_default_state(selected_photos)
-            synchronize_species_selection(selected_photos)
-            review_stage_default = "Needs decisions" if review_pending_count else ("Needs IDs" if review_waiting_count else "All")
-            current_signature = tuple(photo["id"] for photo in selected_photos)
-            review_signature_changed = st.session_state.species_review_stage_signature != current_signature
-            if review_signature_changed:
-                st.session_state.species_review_stage_signature = current_signature
-            review_stage_labels = {
-                "Needs IDs": f"Needs IDs · {review_waiting_count}",
-                "Needs decisions": f"Needs decisions · {review_pending_count}",
-                "Finished": f"Finished · {review_confirmed_count + review_rejected_count}",
-                "All": f"All · {len(selected_photos)}",
-            }
-            if review_signature_changed:
-                requested_stage = str(st.query_params.get("species_review_stage") or "")
-                if requested_stage in review_stage_labels:
-                    st.session_state.species_review_stage = requested_stage
-                else:
-                    st.session_state.species_review_stage = review_stage_default
-            elif st.session_state.species_review_stage not in review_stage_labels:
-                st.session_state.species_review_stage = review_stage_default
-            st.markdown(
-                """
-                <div class="review-filter-strip">
-                    <div class="review-filter-copy">
-                        <p class="workspace-lane-label">Review stage</p>
-                        <p class="review-filter-caption">Work one kind of task at a time: get suggestions first, then make your decisions.</p>
-                    </div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-            selected_stage_label = st.segmented_control(
-                "Review stage",
-                list(review_stage_labels.values()),
-                default=review_stage_labels.get(st.session_state.species_review_stage, review_stage_labels[review_stage_default]),
-                key="species_review_stage_switch",
-                label_visibility="collapsed",
-            )
-            selected_stage = next(
-                (key for key, value in review_stage_labels.items() if value == selected_stage_label),
-                st.session_state.species_review_stage if st.session_state.species_review_stage in review_stage_labels else review_stage_default,
-            )
-            if selected_stage != st.session_state.species_review_stage:
-                st.session_state.species_review_stage = selected_stage
-                st.session_state.species_page = 1
-                st.rerun()
-
-            def _matches_review_stage(photo: dict[str, Any]) -> bool:
-                if st.session_state.species_review_stage == "All":
-                    return True
-                primary = primary_observation_by_photo.get(photo["id"])
-                state = get_review_state_label(primary)
-                return (
-                    (st.session_state.species_review_stage == "Needs IDs" and state == "Waiting for suggestion")
-                    or (st.session_state.species_review_stage == "Needs decisions" and state == "Ready for decision")
-                    or (st.session_state.species_review_stage == "Finished" and state in {"Confirmed", "Rejected"})
-                )
-
-            filtered_review_photos = [photo for photo in selected_photos if _matches_review_stage(photo)]
-            if not filtered_review_photos:
-                st.info("Nothing is sitting in this review stage right now.")
-                return
-
-            stage_selection_signature = (
-                st.session_state.species_review_stage,
-                tuple(photo["id"] for photo in filtered_review_photos),
-            )
-            visible_stage_ids = {photo["id"] for photo in filtered_review_photos}
-            if st.session_state.species_review_stage_selection_signature != stage_selection_signature:
-                st.session_state.species_review_stage_selection_signature = stage_selection_signature
-                st.session_state.species_selected_ids = set(visible_stage_ids)
-                for photo in filtered_review_photos:
-                    st.session_state[f"species_select_{photo['id']}"] = True
-
-            page_photos, total_pages = paginate_items(filtered_review_photos, "species_page", "species_page_size")
-            render_species_management_toolbar(
-                repository,
-                inat_client,
-                filtered_review_photos,
-                page_photos,
-                observations_by_photo,
-                primary_observation_by_photo,
-                total_pages,
-                st.session_state.species_review_stage,
-            )
-
-            for photo_index, photo in enumerate(page_photos):
-                primary_observation = primary_observation_by_photo.get(photo["id"])
-                photo_observations = observations_by_photo.get(photo["id"], [])
-                hike = hike_by_id.get(str(photo.get("hike_id")), {})
-                outing_title = hike.get("title") or ("Standalone sighting" if not photo.get("hike_id") else "Open outing")
-                outing_date = str(hike.get("hike_date") or "")
-                review_state = get_review_state_label(primary_observation)
-                if photo_index > 0:
-                    st.divider()
-                cols = st.columns([0.42, 0.58], gap="large")
-                with cols[0]:
-                    render_clickable_photo_with_view(photo, selected_hike_id=photo["hike_id"], source_view="Species Review")
-                with cols[1]:
-                    st.markdown(
-                        render_species_review_entry_header(review_state, outing_title, outing_date),
-                        unsafe_allow_html=True,
-                    )
-                    selected_key = f"species_select_{photo['id']}"
-                    current_selected = photo["id"] in st.session_state.species_selected_ids
-                    if selected_key not in st.session_state:
-                        st.session_state[selected_key] = current_selected
-                    review_selected = st.checkbox("Select photo", key=selected_key)
-                    if review_selected:
-                        st.session_state.species_selected_ids.add(photo["id"])
-                    else:
-                        st.session_state.species_selected_ids.discard(photo["id"])
-                    st.markdown(
-                        f"<p class='photo-meta'>{format_photo_meta_html(photo, selected_hike_id=photo.get('hike_id'), link_coordinates=True, include_map_link=True)}</p>",
-                        unsafe_allow_html=True,
-                    )
-                    render_photo_note_editor(repository, photo, key_prefix=f"review_note_{photo['id']}")
-                    if primary_observation:
-                        render_species_summary(
-                            repository,
-                            primary_observation,
-                            inat_client=inat_client,
-                            photo=photo,
-                            key_prefix=f"review_{photo['id']}",
-                            show_details=True,
-                        )
-                        render_alternate_suggestions(repository, inat_client, primary_observation, photo, key_prefix=f"review_{photo['id']}")
-                        render_community_id_request_controls(
-                            repository,
-                            inat_client,
-                            primary_observation,
-                            photo,
-                            key_prefix=f"review_community_{photo['id']}",
-                        )
-                        render_secondary_species_summary(photo_observations, primary_observation["id"])
-                    else:
-                        st.caption("No suggestion has been saved for this photo yet.")
-                    render_add_species_popover(repository, inat_client, photo.get("hike_id"), photo, photo_observations, key_prefix=f"review_add_{photo['id']}")
-            if st.session_state.species_page_size == 0 and page_photos:
-                render_back_to_top_link("species-top")
-        else:
-            st.info("Mark photos for review in the Journal and they will appear here.")
-    else:
-        render_publishing_section(
-            repository,
-            inat_client,
-            hikes,
-            publish_confirmed_observations,
-            publish_photos,
-        )
-
 
 def render_map_tab(
     photos: list[dict[str, Any]],
@@ -3812,12 +3254,23 @@ def build_species_log_context(
     posted_filter = str(st.session_state.get("species_log_posted_filter", "All"))
     taxon_search_hints = build_species_taxon_search_hints(query, inat_client)
 
-    observation_ids = tuple(str(observation["id"]) for observation in confirmed_observations if observation.get("id"))
-    preference_rows = fetch_species_log_photo_preferences(observation_ids) if observation_ids else []
-    preference_by_id = {
-        str(row["id"]): row.get("species_log_main_photo") is True
-        for row in preference_rows
-    }
+    preferences_are_inline = all(
+        "species_log_main_photo" in observation
+        for observation in confirmed_observations
+    )
+    if preferences_are_inline:
+        preference_by_id = {
+            str(observation["id"]): observation.get("species_log_main_photo") is True
+            for observation in confirmed_observations
+            if observation.get("id")
+        }
+    else:
+        observation_ids = tuple(str(observation["id"]) for observation in confirmed_observations if observation.get("id"))
+        preference_rows = fetch_species_log_photo_preferences(observation_ids) if observation_ids else []
+        preference_by_id = {
+            str(row["id"]): row.get("species_log_main_photo") is True
+            for row in preference_rows
+        }
 
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for lightweight_observation in confirmed_observations:
@@ -4312,13 +3765,7 @@ def render_species_management_toolbar(
         for photo in selected_photos
         if (primary_observation_by_photo.get(photo["id"]) or {}).get("status") == "pending"
     ]
-    visible_ids = {photo["id"] for photo in selected_photos}
-    selected_ids = {
-        photo["id"]
-        for photo in selected_photos
-        if st.session_state.get(f"species_select_{photo['id']}", photo["id"] in st.session_state.species_selected_ids)
-    }
-    st.session_state.species_selected_ids = (set(st.session_state.species_selected_ids) - visible_ids) | selected_ids
+    selected_ids = sync_visible_widget_selection(st.session_state, selected_photos)
     selected_count = len(selected_ids)
     cols = st.columns([0.16, 0.14, 0.34, 0.14, 0.22], gap="small")
     page_size_options = [4, 6, 8, 10, 0]
@@ -4374,19 +3821,14 @@ def render_species_management_toolbar(
         st.divider()
         queue_cols = st.columns(2, gap="small")
         if queue_cols[0].button("Select page", key="species_select_page", use_container_width=True):
-            for photo in page_photos:
-                st.session_state.species_selected_ids.add(photo["id"])
-                st.session_state[f"species_select_{photo['id']}"] = True
+            set_photos_selected(st.session_state, page_photos, True)
             st.rerun()
         if queue_cols[1].button("Clear page", key="species_clear_page", use_container_width=True):
-            for photo in page_photos:
-                st.session_state.species_selected_ids.discard(photo["id"])
-                st.session_state[f"species_select_{photo['id']}"] = False
+            set_photos_selected(st.session_state, page_photos, False)
             st.rerun()
         queue_scope_cols = st.columns(2, gap="small")
         if queue_scope_cols[0].button("Select review", key="species_select_queue", use_container_width=True):
-            for photo in selected_photos:
-                st.session_state.species_selected_ids.add(photo["id"])
+            set_photos_selected(st.session_state, selected_photos, True, update_widgets=False)
             st.rerun()
         if queue_scope_cols[1].button("Clear selection", key="species_clear_queue", use_container_width=True):
             clear_species_selection(selected_photos)
@@ -4922,37 +4364,6 @@ def render_publish_lane_management_controls(
             st.session_state.species_review_stage = "Needs decisions"
             invalidate_data_cache()
             st.rerun()
-
-
-def get_review_state_label(observation: dict[str, Any] | None) -> str:
-    if not observation:
-        return "Waiting for suggestion"
-    status = str(observation.get("status") or "").lower()
-    if status == "pending":
-        return "Ready for decision"
-    if status == "confirmed":
-        return "Confirmed"
-    if status == "rejected":
-        return "Rejected"
-    return "Waiting for suggestion"
-
-
-def render_review_state_chip(state: str) -> str:
-    slug = state.lower().replace(" ", "-")
-    return f"<span class='status-pill review-{slug}'>{escape(state)}</span>"
-
-
-def render_species_review_entry_header(review_state: str, outing_title: str, outing_date: str | None = None) -> str:
-    date_markup = f"<span>• {escape(str(outing_date))}</span>" if outing_date else ""
-    return (
-        "<div class='species-review-entry-head'>"
-        "<div class='species-review-entry-kicker'>"
-        f"{render_review_state_chip(review_state)}"
-        f"<span>{escape(outing_title)}</span>"
-        f"{date_markup}"
-        "</div>"
-        "</div>"
-    )
 
 
 def get_publish_state(observation: dict[str, Any]) -> str:
@@ -5742,39 +5153,8 @@ def remove_photos_from_review(repository: HikeJournalRepository, photos: list[di
     invalidate_data_cache()
 
 
-def synchronize_species_selection(selected_photos: list[dict[str, Any]]) -> None:
-    valid_ids = {photo["id"] for photo in selected_photos}
-    st.session_state.species_selected_ids = {
-        photo_id for photo_id in st.session_state.species_selected_ids if photo_id in valid_ids
-    }
-    for photo in selected_photos:
-        checkbox_key = f"species_select_{photo['id']}"
-        if checkbox_key not in st.session_state:
-            continue
-        if st.session_state[checkbox_key]:
-            st.session_state.species_selected_ids.add(photo["id"])
-        else:
-            st.session_state.species_selected_ids.discard(photo["id"])
-
-
-def apply_species_review_default_state(selected_photos: list[dict[str, Any]]) -> None:
-    signature = tuple(photo["id"] for photo in selected_photos)
-    if st.session_state.species_review_initialized_signature == signature:
-        return
-    st.session_state.species_review_initialized_signature = signature
-    st.session_state.species_page = 1
-    st.session_state.species_page_size = 0 if selected_photos else 6
-    st.session_state.species_selected_ids = {photo["id"] for photo in selected_photos}
-    for photo in selected_photos:
-        st.session_state[f"species_select_{photo['id']}"] = True
-
-
 def clear_species_selection(photos: list[dict[str, Any]]) -> None:
-    for photo in photos:
-        st.session_state.species_selected_ids.discard(photo["id"])
-        checkbox_key = f"species_select_{photo['id']}"
-        if checkbox_key in st.session_state:
-            st.session_state[checkbox_key] = False
+    clear_review_selection(st.session_state, photos)
 
 
 def reset_species_log_page() -> None:

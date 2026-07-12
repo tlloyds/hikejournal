@@ -9,6 +9,14 @@ from supabase import Client
 from hike_journal.models import HikeDraft, SpeciesCandidate
 
 
+LIGHTWEIGHT_OBSERVATION_COLUMNS = (
+    "id,photo_id,hike_id,owner_subject,owner_email,taxon_id,common_name,scientific_name,"
+    "confidence,status,is_primary,identified_at,source,inat_observation_id,inat_observation_url,"
+    "inat_posted_at,inat_photo_attached,"
+    "species_log_main_photo:raw_response_json->species_log_main_photo"
+)
+
+
 def _slugify_location_name(value: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", value.lower().strip())
     return re.sub(r"-+", "-", slug).strip("-") or "location"
@@ -441,11 +449,9 @@ class HikeJournalRepository:
             if not normalized_ids:
                 return []
 
-        select_columns = "id,photo_id,hike_id,owner_subject,owner_email,taxon_id,common_name,scientific_name,confidence,status,is_primary,identified_at,source,inat_observation_id,inat_observation_url,inat_posted_at,inat_photo_attached"
-
         def query_factory(chunk_ids: list[str] | None = None):
             query = self.client.table("species_observations").select(
-                select_columns
+                LIGHTWEIGHT_OBSERVATION_COLUMNS
             )
             if hike_id:
                 query = query.eq("hike_id", hike_id)
@@ -509,7 +515,7 @@ class HikeJournalRepository:
         if not normalized_ids:
             return []
         rows: list[dict[str, Any]] = []
-        for chunk_ids in self._chunks(normalized_ids):
+        for chunk_ids in self._chunks(normalized_ids, size=200):
             response = (
                 self.client.table("species_observations")
                 .select("id,species_log_main_photo:raw_response_json->species_log_main_photo")

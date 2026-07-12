@@ -3,8 +3,14 @@ from inspect import signature
 import app
 
 from hike_journal.ui.views.library import render_library_view
+from hike_journal.ui.views.journal import (
+    JournalActions,
+    render_journal_view,
+    render_standalone_journal_view,
+)
 from hike_journal.ui.views.map import render_map_view
 from hike_journal.ui.views.species_log import render_species_log_view
+from hike_journal.ui.views.species_review import SpeciesReviewActions, render_species_review_view
 
 
 def test_library_view_accepts_its_app_callbacks() -> None:
@@ -86,3 +92,87 @@ def test_app_species_log_wrapper_forwards_every_callback(monkeypatch) -> None:
         "resolve_page_size",
         "set_species_log_record_query_state",
     }
+
+
+def test_journal_action_contract_contains_every_app_callback() -> None:
+    assert set(JournalActions.__dataclass_fields__) == {
+        "_parse_date",
+        "paginate_photos",
+        "persist_uploaded_photo",
+        "render_alternate_suggestions",
+        "render_bottom_review_handoff",
+        "render_known_species_assignment_toolbar",
+        "render_photo_management_toolbar",
+        "render_photo_note_editor",
+        "render_photo_species_actions",
+        "render_quick_upload_dialog",
+        "render_secondary_species_summary",
+        "render_selection_toolbar",
+        "render_species_summary",
+        "sync_hike_cover_checkbox",
+        "sync_journal_review_checkbox",
+        "sync_known_species_checkbox",
+    }
+
+
+def test_app_standalone_journal_wrapper_forwards_action_contract(monkeypatch) -> None:
+    captured = {}
+    monkeypatch.setattr(
+        app,
+        "render_standalone_journal_view",
+        lambda *args, **kwargs: captured.update(kwargs),
+    )
+
+    app.render_standalone_journal_tab(object(), object(), object(), [], {}, {}, {}, [])
+
+    assert isinstance(captured["actions"], JournalActions)
+    assert captured["actions"].render_quick_upload_dialog is app.render_quick_upload_dialog
+
+
+def test_app_hike_journal_wrapper_forwards_action_contract(monkeypatch) -> None:
+    captured = {}
+    monkeypatch.setattr(app, "render_journal_view", lambda *args, **kwargs: captured.update(kwargs))
+
+    app.render_journal_tab(object(), object(), object(), {"id": "hike-1"}, [], {}, {}, None, [])
+
+    assert isinstance(captured["actions"], JournalActions)
+    assert captured["actions"].persist_uploaded_photo is app.persist_uploaded_photo
+    assert captured["actions"].sync_hike_cover_checkbox is app.sync_hike_cover_checkbox
+
+
+def test_journal_views_require_the_action_contract() -> None:
+    assert "actions" in signature(render_journal_view).parameters
+    assert "actions" in signature(render_standalone_journal_view).parameters
+
+
+def test_species_review_action_contract_contains_every_app_callback() -> None:
+    assert set(SpeciesReviewActions.__dataclass_fields__) == {
+        "build_publish_rows",
+        "count_publish_states",
+        "paginate_items",
+        "render_add_species_popover",
+        "render_alternate_suggestions",
+        "render_back_to_top_link",
+        "render_community_id_request_controls",
+        "render_inat_token_manager",
+        "render_photo_note_editor",
+        "render_publishing_section",
+        "render_secondary_species_summary",
+        "render_species_management_toolbar",
+        "render_species_summary",
+    }
+
+
+def test_app_species_review_wrapper_forwards_action_contract(monkeypatch) -> None:
+    captured = {}
+    monkeypatch.setattr(app, "render_species_review_view", lambda *args, **kwargs: captured.update(kwargs))
+
+    app.render_species_tab(object(), object(), [], [], [], [], {}, {})
+
+    assert isinstance(captured["actions"], SpeciesReviewActions)
+    assert captured["actions"].render_species_management_toolbar is app.render_species_management_toolbar
+    assert captured["actions"].render_publishing_section is app.render_publishing_section
+
+
+def test_species_review_view_requires_the_action_contract() -> None:
+    assert "actions" in signature(render_species_review_view).parameters
