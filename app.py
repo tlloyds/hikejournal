@@ -4100,6 +4100,49 @@ def render_publish_lane_management_controls(
     already_posted = bool(posting.get("observation_id"))
     with st.popover("Manage ID"):
         if already_posted:
+            if posting.get("photo_attached") is False:
+                st.caption(
+                    "If you can see this photo on iNaturalist, mark it as uploaded to clear this item from Needs attention."
+                )
+                if st.button(
+                    "Mark photo as uploaded",
+                    key=f"{key_prefix}_mark_photo_uploaded",
+                    use_container_width=True,
+                    type="secondary",
+                ):
+                    raw_payload = dict(observation.get("raw_response_json") or {})
+                    raw_posting = raw_payload.get("inat_posting")
+                    resolved_posting = dict(raw_posting) if isinstance(raw_posting, dict) else {}
+                    photo_id = str(photo.get("id") or "")
+                    failed_photo_ids = [
+                        str(value)
+                        for value in resolved_posting.get("failed_local_photo_ids") or []
+                        if str(value) != photo_id
+                    ]
+                    attached_photo_ids = [
+                        str(value)
+                        for value in resolved_posting.get("attached_local_photo_ids") or []
+                    ]
+                    if photo_id and photo_id not in attached_photo_ids:
+                        attached_photo_ids.append(photo_id)
+                    resolved_posting["photo_attached"] = True
+                    resolved_posting["failed_local_photo_ids"] = failed_photo_ids
+                    resolved_posting["attached_local_photo_ids"] = attached_photo_ids
+                    resolved_posting["attached_photo_count"] = len(attached_photo_ids)
+                    resolved_posting.pop("upload_errors", None)
+                    raw_payload["inat_posting"] = resolved_posting
+                    repository.update_observation_raw_payload(observation["id"], raw_payload)
+                    repository.update_observation_inat_posting(
+                        observation["id"],
+                        inat_observation_id=int(posting["observation_id"]),
+                        inat_observation_url=str(posting.get("observation_url") or ""),
+                        inat_posted_at=str(posting.get("posted_at") or ""),
+                        inat_photo_attached=True,
+                    )
+                    st.session_state.publish_selected_ids.discard(observation["id"])
+                    invalidate_data_cache()
+                    st.rerun()
+                return
             st.caption("This record has already been posted. Edit or remove the iNaturalist observation there.")
             return
 
