@@ -3669,7 +3669,7 @@ def render_smart_id_plan_dialog(
     st.markdown(
         f"<div class='encounter-plan-summary'><strong>Plan: {request_count} ID request{'s' if request_count != 1 else ''}</strong> · "
         f"{grouped_count} grouped · {individual_count} individual. "
-        "Groups that disagree after scoring will automatically split into individual suggestions.</div>",
+        "Two-photo groups use the highest-confidence top suggestion for both photos; larger groups that disagree after scoring split into individual suggestions.</div>",
         unsafe_allow_html=True,
     )
     if st.button(
@@ -4556,10 +4556,15 @@ def _build_grouped_species_candidate(
     }
     grouped_candidate = None
     if top_match is not None:
+        selected_confidence = (
+            top_match.get("best_confidence")
+            if require_consensus and len(processed_photos) == 2
+            else top_match.get("average_confidence")
+        )
         grouped_candidate = SpeciesCandidate(
             common_name=str(top_match.get("common_name") or top_match.get("scientific_name") or "Unknown species"),
             scientific_name=str(top_match.get("scientific_name") or top_match.get("common_name") or "Unknown species"),
-            confidence=float(top_match.get("average_confidence") or 0),
+            confidence=float(selected_confidence or 0),
             taxon_id=top_match.get("taxon_id"),
             raw_payload=raw_payload,
         )

@@ -6,11 +6,21 @@ from hike_journal.services.species_identification import (
 )
 
 
-def candidate(taxon_id: int, *, support: int, top1: int) -> dict:
+def candidate(
+    taxon_id: int,
+    *,
+    support: int,
+    top1: int,
+    best_confidence: float = 0,
+    average_confidence: float = 0,
+) -> dict:
     return {
         "taxon_id": taxon_id,
         "support_count": support,
         "top1_count": top1,
+        "best_confidence": best_confidence,
+        "average_confidence": average_confidence,
+        "total_confidence": average_confidence * support,
     }
 
 
@@ -33,13 +43,31 @@ def test_rejects_candidate_missing_from_one_photos_results() -> None:
     assert selected is None
 
 
-def test_two_photo_group_requires_both_top_choices_to_agree() -> None:
+def test_two_photo_group_uses_the_highest_confidence_top_choice() -> None:
     selected = select_shared_candidate(
-        [candidate(10, support=2, top1=1), candidate(20, support=2, top1=1)],
+        [
+            candidate(10, support=2, top1=1, best_confidence=0.76, average_confidence=0.61),
+            candidate(20, support=2, top1=1, best_confidence=0.91, average_confidence=0.58),
+        ],
         photo_count=2,
     )
 
-    assert selected is None
+    assert selected is not None
+    assert selected["taxon_id"] == 20
+
+
+def test_two_photo_group_ignores_non_top_suggestions_even_with_high_confidence() -> None:
+    selected = select_shared_candidate(
+        [
+            candidate(10, support=2, top1=1, best_confidence=0.80),
+            candidate(20, support=2, top1=1, best_confidence=0.72),
+            candidate(30, support=2, top1=0, best_confidence=0.95),
+        ],
+        photo_count=2,
+    )
+
+    assert selected is not None
+    assert selected["taxon_id"] == 10
 
 
 def test_known_species_catalog_deduplicates_taxa_and_counts_prior_records() -> None:
