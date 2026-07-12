@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 import os
 from dataclasses import dataclass
 import json
 from pathlib import Path
+import secrets
 from typing import Any
 
 from dotenv import load_dotenv
@@ -13,6 +15,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 RUNTIME_DIR = BASE_DIR / ".runtime"
 INAT_TOKEN_PATH = RUNTIME_DIR / "inat_token.json"
 INAT_TOKENS_PATH = RUNTIME_DIR / "inat_tokens.json"
+INAT_OAUTH_ATTEMPTS_PATH = RUNTIME_DIR / "inat_oauth_attempts.json"
 load_dotenv(BASE_DIR / ".env")
 
 
@@ -146,6 +149,79 @@ def delete_inat_token_record_for_user(*, subject: str | None, email: str | None)
             json.dumps({"tokens": payload}, indent=2),
             encoding="utf-8",
         )
+
+
+def _load_inat_oauth_attempts() -> dict[str, dict[str, Any]]:
+    if not INAT_OAUTH_ATTEMPTS_PATH.exists():
+        return {}
+    try:
+        payload = json.loads(INAT_OAUTH_ATTEMPTS_PATH.read_text(encoding="utf-8"))
+        attempts = payload.get("attempts") or {}
+        return {
+            str(state): dict(attempt)
+            for state, attempt in attempts.items()
+            if isinstance(attempt, dict)
+        }
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return {}
+
+
+def _save_inat_oauth_attempts(attempts: dict[str, dict[str, Any]]) -> None:
+    RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+    INAT_OAUTH_ATTEMPTS_PATH.write_text(
+        json.dumps({"attempts": attempts}, indent=2),
+        encoding="utf-8",
+    )
+
+
+def _is_unexpired_inat_oauth_attempt(attempt: dict[str, Any]) -> bool:
+    try:
+        expires_at = datetime.fromisoformat(str(attempt.get("expires_at") or ""))
+    except ValueError:
+        return False
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=UTC)
+    return expires_at > datetime.now(UTC)
+
+
+def create_inat_oauth_attempt(*, subject: str | None, email: str | None) -> dict[str, str]:
+    identity = build_inat_token_identity(subject, email)
+    if not identity:
+        raise ValueError("An authenticated user is required to connect iNaturalist.")
+    attempts = {
+        state: attempt
+        for state, attempt in _load_inat_oauth_attempts().items()
+        if _is_unexpired_inat_oauth_attempt(attempt)
+    }
+    state = f"inat:{secrets.token_urlsafe(32)}"
+    now = datetime.now(UTC)
+    attempts[state] = {
+        "subject": str(subject or "").strip(),
+        "email": str(email or "").strip().lower(),
+        "status": "pending",
+        "created_at": now.isoformat(),
+        "expires_at": (now + timedelta(minutes=10)).isoformat(),
+    }
+    _save_inat_oauth_attempts(attempts)
+    return {"state": state, "expires_at": attempts[state]["expires_at"]}
+
+
+def get_inat_oauth_attempt(state: str) -> dict[str, Any] | None:
+    attempt = _load_inat_oauth_attempts().get(state)
+    if not attempt or not _is_unexpired_inat_oauth_attempt(attempt):
+        return None
+    return dict(attempt)
+
+
+def complete_inat_oauth_attempt(state: str) -> None:
+    attempts = _load_inat_oauth_attempts()
+    attempt = attempts.get(state)
+    if not attempt or not _is_unexpired_inat_oauth_attempt(attempt):
+        raise ValueError("This iNaturalist connection attempt expired. Start again from HikeJournal.")
+    attempt["status"] = "completed"
+    attempt["completed_at"] = datetime.now(UTC).isoformat()
+    attempts[state] = attempt
+    _save_inat_oauth_attempts(attempts)
 
 
 @dataclass(frozen=True)

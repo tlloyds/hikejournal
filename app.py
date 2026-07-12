@@ -4,7 +4,6 @@ from collections import defaultdict
 from datetime import UTC, date, datetime
 from html import escape
 import math
-import secrets
 from typing import Any
 from urllib.parse import quote
 
@@ -12,8 +11,11 @@ import streamlit as st
 
 from hike_journal.config import (
     build_inat_token_identity,
+    complete_inat_oauth_attempt,
+    create_inat_oauth_attempt,
     delete_inat_token_record_for_user,
     load_inat_access_token_for_user,
+    get_inat_oauth_attempt,
     load_inat_token_record_for_user,
     settings,
 )
@@ -186,30 +188,31 @@ def maybe_handle_inat_oauth_callback(user_context: dict[str, Any]) -> None:
     query_error = st.query_params.get("error")
     if not query_state or not str(query_state).startswith("inat:"):
         return
+    def finish_callback(message: str, *, is_error: bool = False) -> None:
+        st.query_params.clear()
+        st.markdown("<div style='max-width:34rem; margin:12vh auto; text-align:center'>", unsafe_allow_html=True)
+        if is_error:
+            st.error(message)
+        else:
+            st.success(message)
+        st.caption("You can close this tab and return to HikeJournal. The original page will update automatically.")
+        st.markdown("</div>", unsafe_allow_html=True)
+        st.stop()
+
     if query_error:
-        st.session_state.inat_auth_notice = None
-        st.session_state.inat_auth_error = f"iNaturalist sign-in did not complete: {query_error}"
-        for key in ["code", "state", "error"]:
-            if key in st.query_params:
-                del st.query_params[key]
-        st.rerun()
+        finish_callback(f"iNaturalist sign-in did not complete: {query_error}", is_error=True)
     if not query_code:
         return
     if user_context.get("mode") != "google":
-        st.session_state.inat_auth_notice = None
-        st.session_state.inat_auth_error = "Sign in to HikeJournal with Google before connecting iNaturalist."
-        for key in ["code", "state"]:
-            if key in st.query_params:
-                del st.query_params[key]
-        st.rerun()
-    expected_state = st.session_state.get("inat_oauth_state")
-    if expected_state and str(query_state) != str(expected_state):
-        st.session_state.inat_auth_notice = None
-        st.session_state.inat_auth_error = "The iNaturalist OAuth state did not match. Please try connecting again."
-        for key in ["code", "state"]:
-            if key in st.query_params:
-                del st.query_params[key]
-        st.rerun()
+        finish_callback("Sign in to HikeJournal with Google before connecting iNaturalist.", is_error=True)
+    attempt = get_inat_oauth_attempt(str(query_state))
+    if not attempt:
+        finish_callback("This iNaturalist connection attempt expired. Start again from HikeJournal.", is_error=True)
+    if (
+        str(attempt.get("subject") or "") != str(user_context.get("subject") or "")
+        or str(attempt.get("email") or "") != str(user_context.get("email") or "").lower()
+    ):
+        finish_callback("This iNaturalist connection belongs to a different HikeJournal account.", is_error=True)
     try:
         token_payload = exchange_oauth_code(code=str(query_code))
         save_oauth_token_payload_for_user(
@@ -217,23 +220,14 @@ def maybe_handle_inat_oauth_callback(user_context: dict[str, Any]) -> None:
             subject=user_context.get("subject"),
             email=user_context.get("email"),
         )
-    except (InatConfigurationError, InatAuthError, InatRequestError) as exc:
-        st.session_state.inat_auth_notice = None
-        st.session_state.inat_auth_error = str(exc)
-        for key in ["code", "state"]:
-            if key in st.query_params:
-                del st.query_params[key]
-        st.rerun()
-    st.session_state.inat_oauth_state = None
-    st.session_state.inat_auth_error = None
-    st.session_state.inat_auth_notice = "Connected your iNaturalist account."
-    for key in ["code", "state"]:
-        if key in st.query_params:
-            del st.query_params[key]
-    st.rerun()
+        complete_inat_oauth_attempt(str(query_state))
+    except (InatConfigurationError, InatAuthError, InatRequestError, ValueError) as exc:
+        finish_callback(str(exc), is_error=True)
+    finish_callback("Connected your iNaturalist account.")
 
 
 def main() -> None:
+    render_inat_oauth_connection_waiter()
     run_application(
         ApplicationActions(
             build_species_log_context=build_species_log_context,
@@ -417,6 +411,28 @@ def inat_not_ready_message(inat_client: InatClient) -> str:
     return ""
 
 
+@st.fragment(run_every=2)
+def render_inat_oauth_connection_waiter() -> None:
+    state = str(st.session_state.get("inat_oauth_attempt_state") or "")
+    if not state:
+        return
+    attempt = get_inat_oauth_attempt(state)
+    if not attempt:
+        st.session_state.inat_oauth_attempt_state = None
+        st.session_state.inat_oauth_state = None
+        st.session_state.inat_auth_notice = None
+        st.session_state.inat_auth_error = "The iNaturalist connection attempt expired. Try connecting again."
+        st.rerun()
+    if attempt.get("status") == "completed":
+        st.session_state.inat_oauth_attempt_state = None
+        st.session_state.inat_oauth_state = None
+        st.session_state.inat_auth_error = None
+        st.session_state.inat_auth_notice = "Connected your iNaturalist account."
+        st.session_state.inat_token_dialog_open = False
+        st.rerun()
+    st.empty()
+
+
 def render_inat_token_controls(
     inat_client: InatClient,
     user_context: dict[str, Any],
@@ -460,8 +476,16 @@ def render_inat_token_controls(
     if user_context.get("mode") == "google":
         oauth_cols = st.columns([0.62, 0.38], gap="small")
         if settings.inat_oauth_configured:
-            state = f"inat:{secrets.token_urlsafe(24)}"
-            st.session_state.inat_oauth_state = state
+            state = str(st.session_state.get("inat_oauth_attempt_state") or "")
+            attempt = get_inat_oauth_attempt(state) if state else None
+            if not attempt:
+                created_attempt = create_inat_oauth_attempt(
+                    subject=user_context.get("subject"),
+                    email=user_context.get("email"),
+                )
+                state = created_attempt["state"]
+                st.session_state.inat_oauth_attempt_state = state
+                st.session_state.inat_oauth_state = state
             authorize_url = build_oauth_authorize_url(state=state)
             oauth_cols[0].markdown(
                 f"<a class='viewer-link' href='{escape(authorize_url)}' target='_blank' rel='noopener noreferrer'>Connect iNaturalist</a>",
@@ -475,6 +499,7 @@ def render_inat_token_controls(
                 st.session_state.inat_auth_notice = "Disconnected your iNaturalist account."
                 st.session_state.inat_auth_error = None
                 st.rerun()
+            st.caption("Finish authorization in the iNaturalist tab. This dialog will close automatically when you return.")
         else:
             st.caption(
                 "OAuth is not configured yet for iNaturalist. Register an iNaturalist app and set the redirect URI to "
