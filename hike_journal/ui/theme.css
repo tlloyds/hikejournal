@@ -2797,6 +2797,172 @@ h1, h2, h3,
   animation: field-reveal 260ms ease both;
 }
 
+/* Journal: one compact rail for browsing, review, and known-species work. */
+.st-key-journal_upload {
+  margin: 0.45rem 0 1.15rem;
+  padding: 0.8rem 0 0.1rem;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.journal-upload-label,
+.journal-workflow-kicker,
+.journal-control-label span {
+  color: var(--river-silt);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+}
+
+.st-key-journal_workflow {
+  margin: 0.25rem 0 1.4rem;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.36);
+  animation: field-reveal 280ms ease both;
+}
+
+.journal-workflow-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 1.5rem;
+  padding: 1rem 1.05rem 0.9rem;
+}
+
+.journal-workflow-heading h2 {
+  margin: 0.2rem 0 0;
+  color: var(--charcoal);
+  font-family: 'Fraunces', serif;
+  font-size: clamp(1.45rem, 2.2vw, 1.9rem);
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+
+.journal-workflow-heading p {
+  max-width: 31rem;
+  margin: 0;
+  color: rgba(31, 42, 38, 0.64);
+  font-size: 0.84rem;
+  font-weight: 600;
+  line-height: 1.5;
+  text-align: right;
+}
+
+.st-key-journal_review_queue,
+.st-key-journal_photo_management,
+[class*="st-key-hike_"][class*="_known_species"],
+.st-key-standalone_known_species {
+  padding: 0.7rem 1.05rem;
+  border-top: 1px solid var(--line);
+}
+
+.journal-control-label {
+  display: flex;
+  min-height: 2.9rem;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.18rem;
+}
+
+.journal-control-label strong {
+  color: var(--charcoal);
+  font-size: 0.88rem;
+  font-weight: 800;
+  line-height: 1.3;
+}
+
+.st-key-journal_photo_management .journal-control-label--browse {
+  padding-top: 0.3rem;
+}
+
+.st-key-journal_review_queue .stButton button:not([kind="primary"]),
+[class*="st-key-hike_"][class*="_known_species"] .stButton button:not([kind="primary"]),
+.st-key-standalone_known_species .stButton button:not([kind="primary"]),
+.st-key-journal_photo_management [data-testid="stPopoverButton"] {
+  border: 1px solid rgba(31, 59, 44, 0.18) !important;
+  background: rgba(255, 255, 255, 0.5) !important;
+  color: var(--palmetto) !important;
+}
+
+.st-key-journal_review_queue .stButton button:not([kind="primary"]):hover,
+[class*="st-key-hike_"][class*="_known_species"] .stButton button:not([kind="primary"]):hover,
+.st-key-standalone_known_species .stButton button:not([kind="primary"]):hover,
+.st-key-journal_photo_management [data-testid="stPopoverButton"]:hover {
+  border-color: rgba(31, 59, 44, 0.3) !important;
+  background: rgba(31, 59, 44, 0.08) !important;
+}
+
+.st-key-journal_photo_management [data-testid="stToggle"] {
+  padding-top: 1.15rem;
+}
+
+@media (max-width: 640px) {
+  .st-key-journal_upload {
+    margin-top: 0.1rem;
+    padding-top: 0.65rem;
+  }
+
+  .st-key-journal_workflow {
+    margin-top: 0.8rem;
+  }
+
+  .journal-workflow-heading {
+    display: block;
+    padding: 0.95rem 0.85rem 0.8rem;
+  }
+
+  .journal-workflow-heading h2 {
+    font-size: 1.55rem;
+  }
+
+  .journal-workflow-heading p {
+    margin-top: 0.55rem;
+    text-align: left;
+  }
+
+  .st-key-journal_review_queue,
+  .st-key-journal_photo_management,
+  [class*="st-key-hike_"][class*="_known_species"],
+  .st-key-standalone_known_species {
+    padding: 0.7rem 0.85rem 0.8rem;
+  }
+
+  .st-key-journal_review_queue [data-testid="stHorizontalBlock"],
+  .st-key-journal_photo_management [data-testid="stHorizontalBlock"],
+  [class*="st-key-hike_"][class*="_known_species"] [data-testid="stHorizontalBlock"],
+  .st-key-standalone_known_species [data-testid="stHorizontalBlock"] {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.55rem !important;
+  }
+
+  .st-key-journal_review_queue [data-testid="stColumn"],
+  .st-key-journal_photo_management [data-testid="stColumn"],
+  [class*="st-key-hike_"][class*="_known_species"] [data-testid="stColumn"],
+  .st-key-standalone_known_species [data-testid="stColumn"] {
+    width: 100% !important;
+    min-width: 0 !important;
+    flex: none !important;
+  }
+
+  .st-key-journal_review_queue [data-testid="stColumn"]:first-child,
+  [class*="st-key-hike_"][class*="_known_species"] [data-testid="stColumn"]:first-child,
+  .st-key-standalone_known_species [data-testid="stColumn"]:first-child,
+  .st-key-journal_photo_management [data-testid="stColumn"]:nth-child(3) {
+    grid-column: 1 / -1;
+  }
+
+  .st-key-journal_photo_management [data-testid="stColumn"]:nth-child(4),
+  .st-key-journal_photo_management [data-testid="stColumn"]:nth-child(5) {
+    align-self: end;
+  }
+
+  .st-key-journal_photo_management [data-testid="stToggle"] {
+    padding-top: 0.55rem;
+  }
+}
+
 .workspace-mode-strip,
 .review-filter-strip,
 .publish-filter-strip {

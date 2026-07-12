@@ -1983,23 +1983,47 @@ def render_photo_viewer(
         st.rerun()
 
 
-def render_selection_toolbar(repository: HikeJournalRepository, photos: list[dict[str, Any]], prefix: str) -> None:
+def render_selection_toolbar(
+    repository: HikeJournalRepository,
+    photos: list[dict[str, Any]],
+    prefix: str,
+    *,
+    compact: bool = False,
+) -> None:
     if not photos:
         return
     photo_ids = [photo["id"] for photo in photos]
     selected_count = len([photo for photo in photos if photo.get("processing_status") == REVIEW_QUEUE_STATUS])
-    cols = st.columns([0.36, 0.18, 0.18, 0.28], gap="small")
-    cols[0].caption(f"{selected_count} of {len(photo_ids)} photos selected for species review")
-    if cols[1].button("Queue whole hike", key=f"{prefix}_select_all", use_container_width=True):
-        repository.update_photo_processing_statuses(photo_ids, REVIEW_QUEUE_STATUS)
-        reset_journal_review_widget_state(photo_ids)
-        invalidate_data_cache()
-        st.rerun()
-    if cols[2].button("Clear hike", key=f"{prefix}_clear_selection", use_container_width=True):
-        repository.update_photo_processing_statuses(photo_ids, "ready")
-        reset_journal_review_widget_state(photo_ids)
-        invalidate_data_cache()
-        st.rerun()
+    if not compact:
+        cols = st.columns([0.36, 0.18, 0.18, 0.28], gap="small")
+        cols[0].caption(f"{selected_count} of {len(photo_ids)} photos selected for species review")
+        if cols[1].button("Queue whole hike", key=f"{prefix}_select_all", use_container_width=True):
+            repository.update_photo_processing_statuses(photo_ids, REVIEW_QUEUE_STATUS)
+            reset_journal_review_widget_state(photo_ids)
+            invalidate_data_cache()
+            st.rerun()
+        if cols[2].button("Clear hike", key=f"{prefix}_clear_selection", use_container_width=True):
+            repository.update_photo_processing_statuses(photo_ids, "ready")
+            reset_journal_review_widget_state(photo_ids)
+            invalidate_data_cache()
+            st.rerun()
+        return
+    with st.container(key=f"{prefix}_review_queue"):
+        cols = st.columns([0.42, 0.29, 0.29], gap="small")
+        cols[0].markdown(
+            f"<div class='journal-control-label'><span>Species review</span><strong>{selected_count} of {len(photo_ids)} queued</strong></div>",
+            unsafe_allow_html=True,
+        )
+        if cols[1].button("Queue whole hike", key=f"{prefix}_select_all", use_container_width=True, type="primary"):
+            repository.update_photo_processing_statuses(photo_ids, REVIEW_QUEUE_STATUS)
+            reset_journal_review_widget_state(photo_ids)
+            invalidate_data_cache()
+            st.rerun()
+        if cols[2].button("Clear hike", key=f"{prefix}_clear_selection", use_container_width=True, disabled=not selected_count):
+            repository.update_photo_processing_statuses(photo_ids, "ready")
+            reset_journal_review_widget_state(photo_ids)
+            invalidate_data_cache()
+            st.rerun()
 
 
 def render_known_species_assignment_toolbar(
@@ -2011,6 +2035,7 @@ def render_known_species_assignment_toolbar(
     known_species: list[dict[str, Any]],
     *,
     key_prefix: str,
+    compact: bool = False,
 ) -> None:
     if st.session_state.known_species_notice:
         st.success(str(st.session_state.known_species_notice))
@@ -2026,37 +2051,74 @@ def render_known_species_assignment_toolbar(
         photo for photo in available_photos if str(photo["id"]) in st.session_state.known_species_selected_ids
     ]
     selected_count = len(selected_photos)
-    cols = st.columns([0.38, 0.24, 0.2, 0.18], gap="small")
-    cols[0].caption(f"{selected_count} untagged photo{'s' if selected_count != 1 else ''} selected for bulk tagging")
-    if cols[1].button(
-        f"Bulk assign ({selected_count})",
-        key=f"{key_prefix}_assign_known_species",
-        use_container_width=True,
-        type="primary",
-        disabled=not selected_photos or not known_species,
-        help="Confirm a species from your journal without using computer vision or entering Species Review.",
-    ):
-        open_known_species_dialog(repository, inat_client, selected_photos, known_species)
-    if cols[2].button(
-        "Select page",
-        key=f"{key_prefix}_select_known_species_page",
-        use_container_width=True,
-        disabled=not available_photos,
-    ):
-        for photo in page_photos:
-            if photo["id"] in primary_observation_by_photo:
-                continue
-            st.session_state.known_species_selected_ids.add(str(photo["id"]))
-            st.session_state[f"known_species_select_{photo['id']}"] = True
-        st.rerun()
-    if cols[3].button(
-        "Clear",
-        key=f"{key_prefix}_clear_known_species_selection",
-        use_container_width=True,
-        disabled=not selected_photos,
-    ):
-        clear_known_species_selection(selected_photos)
-        st.rerun()
+    if not compact:
+        cols = st.columns([0.38, 0.24, 0.2, 0.18], gap="small")
+        cols[0].caption(f"{selected_count} untagged photo{'s' if selected_count != 1 else ''} selected for bulk tagging")
+        if cols[1].button(
+            f"Bulk assign ({selected_count})",
+            key=f"{key_prefix}_assign_known_species",
+            use_container_width=True,
+            type="primary",
+            disabled=not selected_photos or not known_species,
+            help="Confirm a species from your journal without using computer vision or entering Species Review.",
+        ):
+            open_known_species_dialog(repository, inat_client, selected_photos, known_species)
+        if cols[2].button(
+            "Select page",
+            key=f"{key_prefix}_select_known_species_page",
+            use_container_width=True,
+            disabled=not available_photos,
+        ):
+            for photo in page_photos:
+                if photo["id"] in primary_observation_by_photo:
+                    continue
+                st.session_state.known_species_selected_ids.add(str(photo["id"]))
+                st.session_state[f"known_species_select_{photo['id']}"] = True
+            st.rerun()
+        if cols[3].button(
+            "Clear",
+            key=f"{key_prefix}_clear_known_species_selection",
+            use_container_width=True,
+            disabled=not selected_photos,
+        ):
+            clear_known_species_selection(selected_photos)
+            st.rerun()
+        return
+    with st.container(key=f"{key_prefix}_known_species"):
+        cols = st.columns([0.34, 0.2, 0.17, 0.29], gap="small")
+        cols[0].markdown(
+            f"<div class='journal-control-label'><span>Known species</span><strong>{selected_count} untagged photo{'s' if selected_count != 1 else ''} selected</strong></div>",
+            unsafe_allow_html=True,
+        )
+        if cols[1].button(
+            "Select page",
+            key=f"{key_prefix}_select_known_species_page",
+            use_container_width=True,
+            disabled=not available_photos,
+        ):
+            for photo in page_photos:
+                if photo["id"] in primary_observation_by_photo:
+                    continue
+                st.session_state.known_species_selected_ids.add(str(photo["id"]))
+                st.session_state[f"known_species_select_{photo['id']}"] = True
+            st.rerun()
+        if cols[2].button(
+            "Clear selection",
+            key=f"{key_prefix}_clear_known_species_selection",
+            use_container_width=True,
+            disabled=not selected_photos,
+        ):
+            clear_known_species_selection(selected_photos)
+            st.rerun()
+        if cols[3].button(
+            f"Assign known species ({selected_count})",
+            key=f"{key_prefix}_assign_known_species",
+            use_container_width=True,
+            type="primary",
+            disabled=not selected_photos or not known_species,
+            help="Confirm a species from your journal without using computer vision or entering Species Review.",
+        ):
+            open_known_species_dialog(repository, inat_client, selected_photos, known_species)
 
 
 def sync_known_species_checkbox(photo_id: str, checkbox_key: str) -> None:
@@ -3452,11 +3514,13 @@ def render_photo_management_toolbar(
     page_photos: list[dict[str, Any]],
     all_deletable_photos: list[dict[str, Any]],
     total_pages: int,
+    *,
+    compact: bool = False,
 ) -> None:
-    cols = st.columns([0.16, 0.14, 0.28, 0.18, 0.24], gap="small")
+    cols = st.columns([0.17, 0.14, 0.31, 0.17, 0.21] if compact else [0.16, 0.14, 0.28, 0.18, 0.24], gap="small")
     page_size_options = [6, 9, 12, 18, 0]
     page_size = cols[0].selectbox(
-        "Per page",
+        "Photos per page" if compact else "Per page",
         page_size_options,
         index=page_size_options.index(st.session_state.journal_page_size),
         key="journal_page_size_select",
@@ -3466,83 +3530,67 @@ def render_photo_management_toolbar(
         st.session_state.journal_page_size = page_size
         st.session_state.journal_page = 1
         st.rerun()
-    requested_page = cols[1].number_input(
-        "Page",
-        min_value=1,
-        max_value=total_pages,
-        value=st.session_state.journal_page,
-        step=1,
-        key="journal_page_number",
-    )
+    requested_page = cols[1].number_input("Page", min_value=1, max_value=total_pages, value=st.session_state.journal_page, step=1, key="journal_page_number")
     if requested_page != st.session_state.journal_page:
         st.session_state.journal_page = int(requested_page)
         st.rerun()
-    cols[2].markdown(
-        f"<div class='utility-rail-status'>{len(page_photos)} photos on this page • {len(st.session_state.delete_photo_ids)} marked for deletion</div>",
-        unsafe_allow_html=True,
-    )
-    st.session_state.delete_mode = cols[3].toggle(
-        "Delete mode",
-        value=st.session_state.delete_mode,
-        key="journal_delete_mode",
-    )
-    with cols[4].popover("Manage"):
-        st.caption(f"Page {st.session_state.journal_page} of {total_pages}")
-        nav_cols = st.columns(2, gap="small")
-        if nav_cols[0].button("Previous", use_container_width=True, disabled=st.session_state.journal_page <= 1):
-            st.session_state.journal_page -= 1
+    if compact:
+        cols[2].markdown(f"<div class='journal-control-label journal-control-label--browse'><span>Browse photos</span><strong>Page {st.session_state.journal_page} of {total_pages} · {len(page_photos)} shown</strong></div>", unsafe_allow_html=True)
+    else:
+        cols[2].markdown(f"<div class='utility-rail-status'>{len(page_photos)} photos on this page • {len(st.session_state.delete_photo_ids)} marked for deletion</div>", unsafe_allow_html=True)
+    st.session_state.delete_mode = cols[3].toggle("Delete mode", value=st.session_state.delete_mode, key="journal_delete_mode")
+    with cols[4].popover("Manage photos" if compact else "Manage", use_container_width=compact):
+        _render_photo_management_popover(repository, storage, page_photos, all_deletable_photos, total_pages)
+
+
+def _render_photo_management_popover(
+    repository: HikeJournalRepository,
+    storage: StorageService,
+    page_photos: list[dict[str, Any]],
+    all_deletable_photos: list[dict[str, Any]],
+    total_pages: int,
+) -> None:
+    st.caption(f"Page {st.session_state.journal_page} of {total_pages}")
+    nav_cols = st.columns(2, gap="small")
+    if nav_cols[0].button("Previous", use_container_width=True, disabled=st.session_state.journal_page <= 1):
+        st.session_state.journal_page -= 1
+        st.rerun()
+    if nav_cols[1].button("Next", use_container_width=True, disabled=st.session_state.journal_page >= total_pages):
+        st.session_state.journal_page += 1
+        st.rerun()
+    st.divider()
+    if st.session_state.delete_mode and page_photos:
+        bulk_cols = st.columns(2, gap="small")
+        if bulk_cols[0].button("Mark page", use_container_width=True):
+            st.session_state.delete_photo_ids.update(photo["id"] for photo in page_photos)
+            for photo in page_photos:
+                st.session_state[f"delete_photo_{photo['id']}"] = True
             st.rerun()
-        if nav_cols[1].button("Next", use_container_width=True, disabled=st.session_state.journal_page >= total_pages):
-            st.session_state.journal_page += 1
+        if bulk_cols[1].button("Clear page", use_container_width=True):
+            for photo in page_photos:
+                st.session_state.delete_photo_ids.discard(photo["id"])
+                checkbox_key = f"delete_photo_{photo['id']}"
+                if checkbox_key in st.session_state:
+                    st.session_state[checkbox_key] = False
             st.rerun()
-        st.divider()
-        if st.session_state.delete_mode and page_photos:
-            bulk_cols = st.columns(2, gap="small")
-            if bulk_cols[0].button("Mark page", use_container_width=True):
-                st.session_state.delete_photo_ids.update(photo["id"] for photo in page_photos)
-                for photo in page_photos:
-                    st.session_state[f"delete_photo_{photo['id']}"] = True
-                st.rerun()
-            if bulk_cols[1].button("Clear page", use_container_width=True):
-                for photo in page_photos:
-                    st.session_state.delete_photo_ids.discard(photo["id"])
-                    checkbox_key = f"delete_photo_{photo['id']}"
-                    if checkbox_key in st.session_state:
-                        st.session_state[checkbox_key] = False
-                st.rerun()
-            st.caption("Delete mode is on. Use the checkboxes below the photos to choose what to remove.")
-        if st.button(
-            f"Delete selected ({len(st.session_state.delete_photo_ids)})",
-            use_container_width=True,
-            disabled=not st.session_state.delete_photo_ids,
-        ):
-            photos_to_delete = [
-                photo
-                for photo in all_deletable_photos
-                if photo["id"] in st.session_state.delete_photo_ids
-            ]
-            total_to_delete = len(photos_to_delete)
-            delete_progress = st.progress(0, text=f"Preparing to delete {total_to_delete} photos...")
-            with st.status(f"Deleting {total_to_delete} photos...", expanded=True) as delete_status:
-                for index, photo in enumerate(photos_to_delete, start=1):
-                    delete_status.write(f"Removing photo {index} of {total_to_delete}")
-                    storage.delete_file(photo.get("storage_path") or "")
-                    repository.delete_photo(photo["id"])
-                    delete_progress.progress(
-                        index / total_to_delete,
-                        text=f"Deleted {index} of {total_to_delete} photos",
-                    )
-                delete_status.update(
-                    label=f"Deleted {total_to_delete} photos.",
-                    state="complete",
-                    expanded=False,
-                )
-            invalidate_data_cache()
-            st.session_state.delete_photo_ids = set()
-            for key in list(st.session_state.keys()):
-                if key.startswith("delete_photo_"):
-                    del st.session_state[key]
-            st.rerun()
+        st.caption("Delete mode is on. Use the checkboxes below the photos to choose what to remove.")
+    if st.button(f"Delete selected ({len(st.session_state.delete_photo_ids)})", use_container_width=True, disabled=not st.session_state.delete_photo_ids):
+        photos_to_delete = [photo for photo in all_deletable_photos if photo["id"] in st.session_state.delete_photo_ids]
+        total_to_delete = len(photos_to_delete)
+        delete_progress = st.progress(0, text=f"Preparing to delete {total_to_delete} photos...")
+        with st.status(f"Deleting {total_to_delete} photos...", expanded=True) as delete_status:
+            for index, photo in enumerate(photos_to_delete, start=1):
+                delete_status.write(f"Removing photo {index} of {total_to_delete}")
+                storage.delete_file(photo.get("storage_path") or "")
+                repository.delete_photo(photo["id"])
+                delete_progress.progress(index / total_to_delete, text=f"Deleted {index} of {total_to_delete} photos")
+            delete_status.update(label=f"Deleted {total_to_delete} photos.", state="complete", expanded=False)
+        invalidate_data_cache()
+        st.session_state.delete_photo_ids = set()
+        for key in list(st.session_state.keys()):
+            if key.startswith("delete_photo_"):
+                del st.session_state[key]
+        st.rerun()
 
 
 @st.dialog("Review ID requests", width="medium")

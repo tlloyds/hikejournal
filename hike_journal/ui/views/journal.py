@@ -1,26 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
 from html import escape
 from typing import Any
 
 import streamlit as st
 
 from hike_journal.domain.library import photo_owner_email, photo_owner_subject
-from hike_journal.domain.locations import (
-    location_library_options,
-    maybe_store_hike_location_tags,
-    selected_location_defaults,
-)
-from hike_journal.domain.routes import (
-    format_duration_compact,
-    format_elevation_compact,
-    parse_uploaded_route_import,
-    route_import_meta,
-    sync_hike_route_import,
-)
-from hike_journal.queries import fetch_hike_locations, invalidate_data_cache
+from hike_journal.queries import invalidate_data_cache
 from hike_journal.services.exif import extract_metadata
 from hike_journal.services.image_processing import optimize_image
 from hike_journal.services.inat import InatClient
@@ -31,6 +18,13 @@ from hike_journal.ui.components import format_photo_meta_html, render_clickable_
 
 REVIEW_QUEUE_STATUS = "in_review"
 TCX_IMPORT_TYPES = ["tcx", "xml"]
+
+
+def _sync_delete_photo_checkbox(photo_id: str, checkbox_key: str) -> None:
+    if st.session_state.get(checkbox_key):
+        st.session_state.delete_photo_ids.add(photo_id)
+    else:
+        st.session_state.delete_photo_ids.discard(photo_id)
 
 
 @dataclass(frozen=True)
@@ -163,7 +157,12 @@ def render_standalone_journal_view(
                 if delete_key not in st.session_state:
                     st.session_state[delete_key] = current_delete
                 with control_cols[2]:
-                    delete_toggle = st.checkbox("Mark to delete", key=delete_key)
+                    delete_toggle = st.checkbox(
+                        "Mark to delete",
+                        key=delete_key,
+                        on_change=_sync_delete_photo_checkbox,
+                        args=(photo["id"], delete_key),
+                    )
                     if delete_toggle:
                         st.session_state.delete_photo_ids.add(photo["id"])
                     else:
@@ -187,107 +186,8 @@ def render_journal_view(
     actions: JournalActions,
 ) -> None:
     st.markdown("<div id='journal-top'></div>", unsafe_allow_html=True)
-    section_heading(
-        "Outing workspace",
-        "Details and photographs",
-        "Update the route and field notes, add photographs, or continue through the outing record below.",
-    )
-    st.write("")
-
-    left, right = st.columns([1.1, 0.9], gap="large")
-    with left:
-        hike_locations = fetch_hike_locations()
-        location_options = location_library_options(hike_locations)
-        with st.form("edit_hike_form"):
-            title = st.text_input("Title", value=selected_hike.get("title", ""))
-            hike_date = st.date_input("Date", value=actions._parse_date(selected_hike.get("hike_date")))
-            distance_value = float(selected_hike.get("distance_miles") or 0.0)
-            distance = st.number_input("Distance (miles)", min_value=0.0, step=0.5, value=distance_value)
-            location_name = st.text_input("Location", value=selected_hike.get("location_name") or "")
-            selected_locations = st.multiselect(
-                "Location tags",
-                options=location_options,
-                default=selected_location_defaults(selected_hike),
-                accept_new_options=True,
-                placeholder="Start typing Bronson, Chuluota, Econ...",
-            )
-            notes = st.text_area("Hike notes", value=selected_hike.get("notes") or "", height=180)
-            route_import_file = st.file_uploader(
-                "MapMyRun TCX exports",
-                type=TCX_IMPORT_TYPES,
-                accept_multiple_files=True,
-                help="Upload one or more TCX files to replace the outing route data here.",
-            )
-            use_imported_route_fields = st.checkbox("Use TCX date and distance for this outing", value=True)
-            remove_route_import = st.checkbox("Remove the saved route import", value=False)
-            if st.form_submit_button("Save hike details"):
-                parsed_route_import, _, route_import_error = parse_uploaded_route_import(route_import_file)
-                if route_import_error:
-                    st.warning(route_import_error)
-                    return
-                target_hike_date = parsed_route_import.visited_on if parsed_route_import and use_imported_route_fields and parsed_route_import.visited_on else hike_date
-                target_distance = parsed_route_import.distance_miles if parsed_route_import and use_imported_route_fields and parsed_route_import.distance_miles is not None else (distance or None)
-                saved_location_name = location_name.strip() or ", ".join(selected_locations[:3])
-                repository.update_hike(
-                    selected_hike["id"],
-                    title=title,
-                    hike_date=target_hike_date,
-                    distance_miles=target_distance,
-                    location_name=saved_location_name,
-                    notes=notes,
-                )
-                maybe_store_hike_location_tags(repository, selected_hike["id"], selected_locations, hike_locations)
-                _, route_import_error = sync_hike_route_import(
-                    repository=repository,
-                    storage=storage,
-                    hike_id=selected_hike["id"],
-                    uploaded_file=route_import_file,
-                    existing_route_import=route_import,
-                    remove_existing=remove_route_import,
-                )
-                if route_import_error:
-                    st.warning(route_import_error)
-                invalidate_data_cache()
-                st.success("Hike updated.")
-                st.rerun()
-
-        route_info_cols = st.columns([0.68, 0.32], gap="small")
-        with route_info_cols[0]:
-            st.markdown("##### Route import")
-            if route_import:
-                imported_pieces = []
-                if route_import.get("distance_miles") is not None:
-                    imported_pieces.append(f"{float(route_import['distance_miles']):.2f} mi")
-                duration_label = format_duration_compact(route_import.get("duration_seconds"))
-                if duration_label:
-                    imported_pieces.append(duration_label)
-                elevation_label = format_elevation_compact(route_import_meta(route_import).get("elevation_gain_feet"))
-                if elevation_label:
-                    imported_pieces.append(elevation_label)
-                if route_import.get("track_point_count"):
-                    imported_pieces.append(f"{int(route_import['track_point_count'])} GPS pts")
-                source_line = " • ".join(imported_pieces) or "Imported route data"
-                started_at_label = ""
-                if route_import.get("started_at"):
-                    try:
-                        started_at_label = datetime.fromisoformat(str(route_import["started_at"]).replace("Z", "+00:00")).strftime("%b %d, %Y • %I:%M %p")
-                    except ValueError:
-                        started_at_label = str(route_import["started_at"])
-                st.markdown(
-                    f"""
-                    <div class="journal-route-card">
-                        <div class="journal-route-kicker">MapMyRun TCX attached</div>
-                        <div class="journal-route-meta">{escape(source_line)}</div>
-                        <div class="journal-route-file">{escape(route_import.get("source_file_name") or "Unnamed export")}</div>
-                        {f"<div class='journal-route-file'>{escape(started_at_label)}</div>" if started_at_label else ""}
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-            else:
-                st.caption("No route export attached yet. Add a TCX file to make the outing map follow the real track instead of just connecting photo points.")
-    with right:
-        st.markdown("##### Upload photos")
+    with st.container(key="journal_upload"):
+        st.markdown("<div class='journal-upload-label'>Add trail photos</div>", unsafe_allow_html=True)
         st.caption("Photos are optimized on upload so the journal stays quick to browse.")
         if st.session_state.journal_upload_notice:
             st.success(str(st.session_state.journal_upload_notice))
@@ -352,25 +252,37 @@ def render_journal_view(
                         )
                     st.rerun()
 
-    st.write("")
     if not photos:
         st.info("No photos yet. Upload a few trail photos to start this entry.")
         return
 
     review_selected_count = len([photo for photo in photos if photo.get("processing_status") == REVIEW_QUEUE_STATUS])
-    actions.render_selection_toolbar(repository, photos, "journal")
-    st.markdown("### Photo Field Notes")
-    page_photos, total_pages = actions.paginate_photos(photos)
-    actions.render_photo_management_toolbar(repository, storage, page_photos, photos, total_pages)
-    actions.render_known_species_assignment_toolbar(
-        repository,
-        inat_client,
-        page_photos,
-        photos,
-        primary_observation_by_photo,
-        known_species,
-        key_prefix=f"hike_{selected_hike['id']}",
-    )
+    with st.container(key="journal_workflow"):
+        st.markdown(
+            """
+            <div class="journal-workflow-heading">
+                <div>
+                    <div class="journal-workflow-kicker">Photo journal</div>
+                    <h2>Photo Field Notes</h2>
+                </div>
+                <p>Browse this outing, send photographs to review, or tag a known species in one pass.</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        actions.render_selection_toolbar(repository, photos, "journal", compact=True)
+        page_photos, total_pages = actions.paginate_photos(photos)
+        actions.render_photo_management_toolbar(repository, storage, page_photos, photos, total_pages, compact=True)
+        actions.render_known_species_assignment_toolbar(
+            repository,
+            inat_client,
+            page_photos,
+            photos,
+            primary_observation_by_photo,
+            known_species,
+            key_prefix=f"hike_{selected_hike['id']}",
+            compact=True,
+        )
     for index, photo in enumerate(page_photos):
         primary_observation = primary_observation_by_photo.get(photo["id"])
         photo_observations = observations_by_photo.get(photo["id"], [])
@@ -450,7 +362,12 @@ def render_journal_view(
                 current_delete = photo["id"] in st.session_state.delete_photo_ids
                 if delete_key not in st.session_state:
                     st.session_state[delete_key] = current_delete
-                delete_toggle = st.checkbox("Mark to delete", key=delete_key)
+                delete_toggle = st.checkbox(
+                    "Mark to delete",
+                    key=delete_key,
+                    on_change=_sync_delete_photo_checkbox,
+                    args=(photo["id"], delete_key),
+                )
                 if delete_toggle:
                     st.session_state.delete_photo_ids.add(photo["id"])
                 else:
