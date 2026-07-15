@@ -101,6 +101,10 @@ def render_mobile_share_composer(selected_hike: dict[str, Any], photos: list[dic
             const share = document.getElementById('share');
             const clear = document.getElementById('clear');
             const status = document.getElementById('status');
+            // Streamlit renders components in an iframe. Use the page's fetch
+            // implementation so the photo download is not blocked by the
+            // iframe's stricter connection policy.
+            const pageWindow = window.parent && window.parent !== window ? window.parent : window;
             const isDesktop = window.matchMedia('(pointer: fine)').matches && !window.matchMedia('(pointer: coarse)').matches;
             if (isDesktop) {{
               document.getElementById('share-title').textContent = 'Open Instagram';
@@ -126,7 +130,7 @@ def render_mobile_share_composer(selected_hike: dict[str, Any], photos: list[dic
             }};
             const prepare = async (photo) => {{
               try {{
-                const response = await fetch(photo.url);
+                const response = await pageWindow.fetch(photo.url);
                 if (!response.ok) throw new Error('photo download failed');
                 const blob = await response.blob();
                 if (!selected.includes(photo.id)) return;
@@ -188,10 +192,11 @@ def render_mobile_share_composer(selected_hike: dict[str, Any], photos: list[dic
               const files = selected.map((id) => preparedFiles.get(id));
               share.disabled = true;
               try {{
-                if (!navigator.share || (navigator.canShare && !navigator.canShare({{ files }}))) {{
+                const shareNavigator = pageWindow.navigator.share ? pageWindow.navigator : navigator;
+                if (!shareNavigator.share || (shareNavigator.canShare && !shareNavigator.canShare({{ files }}))) {{
                   throw new Error('sharing is not available');
                 }}
-                navigator.share({{ files, title: data.title, text: data.text }}).then(() => {{
+                shareNavigator.share({{ files, title: data.title, text: data.text }}).then(() => {{
                   status.textContent = 'Share sheet closed. Your photos are still selected if you want to try again.';
                   update();
                 }}).catch((error) => {{
