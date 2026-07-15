@@ -76,10 +76,10 @@ def render_mobile_share_composer(selected_hike: dict[str, Any], photos: list[dic
         </style>
         <main class="share-shell">
           <div class="share-head">
-            <div><p class="eyebrow">Share this hike</p><h3>Choose photos for Instagram</h3></div>
+            <div><p class="eyebrow">Share this hike</p><h3 id="share-title">Choose photos for Instagram</h3></div>
             <p class="count" id="count">0 of {INSTAGRAM_SHARE_MAX_PHOTOS} selected</p>
           </div>
-          <p class="copy">Select up to 20. Share opens your phone’s usual share sheet—choose Instagram to start a carousel post.</p>
+          <p class="copy" id="share-copy">Select up to 20. Share opens your phone’s usual share sheet—choose Instagram to start a carousel post.</p>
           <div class="grid" id="grid"></div>
           <button class="share-action" id="share" disabled>Share selected photos</button>
           <p class="status" id="status">Instagram and Facebook account settings stay in the apps you already use.</p>
@@ -94,7 +94,19 @@ def render_mobile_share_composer(selected_hike: dict[str, Any], photos: list[dic
             const count = document.getElementById('count');
             const share = document.getElementById('share');
             const status = document.getElementById('status');
+            const isDesktop = window.matchMedia('(pointer: fine)').matches && !window.matchMedia('(pointer: coarse)').matches;
+            if (isDesktop) {{
+              document.getElementById('share-title').textContent = 'Open Instagram';
+              document.getElementById('share-copy').textContent = 'Instagram will open in a new tab. Websites cannot pass a preselected set of photo files into Instagram on a computer.';
+              count.hidden = true;
+              grid.hidden = true;
+              share.disabled = false;
+              share.textContent = 'Open Instagram';
+              status.textContent = 'Use Instagram’s upload button to choose photos from this computer.';
+              if (window.frameElement) window.frameElement.style.height = '180px';
+            }}
             const update = () => {{
+              if (isDesktop) return;
               count.textContent = `${{selected.length}} of ${{data.limit}} selected`;
               share.disabled = selected.length === 0 || selected.some((id) => !preparedFiles.has(id));
               [...grid.children].forEach((tile) => {{
@@ -121,7 +133,7 @@ def render_mobile_share_composer(selected_hike: dict[str, Any], photos: list[dic
                 update();
               }}
             }};
-            data.photos.forEach((photo) => {{
+            if (!isDesktop) data.photos.forEach((photo) => {{
               const tile = document.createElement('button');
               tile.className = 'photo'; tile.type = 'button'; tile.dataset.id = photo.id;
               tile.setAttribute('aria-label', `Select ${{photo.label}}`);
@@ -146,6 +158,10 @@ def render_mobile_share_composer(selected_hike: dict[str, Any], photos: list[dic
               grid.append(tile);
             }});
             share.addEventListener('click', () => {{
+              if (isDesktop) {{
+                window.open('https://www.instagram.com/', '_blank', 'noopener');
+                return;
+              }}
               if (failedIds.size) {{
                 status.textContent = 'One selected photo could not be prepared. Deselect it or refresh the journal and try again.';
                 return;
@@ -414,7 +430,8 @@ def render_journal_view(
         st.info("No photos yet. Upload a few trail photos to start this entry.")
         return
 
-    render_mobile_share_composer(selected_hike, photos)
+    with st.expander("Share photos to Instagram", expanded=False):
+        render_mobile_share_composer(selected_hike, photos)
 
     review_selected_count = len([photo for photo in photos if photo.get("processing_status") == REVIEW_QUEUE_STATUS])
     with st.container(key="journal_workflow"):
