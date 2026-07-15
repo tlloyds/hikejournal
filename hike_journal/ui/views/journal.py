@@ -68,8 +68,11 @@ def render_mobile_share_composer(selected_hike: dict[str, Any], photos: list[dic
           .photo.selected {{ outline:3px solid #c4803d; outline-offset:-3px; }}
           .order {{ position:absolute; top:6px; right:6px; display:none; width:22px; height:22px; border-radius:50%; background:#c4803d; color:#fffaf0; font-size:12px; font-weight:800; line-height:22px; text-align:center; }}
           .photo.selected .order {{ display:block; }}
-          .share-action {{ width:100%; min-height:46px; margin-top:14px; border:0; border-radius:3px; background:#183a2d; color:#fffaf0; font:700 15px ui-sans-serif, system-ui, sans-serif; cursor:pointer; transition:background 150ms ease, transform 150ms ease; }}
-          .share-action:disabled {{ background:#9ba39e; cursor:default; }}
+          .share-actions {{ display:flex; gap:8px; margin-top:14px; }}
+          .share-action, .clear-action {{ min-height:46px; border:0; border-radius:3px; font:700 15px ui-sans-serif, system-ui, sans-serif; cursor:pointer; transition:background 150ms ease, transform 150ms ease; }}
+          .share-action {{ flex:1; background:#183a2d; color:#fffaf0; }}
+          .clear-action {{ padding:0 14px; background:transparent; color:#53605a; border:1px solid #bfc5bf; }}
+          .share-action:disabled, .clear-action:disabled {{ color:#9ba39e; border-color:#d7dbd7; background:#eef0ed; cursor:default; }}
           .share-action:not(:disabled):active {{ transform:translateY(1px); }}
           .status {{ min-height:18px; margin:9px 0 0; color:#64706b; font-size:12px; line-height:1.35; }}
           @media (max-width:420px) {{ .grid {{ grid-template-columns:repeat(4, minmax(0, 1fr)); }} .share-head {{ align-items:start; flex-direction:column; gap:5px; }} }}
@@ -81,7 +84,10 @@ def render_mobile_share_composer(selected_hike: dict[str, Any], photos: list[dic
           </div>
           <p class="copy" id="share-copy">Select up to 20. Share opens your phone’s usual share sheet—choose Instagram to start a carousel post.</p>
           <div class="grid" id="grid"></div>
-          <button class="share-action" id="share" disabled>Share selected photos</button>
+          <div class="share-actions">
+            <button class="share-action" id="share" disabled>Share selected photos</button>
+            <button class="clear-action" id="clear" disabled>Clear selected</button>
+          </div>
           <p class="status" id="status">Instagram and Facebook account settings stay in the apps you already use.</p>
         </main>
         <script>
@@ -93,6 +99,7 @@ def render_mobile_share_composer(selected_hike: dict[str, Any], photos: list[dic
             const grid = document.getElementById('grid');
             const count = document.getElementById('count');
             const share = document.getElementById('share');
+            const clear = document.getElementById('clear');
             const status = document.getElementById('status');
             const isDesktop = window.matchMedia('(pointer: fine)').matches && !window.matchMedia('(pointer: coarse)').matches;
             if (isDesktop) {{
@@ -102,6 +109,7 @@ def render_mobile_share_composer(selected_hike: dict[str, Any], photos: list[dic
               grid.hidden = true;
               share.disabled = false;
               share.textContent = 'Open Instagram';
+              clear.hidden = true;
               status.textContent = 'Use Instagram’s upload button to choose photos from this computer.';
               if (window.frameElement) window.frameElement.style.height = '180px';
             }}
@@ -109,6 +117,7 @@ def render_mobile_share_composer(selected_hike: dict[str, Any], photos: list[dic
               if (isDesktop) return;
               count.textContent = `${{selected.length}} of ${{data.limit}} selected`;
               share.disabled = selected.length === 0 || selected.some((id) => !preparedFiles.has(id));
+              clear.disabled = selected.length === 0;
               [...grid.children].forEach((tile) => {{
                 const order = selected.indexOf(tile.dataset.id);
                 tile.classList.toggle('selected', order >= 0);
@@ -120,6 +129,7 @@ def render_mobile_share_composer(selected_hike: dict[str, Any], photos: list[dic
                 const response = await fetch(photo.url);
                 if (!response.ok) throw new Error('photo download failed');
                 const blob = await response.blob();
+                if (!selected.includes(photo.id)) return;
                 preparedFiles.set(photo.id, new File(
                   [blob],
                   `hikejournal-${{String(data.photos.indexOf(photo) + 1).padStart(2, '0')}}.jpg`,
@@ -127,8 +137,10 @@ def render_mobile_share_composer(selected_hike: dict[str, Any], photos: list[dic
                 ));
                 failedIds.delete(photo.id);
               }} catch (error) {{
-                failedIds.add(photo.id);
-                status.textContent = 'One selected photo could not be prepared. Deselect it or refresh the journal and try again.';
+                if (selected.includes(photo.id)) {{
+                  failedIds.add(photo.id);
+                  status.textContent = 'One selected photo could not be prepared. Deselect it or refresh the journal and try again.';
+                }}
               }} finally {{
                 update();
               }}
@@ -156,6 +168,13 @@ def render_mobile_share_composer(selected_hike: dict[str, Any], photos: list[dic
                 update();
               }});
               grid.append(tile);
+            }});
+            clear.addEventListener('click', () => {{
+              selected.splice(0, selected.length);
+              preparedFiles.clear();
+              failedIds.clear();
+              status.textContent = 'Selection cleared.';
+              update();
             }});
             share.addEventListener('click', () => {{
               if (isDesktop) {{
