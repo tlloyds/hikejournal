@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from html import escape
+import json
 from typing import Any
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 from hike_journal.domain.library import photo_owner_email, photo_owner_subject
 from hike_journal.queries import invalidate_data_cache
@@ -18,6 +20,162 @@ from hike_journal.ui.components import format_photo_meta_html, render_clickable_
 
 REVIEW_QUEUE_STATUS = "in_review"
 TCX_IMPORT_TYPES = ["tcx", "xml"]
+INSTAGRAM_SHARE_MAX_PHOTOS = 20
+
+
+def render_mobile_share_composer(selected_hike: dict[str, Any], photos: list[dict[str, Any]]) -> None:
+    """Render a browser-native, multi-photo share handoff for a hike.
+
+    The Web Share API deliberately opens the phone's normal share sheet instead
+    of integrating with a social network. This keeps account selection and the
+    final post entirely in the Instagram/Facebook apps.
+    """
+    shareable_photos = [
+        {
+            "id": str(photo.get("id") or ""),
+            "url": str(photo.get("public_url") or ""),
+            "label": str(photo.get("caption") or "Trail photo"),
+        }
+        for photo in photos
+        if photo.get("id") and photo.get("public_url")
+    ]
+    if not shareable_photos:
+        return
+
+    payload = json.dumps(
+        {
+            "photos": shareable_photos,
+            "title": str(selected_hike.get("title") or "HikeJournal"),
+            "text": str(selected_hike.get("notes") or ""),
+            "limit": INSTAGRAM_SHARE_MAX_PHOTOS,
+        },
+    ).replace("<", "\\u003c")
+    components.html(
+        f"""
+        <style>
+          * {{ box-sizing: border-box; }}
+          body {{ margin: 0; color: #1f2a26; font-family: ui-sans-serif, system-ui, sans-serif; }}
+          .share-shell {{ padding: 18px 2px 10px; }}
+          .share-head {{ display:flex; justify-content:space-between; gap:16px; align-items:end; }}
+          .eyebrow {{ margin:0 0 5px; color:#9a5b2e; font-size:11px; font-weight:800; letter-spacing:.13em; text-transform:uppercase; }}
+          h3 {{ margin:0; font-family: Georgia, serif; font-size:25px; letter-spacing:-.035em; line-height:1; }}
+          .count {{ margin:0; color:#64706b; font-size:13px; font-weight:700; white-space:nowrap; }}
+          .copy {{ margin:10px 0 14px; color:#53605a; font-size:14px; line-height:1.45; }}
+          .grid {{ display:grid; grid-template-columns:repeat(5, minmax(0, 1fr)); gap:7px; }}
+          .photo {{ position:relative; aspect-ratio:1; border:0; padding:0; overflow:hidden; background:#183a2d; cursor:pointer; }}
+          .photo img {{ width:100%; height:100%; object-fit:cover; display:block; opacity:.84; transition:opacity 150ms ease, transform 150ms ease; }}
+          .photo.selected img {{ opacity:1; transform:scale(1.04); }}
+          .photo.selected {{ outline:3px solid #c4803d; outline-offset:-3px; }}
+          .order {{ position:absolute; top:6px; right:6px; display:none; width:22px; height:22px; border-radius:50%; background:#c4803d; color:#fffaf0; font-size:12px; font-weight:800; line-height:22px; text-align:center; }}
+          .photo.selected .order {{ display:block; }}
+          .share-action {{ width:100%; min-height:46px; margin-top:14px; border:0; border-radius:3px; background:#183a2d; color:#fffaf0; font:700 15px ui-sans-serif, system-ui, sans-serif; cursor:pointer; transition:background 150ms ease, transform 150ms ease; }}
+          .share-action:disabled {{ background:#9ba39e; cursor:default; }}
+          .share-action:not(:disabled):active {{ transform:translateY(1px); }}
+          .status {{ min-height:18px; margin:9px 0 0; color:#64706b; font-size:12px; line-height:1.35; }}
+          @media (max-width:420px) {{ .grid {{ grid-template-columns:repeat(4, minmax(0, 1fr)); }} .share-head {{ align-items:start; flex-direction:column; gap:5px; }} }}
+        </style>
+        <main class="share-shell">
+          <div class="share-head">
+            <div><p class="eyebrow">Share this hike</p><h3>Choose photos for Instagram</h3></div>
+            <p class="count" id="count">0 of {INSTAGRAM_SHARE_MAX_PHOTOS} selected</p>
+          </div>
+          <p class="copy">Select up to 20. Share opens your phone’s usual share sheet—choose Instagram to start a carousel post.</p>
+          <div class="grid" id="grid"></div>
+          <button class="share-action" id="share" disabled>Share selected photos</button>
+          <p class="status" id="status">Instagram and Facebook account settings stay in the apps you already use.</p>
+        </main>
+        <script>
+          (() => {{
+            const data = {payload};
+            const selected = [];
+            const preparedFiles = new Map();
+            const failedIds = new Set();
+            const grid = document.getElementById('grid');
+            const count = document.getElementById('count');
+            const share = document.getElementById('share');
+            const status = document.getElementById('status');
+            const update = () => {{
+              count.textContent = `${{selected.length}} of ${{data.limit}} selected`;
+              share.disabled = selected.length === 0 || selected.some((id) => !preparedFiles.has(id));
+              [...grid.children].forEach((tile) => {{
+                const order = selected.indexOf(tile.dataset.id);
+                tile.classList.toggle('selected', order >= 0);
+                tile.querySelector('.order').textContent = order + 1;
+              }});
+            }};
+            const prepare = async (photo) => {{
+              try {{
+                const response = await fetch(photo.url);
+                if (!response.ok) throw new Error('photo download failed');
+                const blob = await response.blob();
+                preparedFiles.set(photo.id, new File(
+                  [blob],
+                  `hikejournal-${{String(data.photos.indexOf(photo) + 1).padStart(2, '0')}}.jpg`,
+                  {{ type: blob.type || 'image/jpeg' }},
+                ));
+                failedIds.delete(photo.id);
+              }} catch (error) {{
+                failedIds.add(photo.id);
+                status.textContent = 'One selected photo could not be prepared. Deselect it or refresh the journal and try again.';
+              }} finally {{
+                update();
+              }}
+            }};
+            data.photos.forEach((photo) => {{
+              const tile = document.createElement('button');
+              tile.className = 'photo'; tile.type = 'button'; tile.dataset.id = photo.id;
+              tile.setAttribute('aria-label', `Select ${{photo.label}}`);
+              const image = document.createElement('img'); image.src = photo.url; image.alt = '';
+              const order = document.createElement('span'); order.className = 'order';
+              tile.append(image, order);
+              tile.addEventListener('click', () => {{
+                const index = selected.indexOf(photo.id);
+                if (index >= 0) {{
+                  selected.splice(index, 1);
+                  preparedFiles.delete(photo.id);
+                  failedIds.delete(photo.id);
+                }} else if (selected.length < data.limit) {{
+                  selected.push(photo.id);
+                  status.textContent = 'Preparing selected photos…';
+                  prepare(photo);
+                }}
+                else {{ status.textContent = `Instagram posts can include up to ${{data.limit}} photos.`; return; }}
+                if (!selected.length) status.textContent = 'Instagram and Facebook account settings stay in the apps you already use.';
+                update();
+              }});
+              grid.append(tile);
+            }});
+            share.addEventListener('click', () => {{
+              if (failedIds.size) {{
+                status.textContent = 'One selected photo could not be prepared. Deselect it or refresh the journal and try again.';
+                return;
+              }}
+              const files = selected.map((id) => preparedFiles.get(id));
+              share.disabled = true;
+              try {{
+                if (!navigator.share || (navigator.canShare && !navigator.canShare({{ files }}))) {{
+                  throw new Error('sharing is not available');
+                }}
+                navigator.share({{ files, title: data.title, text: data.text }}).then(() => {{
+                  status.textContent = 'Share sheet closed. Your photos are still selected if you want to try again.';
+                  update();
+                }}).catch((error) => {{
+                  status.textContent = error && error.name === 'AbortError'
+                    ? 'Share cancelled.'
+                    : 'Your browser could not share these files. Open this journal in Chrome or Safari on your phone and try again.';
+                  update();
+                }});
+              }} catch (error) {{
+                status.textContent = 'Your browser could not share these files. Open this journal in Chrome or Safari on your phone and try again.';
+                update();
+              }}
+            }});
+          }})();
+        </script>
+        """,
+        height=min(860, 235 + ((len(shareable_photos) + 4) // 5) * 125),
+        scrolling=True,
+    )
 
 
 def _sync_delete_photo_checkbox(photo_id: str, checkbox_key: str) -> None:
@@ -255,6 +413,8 @@ def render_journal_view(
     if not photos:
         st.info("No photos yet. Upload a few trail photos to start this entry.")
         return
+
+    render_mobile_share_composer(selected_hike, photos)
 
     review_selected_count = len([photo for photo in photos if photo.get("processing_status") == REVIEW_QUEUE_STATUS])
     with st.container(key="journal_workflow"):
