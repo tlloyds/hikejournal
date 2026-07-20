@@ -25,6 +25,7 @@ from hike_journal.navigation import (
     apply_navigation,
     build_internal_view_href as build_view_href,
     build_species_log_record_href as build_species_record_href,
+    close_viewer_state,
     hydrate_query_state,
     query_state_for_view,
     set_species_log_record_query_state as update_species_record_query_state,
@@ -1889,7 +1890,12 @@ def render_species_record_dialog(
     st.markdown("</div>", unsafe_allow_html=True)
 
 
-@st.dialog("Photo Viewer", width="large")
+def dismiss_photo_viewer() -> None:
+    """Keep a dismissed viewer from being restored by its deep-link query parameter."""
+    close_viewer_state(st.session_state, st.query_params)
+
+
+@st.dialog("Photo Viewer", width="large", on_dismiss=dismiss_photo_viewer)
 def render_photo_viewer(
     repository: HikeJournalRepository,
     inat_client: InatClient,
@@ -1992,15 +1998,13 @@ def render_photo_viewer(
         st.query_params["photo"] = photos[st.session_state.viewer_index]["id"]
         st.rerun()
     if controls[3].button("Close", use_container_width=True, key="viewer_close"):
-        st.session_state.viewer_open = False
+        dismiss_photo_viewer()
         for key, value in get_query_state_for_view(st.session_state.active_view).items():
             if value == "":
                 if key in st.query_params:
                     del st.query_params[key]
             else:
                 st.query_params[key] = value
-        if "photo" in st.query_params:
-            del st.query_params["photo"]
         st.rerun()
 
 

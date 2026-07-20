@@ -1,6 +1,7 @@
 from hike_journal.navigation import (
     apply_navigation,
     build_internal_view_href,
+    close_viewer_state,
     hydrate_query_state,
     query_state_for_view,
     set_species_log_record_query_state,
@@ -82,3 +83,13 @@ def test_species_record_and_viewer_state_are_isolated() -> None:
     assert query["species_log_record_open"] == "1"
     assert found
     assert state == {"viewer_open": True, "viewer_index": 1}
+
+
+def test_closing_viewer_removes_photo_deep_link() -> None:
+    state = {"viewer_open": True, "viewer_index": 1}
+    query = {"view": "Journal", "hike": "hike-1", "photo": "photo-2"}
+
+    close_viewer_state(state, query)
+
+    assert state["viewer_open"] is False
+    assert query == {"view": "Journal", "hike": "hike-1"}

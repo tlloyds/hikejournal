@@ -220,3 +220,12 @@ def sync_viewer_state(
             state["viewer_index"] = index
             return True
     return False
+
+
+def close_viewer_state(
+    state: MutableMapping[str, Any],
+    query_params: MutableMapping[str, Any],
+) -> None:
+    """Close the photo viewer and remove the URL state that would reopen it."""
+    state["viewer_open"] = False
+    query_params.pop("photo", None)
