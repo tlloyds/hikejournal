@@ -76,8 +76,17 @@ class StorageService:
         )
         return path, self._build_public_url(path)
 
-    def upload_hike_photo(self, hike_id: str, image_bytes: bytes, content_type: str) -> tuple[str, str]:
-        path = f"hikes/{hike_id}/{uuid4().hex}.jpg"
+    def upload_hike_photo(
+        self,
+        hike_id: str,
+        image_bytes: bytes,
+        content_type: str,
+        *,
+        object_id: str | None = None,
+    ) -> tuple[str, str]:
+        path = f"hikes/{hike_id}/{object_id or uuid4().hex}.jpg"
+        if object_id:
+            return self.replace_file(path, image_bytes, content_type)
         return self._upload_bytes(path, image_bytes, content_type)
 
     def upload_hike_route_import(self, hike_id: str, file_bytes: bytes, content_type: str = "application/vnd.garmin.tcx+xml") -> tuple[str, str]:

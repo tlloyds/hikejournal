@@ -1,0 +1,11 @@
+.env
+.runtime
+.git
+.venv
+android
+dist
+__pycache__
+.pytest_cache
+*.apk
+*.jks
+*.keystore

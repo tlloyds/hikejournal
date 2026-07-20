@@ -212,6 +212,8 @@ class InatClient:
         place_guess: str | None = None,
         description: str | None = None,
         tags: list[str] | None = None,
+        geoprivacy: str | None = None,
+        captive: bool = False,
     ) -> dict[str, Any]:
         if not self.is_configured:
             raise InatConfigurationError("No iNaturalist token is configured yet.")
@@ -237,6 +239,10 @@ class InatClient:
             observation_payload["description"] = description.strip()
         if tags:
             observation_payload["tag_list"] = ",".join(tag.strip() for tag in tags if tag.strip())
+        if geoprivacy in {"open", "obscured", "private"}:
+            observation_payload["geoprivacy"] = geoprivacy
+        if captive:
+            observation_payload["captive"] = True
 
         response = self._request(
             "post",

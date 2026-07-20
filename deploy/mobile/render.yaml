@@ -1,0 +1,33 @@
+services:
+  - type: web
+    name: hikejournal-mobile
+    runtime: docker
+    dockerfilePath: ./deploy/mobile/Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeploy: false
+    envVars:
+      - key: MOBILE_API_TOKEN
+        generateValue: true
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
+      - key: STORAGE_BACKEND
+        value: r2
+      - key: R2_ENDPOINT
+        sync: false
+      - key: R2_BUCKET
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_PUBLIC_BASE_URL
+        sync: false
+      - key: INAT_ACCESS_TOKEN
+        sync: false
+      - key: MOBILE_OWNER_EMAIL
+        sync: false
+      - key: MOBILE_WEB_URL
+        sync: false

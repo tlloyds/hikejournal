@@ -96,7 +96,7 @@ class HikeJournalRepository:
         records = response.data or []
         return records[0] if records else None
 
-    def create_hike(self, draft: HikeDraft) -> dict[str, Any]:
+    def create_hike(self, draft: HikeDraft, *, hike_id: str | None = None) -> dict[str, Any]:
         payload = {
             "title": draft.title.strip(),
             "hike_date": draft.hike_date.isoformat(),
@@ -106,6 +106,8 @@ class HikeJournalRepository:
             "owner_subject": draft.owner_subject,
             "owner_email": draft.owner_email,
         }
+        if hike_id:
+            payload["id"] = hike_id
         try:
             response = self.client.table("hikes").insert(payload).execute()
         except Exception:
