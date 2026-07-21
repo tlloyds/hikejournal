@@ -40,6 +40,7 @@ data class AppState(
     val isMapLoading: Boolean = false,
     val isReviewLoading: Boolean = false,
     val decidingReviewId: String? = null,
+    val identifyingReviewId: String? = null,
     val queuingReviewId: String? = null,
     val isPublishLoading: Boolean = false,
     val publishingId: String? = null,
@@ -233,6 +234,30 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             }.onFailure { error ->
                 _state.update { it.copy(decidingReviewId = null, error = error.userMessage()) }
             }
+        }
+    }
+
+    fun requestReviewRecommendation(item: ReviewItem) {
+        if (_state.value.isOffline) {
+            _state.update { it.copy(error = "iNaturalist recommendations need a connection.") }
+            return
+        }
+        viewModelScope.launch {
+            _state.update { it.copy(identifyingReviewId = item.id, error = null) }
+            runCatching { repository.requestReviewRecommendation(item.id) }
+                .onSuccess { recommended ->
+                    _state.update { state ->
+                        state.copy(
+                            reviewQueue = state.reviewQueue.map { existing ->
+                                if (existing.id == recommended.id) recommended else existing
+                            },
+                            identifyingReviewId = null,
+                        )
+                    }
+                }
+                .onFailure { error ->
+                    _state.update { it.copy(identifyingReviewId = null, error = error.userMessage()) }
+                }
         }
     }
 

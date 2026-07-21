@@ -57,6 +57,22 @@ class HikeJournalApi(private val context: Context) {
 
     suspend fun getReviewQueueJson(): String = request("/v1/species/review")
 
+    suspend fun requestReviewRecommendation(photoId: String): String = try {
+        request(
+            path = "/v1/species/review/$photoId/recommendation",
+            method = "POST",
+            body = JSONObject().toString().toRequestBody(jsonMediaType),
+        )
+    } catch (error: ApiException) {
+        if (error.statusCode == 404) {
+            throw ApiException(
+                "This phone's companion service needs the latest HikeJournal update. Restart or redeploy it, then try again.",
+                error.statusCode,
+            )
+        }
+        throw error
+    }
+
     suspend fun getPublishQueueJson(): String = request("/v1/species/publish")
 
     suspend fun publishObservation(observationId: String, options: PublishOptions): String = request(

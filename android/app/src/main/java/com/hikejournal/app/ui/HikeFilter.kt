@@ -47,6 +47,7 @@ import com.hikejournal.app.ui.theme.Moss
 import com.hikejournal.app.ui.theme.Paper
 import com.hikejournal.app.ui.theme.Parchment
 import com.hikejournal.app.ui.theme.Trail
+import com.hikejournal.app.ui.theme.TrailText
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -69,7 +70,7 @@ fun HikeFilterControl(
     ) {
         Icon(Icons.Rounded.Tune, null, tint = Trail, modifier = Modifier.size(20.dp))
         Column(Modifier.weight(1f).padding(start = 12.dp)) {
-            Text("FILTER BY OUTING", style = MaterialTheme.typography.labelSmall, color = Trail)
+            Text("FILTER BY OUTING", style = MaterialTheme.typography.labelSmall, color = TrailText)
             Text(
                 selectedHike?.title ?: "All hikes",
                 style = MaterialTheme.typography.titleMedium,
@@ -111,7 +112,7 @@ fun HikeFilterSheet(
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Paper) {
         Column(Modifier.fillMaxWidth().navigationBarsPadding()) {
             Column(Modifier.padding(horizontal = 20.dp)) {
-                Text("OUTING SCOPE", style = MaterialTheme.typography.labelSmall, color = Trail)
+                Text("OUTING SCOPE", style = MaterialTheme.typography.labelSmall, color = TrailText)
                 Text("Choose a hike", style = MaterialTheme.typography.headlineLarge, color = Ink)
                 Text(
                     "Species and publishing records will stay within this outing.",

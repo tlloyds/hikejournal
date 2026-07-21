@@ -131,6 +131,7 @@ import com.hikejournal.app.ui.theme.Moss
 import com.hikejournal.app.ui.theme.Paper
 import com.hikejournal.app.ui.theme.Parchment
 import com.hikejournal.app.ui.theme.Trail
+import com.hikejournal.app.ui.theme.TrailText
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
@@ -210,9 +211,11 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                     queue = state.reviewQueue,
                     loading = state.isReviewLoading,
                     decidingId = state.decidingReviewId,
+                    identifyingId = state.identifyingReviewId,
                     offline = state.isOffline,
                     onRefresh = { viewModel.loadReviewQueue(force = true) },
                     onDecision = viewModel::decideReview,
+                    onRequestRecommendation = viewModel::requestReviewRecommendation,
                 )
                 destination == TopDestination.Publish -> PublishingScreen(
                     queue = state.publishQueue,
@@ -431,7 +434,7 @@ private fun LibraryHeader(
                         Spacer(Modifier.width(10.dp))
                         Icon(Icons.Rounded.CloudOff, null, tint = Trail, modifier = Modifier.size(15.dp))
                         Spacer(Modifier.width(4.dp))
-                        Text("OFFLINE", style = MaterialTheme.typography.labelSmall, color = Trail)
+                        Text("OFFLINE", style = MaterialTheme.typography.labelSmall, color = TrailText)
                     }
                 }
             }
@@ -546,7 +549,7 @@ private fun FeaturedHike(hike: Hike, onOpen: (String) -> Unit) {
         )
         Column(Modifier.align(Alignment.BottomStart).padding(22.dp)) {
             if (hike.syncState != "synced") {
-                Text("SAVED ON PHONE", style = MaterialTheme.typography.labelSmall, color = Trail)
+                Text("SAVED ON PHONE", style = MaterialTheme.typography.labelSmall, color = TrailText)
             }
             Text(formatDate(hike.hikeDate).uppercase(Locale.US), style = MaterialTheme.typography.labelSmall, color = Color(0xFFD7DFD2))
             Text(
@@ -584,7 +587,7 @@ private fun HikeRow(hike: Hike, onOpen: (String) -> Unit) {
                 if (hike.syncState != "synced") {
                     Text("SAVED ON PHONE", style = MaterialTheme.typography.labelSmall, color = Moss)
                 }
-                Text(formatDate(hike.hikeDate).uppercase(Locale.US), style = MaterialTheme.typography.labelSmall, color = Trail)
+                Text(formatDate(hike.hikeDate).uppercase(Locale.US), style = MaterialTheme.typography.labelSmall, color = TrailText)
                 Text(hike.title, style = MaterialTheme.typography.titleLarge, color = Ink, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Text(hikeMeta(hike), style = MaterialTheme.typography.bodyMedium, color = InkMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
@@ -611,7 +614,7 @@ private fun JournalScreen(
         item { JournalHero(hike, onBack, onEdit, onArchive) }
         item {
             Column(Modifier.padding(horizontal = 20.dp, vertical = 24.dp)) {
-                Text(formatDate(hike.hikeDate).uppercase(Locale.US), style = MaterialTheme.typography.labelSmall, color = Trail)
+                Text(formatDate(hike.hikeDate).uppercase(Locale.US), style = MaterialTheme.typography.labelSmall, color = TrailText)
                 Text(hike.title, style = MaterialTheme.typography.displayMedium, color = Ink)
                 if (hike.locationName.isNotBlank()) {
                     Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -658,7 +661,7 @@ private fun JournalScreen(
                 verticalAlignment = Alignment.Bottom,
             ) {
                 Column {
-                    Text("FIELD NOTES", style = MaterialTheme.typography.labelSmall, color = Trail)
+                    Text("FIELD NOTES", style = MaterialTheme.typography.labelSmall, color = TrailText)
                     Text("Photo journal", style = MaterialTheme.typography.headlineMedium, color = Ink)
                 }
                 Text("${hike.photos.size} frames", style = MaterialTheme.typography.bodyMedium, color = InkMuted)
@@ -760,7 +763,7 @@ private fun HikeEditorSheet(hike: Hike?, saving: Boolean, onDismiss: () -> Unit,
         Column(
             Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).imePadding().padding(horizontal = 20.dp).padding(bottom = 36.dp),
         ) {
-            Text(if (hike == null) "NEW FIELD NOTE" else "EDIT OUTING", style = MaterialTheme.typography.labelSmall, color = Trail)
+            Text(if (hike == null) "NEW FIELD NOTE" else "EDIT OUTING", style = MaterialTheme.typography.labelSmall, color = TrailText)
             Text(if (hike == null) "Create a hike" else "Refine the journal", style = MaterialTheme.typography.headlineLarge, color = Ink)
             Spacer(Modifier.height(18.dp))
             OutlinedTextField(title, { title = it }, Modifier.fillMaxWidth(), label = { Text("Hike title") }, singleLine = true)
@@ -804,7 +807,7 @@ private fun UploadSheet(photoCount: Int, onDismiss: () -> Unit, onUpload: (Strin
     var queueForReview by remember { mutableStateOf(false) }
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Paper) {
         Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 20.dp).padding(bottom = 28.dp)) {
-            Text("$photoCount FRAME${if (photoCount == 1) "" else "S"} SELECTED", style = MaterialTheme.typography.labelSmall, color = Trail)
+            Text("$photoCount FRAME${if (photoCount == 1) "" else "S"} SELECTED", style = MaterialTheme.typography.labelSmall, color = TrailText)
             Text("Add to this journal", style = MaterialTheme.typography.headlineLarge, color = Ink)
             Text("Each original is secured on this phone now, including its date and GPS. Sync resumes automatically on any connection.", style = MaterialTheme.typography.bodyMedium, color = InkMuted, modifier = Modifier.padding(top = 6.dp))
             OutlinedTextField(caption, { caption = it }, Modifier.fillMaxWidth().padding(top = 18.dp), label = { Text("Shared caption · optional") })
@@ -973,7 +976,7 @@ private fun WebDeskLink(hike: Hike) {
     val context = LocalContext.current
     Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 40.dp)) {
         HorizontalDivider(color = Line)
-        Text("DESKTOP WORKSPACE", style = MaterialTheme.typography.labelSmall, color = Trail, modifier = Modifier.padding(top = 22.dp))
+        Text("DESKTOP WORKSPACE", style = MaterialTheme.typography.labelSmall, color = TrailText, modifier = Modifier.padding(top = 22.dp))
         Text("Continue on the big screen", style = MaterialTheme.typography.headlineMedium, color = Ink)
         Text("Streamlit remains the full archive workspace; Android and web now share the same reviews, maps, and iNaturalist records.", style = MaterialTheme.typography.bodyMedium, color = InkMuted, modifier = Modifier.padding(top = 5.dp))
         TextButton(onClick = {

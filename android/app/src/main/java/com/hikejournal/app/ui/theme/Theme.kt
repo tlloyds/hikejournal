@@ -19,7 +19,10 @@ val Trail = Color(0xFFD17D42)
 val Parchment = Color(0xFFF4F0E5)
 val Paper = Color(0xFFFFFCF3)
 val Ink = Color(0xFF1D241F)
-val InkMuted = Color(0xFF667068)
+// Secondary copy and labels must remain legible in bright outdoor conditions.
+val InkMuted = Color(0xFF526057)
+val TrailText = Color(0xFF9B4D27)
+val FernText = Color(0xFF4D6A50)
 val Line = Color(0xFFD8D3C7)
 val Lichen = Color(0xFFDCE5D6)
 

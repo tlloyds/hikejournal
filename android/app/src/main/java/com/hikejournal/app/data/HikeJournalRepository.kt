@@ -80,6 +80,14 @@ class HikeJournalRepository(context: Context) {
         return result.copy(value = result.value.filterNot { it.id in pending })
     }
 
+    suspend fun requestReviewRecommendation(photoId: String): ReviewItem {
+        val item = parseReviewItem(api.requestReviewRecommendation(photoId))
+        withContext(Dispatchers.IO) {
+            File(cacheDirectory, "species-review.json").delete()
+        }
+        return item
+    }
+
     suspend fun loadPublishQueue(): LoadResult<PublishQueue> = loadWithCache(
         cacheFile = File(cacheDirectory, "species-publish.json"),
         fetch = api::getPublishQueueJson,

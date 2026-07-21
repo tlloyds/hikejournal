@@ -70,9 +70,11 @@ fun SpeciesReviewScreen(
     queue: List<ReviewItem>,
     loading: Boolean,
     decidingId: String?,
+    identifyingId: String?,
     offline: Boolean,
     onRefresh: () -> Unit,
     onDecision: (ReviewItem, String, ReviewCandidate?) -> Unit,
+    onRequestRecommendation: (ReviewItem) -> Unit,
 ) {
     var index by remember { mutableIntStateOf(0) }
     val queueSignature = remember(queue) { queue.joinToString(",") { it.id } }
@@ -125,9 +127,11 @@ fun SpeciesReviewScreen(
                     position = queue.indexOfFirst { it.id == targetId }.takeIf { it >= 0 }?.plus(1) ?: index + 1,
                     total = queue.size,
                     deciding = decidingId == targetItem.id,
-                    enabled = !offline && decidingId == null,
+                    identifying = identifyingId == targetItem.id,
+                    enabled = !offline && decidingId == null && identifyingId == null,
                     onNext = { if (queue.isNotEmpty()) index = (index + 1) % queue.size },
                     onDecision = onDecision,
+                    onRequestRecommendation = onRequestRecommendation,
                 )
             }
         }
@@ -140,9 +144,11 @@ private fun ReviewItemContent(
     position: Int,
     total: Int,
     deciding: Boolean,
+    identifying: Boolean,
     enabled: Boolean,
     onNext: () -> Unit,
     onDecision: (ReviewItem, String, ReviewCandidate?) -> Unit,
+    onRequestRecommendation: (ReviewItem) -> Unit,
 ) {
     var selectedIndex by remember(item.id) { mutableIntStateOf(0) }
     val selected = item.candidates.getOrNull(selectedIndex)
@@ -176,15 +182,25 @@ private fun ReviewItemContent(
                 if (item.candidates.isEmpty()) {
                     Text("Awaiting a suggestion", style = MaterialTheme.typography.headlineMedium, color = Ink)
                     Text(
-                        "This frame is still queued for identification. Process it in Streamlit for now, then it will appear here for a decision.",
+                        "Ask iNaturalist to analyze this photo using its computer-vision model. Location and date help narrow the result.",
                         style = MaterialTheme.typography.bodyLarge,
                         color = InkMuted,
                         modifier = Modifier.padding(top = 7.dp),
                     )
-                    Button(onClick = onNext, modifier = Modifier.fillMaxWidth().padding(top = 20.dp)) {
-                        Icon(Icons.Rounded.SkipNext, null)
+                    Button(
+                        onClick = { onRequestRecommendation(item) },
+                        enabled = enabled,
+                        modifier = Modifier.fillMaxWidth().padding(top = 20.dp).height(52.dp),
+                    ) {
+                        if (identifying) CircularProgressIndicator(Modifier.size(19.dp), color = Paper, strokeWidth = 2.dp)
+                        else Icon(Icons.Rounded.Refresh, null)
                         Spacer(Modifier.width(8.dp))
-                        Text("Next frame")
+                        Text(if (identifying) "Asking iNaturalist…" else "Get iNaturalist recommendation")
+                    }
+                    OutlinedButton(onClick = onNext, enabled = !identifying, modifier = Modifier.fillMaxWidth().padding(top = 10.dp)) {
+                        Icon(Icons.Rounded.SkipNext, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Skip for now")
                     }
                 } else {
                     Text("Choose the best match", style = MaterialTheme.typography.headlineMedium, color = Ink)

@@ -66,6 +66,7 @@ import com.hikejournal.app.ui.theme.InkMuted
 import com.hikejournal.app.ui.theme.Moss
 import com.hikejournal.app.ui.theme.Paper
 import com.hikejournal.app.ui.theme.Trail
+import com.hikejournal.app.ui.theme.TrailText
 import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
@@ -92,6 +93,8 @@ import java.util.Locale
 private const val MAP_STYLE = "https://demotiles.maplibre.org/style.json"
 private const val SOURCE_ID = "hikejournal-sightings"
 private const val LAYER_ID = "hikejournal-sightings-circles"
+private const val SELECTED_SOURCE_ID = "hikejournal-selected-sighting"
+private const val SELECTED_LAYER_ID = "hikejournal-selected-sighting-circle"
 private val SATELLITE_STYLE = """
     {
       "version": 8,
@@ -136,6 +139,7 @@ fun SightingsMapScreen(
     Box(Modifier.fillMaxSize().background(Moss)) {
         HikeJournalMap(
             sightings = visibleSightings,
+            selectedSighting = selected,
             layerMode = layerMode,
             onSelect = { selected = it },
             onViewportChanged = { viewport = it },
@@ -242,7 +246,7 @@ private fun OfflineMapPacksSheet(
         Column(
             Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).padding(bottom = 34.dp),
         ) {
-            Text("FIELD MAPS", style = MaterialTheme.typography.labelSmall, color = Trail)
+            Text("FIELD MAPS", style = MaterialTheme.typography.labelSmall, color = TrailText)
             Text("Keep this area offline", style = MaterialTheme.typography.headlineMedium, color = Ink)
             Text(
                 "Download the map currently on screen through zoom 15. Completed packs remain available without service.",
@@ -348,7 +352,7 @@ private fun SightingInspector(
                 maxLines = 2,
             )
             Text(sighting.hikeTitle, style = MaterialTheme.typography.bodyMedium, color = InkMuted, maxLines = 1)
-            Text(formatMapDate(sighting.takenAt ?: sighting.hikeDate), style = MaterialTheme.typography.labelMedium, color = Trail)
+            Text(formatMapDate(sighting.takenAt ?: sighting.hikeDate), style = MaterialTheme.typography.labelMedium, color = TrailText)
             if (sighting.hikeId != null) {
                 Button(onClick = onOpenHike, modifier = Modifier.padding(top = 7.dp).height(38.dp)) {
                     Icon(Icons.Rounded.Route, null, Modifier.size(17.dp))
@@ -366,6 +370,7 @@ private fun SightingInspector(
 @Composable
 private fun HikeJournalMap(
     sightings: List<Sighting>,
+    selectedSighting: Sighting?,
     layerMode: MapLayerMode,
     onSelect: (Sighting) -> Unit,
     onViewportChanged: (MapViewport) -> Unit,
@@ -376,6 +381,7 @@ private fun HikeJournalMap(
     controller.onSelect = onSelect
     controller.onViewportChanged = onViewportChanged
     controller.sightingsById = sightings.associateBy { it.id }
+    controller.selectedSighting = selectedSighting
     val mapView = remember {
         MapLibre.getInstance(context)
         val options = MapLibreMapOptions.createFromAttributes(context).textureMode(true)
@@ -401,6 +407,7 @@ private fun HikeJournalMap(
         update = {
             controller.updateLayer(layerMode, sightings)
             controller.updateSightings(sightings)
+            controller.updateSelectedSighting(selectedSighting)
         },
         modifier = modifier,
     )
@@ -410,6 +417,7 @@ private class NativeMapController {
     var onSelect: (Sighting) -> Unit = {}
     var sightingsById: Map<String, Sighting> = emptyMap()
     var onViewportChanged: (MapViewport) -> Unit = {}
+    var selectedSighting: Sighting? = null
     private var map: MapLibreMap? = null
     private var fitted = false
     private var layerMode = MapLayerMode.Trail
@@ -447,6 +455,12 @@ private class NativeMapController {
         map.setStyle(builder) { style ->
             val source = GeoJsonSource(SOURCE_ID, featureCollection(sightings))
             style.addSource(source)
+            style.addSource(
+                GeoJsonSource(
+                    SELECTED_SOURCE_ID,
+                    featureCollection(selectedSighting?.let(::listOf) ?: emptyList()),
+                ),
+            )
             style.addLayer(
                 CircleLayer(LAYER_ID, SOURCE_ID).withProperties(
                     circleColor("#D17D42"),
@@ -456,7 +470,17 @@ private class NativeMapController {
                     circleStrokeWidth(1.2f),
                 ),
             )
+            style.addLayer(
+                CircleLayer(SELECTED_LAYER_ID, SELECTED_SOURCE_ID).withProperties(
+                    circleColor("#2587D8"),
+                    circleRadius(7.5f),
+                    circleOpacity(1f),
+                    circleStrokeColor("#F4F0E5"),
+                    circleStrokeWidth(2f),
+                ),
+            )
             updateSightings(sightings)
+            updateSelectedSighting(selectedSighting)
         }
     }
 
@@ -468,6 +492,14 @@ private class NativeMapController {
                 fitted = true
                 fitSightings(currentMap, sightings)
             }
+        }
+    }
+
+    fun updateSelectedSighting(sighting: Sighting?) {
+        map?.getStyle { style ->
+            style.getSourceAs<GeoJsonSource>(SELECTED_SOURCE_ID)?.setGeoJson(
+                featureCollection(sighting?.let(::listOf) ?: emptyList()),
+            )
         }
     }
 

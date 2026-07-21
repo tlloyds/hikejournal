@@ -195,29 +195,32 @@ fun parseSightings(json: String): List<Sighting> {
 
 fun parseReviewQueue(json: String): List<ReviewItem> {
     val array = JSONArray(json)
-    return List(array.length()) { index ->
-        val item = array.getJSONObject(index)
-        val candidates = item.optJSONArray("candidates") ?: JSONArray()
-        ReviewItem(
-            id = item.optString("id"),
-            photo = parsePhoto(item.getJSONObject("photo")),
-            hikeId = item.optNullableString("hike_id"),
-            hikeTitle = item.optString("hike_title", "Everyday sighting"),
-            hikeDate = item.optString("hike_date"),
-            locationName = item.optString("location_name"),
-            state = item.optString("state", "waiting"),
-            observationId = item.optNullableString("observation_id"),
-            candidates = List(candidates.length()) { candidateIndex ->
-                val candidate = candidates.getJSONObject(candidateIndex)
-                ReviewCandidate(
-                    taxonId = candidate.optNullableLong("taxon_id"),
-                    commonName = candidate.optString("common_name", "Unknown species"),
-                    scientificName = candidate.optString("scientific_name"),
-                    confidence = candidate.optNullableDouble("confidence"),
-                )
-            },
-        )
-    }
+    return List(array.length()) { index -> parseReviewItem(array.getJSONObject(index)) }
+}
+
+fun parseReviewItem(json: String): ReviewItem = parseReviewItem(JSONObject(json))
+
+private fun parseReviewItem(json: JSONObject): ReviewItem {
+    val candidates = json.optJSONArray("candidates") ?: JSONArray()
+    return ReviewItem(
+        id = json.optString("id"),
+        photo = parsePhoto(json.getJSONObject("photo")),
+        hikeId = json.optNullableString("hike_id"),
+        hikeTitle = json.optString("hike_title", "Everyday sighting"),
+        hikeDate = json.optString("hike_date"),
+        locationName = json.optString("location_name"),
+        state = json.optString("state", "waiting"),
+        observationId = json.optNullableString("observation_id"),
+        candidates = List(candidates.length()) { candidateIndex ->
+            val candidate = candidates.getJSONObject(candidateIndex)
+            ReviewCandidate(
+                taxonId = candidate.optNullableLong("taxon_id"),
+                commonName = candidate.optString("common_name", "Unknown species"),
+                scientificName = candidate.optString("scientific_name"),
+                confidence = candidate.optNullableDouble("confidence"),
+            )
+        },
+    )
 }
 
 fun parsePublishQueue(json: String): PublishQueue {

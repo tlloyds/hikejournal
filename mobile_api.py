@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from contextlib import asynccontextmanager
-from datetime import date
+from datetime import date, datetime
 import hashlib
 import hmac
 import os
@@ -22,8 +22,10 @@ from hike_journal.services.image_processing import optimize_image
 from hike_journal.services.inat import (
     InatAuthError,
     InatClient,
+    InatComputerVisionBlockedError,
     InatConfigurationError,
     InatRequestError,
+    InatRateLimitError,
     parse_candidates,
     resolve_access_token_for_user,
 )
@@ -125,7 +127,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title="HikeJournal Mobile Companion API",
-    version="0.5.2",
+    version="0.5.3",
     docs_url=None,
     redoc_url=None,
     lifespan=lifespan,
@@ -498,6 +500,26 @@ def _review_queue_payload(svc: Services) -> list[dict[str, Any]]:
     )
 
 
+def _photo_observed_at(photo: dict[str, Any]) -> datetime | None:
+    raw = str(photo.get("taken_at") or photo.get("created_at") or "").strip()
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        try:
+            return datetime.fromisoformat(raw[:10])
+        except ValueError:
+            return None
+
+
+def _download_photo_for_cv(svc: Services, photo: dict[str, Any]) -> bytes:
+    storage_path = str(photo.get("storage_path") or "").strip()
+    if storage_path:
+        return svc.storage.download_file(storage_path)
+    raise InatRequestError("This photo cannot be identified because its stored image is unavailable.")
+
+
 def _mobile_inat_client() -> InatClient:
     owner = _user_context()
     access_token = resolve_access_token_for_user(
@@ -586,15 +608,15 @@ def _publish_queue_payload(svc: Services) -> dict[str, Any]:
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok", "service": "hikejournal-mobile", "version": "0.5.2"}
+    return {"status": "ok", "service": "hikejournal-mobile", "version": "0.5.3"}
 
 
 @app.get("/v1/config", dependencies=[Depends(require_mobile_key)])
 def app_config() -> dict[str, Any]:
     return {
         "web_url": os.getenv("MOBILE_WEB_URL", "http://192.168.0.157:8505").rstrip("/"),
-        "api_version": "0.5.2",
-        "capabilities": ["offline_sync", "grouped_inat_publish", "map_packs"],
+        "api_version": "0.5.3",
+        "capabilities": ["offline_sync", "grouped_inat_publish", "map_packs", "live_inat_cv"],
     }
 
 
@@ -632,6 +654,49 @@ def list_species() -> list[dict[str, Any]]:
 @app.get("/v1/species/review", dependencies=[Depends(require_mobile_key)])
 def list_species_review() -> list[dict[str, Any]]:
     return _review_queue_payload(get_services())
+
+
+@app.post("/v1/species/review/{photo_id}/recommendation", dependencies=[Depends(require_mobile_key)])
+def request_species_recommendation(photo_id: str) -> dict[str, Any]:
+    """Get fresh iNaturalist CV candidates for one queued photo and save them for review."""
+    global _species_data_cache
+    svc, photo = _get_visible_photo(photo_id)
+    if str(photo.get("processing_status") or "") != "in_review":
+        raise HTTPException(status_code=409, detail="Queue this photo for species review before requesting an ID.")
+
+    try:
+        candidates, _ = _mobile_inat_client().score_species_candidates(
+            image_bytes=_download_photo_for_cv(svc, photo),
+            filename=f"{photo_id}.jpg",
+            lat=photo.get("lat"),
+            lng=photo.get("lng"),
+            observed_on=_photo_observed_at(photo),
+            limit=5,
+        )
+        primary = candidates[0]
+        svc.repository.upsert_observation(
+            photo.get("hike_id"),
+            photo_id,
+            primary,
+            owner_subject=photo.get("owner_subject"),
+            owner_email=photo.get("owner_email"),
+        )
+    except InatConfigurationError as exc:
+        raise HTTPException(status_code=409, detail="Connect iNaturalist in Streamlit before requesting recommendations on Android.") from exc
+    except InatAuthError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+    except InatRateLimitError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
+    except InatComputerVisionBlockedError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except InatRequestError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    _species_data_cache = None
+    item = next((row for row in _review_queue_payload(svc) if str(row.get("id")) == photo_id), None)
+    if not item:
+        raise HTTPException(status_code=500, detail="iNaturalist returned a suggestion, but HikeJournal could not reload it.")
+    return item
 
 
 @app.post("/v1/species/review/{photo_id}/decision", dependencies=[Depends(require_mobile_key)])

@@ -61,6 +61,8 @@ import com.hikejournal.app.ui.theme.Moss
 import com.hikejournal.app.ui.theme.Paper
 import com.hikejournal.app.ui.theme.Parchment
 import com.hikejournal.app.ui.theme.Trail
+import com.hikejournal.app.ui.theme.TrailText
+import com.hikejournal.app.ui.theme.FernText
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -159,7 +161,7 @@ fun SpeciesIndexScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("SPECIES INDEX", style = MaterialTheme.typography.labelSmall, color = Trail)
+                Text("SPECIES INDEX", style = MaterialTheme.typography.labelSmall, color = TrailText)
                 TextButton(onClick = { mostSeenFirst = !mostSeenFirst }) {
                     Text(if (mostSeenFirst) "Alphabetical" else "Most encountered")
                 }
@@ -237,11 +239,11 @@ private fun SpeciesIndexRow(record: SpeciesRecord, onOpen: (String) -> Unit) {
                 Text(
                     "${record.encounterCount} encounter${if (record.encounterCount == 1) "" else "s"} · ${record.hikeCount} outing${if (record.hikeCount == 1) "" else "s"}",
                     style = MaterialTheme.typography.labelMedium,
-                    color = Trail,
+                    color = TrailText,
                     modifier = Modifier.padding(top = 5.dp),
                 )
             }
-            Text(record.encounterCount.toString().padStart(2, '0'), style = MaterialTheme.typography.headlineSmall, color = Color(0xFF77916E))
+            Text(record.encounterCount.toString().padStart(2, '0'), style = MaterialTheme.typography.headlineSmall, color = FernText)
         }
         HorizontalDivider(color = Line, modifier = Modifier.padding(start = 127.dp))
     }
@@ -261,7 +263,7 @@ fun SpeciesDetailScreen(
         item { SpeciesHero(species, onBack) }
         item {
             Column(Modifier.padding(horizontal = 20.dp, vertical = 24.dp)) {
-                Text("PERSONAL FIELD GUIDE", style = MaterialTheme.typography.labelSmall, color = Trail)
+                Text("PERSONAL FIELD GUIDE", style = MaterialTheme.typography.labelSmall, color = TrailText)
                 Text(species.commonName, style = MaterialTheme.typography.displayMedium, color = Ink)
                 if (species.scientificName.isNotBlank()) {
                     Text(
@@ -274,7 +276,7 @@ fun SpeciesDetailScreen(
                 Text(
                     "${species.encounterCount} encounter${if (species.encounterCount == 1) "" else "s"} across ${species.hikeCount} outing${if (species.hikeCount == 1) "" else "s"}",
                     style = MaterialTheme.typography.labelMedium,
-                    color = Trail,
+                    color = TrailText,
                     modifier = Modifier.padding(top = 13.dp),
                 )
                 if (species.wikipediaSummary.isNotBlank()) {
@@ -296,7 +298,7 @@ fun SpeciesDetailScreen(
                 verticalAlignment = Alignment.Bottom,
             ) {
                 Column {
-                    Text("ENCOUNTER HISTORY", style = MaterialTheme.typography.labelSmall, color = Trail)
+                    Text("ENCOUNTER HISTORY", style = MaterialTheme.typography.labelSmall, color = TrailText)
                     Text("Field records", style = MaterialTheme.typography.headlineMedium, color = Ink)
                 }
                 if (loading) CircularProgressIndicator(Modifier.size(20.dp), color = Moss, strokeWidth = 2.dp)
@@ -345,7 +347,7 @@ private fun EncounterRow(encounter: Encounter, onOpenHike: (String) -> Unit) {
                 contentScale = ContentScale.Crop,
             )
             Column(Modifier.weight(1f).padding(start = 15.dp)) {
-                Text(formatSpeciesDate(encounter.observedOn).uppercase(Locale.US), style = MaterialTheme.typography.labelSmall, color = Trail)
+                Text(formatSpeciesDate(encounter.observedOn).uppercase(Locale.US), style = MaterialTheme.typography.labelSmall, color = TrailText)
                 Text(encounter.hikeTitle, style = MaterialTheme.typography.titleMedium, color = Ink, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 if (encounter.locationName.isNotBlank()) {
                     Text(encounter.locationName, style = MaterialTheme.typography.bodyMedium, color = InkMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)

@@ -106,3 +106,14 @@ class StorageService:
         if not self.client:
             raise RuntimeError("Supabase client is required for Supabase storage.")
         self.client.storage.from_(self.supabase_bucket).remove([storage_path])
+
+    def download_file(self, storage_path: str) -> bytes:
+        """Read a stored photo without routing the CV request through a public URL."""
+        if not storage_path:
+            raise ValueError("The photo does not have a storage path.")
+        if self.backend == "r2":
+            response = self._r2_client.get_object(Bucket=self.r2_bucket, Key=storage_path)
+            return response["Body"].read()
+        if not self.client:
+            raise RuntimeError("Supabase client is required for Supabase storage.")
+        return self.client.storage.from_(self.supabase_bucket).download(storage_path)

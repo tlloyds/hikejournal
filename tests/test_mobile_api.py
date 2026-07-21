@@ -10,7 +10,9 @@ from mobile_api import (
     decide_species_review,
     derive_mobile_api_token,
     queue_photo_for_species_review,
+    request_species_recommendation,
 )
+from hike_journal.models import SpeciesCandidate
 
 
 def test_mobile_token_is_deterministic_without_exposing_source(monkeypatch):
@@ -254,3 +256,56 @@ def test_existing_photo_can_be_queued_for_species_review(monkeypatch):
 
     assert result == {"queued": True}
     assert repository.photo_status == ("photo-1", "in_review")
+
+
+def test_mobile_review_can_request_and_save_an_inaturalist_recommendation(monkeypatch):
+    class Repository:
+        saved = None
+
+        def upsert_observation(self, hike_id, photo_id, candidate, **kwargs):
+            self.saved = (hike_id, photo_id, candidate, kwargs)
+
+    repository = Repository()
+    service = type("Service", (), {"repository": repository, "storage": object()})()
+    photo = {
+        "id": "photo-1",
+        "hike_id": "hike-1",
+        "processing_status": "in_review",
+        "storage_path": "hikes/hike-1/photo-1.jpg",
+        "lat": 28.7,
+        "lng": -81.2,
+        "taken_at": "2026-07-20T09:15:00",
+        "owner_subject": "subject-1",
+        "owner_email": "owner@example.com",
+    }
+
+    class InatClient:
+        def score_species_candidates(self, **kwargs):
+            assert kwargs["image_bytes"] == b"field-photo"
+            assert kwargs["lat"] == 28.7
+            assert kwargs["lng"] == -81.2
+            assert kwargs["observed_on"].date().isoformat() == "2026-07-20"
+            return [
+                SpeciesCandidate(
+                    taxon_id=42,
+                    common_name="Gopher Tortoise",
+                    scientific_name="Gopherus polyphemus",
+                    confidence=0.91,
+                    raw_payload={"results": []},
+                )
+            ], {"results": []}
+
+    monkeypatch.setattr("mobile_api._get_visible_photo", lambda _photo_id: (service, photo))
+    monkeypatch.setattr("mobile_api._download_photo_for_cv", lambda _svc, _photo: b"field-photo")
+    monkeypatch.setattr("mobile_api._mobile_inat_client", InatClient)
+    monkeypatch.setattr(
+        "mobile_api._review_queue_payload",
+        lambda _service: [{"id": "photo-1", "candidates": [{"taxon_id": 42}]}],
+    )
+
+    result = request_species_recommendation("photo-1")
+
+    assert result["id"] == "photo-1"
+    assert repository.saved[0:2] == ("hike-1", "photo-1")
+    assert repository.saved[2].taxon_id == 42
+    assert repository.saved[3] == {"owner_subject": "subject-1", "owner_email": "owner@example.com"}
