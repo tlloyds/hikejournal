@@ -61,7 +61,7 @@ interface PendingOperationDao {
         lastError: String?,
     )
 
-    @Query("UPDATE pending_operations SET state = 'queued', lastError = NULL, updatedAt = :updatedAt WHERE state = 'needs_attention'")
+    @Query("UPDATE pending_operations SET state = 'queued', attemptCount = 0, lastError = NULL, updatedAt = :updatedAt WHERE state = 'needs_attention'")
     suspend fun retryAttention(updatedAt: Long)
 }
 

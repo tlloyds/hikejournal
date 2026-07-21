@@ -145,6 +145,13 @@ data class SyncStatus(
     val needsAttentionCount: Int = 0,
     val connected: Boolean = true,
     val lastSyncedAt: Long? = null,
+    val attentionItems: List<SyncAttention> = emptyList(),
+)
+
+data class SyncAttention(
+    val kind: String,
+    val detail: String,
+    val error: String,
 )
 
 data class PublishQueue(

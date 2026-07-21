@@ -122,6 +122,7 @@ import com.hikejournal.app.BuildConfig
 import com.hikejournal.app.data.Hike
 import com.hikejournal.app.data.HikeDraft
 import com.hikejournal.app.data.Photo
+import com.hikejournal.app.data.SyncAttention
 import com.hikejournal.app.ui.theme.Fern
 import com.hikejournal.app.ui.theme.Ink
 import com.hikejournal.app.ui.theme.InkMuted
@@ -147,6 +148,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
     var settingsOpen by remember { mutableStateOf(false) }
     var selectedPhoto by remember { mutableStateOf<Photo?>(null) }
     var pendingUpload by remember { mutableStateOf<List<Uri>>(emptyList()) }
+    var syncAttentionOpen by remember { mutableStateOf(false) }
 
     LaunchedEffect(state.inatAuthorizationUrl) {
         state.inatAuthorizationUrl?.let { url ->
@@ -251,6 +253,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                     onSettings = { settingsOpen = true },
                     onSync = viewModel::syncNow,
                     onRetrySync = viewModel::retrySyncAttention,
+                    onShowSyncAttention = { syncAttentionOpen = true },
                 )
             }
         }
@@ -330,6 +333,14 @@ fun HikeJournalApp(viewModel: AppViewModel) {
             },
         )
     }
+
+    if (syncAttentionOpen) {
+        SyncAttentionSheet(
+            items = state.syncStatus.attentionItems,
+            onRetry = viewModel::retrySyncAttention,
+            onDismiss = { syncAttentionOpen = false },
+        )
+    }
 }
 
 @Composable
@@ -341,6 +352,7 @@ private fun LibraryScreen(
     onSettings: () -> Unit,
     onSync: () -> Unit,
     onRetrySync: () -> Unit,
+    onShowSyncAttention: () -> Unit,
 ) {
     var query by remember { mutableStateOf("") }
     var showArchived by remember { mutableStateOf(false) }
@@ -382,6 +394,7 @@ private fun LibraryScreen(
                     syncing = state.isSyncing,
                     onSync = onSync,
                     onRetry = onRetrySync,
+                    onShowAttention = onShowSyncAttention,
                 )
             }
             item {
@@ -464,6 +477,7 @@ private fun SyncStrip(
     syncing: Boolean,
     onSync: () -> Unit,
     onRetry: () -> Unit,
+    onShowAttention: () -> Unit,
 ) {
     val queued = status.pendingCount + status.syncingCount
     val background = when {
@@ -504,10 +518,54 @@ private fun SyncStrip(
             )
         }
         when {
-            status.needsAttentionCount > 0 -> TextButton(onClick = onRetry) { Text("Retry") }
+            status.needsAttentionCount > 0 -> TextButton(onClick = onShowAttention) { Text("Review") }
             queued > 0 && status.connected -> TextButton(onClick = onSync, enabled = !syncing) { Text("Sync") }
         }
     }
+}
+
+@Composable
+private fun SyncAttentionSheet(
+    items: List<SyncAttention>,
+    onRetry: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Paper) {
+        Column(
+            Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).navigationBarsPadding().padding(horizontal = 20.dp).padding(bottom = 28.dp),
+        ) {
+            Text("SYNC ATTENTION", style = MaterialTheme.typography.labelSmall, color = TrailText)
+            Text("Changes that could not sync", style = MaterialTheme.typography.headlineLarge, color = Ink)
+            Text(
+                "These changes remain safely on this phone. Review the server response below, then retry after correcting the cause.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = InkMuted,
+                modifier = Modifier.padding(top = 5.dp),
+            )
+            items.forEach { item ->
+                Column(Modifier.fillMaxWidth().padding(top = 18.dp)) {
+                    Text(syncOperationLabel(item.kind), style = MaterialTheme.typography.titleMedium, color = Ink)
+                    Text(item.error, style = MaterialTheme.typography.bodyMedium, color = Color(0xFF8F3D32), modifier = Modifier.padding(top = 3.dp))
+                }
+            }
+            Button(onClick = { onRetry(); onDismiss() }, modifier = Modifier.fillMaxWidth().padding(top = 24.dp)) {
+                Text("Retry all changes")
+            }
+            OutlinedButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth().padding(top = 9.dp)) { Text("Close") }
+        }
+    }
+}
+
+private fun syncOperationLabel(kind: String): String = when (kind) {
+    "create_hike" -> "Create outing"
+    "update_hike" -> "Update outing"
+    "archive_hike" -> "Archive outing"
+    "upload_photo" -> "Upload photo"
+    "update_caption" -> "Save photo note"
+    "delete_photo" -> "Delete photo"
+    "queue_species_review" -> "Queue species review"
+    "review_decision" -> "Save species decision"
+    else -> "Sync change"
 }
 
 @Composable

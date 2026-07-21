@@ -66,6 +66,15 @@ class FieldOperationQueue(private val context: Context) {
             needsAttentionCount = operations.count { it.state == "needs_attention" },
             connected = connected,
             lastSyncedAt = preferences.getLong("last_synced_at", 0L).takeIf { it > 0 },
+            attentionItems = operations
+                .filter { it.state == "needs_attention" }
+                .map { operation ->
+                    SyncAttention(
+                        kind = operation.kind,
+                        detail = operation.parentId ?: operation.entityId,
+                        error = operation.lastError ?: "Sync failed without a server message.",
+                    )
+                },
         )
     }.distinctUntilChanged()
 
