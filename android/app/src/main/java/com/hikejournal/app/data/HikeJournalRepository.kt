@@ -88,6 +88,8 @@ class HikeJournalRepository(context: Context) {
         return item
     }
 
+    suspend fun getInatAuthorizationUrl(): String = api.getInatAuthorizationUrl()
+
     suspend fun loadPublishQueue(): LoadResult<PublishQueue> = loadWithCache(
         cacheFile = File(cacheDirectory, "species-publish.json"),
         fetch = api::getPublishQueueJson,

@@ -140,12 +140,20 @@ import java.util.Locale
 @Composable
 fun HikeJournalApp(viewModel: AppViewModel) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val context = LocalContext.current
     var destination by remember { mutableStateOf(TopDestination.Archive) }
     var editingHike by remember { mutableStateOf<Hike?>(null) }
     var creatingHike by remember { mutableStateOf(false) }
     var settingsOpen by remember { mutableStateOf(false) }
     var selectedPhoto by remember { mutableStateOf<Photo?>(null) }
     var pendingUpload by remember { mutableStateOf<List<Uri>>(emptyList()) }
+
+    LaunchedEffect(state.inatAuthorizationUrl) {
+        state.inatAuthorizationUrl?.let { url ->
+            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+            viewModel.consumeInatAuthorizationUrl()
+        }
+    }
 
     val photoPicker = rememberLauncherForActivityResult(PickMultipleVisualMedia(maxItems = 20)) { uris ->
         pendingUpload = uris
@@ -216,6 +224,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                     onRefresh = { viewModel.loadReviewQueue(force = true) },
                     onDecision = viewModel::decideReview,
                     onRequestRecommendation = viewModel::requestReviewRecommendation,
+                    onConnectInat = viewModel::connectInat,
                 )
                 destination == TopDestination.Publish -> PublishingScreen(
                     queue = state.publishQueue,

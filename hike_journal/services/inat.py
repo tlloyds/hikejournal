@@ -360,13 +360,14 @@ def persist_access_token_for_user(access_token: str, *, subject: str | None, ema
     save_inat_access_token_for_user(access_token=normalized, subject=subject, email=email)
 
 
-def build_oauth_authorize_url(*, state: str) -> str:
+def build_oauth_authorize_url(*, state: str, redirect_uri: str | None = None) -> str:
     if not settings.inat_oauth_configured:
         raise InatConfigurationError("iNaturalist OAuth is not configured yet. Add the iNaturalist OAuth client ID, secret, and redirect URI first.")
+    resolved_redirect_uri = (redirect_uri or settings.inat_oauth_redirect_uri).strip()
     query = urlencode(
         {
             "client_id": settings.inat_oauth_client_id,
-            "redirect_uri": settings.inat_oauth_redirect_uri,
+            "redirect_uri": resolved_redirect_uri,
             "response_type": "code",
             "scope": "write",
             "state": state,
@@ -375,16 +376,17 @@ def build_oauth_authorize_url(*, state: str) -> str:
     return f"{settings.inat_oauth_authorize_url}?{query}"
 
 
-def exchange_oauth_code(*, code: str) -> dict[str, Any]:
+def exchange_oauth_code(*, code: str, redirect_uri: str | None = None) -> dict[str, Any]:
     if not settings.inat_oauth_configured:
         raise InatConfigurationError("iNaturalist OAuth is not configured yet.")
+    resolved_redirect_uri = (redirect_uri or settings.inat_oauth_redirect_uri).strip()
     response = requests.post(
         settings.inat_oauth_token_url,
         data={
             "client_id": settings.inat_oauth_client_id,
             "client_secret": settings.inat_oauth_client_secret,
             "grant_type": "authorization_code",
-            "redirect_uri": settings.inat_oauth_redirect_uri,
+            "redirect_uri": resolved_redirect_uri,
             "code": code,
         },
         timeout=30,

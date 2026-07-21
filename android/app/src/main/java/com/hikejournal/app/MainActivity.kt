@@ -1,6 +1,7 @@
 package com.hikejournal.app
 
 import android.os.Bundle
+import android.content.Intent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -19,5 +20,17 @@ class MainActivity : ComponentActivity() {
                 HikeJournalApp(viewModel)
             }
         }
+        handleInatIntent(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleInatIntent(intent)
+    }
+
+    private fun handleInatIntent(intent: Intent?) {
+        if (intent?.data?.scheme != "hikejournal" || intent.data?.host != "inat") return
+        viewModel.completeInatConnection(intent.data?.getQueryParameter("status") == "connected")
     }
 }

@@ -41,6 +41,7 @@ data class AppState(
     val isReviewLoading: Boolean = false,
     val decidingReviewId: String? = null,
     val identifyingReviewId: String? = null,
+    val inatAuthorizationUrl: String? = null,
     val queuingReviewId: String? = null,
     val isPublishLoading: Boolean = false,
     val publishingId: String? = null,
@@ -258,6 +259,32 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 .onFailure { error ->
                     _state.update { it.copy(identifyingReviewId = null, error = error.userMessage()) }
                 }
+        }
+    }
+
+    fun connectInat() {
+        if (_state.value.isOffline) {
+            _state.update { it.copy(error = "Connecting iNaturalist needs a connection.") }
+            return
+        }
+        viewModelScope.launch {
+            _state.update { it.copy(error = null) }
+            runCatching { repository.getInatAuthorizationUrl() }
+                .onSuccess { url -> _state.update { it.copy(inatAuthorizationUrl = url) } }
+                .onFailure { error -> _state.update { it.copy(error = error.userMessage()) } }
+        }
+    }
+
+    fun consumeInatAuthorizationUrl() {
+        _state.update { it.copy(inatAuthorizationUrl = null) }
+    }
+
+    fun completeInatConnection(connected: Boolean) {
+        if (connected) {
+            _state.update { it.copy(error = null, publishQueue = it.publishQueue.copy(connected = true)) }
+            loadReviewQueue(force = true)
+        } else {
+            _state.update { it.copy(error = "iNaturalist authorization did not complete. Please try again.") }
         }
     }
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+import base64
 from contextlib import asynccontextmanager
 from datetime import date, datetime
 import hashlib
@@ -11,6 +12,7 @@ from typing import Any, Annotated, Literal
 from uuid import UUID
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile, status
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 from supabase import Client, create_client
 
@@ -26,6 +28,9 @@ from hike_journal.services.inat import (
     InatConfigurationError,
     InatRequestError,
     InatRateLimitError,
+    build_oauth_authorize_url,
+    exchange_oauth_code,
+    fetch_api_token_for_oauth_access_token,
     parse_candidates,
     resolve_access_token_for_user,
 )
@@ -127,7 +132,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title="HikeJournal Mobile Companion API",
-    version="0.5.3",
+    version="0.5.4",
     docs_url=None,
     redoc_url=None,
     lifespan=lifespan,
@@ -522,11 +527,78 @@ def _download_photo_for_cv(svc: Services, photo: dict[str, Any]) -> bytes:
 
 def _mobile_inat_client() -> InatClient:
     owner = _user_context()
-    access_token = resolve_access_token_for_user(
+    access_token = _load_mobile_inat_token(owner.get("email")) or resolve_access_token_for_user(
         subject=owner.get("subject"),
         email=owner.get("email"),
     ) or settings.inat_access_token
     return InatClient(access_token=access_token, base_url=settings.inat_base_url)
+
+
+def _mobile_inat_token_key() -> str:
+    return hashlib.sha256(f"{derive_mobile_api_token()}:inat-token-v1".encode()).hexdigest()
+
+
+def _load_mobile_inat_token(email: str | None) -> str:
+    if not email or services is None:
+        return ""
+    try:
+        response = services.client.rpc(
+            "load_mobile_inat_token",
+            {"p_owner_email": email, "p_encryption_key": _mobile_inat_token_key()},
+        ).execute()
+        return str(response.data or "").strip()
+    except Exception:
+        return ""
+
+
+def _save_mobile_inat_token(svc: Services, *, email: str, access_token: str) -> None:
+    try:
+        svc.client.rpc(
+            "save_mobile_inat_token",
+            {
+                "p_owner_email": email,
+                "p_access_token": access_token,
+                "p_encryption_key": _mobile_inat_token_key(),
+            },
+        ).execute()
+    except Exception as exc:
+        raise InatConfigurationError(
+            "The mobile iNaturalist credentials table is not ready. Apply sql/mobile_inat_oauth_migration.sql, then try again."
+        ) from exc
+
+
+def _mobile_oauth_redirect_uri() -> str:
+    configured = os.getenv("MOBILE_INAT_OAUTH_REDIRECT_URI", "").strip()
+    if configured:
+        return configured
+    public_url = os.getenv("MOBILE_PUBLIC_URL", "").strip().rstrip("/")
+    return f"{public_url}/v1/inat/oauth/callback" if public_url else ""
+
+
+def _mobile_oauth_state(email: str) -> str:
+    payload = base64.urlsafe_b64encode(
+        f"{email.lower()}|{int(time.time()) + 600}".encode()
+    ).decode().rstrip("=")
+    signature = hmac.new(derive_mobile_api_token().encode(), payload.encode(), hashlib.sha256).hexdigest()
+    return f"hj-mobile.{payload}.{signature}"
+
+
+def _verify_mobile_oauth_state(state: str) -> str | None:
+    parts = state.split(".")
+    if len(parts) != 3 or parts[0] != "hj-mobile":
+        return None
+    payload, signature = parts[1], parts[2]
+    expected = hmac.new(derive_mobile_api_token().encode(), payload.encode(), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(signature, expected):
+        return None
+    try:
+        decoded = base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)).decode()
+        email, expires_at = decoded.rsplit("|", 1)
+        if int(expires_at) < int(time.time()) or not email:
+            return None
+        return email.lower()
+    except (ValueError, UnicodeDecodeError):
+        return None
 
 
 def _publish_item_payload(
@@ -608,16 +680,51 @@ def _publish_queue_payload(svc: Services) -> dict[str, Any]:
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok", "service": "hikejournal-mobile", "version": "0.5.3"}
+    return {"status": "ok", "service": "hikejournal-mobile", "version": "0.5.4"}
 
 
 @app.get("/v1/config", dependencies=[Depends(require_mobile_key)])
 def app_config() -> dict[str, Any]:
     return {
         "web_url": os.getenv("MOBILE_WEB_URL", "http://192.168.0.157:8505").rstrip("/"),
-        "api_version": "0.5.3",
-        "capabilities": ["offline_sync", "grouped_inat_publish", "map_packs", "live_inat_cv"],
+        "api_version": "0.5.4",
+        "capabilities": ["offline_sync", "grouped_inat_publish", "map_packs", "live_inat_cv", "mobile_inat_oauth"],
     }
+
+
+@app.get("/v1/inat/oauth/start", dependencies=[Depends(require_mobile_key)])
+def start_mobile_inat_oauth() -> dict[str, str]:
+    owner = _user_context()
+    email = str(owner.get("email") or "").strip().lower()
+    redirect_uri = _mobile_oauth_redirect_uri()
+    if not email:
+        raise HTTPException(status_code=409, detail="Set MOBILE_OWNER_EMAIL before connecting iNaturalist on Android.")
+    if not settings.inat_oauth_configured:
+        raise HTTPException(status_code=409, detail="Configure the iNaturalist OAuth client ID and secret on the mobile companion service.")
+    if not redirect_uri:
+        raise HTTPException(status_code=409, detail="Configure MOBILE_INAT_OAUTH_REDIRECT_URI for the mobile companion service.")
+    try:
+        return {"authorize_url": build_oauth_authorize_url(state=_mobile_oauth_state(email), redirect_uri=redirect_uri)}
+    except InatConfigurationError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.get("/v1/inat/oauth/callback")
+def finish_mobile_inat_oauth(code: str | None = None, state: str | None = None, error: str | None = None):
+    email = _verify_mobile_oauth_state(state or "")
+    if not email:
+        return RedirectResponse("hikejournal://inat?status=error&message=expired")
+    if error:
+        return RedirectResponse("hikejournal://inat?status=error&message=cancelled")
+    if not code:
+        return RedirectResponse("hikejournal://inat?status=error&message=missing_code")
+    try:
+        token_payload = exchange_oauth_code(code=code, redirect_uri=_mobile_oauth_redirect_uri())
+        access_token = fetch_api_token_for_oauth_access_token(str(token_payload.get("access_token") or ""))
+        _save_mobile_inat_token(get_services(), email=email, access_token=access_token)
+    except (InatConfigurationError, InatAuthError, InatRequestError) as exc:
+        return RedirectResponse("hikejournal://inat?status=error&message=authorization_failed")
+    return RedirectResponse("hikejournal://inat?status=connected")
 
 
 @app.get("/v1/hikes", dependencies=[Depends(require_mobile_key)])

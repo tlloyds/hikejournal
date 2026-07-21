@@ -39,6 +39,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -75,6 +76,7 @@ fun SpeciesReviewScreen(
     onRefresh: () -> Unit,
     onDecision: (ReviewItem, String, ReviewCandidate?) -> Unit,
     onRequestRecommendation: (ReviewItem) -> Unit,
+    onConnectInat: () -> Unit,
 ) {
     var index by remember { mutableIntStateOf(0) }
     val queueSignature = remember(queue) { queue.joinToString(",") { it.id } }
@@ -132,6 +134,7 @@ fun SpeciesReviewScreen(
                     onNext = { if (queue.isNotEmpty()) index = (index + 1) % queue.size },
                     onDecision = onDecision,
                     onRequestRecommendation = onRequestRecommendation,
+                    onConnectInat = onConnectInat,
                 )
             }
         }
@@ -149,6 +152,7 @@ private fun ReviewItemContent(
     onNext: () -> Unit,
     onDecision: (ReviewItem, String, ReviewCandidate?) -> Unit,
     onRequestRecommendation: (ReviewItem) -> Unit,
+    onConnectInat: () -> Unit,
 ) {
     var selectedIndex by remember(item.id) { mutableIntStateOf(0) }
     val selected = item.candidates.getOrNull(selectedIndex)
@@ -201,6 +205,9 @@ private fun ReviewItemContent(
                         Icon(Icons.Rounded.SkipNext, null, Modifier.size(18.dp))
                         Spacer(Modifier.width(6.dp))
                         Text("Skip for now")
+                    }
+                    TextButton(onClick = onConnectInat, enabled = !identifying, modifier = Modifier.fillMaxWidth().padding(top = 5.dp)) {
+                        Text("Connect iNaturalist")
                     }
                 } else {
                     Text("Choose the best match", style = MaterialTheme.typography.headlineMedium, color = Ink)

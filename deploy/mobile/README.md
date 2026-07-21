@@ -18,8 +18,11 @@ GitHub connection in Cloud Run:
 5. Under **Variables & Secrets**, add the production values from `.env`:
    `MOBILE_API_TOKEN`, `MOBILE_OWNER_EMAIL`, `SUPABASE_URL`, `SUPABASE_KEY`,
    storage settings (`STORAGE_BACKEND` and either the R2 or Supabase values),
-   and `INAT_ACCESS_TOKEN` if iNaturalist publishing is enabled. Do not commit
-   or upload `.env`.
+   and `INAT_ACCESS_TOKEN` if iNaturalist publishing is enabled. To allow
+   Android to connect iNaturalist itself, also add `INAT_OAUTH_CLIENT_ID`,
+   `INAT_OAUTH_CLIENT_SECRET`, and `MOBILE_INAT_OAUTH_REDIRECT_URI`. Register
+   that exact callback URL with the same iNaturalist OAuth application; it must
+   end in `/v1/inat/oauth/callback`. Do not commit or upload `.env`.
 6. Set memory to at least **1 GiB** to leave room for photo processing, then
    deploy. Verify the generated URL ends in `/health` and returns an `ok`
    response.

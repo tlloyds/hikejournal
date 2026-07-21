@@ -27,6 +27,12 @@ services:
         sync: false
       - key: INAT_ACCESS_TOKEN
         sync: false
+      - key: INAT_OAUTH_CLIENT_ID
+        sync: false
+      - key: INAT_OAUTH_CLIENT_SECRET
+        sync: false
+      - key: MOBILE_INAT_OAUTH_REDIRECT_URI
+        sync: false
       - key: MOBILE_OWNER_EMAIL
         sync: false
       - key: MOBILE_WEB_URL

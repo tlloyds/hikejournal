@@ -57,6 +57,9 @@ class HikeJournalApi(private val context: Context) {
 
     suspend fun getReviewQueueJson(): String = request("/v1/species/review")
 
+    suspend fun getInatAuthorizationUrl(): String = JSONObject(request("/v1/inat/oauth/start"))
+        .getString("authorize_url")
+
     suspend fun requestReviewRecommendation(photoId: String): String = try {
         request(
             path = "/v1/species/review/$photoId/recommendation",
