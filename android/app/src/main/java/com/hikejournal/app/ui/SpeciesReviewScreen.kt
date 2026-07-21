@@ -26,6 +26,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Refresh
@@ -131,6 +132,8 @@ fun SpeciesReviewScreen(
                     deciding = decidingId == targetItem.id,
                     identifying = identifyingId == targetItem.id,
                     enabled = !offline && decidingId == null && identifyingId == null,
+                    canGoPrevious = index > 0,
+                    onPrevious = { if (index > 0) index -= 1 },
                     onNext = { if (queue.isNotEmpty()) index = (index + 1) % queue.size },
                     onDecision = onDecision,
                     onRequestRecommendation = onRequestRecommendation,
@@ -149,6 +152,8 @@ private fun ReviewItemContent(
     deciding: Boolean,
     identifying: Boolean,
     enabled: Boolean,
+    canGoPrevious: Boolean,
+    onPrevious: () -> Unit,
     onNext: () -> Unit,
     onDecision: (ReviewItem, String, ReviewCandidate?) -> Unit,
     onRequestRecommendation: (ReviewItem) -> Unit,
@@ -173,7 +178,21 @@ private fun ReviewItemContent(
                     ),
                 )
                 Column(Modifier.align(Alignment.BottomStart).padding(20.dp)) {
-                    Text("$position OF $total", style = MaterialTheme.typography.labelSmall, color = Color(0xFFD6E0D2))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(
+                            onClick = onPrevious,
+                            enabled = canGoPrevious,
+                            modifier = Modifier.size(30.dp),
+                        ) {
+                            Icon(
+                                Icons.AutoMirrored.Rounded.ArrowBack,
+                                contentDescription = "Previous photo",
+                                tint = if (canGoPrevious) Color(0xFFD6E0D2) else Color(0x668F9E8D),
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                        Text("$position OF $total", style = MaterialTheme.typography.labelSmall, color = Color(0xFFD6E0D2))
+                    }
                     Text(item.hikeTitle, style = MaterialTheme.typography.headlineMedium, color = Paper, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     val place = item.locationName.ifBlank { item.hikeDate }
                     if (place.isNotBlank()) Text(place, style = MaterialTheme.typography.bodyMedium, color = Color(0xFFD6E0D2), maxLines = 1)
