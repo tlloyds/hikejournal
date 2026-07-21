@@ -10,6 +10,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,7 +27,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Refresh
@@ -44,6 +44,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -53,6 +54,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -80,6 +82,7 @@ fun SpeciesReviewScreen(
     onConnectInat: () -> Unit,
 ) {
     var index by remember { mutableIntStateOf(0) }
+    var horizontalDragDistance by remember { mutableFloatStateOf(0f) }
     val queueSignature = remember(queue) { queue.joinToString(",") { it.id } }
     LaunchedEffect(queueSignature) {
         if (queue.isEmpty()) index = 0 else index = index.coerceIn(0, queue.lastIndex)
@@ -116,29 +119,43 @@ fun SpeciesReviewScreen(
         when {
             loading && queue.isEmpty() -> ReviewLoading()
             item == null -> ReviewEmpty(onRefresh)
-            else -> AnimatedContent(
-                targetState = item.id,
-                transitionSpec = {
-                    (fadeIn() + slideInHorizontally { it / 8 }) togetherWith
-                        (fadeOut() + slideOutHorizontally { -it / 8 })
+            else -> Box(
+                Modifier.fillMaxSize().pointerInput(queueSignature, index) {
+                    detectHorizontalDragGestures(
+                        onHorizontalDrag = { _, dragAmount -> horizontalDragDistance += dragAmount },
+                        onDragEnd = {
+                            when {
+                                horizontalDragDistance > 72f && index > 0 -> index -= 1
+                                horizontalDragDistance < -72f && queue.isNotEmpty() -> index = (index + 1) % queue.size
+                            }
+                            horizontalDragDistance = 0f
+                        },
+                        onDragCancel = { horizontalDragDistance = 0f },
+                    )
                 },
-                label = "review-photo",
-            ) { targetId ->
-                val targetItem = queue.firstOrNull { it.id == targetId } ?: item
-                ReviewItemContent(
-                    item = targetItem,
-                    position = queue.indexOfFirst { it.id == targetId }.takeIf { it >= 0 }?.plus(1) ?: index + 1,
-                    total = queue.size,
-                    deciding = decidingId == targetItem.id,
-                    identifying = identifyingId == targetItem.id,
-                    enabled = !offline && decidingId == null && identifyingId == null,
-                    canGoPrevious = index > 0,
-                    onPrevious = { if (index > 0) index -= 1 },
-                    onNext = { if (queue.isNotEmpty()) index = (index + 1) % queue.size },
-                    onDecision = onDecision,
-                    onRequestRecommendation = onRequestRecommendation,
-                    onConnectInat = onConnectInat,
-                )
+            ) {
+                AnimatedContent(
+                    targetState = item.id,
+                    transitionSpec = {
+                        (fadeIn() + slideInHorizontally { it / 8 }) togetherWith
+                            (fadeOut() + slideOutHorizontally { -it / 8 })
+                    },
+                    label = "review-photo",
+                ) { targetId ->
+                    val targetItem = queue.firstOrNull { it.id == targetId } ?: item
+                    ReviewItemContent(
+                        item = targetItem,
+                        position = queue.indexOfFirst { it.id == targetId }.takeIf { it >= 0 }?.plus(1) ?: index + 1,
+                        total = queue.size,
+                        deciding = decidingId == targetItem.id,
+                        identifying = identifyingId == targetItem.id,
+                        enabled = !offline && decidingId == null && identifyingId == null,
+                        onNext = { if (queue.isNotEmpty()) index = (index + 1) % queue.size },
+                        onDecision = onDecision,
+                        onRequestRecommendation = onRequestRecommendation,
+                        onConnectInat = onConnectInat,
+                    )
+                }
             }
         }
     }
@@ -152,8 +169,6 @@ private fun ReviewItemContent(
     deciding: Boolean,
     identifying: Boolean,
     enabled: Boolean,
-    canGoPrevious: Boolean,
-    onPrevious: () -> Unit,
     onNext: () -> Unit,
     onDecision: (ReviewItem, String, ReviewCandidate?) -> Unit,
     onRequestRecommendation: (ReviewItem) -> Unit,
@@ -178,21 +193,7 @@ private fun ReviewItemContent(
                     ),
                 )
                 Column(Modifier.align(Alignment.BottomStart).padding(20.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(
-                            onClick = onPrevious,
-                            enabled = canGoPrevious,
-                            modifier = Modifier.size(30.dp),
-                        ) {
-                            Icon(
-                                Icons.AutoMirrored.Rounded.ArrowBack,
-                                contentDescription = "Previous photo",
-                                tint = if (canGoPrevious) Color(0xFFD6E0D2) else Color(0x668F9E8D),
-                                modifier = Modifier.size(18.dp),
-                            )
-                        }
-                        Text("$position OF $total", style = MaterialTheme.typography.labelSmall, color = Color(0xFFD6E0D2))
-                    }
+                    Text("$position OF $total", style = MaterialTheme.typography.labelSmall, color = Color(0xFFD6E0D2))
                     Text(item.hikeTitle, style = MaterialTheme.typography.headlineMedium, color = Paper, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     val place = item.locationName.ifBlank { item.hikeDate }
                     if (place.isNotBlank()) Text(place, style = MaterialTheme.typography.bodyMedium, color = Color(0xFFD6E0D2), maxLines = 1)
@@ -220,10 +221,12 @@ private fun ReviewItemContent(
                         Spacer(Modifier.width(8.dp))
                         Text(if (identifying) "Asking iNaturalist…" else "Get iNaturalist recommendation")
                     }
-                    OutlinedButton(onClick = onNext, enabled = !identifying, modifier = Modifier.fillMaxWidth().padding(top = 10.dp)) {
-                        Icon(Icons.Rounded.SkipNext, null, Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("Skip for now")
+                    Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        OutlinedButton(onClick = onNext, enabled = !identifying, modifier = Modifier.fillMaxWidth()) {
+                            Icon(Icons.Rounded.SkipNext, null, Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Skip for now")
+                        }
                     }
                     TextButton(onClick = onConnectInat, enabled = !identifying, modifier = Modifier.fillMaxWidth().padding(top = 5.dp)) {
                         Text("Connect iNaturalist")
@@ -254,7 +257,7 @@ private fun ReviewItemContent(
                     Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         OutlinedButton(onClick = onNext, enabled = deciding.not(), modifier = Modifier.weight(1f)) {
                             Icon(Icons.Rounded.SkipNext, null, Modifier.size(18.dp))
-                            Spacer(Modifier.width(6.dp))
+                            Spacer(Modifier.width(5.dp))
                             Text("Skip")
                         }
                         OutlinedButton(
@@ -264,7 +267,7 @@ private fun ReviewItemContent(
                             modifier = Modifier.weight(1f),
                         ) {
                             Icon(Icons.Rounded.Close, null, Modifier.size(18.dp))
-                            Spacer(Modifier.width(6.dp))
+                            Spacer(Modifier.width(5.dp))
                             Text("Reject")
                         }
                     }
