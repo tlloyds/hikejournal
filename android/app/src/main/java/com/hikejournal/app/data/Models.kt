@@ -100,6 +100,16 @@ data class ReviewCandidate(
     val confidence: Double?,
 )
 
+/**
+ * iNaturalist responses have used both fractional confidence (0.98) and
+ * percentage-point confidence (98). The mobile decision API always expects a
+ * fraction, so convert at the persistence and request boundaries.
+ */
+fun normalizedReviewConfidence(confidence: Double?): Double? = confidence?.let { value ->
+    if (!value.isFinite()) return@let null
+    (if (value > 1.0) value / 100.0 else value).coerceIn(0.0, 1.0)
+}
+
 data class ReviewItem(
     val id: String,
     val photo: Photo,

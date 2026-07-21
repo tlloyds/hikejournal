@@ -215,7 +215,7 @@ class FieldOperationQueue(private val context: Context) {
                     .put("taxon_id", it.taxonId ?: JSONObject.NULL)
                     .put("common_name", it.commonName)
                     .put("scientific_name", it.scientificName)
-                    .put("confidence", it.confidence ?: JSONObject.NULL),
+                    .put("confidence", normalizedReviewConfidence(it.confidence) ?: JSONObject.NULL),
             )
         }
         enqueue(OperationKind.ReviewDecision, item.id, item.hikeId, payload)
@@ -519,7 +519,9 @@ class FieldSyncEngine(private val context: Context) {
                             taxonId = it.optLong("taxon_id").takeUnless { _ -> it.isNull("taxon_id") },
                             commonName = it.optString("common_name"),
                             scientificName = it.optString("scientific_name"),
-                            confidence = it.optDouble("confidence").takeUnless { value -> value.isNaN() || it.isNull("confidence") },
+                            confidence = normalizedReviewConfidence(
+                                it.optDouble("confidence").takeUnless { value -> value.isNaN() || it.isNull("confidence") },
+                            ),
                         )
                     },
                 )

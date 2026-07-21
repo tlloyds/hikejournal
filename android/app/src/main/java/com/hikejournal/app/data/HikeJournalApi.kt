@@ -108,7 +108,7 @@ class HikeJournalApi(private val context: Context) {
                     .put("taxon_id", candidate.taxonId ?: JSONObject.NULL)
                     .put("common_name", candidate.commonName)
                     .put("scientific_name", candidate.scientificName)
-                    .put("confidence", candidate.confidence ?: JSONObject.NULL),
+                    .put("confidence", normalizedReviewConfidence(candidate.confidence) ?: JSONObject.NULL),
             )
         }
         return request(
