@@ -338,6 +338,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
         SyncAttentionSheet(
             items = state.syncStatus.attentionItems,
             onRetry = viewModel::retrySyncAttention,
+            onClear = viewModel::clearSyncAttention,
             onDismiss = { syncAttentionOpen = false },
         )
     }
@@ -528,6 +529,7 @@ private fun SyncStrip(
 private fun SyncAttentionSheet(
     items: List<SyncAttention>,
     onRetry: () -> Unit,
+    onClear: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Paper) {
@@ -551,7 +553,13 @@ private fun SyncAttentionSheet(
             Button(onClick = { onRetry(); onDismiss() }, modifier = Modifier.fillMaxWidth().padding(top = 24.dp)) {
                 Text("Retry all changes")
             }
-            OutlinedButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth().padding(top = 9.dp)) { Text("Close") }
+            OutlinedButton(
+                onClick = { onClear(); onDismiss() },
+                modifier = Modifier.fillMaxWidth().padding(top = 9.dp),
+            ) {
+                Text("Clear errors")
+            }
+            TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth().padding(top = 3.dp)) { Text("Close") }
         }
     }
 }

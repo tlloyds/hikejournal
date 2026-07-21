@@ -63,6 +63,9 @@ interface PendingOperationDao {
 
     @Query("UPDATE pending_operations SET state = 'queued', attemptCount = 0, lastError = NULL, updatedAt = :updatedAt WHERE state = 'needs_attention'")
     suspend fun retryAttention(updatedAt: Long)
+
+    @Query("DELETE FROM pending_operations WHERE state = 'needs_attention'")
+    suspend fun clearAttention()
 }
 
 @Database(entities = [PendingOperationEntity::class], version = 1, exportSchema = true)

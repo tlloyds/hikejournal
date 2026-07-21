@@ -150,6 +150,8 @@ class HikeJournalRepository(context: Context) {
 
     suspend fun retryAttention() = fieldQueue.retryAttention()
 
+    suspend fun clearSyncAttention() = fieldQueue.clearAttention()
+
     private suspend fun <T> loadWithCache(
         cacheFile: File,
         fetch: suspend () -> String,

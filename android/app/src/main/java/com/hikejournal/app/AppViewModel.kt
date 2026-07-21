@@ -480,6 +480,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun clearSyncAttention() {
+        viewModelScope.launch {
+            repository.clearSyncAttention()
+        }
+    }
+
     fun clearError() {
         _state.update { it.copy(error = null) }
     }

@@ -226,6 +226,10 @@ class FieldOperationQueue(private val context: Context) {
         SyncScheduler.schedule(context)
     }
 
+    suspend fun clearAttention() {
+        dao.clearAttention()
+    }
+
     suspend fun overlayHikes(serverHikes: List<Hike>): List<Hike> {
         val operations = dao.listAll()
         val hikes = serverHikes.associateBy { it.id }.toMutableMap()
