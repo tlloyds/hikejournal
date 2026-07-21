@@ -21,7 +21,11 @@ set search_path = public
 as $$
 begin
     insert into mobile_inat_credentials (owner_email, encrypted_access_token, updated_at)
-    values (lower(trim(p_owner_email)), pgp_sym_encrypt(p_access_token, p_encryption_key), timezone('utc', now()))
+    values (
+        lower(trim(p_owner_email)),
+        extensions.pgp_sym_encrypt(p_access_token, p_encryption_key),
+        timezone('utc', now())
+    )
     on conflict (owner_email) do update set
         encrypted_access_token = excluded.encrypted_access_token,
         updated_at = excluded.updated_at;
@@ -36,7 +40,7 @@ language sql
 security definer
 set search_path = public
 as $$
-    select pgp_sym_decrypt(encrypted_access_token, p_encryption_key)
+    select extensions.pgp_sym_decrypt(encrypted_access_token, p_encryption_key)
     from mobile_inat_credentials
     where owner_email = lower(trim(p_owner_email))
     limit 1;
