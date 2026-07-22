@@ -3750,10 +3750,10 @@ def render_smart_id_plan_dialog(
         type="primary",
         disabled=not planned_groups or submission_started,
     ):
-        # Rerun before doing the network work so the browser receives the disabled
-        # button state and cannot submit the same plan a second time.
+        # Rerun only this dialog before doing the network work so the browser
+        # receives the disabled button state without dismissing the dialog.
         st.session_state.smart_id_plan_submission_started = True
-        st.rerun()
+        st.rerun(scope="fragment")
 
     if submission_started:
         processed_count = process_smart_species_photo_groups(
