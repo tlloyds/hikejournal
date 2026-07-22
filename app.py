@@ -652,7 +652,7 @@ def render_sidebar(
 
     st.markdown(
         f"""
-        <a class="sidebar-brand-shell" href="?view=Library&amp;scope=global" target="_self" aria-label="Open HikeJournal Library">
+        <a class="sidebar-brand-shell" href="/" target="_self" aria-label="Open HikeJournal home">
             <div class="sidebar-brand-kicker">Field Journal</div>
             <div class="sidebar-brand-wordmark">HikeJournal</div>
             <div class="sidebar-brand-meta">{escape(identity_line)}</div>
