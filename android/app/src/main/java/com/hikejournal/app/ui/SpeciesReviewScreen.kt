@@ -126,7 +126,7 @@ fun SpeciesReviewScreen(
                         onDragEnd = {
                             when {
                                 horizontalDragDistance > 72f && index > 0 -> index -= 1
-                                horizontalDragDistance < -72f && queue.isNotEmpty() -> index = (index + 1) % queue.size
+                                horizontalDragDistance < -72f && index < queue.lastIndex -> index += 1
                             }
                             horizontalDragDistance = 0f
                         },
@@ -150,7 +150,7 @@ fun SpeciesReviewScreen(
                         deciding = decidingId == targetItem.id,
                         identifying = identifyingId == targetItem.id,
                         enabled = !offline && decidingId == null && identifyingId == null,
-                        onNext = { if (queue.isNotEmpty()) index = (index + 1) % queue.size },
+                        onNext = { if (index < queue.lastIndex) index += 1 },
                         onDecision = onDecision,
                         onRequestRecommendation = onRequestRecommendation,
                         onConnectInat = onConnectInat,

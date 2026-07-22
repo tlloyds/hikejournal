@@ -15,6 +15,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -55,6 +56,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -65,6 +67,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextOverflow
@@ -104,6 +107,7 @@ fun PublishingScreen(
 ) {
     var filter by remember { mutableStateOf(PublishFilter.Ready) }
     var index by remember { mutableIntStateOf(0) }
+    var horizontalDragDistance by remember { mutableFloatStateOf(0f) }
     var selectedHikeId by remember { mutableStateOf<String?>(null) }
     var filterOpen by remember { mutableStateOf(false) }
     val selectedHike = hikes.firstOrNull { it.id == selectedHikeId }
@@ -177,25 +181,41 @@ fun PublishingScreen(
             when {
                 loading && queue.items.isEmpty() -> PublishLoading()
                 current == null -> PublishEmpty(filter, selectedHike?.title, queue.connected, onRefresh)
-                else -> AnimatedContent(
-                    targetState = current.id,
-                    transitionSpec = {
-                        (fadeIn() + slideInHorizontally { it / 8 }) togetherWith
-                            (fadeOut() + slideOutHorizontally { -it / 8 })
+                else -> Box(
+                    Modifier.weight(1f).pointerInput(signature, index) {
+                        detectHorizontalDragGestures(
+                            onHorizontalDrag = { _, dragAmount -> horizontalDragDistance += dragAmount },
+                            onDragEnd = {
+                                when {
+                                    horizontalDragDistance > 72f && index > 0 -> index -= 1
+                                    horizontalDragDistance < -72f && index < filtered.lastIndex -> index += 1
+                                }
+                                horizontalDragDistance = 0f
+                            },
+                            onDragCancel = { horizontalDragDistance = 0f },
+                        )
                     },
-                    label = "publish-record",
-                ) { targetId ->
-                    val target = filtered.firstOrNull { it.id == targetId } ?: current
-                    PublishItemContent(
-                        item = target,
-                        position = filtered.indexOfFirst { it.id == targetId }.takeIf { it >= 0 }?.plus(1) ?: index + 1,
-                        total = filtered.size,
-                        connected = queue.connected,
-                        offline = offline,
-                        publishing = publishingId == target.id,
-                        onNext = { if (filtered.isNotEmpty()) index = (index + 1) % filtered.size },
-                        onPublish = { options -> onPublish(target, options) },
-                    )
+                ) {
+                    AnimatedContent(
+                        targetState = current.id,
+                        transitionSpec = {
+                            (fadeIn() + slideInHorizontally { it / 8 }) togetherWith
+                                (fadeOut() + slideOutHorizontally { -it / 8 })
+                        },
+                        label = "publish-record",
+                    ) { targetId ->
+                        val target = filtered.firstOrNull { it.id == targetId } ?: current
+                        PublishItemContent(
+                            item = target,
+                            position = filtered.indexOfFirst { it.id == targetId }.takeIf { it >= 0 }?.plus(1) ?: index + 1,
+                            total = filtered.size,
+                            connected = queue.connected,
+                            offline = offline,
+                            publishing = publishingId == target.id,
+                            onNext = { if (index < filtered.lastIndex) index += 1 },
+                            onPublish = { options -> onPublish(target, options) },
+                        )
+                    }
                 }
             }
         }

@@ -4,6 +4,7 @@ package com.hikejournal.app.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -37,6 +38,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -45,6 +47,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextOverflow
@@ -252,12 +255,28 @@ private fun SpeciesIndexRow(record: SpeciesRecord, onOpen: (String) -> Unit) {
 @Composable
 fun SpeciesDetailScreen(
     species: SpeciesRecord,
+    allSpecies: List<SpeciesRecord>,
     loading: Boolean,
     onBack: () -> Unit,
+    onOpenSpecies: (String) -> Unit,
     onOpenHike: (String) -> Unit,
 ) {
+    val currentIndex = allSpecies.indexOfFirst { it.key == species.key }
+    var horizontalDragDistance by remember(species.key) { mutableFloatStateOf(0f) }
     LazyColumn(
-        Modifier.fillMaxSize().background(Parchment),
+        Modifier.fillMaxSize().background(Parchment).pointerInput(species.key, currentIndex) {
+            detectHorizontalDragGestures(
+                onHorizontalDrag = { _, dragAmount -> horizontalDragDistance += dragAmount },
+                onDragEnd = {
+                    when {
+                        horizontalDragDistance > 72f && currentIndex > 0 -> onOpenSpecies(allSpecies[currentIndex - 1].key)
+                        horizontalDragDistance < -72f && currentIndex >= 0 && currentIndex < allSpecies.lastIndex -> onOpenSpecies(allSpecies[currentIndex + 1].key)
+                    }
+                    horizontalDragDistance = 0f
+                },
+                onDragCancel = { horizontalDragDistance = 0f },
+            )
+        },
         contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 54.dp),
     ) {
         item { SpeciesHero(species, onBack) }

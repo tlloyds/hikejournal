@@ -8,6 +8,7 @@ package com.hikejournal.app.ui
 
 import android.content.Intent
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -24,6 +25,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -91,6 +93,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -104,6 +107,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -161,6 +165,24 @@ fun HikeJournalApp(viewModel: AppViewModel) {
         pendingUpload = uris
     }
 
+    BackHandler(
+        enabled = selectedPhoto != null || syncAttentionOpen || settingsOpen || pendingUpload.isNotEmpty() ||
+            creatingHike || editingHike != null || state.journal != null || state.speciesDetail != null,
+    ) {
+        when {
+            selectedPhoto != null -> selectedPhoto = null
+            syncAttentionOpen -> syncAttentionOpen = false
+            settingsOpen -> settingsOpen = false
+            pendingUpload.isNotEmpty() -> pendingUpload = emptyList()
+            creatingHike || editingHike != null -> {
+                creatingHike = false
+                editingHike = null
+            }
+            state.journal != null -> viewModel.closeJournal()
+            state.speciesDetail != null -> viewModel.closeSpecies()
+        }
+    }
+
     LaunchedEffect(destination) {
         when (destination) {
             TopDestination.Archive -> Unit
@@ -204,8 +226,10 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                 key.startsWith("species:") && state.speciesDetail != null -> {
                     SpeciesDetailScreen(
                         species = state.speciesDetail!!,
+                        allSpecies = state.species,
                         loading = state.isSpeciesLoading,
                         onBack = viewModel::closeSpecies,
+                        onOpenSpecies = viewModel::openSpecies,
                         onOpenHike = viewModel::openEncounterHike,
                     )
                 }
@@ -306,10 +330,16 @@ fun HikeJournalApp(viewModel: AppViewModel) {
 
     selectedPhoto?.let { selected ->
         val photo = state.journal?.photos?.firstOrNull { it.id == selected.id } ?: selected
+        val photos = state.journal?.photos.orEmpty()
+        val photoIndex = photos.indexOfFirst { it.id == photo.id }
         PhotoViewer(
             photo = photo,
+            position = photoIndex.takeIf { it >= 0 }?.plus(1) ?: 1,
+            total = photos.size.coerceAtLeast(1),
             queuingReview = state.queuingReviewId == photo.id,
             onDismiss = { selectedPhoto = null },
+            onPrevious = photoIndex.takeIf { it > 0 }?.let { index -> { selectedPhoto = photos[index - 1] } },
+            onNext = photoIndex.takeIf { it >= 0 && it < photos.lastIndex }?.let { index -> { selectedPhoto = photos[index + 1] } },
             onSaveCaption = { caption ->
                 viewModel.updateCaption(photo.id, caption)
                 selectedPhoto = null
@@ -905,22 +935,42 @@ private fun UploadSheet(photoCount: Int, onDismiss: () -> Unit, onUpload: (Strin
 @Composable
 private fun PhotoViewer(
     photo: Photo,
+    position: Int,
+    total: Int,
     queuingReview: Boolean,
     onDismiss: () -> Unit,
+    onPrevious: (() -> Unit)?,
+    onNext: (() -> Unit)?,
     onSaveCaption: (String) -> Unit,
     onDelete: () -> Unit,
     onQueueReview: () -> Unit,
 ) {
     var caption by remember(photo.id) { mutableStateOf(photo.caption) }
     var confirmDelete by remember { mutableStateOf(false) }
+    var horizontalDragDistance by remember(photo.id) { mutableFloatStateOf(0f) }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Column(Modifier.fillMaxSize().background(Color(0xFF101511)).statusBarsPadding()) {
             Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onDismiss) { Icon(Icons.Rounded.Close, "Close", tint = Paper) }
                 Text("HikeJournal", style = MaterialTheme.typography.headlineSmall, color = Paper, modifier = Modifier.weight(1f))
+                Text("$position OF $total", style = MaterialTheme.typography.labelSmall, color = Color(0xFFBFD2B9))
                 IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Rounded.DeleteOutline, "Delete", tint = Color(0xFFE8A18F)) }
             }
-            Box(Modifier.fillMaxWidth().weight(1f)) {
+            Box(
+                Modifier.fillMaxWidth().weight(1f).pointerInput(photo.id) {
+                    detectHorizontalDragGestures(
+                        onHorizontalDrag = { _, dragAmount -> horizontalDragDistance += dragAmount },
+                        onDragEnd = {
+                            when {
+                                horizontalDragDistance > 72f -> onPrevious?.invoke()
+                                horizontalDragDistance < -72f -> onNext?.invoke()
+                            }
+                            horizontalDragDistance = 0f
+                        },
+                        onDragCancel = { horizontalDragDistance = 0f },
+                    )
+                },
+            ) {
                 AsyncImage(photo.url, photo.caption, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
             }
             Column(
