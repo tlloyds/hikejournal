@@ -3741,14 +3741,20 @@ def render_smart_id_plan_dialog(
         "Two-photo groups use the highest-confidence top suggestion for both photos; larger groups that disagree after scoring split into individual suggestions.</div>",
         unsafe_allow_html=True,
     )
+    submission_started = st.session_state.get("smart_id_plan_submission_started", False)
     if st.button(
-        f"Submit {request_count} ID Request{'s' if request_count != 1 else ''}",
+        "Submitting ID requests..." if submission_started else f"Submit {request_count} ID Request{'s' if request_count != 1 else ''}",
         key="smart_id_run_reviewed_plan",
         use_container_width=True,
         type="primary",
-        disabled=not planned_groups or st.session_state.get("smart_id_plan_submission_started", False),
-        on_click=mark_smart_id_plan_submission_started,
+        disabled=not planned_groups or submission_started,
     ):
+        # Rerun before doing the network work so the browser receives the disabled
+        # button state and cannot submit the same plan a second time.
+        st.session_state.smart_id_plan_submission_started = True
+        st.rerun()
+
+    if submission_started:
         processed_count = process_smart_species_photo_groups(
             repository,
             inat_client,
@@ -3760,6 +3766,7 @@ def render_smart_id_plan_dialog(
             st.session_state.species_review_stage = "Needs decisions"
             st.session_state.species_page = 1
             clear_species_selection(photos_to_process)
+        st.session_state.smart_id_plan_submission_started = False
         st.rerun()
 
 
@@ -3778,11 +3785,6 @@ def open_smart_id_plan(
         photos_to_process,
         primary_observation_by_photo,
     )
-
-
-def mark_smart_id_plan_submission_started() -> None:
-    st.session_state.smart_id_plan_submission_started = True
-
 
 def format_known_species_option(species: dict[str, Any]) -> str:
     common_name = str(species.get("common_name") or species.get("scientific_name") or "Unknown species")
