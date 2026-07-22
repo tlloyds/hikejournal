@@ -3586,30 +3586,31 @@ def render_photo_management_toolbar(
     *,
     compact: bool = False,
 ) -> None:
-    cols = st.columns([0.17, 0.14, 0.31, 0.17, 0.21] if compact else [0.16, 0.14, 0.28, 0.18, 0.24], gap="small")
-    page_size_options = [6, 9, 12, 18, 0]
-    page_size = cols[0].selectbox(
-        "Photos per page" if compact else "Per page",
-        page_size_options,
-        index=page_size_options.index(st.session_state.journal_page_size),
-        key="journal_page_size_select",
-        format_func=lambda value: "All" if value == 0 else str(value),
-    )
-    if page_size != st.session_state.journal_page_size:
-        st.session_state.journal_page_size = page_size
-        st.session_state.journal_page = 1
-        st.rerun()
-    requested_page = cols[1].number_input("Page", min_value=1, max_value=total_pages, value=st.session_state.journal_page, step=1, key="journal_page_number")
-    if requested_page != st.session_state.journal_page:
-        st.session_state.journal_page = int(requested_page)
-        st.rerun()
-    if compact:
-        cols[2].markdown(f"<div class='journal-control-label journal-control-label--browse'><span>Browse photos</span><strong>Page {st.session_state.journal_page} of {total_pages} · {len(page_photos)} shown</strong></div>", unsafe_allow_html=True)
-    else:
-        cols[2].markdown(f"<div class='utility-rail-status'>{len(page_photos)} photos on this page • {len(st.session_state.delete_photo_ids)} marked for deletion</div>", unsafe_allow_html=True)
-    st.session_state.delete_mode = cols[3].toggle("Delete mode", value=st.session_state.delete_mode, key="journal_delete_mode")
-    with cols[4].popover("Manage photos" if compact else "Manage", use_container_width=compact):
-        _render_photo_management_popover(repository, storage, page_photos, all_deletable_photos, total_pages)
+    with st.container(key="journal_photo_management"):
+        cols = st.columns([0.17, 0.14, 0.31, 0.17, 0.21] if compact else [0.16, 0.14, 0.28, 0.18, 0.24], gap="small")
+        page_size_options = [6, 9, 12, 18, 0]
+        page_size = cols[0].selectbox(
+            "Photos per page" if compact else "Per page",
+            page_size_options,
+            index=page_size_options.index(st.session_state.journal_page_size),
+            key="journal_page_size_select",
+            format_func=lambda value: "All" if value == 0 else str(value),
+        )
+        if page_size != st.session_state.journal_page_size:
+            st.session_state.journal_page_size = page_size
+            st.session_state.journal_page = 1
+            st.rerun()
+        requested_page = cols[1].number_input("Page", min_value=1, max_value=total_pages, value=st.session_state.journal_page, step=1, key="journal_page_number")
+        if requested_page != st.session_state.journal_page:
+            st.session_state.journal_page = int(requested_page)
+            st.rerun()
+        if compact:
+            cols[2].markdown(f"<div class='journal-control-label journal-control-label--browse'><span>Browse photos</span><strong>Page {st.session_state.journal_page} of {total_pages} · {len(page_photos)} shown</strong></div>", unsafe_allow_html=True)
+        else:
+            cols[2].markdown(f"<div class='utility-rail-status'>{len(page_photos)} photos on this page • {len(st.session_state.delete_photo_ids)} marked for deletion</div>", unsafe_allow_html=True)
+        st.session_state.delete_mode = cols[3].toggle("Delete mode", value=st.session_state.delete_mode, key="journal_delete_mode")
+        with cols[4].popover("Manage photos" if compact else "Manage", use_container_width=compact):
+            _render_photo_management_popover(repository, storage, page_photos, all_deletable_photos, total_pages)
 
 
 def _render_photo_management_popover(
