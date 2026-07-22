@@ -73,3 +73,18 @@ def initialize_session_state(state: MutableMapping[str, Any]) -> None:
     for key, default in SESSION_DEFAULTS.items():
         if key not in state:
             state[key] = default() if callable(default) else default
+
+
+def reset_home_navigation_state(state: MutableMapping[str, Any]) -> None:
+    """Clear transient navigation state so the app returns to its home view."""
+    state["selected_hike_id"] = None
+    state["viewer_open"] = False
+    state["viewer_index"] = 0
+    state["active_view"] = "Library"
+    state["pending_view"] = None
+    state["journal_page"] = 1
+    state["species_page"] = 1
+    state["species_log_page"] = 1
+    state["library_page"] = 1
+    state["species_log_focus_key"] = None
+    state["species_log_record_open"] = False

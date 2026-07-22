@@ -113,7 +113,7 @@ from hike_journal.ui.components import (
     section_heading,
 )
 from hike_journal.ui.theme import apply_theme
-from hike_journal.ui.state import initialize_session_state
+from hike_journal.ui.state import initialize_session_state, reset_home_navigation_state
 from hike_journal.ui.views.library import render_library_view
 from hike_journal.ui.views.journal import JournalActions, render_journal_view, render_standalone_journal_view
 from hike_journal.ui.views.map import render_map_view
@@ -137,6 +137,18 @@ GROUPED_PUBLISH_MAX_PHOTOS = 8
 QUICK_UPLOAD_HIKE_FILTER = "Quick uploads"
 
 initialize_session_state(st.session_state)
+
+
+def maybe_reset_to_home() -> None:
+    """Honor the logo reset link before rendering any app view."""
+    if st.query_params.get("reset") != "home":
+        return
+    reset_home_navigation_state(st.session_state)
+    st.query_params.clear()
+    st.rerun()
+
+
+maybe_reset_to_home()
 
 
 def get_inat_access_token_for_context(user_context: dict[str, Any]) -> str:
@@ -652,7 +664,7 @@ def render_sidebar(
 
     st.markdown(
         f"""
-        <a class="sidebar-brand-shell" href="/" target="_self" aria-label="Open HikeJournal home">
+        <a class="sidebar-brand-shell" href="/?reset=home" target="_self" aria-label="Reset and open HikeJournal home">
             <div class="sidebar-brand-kicker">Field Journal</div>
             <div class="sidebar-brand-wordmark">HikeJournal</div>
             <div class="sidebar-brand-meta">{escape(identity_line)}</div>
