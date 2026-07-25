@@ -578,7 +578,8 @@ h1, h2, h3 {
   text-decoration: none;
 }
 
-.photo-link img {
+.photo-link img,
+.photo-link video {
   display: block;
   width: 100%;
   aspect-ratio: 4 / 5;
@@ -589,7 +590,8 @@ h1, h2, h3 {
   background: rgba(31,42,38,0.06);
 }
 
-.photo-link:hover img {
+.photo-link:hover img,
+.photo-link:hover video {
   transform: scale(1.015);
   filter: saturate(1.02);
 }

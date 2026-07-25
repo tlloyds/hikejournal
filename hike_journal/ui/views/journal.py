@@ -12,6 +12,7 @@ from hike_journal.domain.library import photo_owner_email, photo_owner_subject
 from hike_journal.queries import invalidate_data_cache
 from hike_journal.services.exif import extract_metadata
 from hike_journal.services.image_processing import optimize_image
+from hike_journal.media import is_supported_video_upload, is_video, video_content_type
 from hike_journal.services.inat import InatClient
 from hike_journal.services.repositories import HikeJournalRepository
 from hike_journal.services.storage import StorageService
@@ -37,7 +38,7 @@ def render_mobile_share_composer(selected_hike: dict[str, Any], photos: list[dic
             "label": str(photo.get("caption") or "Trail photo"),
         }
         for photo in photos
-        if photo.get("id") and photo.get("public_url")
+        if photo.get("id") and photo.get("public_url") and not is_video(photo)
     ]
     if not shareable_photos:
         return
@@ -230,6 +231,7 @@ class JournalActions:
     _parse_date: Any
     paginate_photos: Any
     persist_uploaded_photo: Any
+    persist_uploaded_video: Any
     render_alternate_suggestions: Any
     render_bottom_review_handoff: Any
     render_known_species_assignment_toolbar: Any
@@ -385,16 +387,16 @@ def render_journal_view(
 ) -> None:
     st.markdown("<div id='journal-top'></div>", unsafe_allow_html=True)
     with st.container(key="journal_upload"):
-        st.markdown("<div class='journal-upload-label'>Add trail photos</div>", unsafe_allow_html=True)
-        st.caption("Photos are optimized on upload so the journal stays quick to browse.")
+        st.markdown("<div class='journal-upload-label'>Add trail photos and videos</div>", unsafe_allow_html=True)
+        st.caption("Photos are optimized for fast browsing. Videos are stored in their original phone format.")
         if st.session_state.journal_upload_notice:
             st.success(str(st.session_state.journal_upload_notice))
             st.session_state.journal_upload_notice = None
         upload_widget_key = f"journal_upload_files_{selected_hike['id']}_{st.session_state.journal_upload_nonce}"
         with st.form("upload_photos_form", clear_on_submit=True):
             uploaded_files = st.file_uploader(
-                "Drop in one or many trail photos",
-                type=["jpg", "jpeg", "png", "webp", "heic"],
+                "Drop in trail photos or videos",
+                type=["jpg", "jpeg", "png", "webp", "heic", "mp4", "mov", "m4v", "3gp", "webm"],
                 accept_multiple_files=True,
                 label_visibility="collapsed",
                 key=upload_widget_key,
@@ -406,13 +408,28 @@ def render_journal_view(
                 else:
                     geotagged_uploads = 0
                     timestamped_uploads = 0
+                    video_uploads = 0
                     total_uploads = len(uploaded_files)
                     upload_status = st.empty()
                     upload_progress = st.progress(0, text="Preparing photos for upload...")
-                    with st.spinner("Optimizing and uploading photos..."):
+                    with st.spinner("Preparing and uploading media..."):
                         for index, uploaded_file in enumerate(uploaded_files, start=1):
-                            upload_status.caption(f"Uploading photo {index} of {total_uploads}")
+                            upload_status.caption(f"Uploading file {index} of {total_uploads}")
                             original_bytes = uploaded_file.getvalue()
+                            if is_supported_video_upload(uploaded_file.name, uploaded_file.type):
+                                video_uploads += 1
+                                actions.persist_uploaded_video(
+                                    repository=repository,
+                                    storage=storage,
+                                    video_bytes=original_bytes,
+                                    filename=uploaded_file.name,
+                                    content_type=video_content_type(uploaded_file.name, uploaded_file.type),
+                                    hike_id=selected_hike["id"],
+                                    owner_subject=photo_owner_subject(selected_hike, st.session_state.current_user_context),
+                                    owner_email=photo_owner_email(selected_hike, st.session_state.current_user_context),
+                                )
+                                upload_progress.progress(index / total_uploads, text=f"Uploaded {index} of {total_uploads} files")
+                                continue
                             metadata = extract_metadata(original_bytes)
                             if metadata.lat is not None and metadata.lng is not None:
                                 geotagged_uploads += 1
@@ -433,11 +450,13 @@ def render_journal_view(
                                 caption=None,
                                 processing_status="ready",
                             )
-                            upload_progress.progress(index / total_uploads, text=f"Uploaded {index} of {total_uploads} photos")
+                            upload_progress.progress(index / total_uploads, text=f"Uploaded {index} of {total_uploads} files")
                     invalidate_data_cache()
                     st.session_state.pop(upload_widget_key, None)
                     st.session_state.journal_upload_nonce += 1
-                    st.session_state.journal_upload_notice = f"Uploaded {total_uploads} photo{'s' if total_uploads != 1 else ''}."
+                    st.session_state.journal_upload_notice = f"Uploaded {total_uploads} file{'s' if total_uploads != 1 else ''}."
+                    if video_uploads:
+                        st.caption(f"{video_uploads} video{'s were' if video_uploads != 1 else ' was'} saved for playback in the journal.")
                     if geotagged_uploads == 0:
                         st.warning(
                             "These photos were added successfully, but none of them included embedded GPS coordinates. "
@@ -457,7 +476,7 @@ def render_journal_view(
     with st.expander("Share photos to Instagram", expanded=False):
         render_mobile_share_composer(selected_hike, photos)
 
-    review_selected_count = len([photo for photo in photos if photo.get("processing_status") == REVIEW_QUEUE_STATUS])
+    review_selected_count = len([photo for photo in photos if not is_video(photo) and photo.get("processing_status") == REVIEW_QUEUE_STATUS])
     with st.container(key="journal_workflow"):
         st.markdown(
             """
@@ -496,7 +515,9 @@ def render_journal_view(
                 unsafe_allow_html=True,
             )
             actions.render_photo_note_editor(repository, photo, key_prefix=f"journal_note_{photo['id']}")
-            if primary_observation:
+            if is_video(photo):
+                st.caption("Video • Open it to play. Videos are not eligible for species review or covers.")
+            elif primary_observation:
                 is_confirmed = primary_observation.get("status") == "confirmed"
                 actions.render_species_summary(
                     repository,
@@ -512,19 +533,19 @@ def render_journal_view(
                 actions.render_secondary_species_summary(photo_observations, primary_observation["id"])
             else:
                 st.caption("No species attached to this photo yet.")
-            actions.render_photo_species_actions(
-                repository,
-                inat_client,
-                photo,
-                photo_observations,
-                primary_observation,
-                known_species,
-                hike_id=selected_hike.get("id"),
-                key_prefix="journal",
-            )
+            if not is_video(photo):
+                actions.render_photo_species_actions(
+                    repository, inat_client, photo, photo_observations, primary_observation,
+                    known_species, hike_id=selected_hike.get("id"), key_prefix="journal",
+                )
             if st.session_state.get("journal_cover_update_error"):
                 st.error(st.session_state.pop("journal_cover_update_error"))
             control_cols = st.columns([0.4, 0.3, 0.3], gap="small")
+            if is_video(photo):
+                if st.session_state.delete_mode:
+                    delete_key = f"delete_photo_{photo['id']}"
+                    st.checkbox("Mark to delete", key=delete_key, on_change=_sync_delete_photo_checkbox, args=(photo["id"], delete_key))
+                continue
             selected = photo.get("processing_status") == REVIEW_QUEUE_STATUS
             checkbox_key = f"photo_select_{photo['id']}"
             if checkbox_key not in st.session_state:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from uuid import uuid4
+from pathlib import Path
 
 import boto3
 from botocore.config import Config
@@ -88,6 +89,18 @@ class StorageService:
         if object_id:
             return self.replace_file(path, image_bytes, content_type)
         return self._upload_bytes(path, image_bytes, content_type)
+
+    def upload_hike_video(
+        self,
+        hike_id: str,
+        video_bytes: bytes,
+        content_type: str,
+        *,
+        filename: str,
+    ) -> tuple[str, str]:
+        extension = Path(filename or "").suffix.lower().lstrip(".") or "mp4"
+        path = f"hikes/{hike_id}/{uuid4().hex}.{extension}"
+        return self._upload_bytes(path, video_bytes, content_type)
 
     def upload_hike_route_import(self, hike_id: str, file_bytes: bytes, content_type: str = "application/vnd.garmin.tcx+xml") -> tuple[str, str]:
         path = f"hikes/{hike_id}/imports/{uuid4().hex}.tcx"

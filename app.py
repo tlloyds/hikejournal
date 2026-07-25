@@ -79,6 +79,7 @@ from hike_journal.services.encounters import (
     split_review_photo_encounter_plan,
 )
 from hike_journal.services.image_processing import optimize_image
+from hike_journal.media import is_supported_video_upload, is_video, video_content_type
 from hike_journal.services.inat import (
     InatAuthError,
     InatClient,
@@ -1264,6 +1265,33 @@ def render_edit_hike_dialog(
         st.rerun()
 
 
+def persist_uploaded_video(
+    *,
+    repository: HikeJournalRepository,
+    storage: StorageService,
+    video_bytes: bytes,
+    filename: str,
+    content_type: str,
+    hike_id: str,
+    owner_subject: str | None,
+    owner_email: str | None,
+) -> dict[str, Any]:
+    storage_path, public_url = storage.upload_hike_video(
+        hike_id, video_bytes, content_type, filename=filename
+    )
+    return repository.create_photo(
+        {
+            "hike_id": hike_id,
+            "owner_subject": owner_subject,
+            "owner_email": owner_email,
+            "storage_path": storage_path,
+            "public_url": public_url,
+            "file_size": len(video_bytes),
+            "content_type": content_type,
+            "processing_status": "ready",
+            "exif_json": {},
+        }
+    )
 def render_library_tab(
     repository: HikeJournalRepository,
     storage: StorageService,
@@ -1295,6 +1323,7 @@ def _journal_actions() -> JournalActions:
         _parse_date=_parse_date,
         paginate_photos=paginate_photos,
         persist_uploaded_photo=persist_uploaded_photo,
+        persist_uploaded_video=persist_uploaded_video,
         render_alternate_suggestions=render_alternate_suggestions,
         render_bottom_review_handoff=render_bottom_review_handoff,
         render_known_species_assignment_toolbar=render_known_species_assignment_toolbar,
@@ -1934,16 +1963,19 @@ def render_photo_viewer(
 
     image_cols = st.columns([0.12, 0.76, 0.12])
     with image_cols[1]:
-        st.image(photo["public_url"], width=720)
+        if is_video(photo):
+            st.video(photo["public_url"], format=str(photo.get("content_type") or "video/mp4"))
+        else:
+            st.image(photo["public_url"], width=720)
         viewer_links = st.columns(4, gap="small")
-        viewer_links[0].link_button("Open full-size image", photo["public_url"], use_container_width=True)
+        viewer_links[0].link_button("Open video file" if is_video(photo) else "Open full-size image", photo["public_url"], use_container_width=True)
         if photo.get("hike_id"):
             if viewer_links[1].button("Open outing", use_container_width=True, key=f"viewer_outing_{photo['id']}"):
                 navigate_to(view="Journal", hike_id=photo["hike_id"], photo_id=photo["id"])
         if photo.get("lat") is not None and photo.get("lng") is not None:
             if viewer_links[2].button("Open on map", use_container_width=True, key=f"viewer_map_{photo['id']}"):
                 navigate_to(view="Map", hike_id=photo.get("hike_id"), map_photo_id=photo["id"])
-        if photo.get("hike_id"):
+        if photo.get("hike_id") and not is_video(photo):
             if viewer_links[3].button("Use as cover", use_container_width=True, key=f"viewer_cover_{photo['id']}"):
                 try:
                     repository.update_hike_cover_photo(photo["hike_id"], photo["id"])
@@ -1956,7 +1988,9 @@ def render_photo_viewer(
                 st.rerun()
     st.markdown(f"<p class='photo-meta'>{format_photo_meta(photo)}</p>", unsafe_allow_html=True)
     render_photo_note_editor(repository, photo, key_prefix=f"viewer_note_{photo['id']}")
-    if primary_observation:
+    if is_video(photo):
+        st.caption("Videos are kept with the hike and are not sent to species review.")
+    elif primary_observation:
         render_species_summary(
             repository,
             primary_observation,
@@ -2027,6 +2061,7 @@ def render_selection_toolbar(
     *,
     compact: bool = False,
 ) -> None:
+    photos = [photo for photo in photos if not is_video(photo)]
     if not photos:
         return
     photo_ids = [photo["id"] for photo in photos]
@@ -2077,7 +2112,10 @@ def render_known_species_assignment_toolbar(
     if st.session_state.known_species_notice:
         st.success(str(st.session_state.known_species_notice))
         st.session_state.known_species_notice = None
-    available_photos = [photo for photo in all_photos if photo["id"] not in primary_observation_by_photo]
+    available_photos = [
+        photo for photo in all_photos
+        if not is_video(photo) and photo["id"] not in primary_observation_by_photo
+    ]
     available_ids = {str(photo["id"]) for photo in available_photos}
     st.session_state.known_species_selected_ids = {
         str(photo_id)

@@ -7,6 +7,8 @@ from urllib.parse import quote, urlencode
 
 import streamlit as st
 
+from hike_journal.media import is_video
+
 
 def get_photo_derivatives(photo: dict[str, Any]) -> dict[str, Any]:
     exif_json = photo.get("exif_json") or {}
@@ -129,7 +131,10 @@ def format_photo_meta(photo: dict[str, Any]) -> str:
         pieces.append(f"{photo['lat']:.5f}, {photo['lng']:.5f}")
     if photo.get("route_context_label"):
         pieces.append(str(photo["route_context_label"]))
-    pieces.append(f"{photo.get('width', '?')}×{photo.get('height', '?')}")
+    if is_video(photo):
+        pieces.append("Video")
+    else:
+        pieces.append(f"{photo.get('width', '?')}×{photo.get('height', '?')}")
     return " • ".join(pieces)
 
 
@@ -164,7 +169,7 @@ def format_photo_meta_html(
             pieces.append(escape(coords_label))
     if photo.get("route_context_label"):
         pieces.append(escape(str(photo["route_context_label"])))
-    pieces.append(escape(f"{photo.get('width', '?')}×{photo.get('height', '?')}"))
+    pieces.append("Video" if is_video(photo) else escape(f"{photo.get('width', '?')}×{photo.get('height', '?')}"))
     return " • ".join(pieces)
 
 
@@ -236,14 +241,12 @@ def render_clickable_photo(
     )
     alt = escape(photo.get('caption') or photo.get('id') or 'Trail photo')
     src = escape(get_photo_thumbnail_url(photo))
-    st.markdown(
-        f"""
-        <a class="photo-link photo-link--{escape(variant)}" href="{href}" target="_self">
-            <img src="{src}" alt="{alt}" loading="lazy" decoding="async">
-        </a>
-        """,
-        unsafe_allow_html=True,
+    media_markup = (
+        f'<video src="{src}" aria-label="{alt}" preload="metadata" muted playsinline></video>'
+        if is_video(photo)
+        else f'<img src="{src}" alt="{alt}" loading="lazy" decoding="async">'
     )
+    st.markdown(f'<a class="photo-link photo-link--{escape(variant)}" href="{href}" target="_self">{media_markup}</a>', unsafe_allow_html=True)
 
 
 def render_clickable_photo_with_view(
@@ -265,14 +268,12 @@ def render_clickable_photo_with_view(
     )
     alt = escape(photo.get('caption') or photo.get('id') or 'Trail photo')
     src = escape(get_photo_thumbnail_url(photo))
-    st.markdown(
-        f"""
-        <a class="photo-link photo-link--{escape(variant)}" href="{href}" target="_self">
-            <img src="{src}" alt="{alt}" loading="lazy" decoding="async">
-        </a>
-        """,
-        unsafe_allow_html=True,
+    media_markup = (
+        f'<video src="{src}" aria-label="{alt}" preload="metadata" muted playsinline></video>'
+        if is_video(photo)
+        else f'<img src="{src}" alt="{alt}" loading="lazy" decoding="async">'
     )
+    st.markdown(f'<a class="photo-link photo-link--{escape(variant)}" href="{href}" target="_self">{media_markup}</a>', unsafe_allow_html=True)
 
 
 def render_library_cover(photo: dict[str, Any] | None, *, hike_id: str, title: str) -> None:
