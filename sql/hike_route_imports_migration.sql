@@ -20,6 +20,7 @@ create table if not exists public.hike_route_imports (
 );
 
 alter table public.hike_route_imports enable row level security;
+alter table public.hike_route_imports force row level security;
 
 create index if not exists hike_route_imports_hike_id_idx on public.hike_route_imports (hike_id);
 
@@ -37,8 +38,4 @@ before update on public.hike_route_imports
 for each row execute procedure public.touch_updated_at();
 
 drop policy if exists "Open single-user access for hike route imports" on public.hike_route_imports;
-create policy "Open single-user access for hike route imports"
-on public.hike_route_imports
-for all
-using (true)
-with check (true);
+revoke all privileges on table public.hike_route_imports from anon, authenticated;

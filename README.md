@@ -47,7 +47,9 @@ Recommended Python:
 Required now:
 
 - `SUPABASE_URL`
-- `SUPABASE_KEY`
+- `SUPABASE_KEY` — a server-only Supabase secret/service-role key; never use a
+  publishable or legacy `anon` key here, and never expose this value to a
+  browser or Android build
 - `SUPABASE_BUCKET` (defaults to `hike-journal`)
 - `ADMIN_EMAILS` comma-separated list for people who should still see developer controls
 - `ALLOWED_EMAILS` comma-separated list for people who can sign in; defaults to `ADMIN_EMAILS`
@@ -72,6 +74,22 @@ The app is wired for Streamlit's native Google OIDC flow.
 5. Set `REQUIRE_GOOGLE_AUTH=true` in `.env` when you're ready to enforce sign-in
 
 The app uses Google sign-in for the Streamlit session and stores hike ownership/collaboration metadata in Supabase.
+
+## Database security
+
+The app accesses Supabase only from the trusted Streamlit/mobile API server.
+Run `sql/secure_rls_migration.sql` in the Supabase SQL Editor for an existing
+project. It enables and forces RLS, removes permissive policies, revokes direct
+access from `anon` and `authenticated`, and leaves access to the server's
+secret/service-role key. The photo bucket remains publicly readable because
+the UI uses public image URLs, but only the trusted server can upload, update,
+or delete its objects.
+
+Supabase may separately report `public.spatial_ref_sys` when PostGIS is
+installed. That system lookup table is owned by Supabase's managed
+`supabase_admin` role and cannot be altered by a project SQL migration. It
+contains public coordinate-reference definitions rather than HikeJournal data;
+the Supabase linter is tracking it as a managed PostGIS false positive.
 
 ## Notes
 

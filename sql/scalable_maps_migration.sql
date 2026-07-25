@@ -342,7 +342,11 @@ where p.id = p_photo_id
   and p.hike_id = any(coalesce(p_hike_ids, array[]::uuid[]));
 $$;
 
-grant execute on function public.map_summary(uuid[], uuid) to anon, authenticated, service_role;
-grant execute on function public.map_viewport(uuid[], uuid, double precision, double precision, double precision, double precision, double precision, text, text, integer, integer, integer) to anon, authenticated, service_role;
-grant execute on function public.map_routes_viewport(uuid[], uuid, double precision, double precision, double precision, double precision, double precision) to anon, authenticated, service_role;
-grant execute on function public.map_photo_detail(uuid, uuid[]) to anon, authenticated, service_role;
+revoke execute on function public.map_summary(uuid[], uuid) from public, anon, authenticated;
+revoke execute on function public.map_viewport(uuid[], uuid, double precision, double precision, double precision, double precision, double precision, text, text, integer, integer, integer) from public, anon, authenticated;
+revoke execute on function public.map_routes_viewport(uuid[], uuid, double precision, double precision, double precision, double precision, double precision) from public, anon, authenticated;
+revoke execute on function public.map_photo_detail(uuid, uuid[]) from public, anon, authenticated;
+grant execute on function public.map_summary(uuid[], uuid) to service_role;
+grant execute on function public.map_viewport(uuid[], uuid, double precision, double precision, double precision, double precision, double precision, text, text, integer, integer, integer) to service_role;
+grant execute on function public.map_routes_viewport(uuid[], uuid, double precision, double precision, double precision, double precision, double precision) to service_role;
+grant execute on function public.map_photo_detail(uuid, uuid[]) to service_role;

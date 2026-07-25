@@ -15,10 +15,7 @@ create index if not exists hike_collaborators_hike_id_idx on public.hike_collabo
 create unique index if not exists hike_collaborators_unique_email_idx on public.hike_collaborators (hike_id, lower(collaborator_email));
 
 alter table public.hike_collaborators enable row level security;
+alter table public.hike_collaborators force row level security;
 
 drop policy if exists "Open single-user access for hike collaborators" on public.hike_collaborators;
-create policy "Open single-user access for hike collaborators"
-on public.hike_collaborators
-for all
-using (true)
-with check (true);
+revoke all privileges on table public.hike_collaborators from anon, authenticated;

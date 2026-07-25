@@ -31,17 +31,10 @@ create index if not exists hike_location_tags_location_id_idx on public.hike_loc
 
 alter table public.hike_locations enable row level security;
 alter table public.hike_location_tags enable row level security;
+alter table public.hike_locations force row level security;
+alter table public.hike_location_tags force row level security;
 
 drop policy if exists "Open single-user access for hike locations" on public.hike_locations;
-create policy "Open single-user access for hike locations"
-on public.hike_locations
-for all
-using (true)
-with check (true);
-
 drop policy if exists "Open single-user access for hike location tags" on public.hike_location_tags;
-create policy "Open single-user access for hike location tags"
-on public.hike_location_tags
-for all
-using (true)
-with check (true);
+revoke all privileges on table public.hike_locations from anon, authenticated;
+revoke all privileges on table public.hike_location_tags from anon, authenticated;

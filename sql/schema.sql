@@ -214,55 +214,29 @@ alter table public.hike_collaborators enable row level security;
 alter table public.hike_route_imports enable row level security;
 alter table public.hike_locations enable row level security;
 alter table public.hike_location_tags enable row level security;
+alter table public.hikes force row level security;
+alter table public.photos force row level security;
+alter table public.species_observations force row level security;
+alter table public.hike_collaborators force row level security;
+alter table public.hike_route_imports force row level security;
+alter table public.hike_locations force row level security;
+alter table public.hike_location_tags force row level security;
 
 drop policy if exists "Open single-user access for hikes" on public.hikes;
-create policy "Open single-user access for hikes"
-on public.hikes
-for all
-using (true)
-with check (true);
-
 drop policy if exists "Open single-user access for photos" on public.photos;
-create policy "Open single-user access for photos"
-on public.photos
-for all
-using (true)
-with check (true);
-
 drop policy if exists "Open single-user access for species observations" on public.species_observations;
-create policy "Open single-user access for species observations"
-on public.species_observations
-for all
-using (true)
-with check (true);
-
 drop policy if exists "Open single-user access for hike collaborators" on public.hike_collaborators;
-create policy "Open single-user access for hike collaborators"
-on public.hike_collaborators
-for all
-using (true)
-with check (true);
-
 drop policy if exists "Open single-user access for hike route imports" on public.hike_route_imports;
-create policy "Open single-user access for hike route imports"
-on public.hike_route_imports
-for all
-using (true)
-with check (true);
-
 drop policy if exists "Open single-user access for hike locations" on public.hike_locations;
-create policy "Open single-user access for hike locations"
-on public.hike_locations
-for all
-using (true)
-with check (true);
-
 drop policy if exists "Open single-user access for hike location tags" on public.hike_location_tags;
-create policy "Open single-user access for hike location tags"
-on public.hike_location_tags
-for all
-using (true)
-with check (true);
+
+revoke all privileges on table public.hikes from anon, authenticated;
+revoke all privileges on table public.photos from anon, authenticated;
+revoke all privileges on table public.species_observations from anon, authenticated;
+revoke all privileges on table public.hike_collaborators from anon, authenticated;
+revoke all privileges on table public.hike_route_imports from anon, authenticated;
+revoke all privileges on table public.hike_locations from anon, authenticated;
+revoke all privileges on table public.hike_location_tags from anon, authenticated;
 
 insert into storage.buckets (id, name, public)
 values ('hike-journal', 'hike-journal', true)
@@ -274,16 +248,17 @@ on storage.objects for select
 using (bucket_id = 'hike-journal');
 
 drop policy if exists "App key can insert hike journal objects" on storage.objects;
-create policy "App key can insert hike journal objects"
-on storage.objects for insert
-with check (bucket_id = 'hike-journal');
-
 drop policy if exists "App key can update hike journal objects" on storage.objects;
-create policy "App key can update hike journal objects"
-on storage.objects for update
-using (bucket_id = 'hike-journal');
-
 drop policy if exists "App key can delete hike journal objects" on storage.objects;
-create policy "App key can delete hike journal objects"
-on storage.objects for delete
-using (bucket_id = 'hike-journal');
+
+revoke execute on function public.touch_updated_at() from public, anon, authenticated;
+grant execute on function public.touch_updated_at() to service_role;
+
+alter default privileges in schema public
+revoke all privileges on tables from anon, authenticated;
+alter default privileges in schema public
+revoke execute on functions from public, anon, authenticated;
+alter default privileges in schema public
+grant all privileges on tables to service_role;
+alter default privileges in schema public
+grant execute on functions to service_role;
