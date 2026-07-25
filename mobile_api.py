@@ -21,6 +21,7 @@ from hike_journal.domain.library import filter_hikes_for_user, record_visible_fo
 from hike_journal.models import HikeDraft, SpeciesCandidate
 from hike_journal.services.exif import extract_metadata
 from hike_journal.services.image_processing import optimize_image
+from hike_journal.media import is_supported_video_upload, video_content_type
 from hike_journal.services.inat import (
     InatAuthError,
     InatClient,
@@ -197,6 +198,7 @@ def _photo_payload(photo: dict[str, Any], species: list[dict[str, Any]] | None =
         "lng": photo.get("lng"),
         "width": photo.get("width"),
         "height": photo.get("height"),
+        "content_type": photo.get("content_type") or "image/jpeg",
         "processing_status": photo.get("processing_status") or "ready",
         "species": [
             {
@@ -1131,21 +1133,29 @@ async def upload_photo(
     if not original:
         raise HTTPException(status_code=400, detail="The selected photo was empty.")
     if len(original) > MAX_UPLOAD_BYTES:
-        raise HTTPException(status_code=413, detail="Photos must be 30 MB or smaller.")
-    try:
-        metadata = extract_metadata(original)
-        processed = optimize_image(original)
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail="This image could not be processed.") from exc
+        raise HTTPException(status_code=413, detail="Photos and videos must be 30 MB or smaller.")
+    is_video = is_supported_video_upload(file.filename or "", file.content_type)
+    if is_video:
+        content_type = video_content_type(file.filename or "", file.content_type)
+        metadata = None
+        processed = None
+    else:
+        try:
+            metadata = extract_metadata(original)
+            processed = optimize_image(original)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail="This image could not be processed.") from exc
 
     storage_path = ""
     try:
-        storage_path, public_url = svc.storage.upload_hike_photo(
-            hike_id,
-            processed.bytes_data,
-            processed.content_type,
-            object_id=normalized_photo_id or None,
-        )
+        if is_video:
+            storage_path, public_url = svc.storage.upload_hike_video(
+                hike_id, original, content_type, filename=file.filename or "hike-video.mp4", object_id=normalized_photo_id or None
+            )
+        else:
+            storage_path, public_url = svc.storage.upload_hike_photo(
+                hike_id, processed.bytes_data, processed.content_type, object_id=normalized_photo_id or None
+            )
         owner = _user_context()
         created = svc.repository.create_photo(
             {
@@ -1156,15 +1166,15 @@ async def upload_photo(
                 "storage_path": storage_path,
                 "public_url": public_url,
                 "caption": caption.strip() or None,
-                "taken_at": metadata.taken_at.isoformat() if metadata.taken_at else None,
-                "lat": metadata.lat,
-                "lng": metadata.lng,
-                "width": processed.width,
-                "height": processed.height,
-                "file_size": len(processed.bytes_data),
-                "content_type": processed.content_type,
-                "processing_status": "in_review" if queue_for_review else "ready",
-                "exif_json": metadata.exif_json,
+                "taken_at": metadata.taken_at.isoformat() if metadata and metadata.taken_at else None,
+                "lat": metadata.lat if metadata else None,
+                "lng": metadata.lng if metadata else None,
+                "width": processed.width if processed else None,
+                "height": processed.height if processed else None,
+                "file_size": len(processed.bytes_data) if processed else len(original),
+                "content_type": processed.content_type if processed else content_type,
+                "processing_status": "in_review" if queue_for_review and not is_video else "ready",
+                "exif_json": metadata.exif_json if metadata else {},
             }
         )
     except Exception:
