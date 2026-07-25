@@ -4430,15 +4430,16 @@ def render_publish_plan_dialog(
     )
     if oversized_groups:
         st.warning("Split enough photos from every oversized group to stay within the eight-photo limit.")
+    submission_started = st.session_state.get("publish_plan_submission_started", False)
     if st.button(
-        f"Post {observation_count} observations ({photo_count} photos)",
+        "Posting observations..." if submission_started else f"Post {observation_count} observations ({photo_count} photos)",
         key="publish_confirm_encounter_plan",
         use_container_width=True,
         type="primary",
         disabled=(
             not planned_groups
             or bool(oversized_groups)
-            or st.session_state.get("publish_plan_submission_started", False)
+            or submission_started
         ),
         on_click=mark_publish_plan_submission_started,
     ):
