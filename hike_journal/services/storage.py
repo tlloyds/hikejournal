@@ -97,9 +97,12 @@ class StorageService:
         content_type: str,
         *,
         filename: str,
+        object_id: str | None = None,
     ) -> tuple[str, str]:
         extension = Path(filename or "").suffix.lower().lstrip(".") or "mp4"
-        path = f"hikes/{hike_id}/{uuid4().hex}.{extension}"
+        path = f"hikes/{hike_id}/{object_id or uuid4().hex}.{extension}"
+        if object_id:
+            return self.replace_file(path, video_bytes, content_type)
         return self._upload_bytes(path, video_bytes, content_type)
 
     def upload_hike_route_import(self, hike_id: str, file_bytes: bytes, content_type: str = "application/vnd.garmin.tcx+xml") -> tuple[str, str]:

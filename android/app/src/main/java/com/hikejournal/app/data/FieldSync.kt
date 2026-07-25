@@ -48,7 +48,7 @@ object OperationKind {
     const val ReviewDecision = "review_decision"
 }
 
-private const val MAX_LOCAL_PHOTO_BYTES = 30L * 1024L * 1024L
+private const val MAX_LOCAL_MEDIA_BYTES = 30L * 1024L * 1024L
 
 class FieldOperationQueue(private val context: Context) {
     private val dao = OfflineDatabase.get(context).operations()
@@ -107,9 +107,14 @@ class FieldOperationQueue(private val context: Context) {
     ): Photo = withContext(Dispatchers.IO) {
         val photoId = UUID.randomUUID().toString()
         val contentType = context.contentResolver.getType(uri) ?: "image/jpeg"
-        val extension = when (contentType) {
+        val extension = when (contentType.lowercase(Locale.US)) {
             "image/png" -> "png"
             "image/heic", "image/heif" -> "heic"
+            "video/mp4" -> "mp4"
+            "video/quicktime" -> "mov"
+            "video/x-m4v" -> "m4v"
+            "video/3gpp" -> "3gp"
+            "video/webm" -> "webm"
             else -> "jpg"
         }
         val destination = File(photoDirectory, "$photoId.$extension")
@@ -121,14 +126,14 @@ class FieldOperationQueue(private val context: Context) {
                     val count = input.read(buffer)
                     if (count < 0) break
                     copied += count
-                    if (copied > MAX_LOCAL_PHOTO_BYTES) {
-                        throw IOException("Photos must be 30 MB or smaller.")
+                    if (copied > MAX_LOCAL_MEDIA_BYTES) {
+                        throw IOException("Photos and videos must be 30 MB or smaller.")
                     }
                     output.write(buffer, 0, count)
                 }
             }
         } ?: throw IOException("The selected photo could not be copied into field storage.")
-        val metadata = readPhotoMetadata(destination)
+        val metadata = if (contentType.startsWith("video/")) LocalPhotoMetadata(null, null, null, null, null) else readPhotoMetadata(destination)
         val payload = JSONObject()
             .put("caption", caption.trim())
             .put("queue_for_review", queueForReview)
@@ -157,6 +162,7 @@ class FieldOperationQueue(private val context: Context) {
             longitude = metadata.longitude,
             width = metadata.width,
             height = metadata.height,
+            contentType = contentType,
             processingStatus = if (queueForReview) "in_review" else "ready",
             syncState = "queued",
             species = emptyList(),
@@ -439,6 +445,7 @@ private fun PendingOperationEntity.toLocalPhoto(): Photo {
         longitude = payload.optDouble("lng").takeUnless { it.isNaN() || payload.isNull("lng") },
         width = payload.optInt("width").takeUnless { payload.isNull("width") },
         height = payload.optInt("height").takeUnless { payload.isNull("height") },
+        contentType = contentType ?: "image/jpeg",
         processingStatus = if (payload.optBoolean("queue_for_review")) "in_review" else "ready",
         syncState = state,
         species = emptyList(),

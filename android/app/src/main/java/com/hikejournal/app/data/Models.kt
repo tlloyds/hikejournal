@@ -29,6 +29,7 @@ data class Photo(
     val longitude: Double?,
     val width: Int?,
     val height: Int?,
+    val contentType: String,
     val processingStatus: String,
     val syncState: String = "synced",
     val species: List<SpeciesLabel>,
@@ -307,6 +308,7 @@ private fun parsePhoto(json: JSONObject): Photo {
         longitude = json.optNullableDouble("lng"),
         width = json.optNullableInt("width"),
         height = json.optNullableInt("height"),
+        contentType = json.optString("content_type", "image/jpeg"),
         processingStatus = json.optString("processing_status", "ready"),
         syncState = json.optString("sync_state", "synced"),
         species = List(speciesJson.length()) { index ->

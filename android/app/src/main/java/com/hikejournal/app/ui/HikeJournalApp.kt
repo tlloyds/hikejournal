@@ -8,6 +8,7 @@ package com.hikejournal.app.ui
 
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.runtime.DisposableEffect
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -66,6 +67,7 @@ import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.LocationOn
+import androidx.compose.material.icons.rounded.PlayCircle
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
@@ -115,11 +117,15 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import androidx.media3.common.MediaItem
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.PlayerView
 import com.hikejournal.app.AppState
 import com.hikejournal.app.AppViewModel
 import com.hikejournal.app.BuildConfig
@@ -218,7 +224,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                         onEdit = { editingHike = journal },
                         onArchive = { viewModel.setArchived(journal) },
                         onAddPhotos = {
-                            photoPicker.launch(PickVisualMediaRequest(PickVisualMedia.ImageOnly))
+                            photoPicker.launch(PickVisualMediaRequest(PickVisualMedia.ImageAndVideo))
                         },
                         onPhoto = { selectedPhoto = it },
                     )
@@ -824,12 +830,17 @@ private fun JournalHero(hike: Hike, onBack: () -> Unit, onEdit: () -> Unit, onAr
 private fun PhotoTile(photo: Photo, modifier: Modifier, onPhoto: (Photo) -> Unit) {
     Column(modifier.clickable { onPhoto(photo) }) {
         Box(Modifier.fillMaxWidth().height(190.dp).background(Moss)) {
-            AsyncImage(
-                model = ImageRequest.Builder(LocalContext.current).data(photo.url).crossfade(true).build(),
-                contentDescription = photo.caption.ifBlank { "Hike photo" },
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-            )
+            if (photo.isVideo) {
+                Icon(Icons.Rounded.PlayCircle, "Play video", tint = Paper, modifier = Modifier.align(Alignment.Center).size(56.dp))
+                Text("VIDEO", style = MaterialTheme.typography.labelSmall, color = Paper, modifier = Modifier.align(Alignment.BottomStart).padding(8.dp))
+            } else {
+                AsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current).data(photo.url).crossfade(true).build(),
+                    contentDescription = photo.caption.ifBlank { "Hike photo" },
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
             if (photo.processingStatus == "in_review") {
                 Box(Modifier.align(Alignment.TopEnd).padding(8.dp).background(Trail, RoundedCornerShape(2.dp)).padding(horizontal = 7.dp, vertical = 3.dp)) {
                     Text("REVIEW", style = MaterialTheme.typography.labelSmall, color = Paper)
@@ -912,9 +923,9 @@ private fun UploadSheet(photoCount: Int, onDismiss: () -> Unit, onUpload: (Strin
     var queueForReview by remember { mutableStateOf(false) }
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Paper) {
         Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 20.dp).padding(bottom = 28.dp)) {
-            Text("$photoCount FRAME${if (photoCount == 1) "" else "S"} SELECTED", style = MaterialTheme.typography.labelSmall, color = TrailText)
+            Text("$photoCount FILE${if (photoCount == 1) "" else "S"} SELECTED", style = MaterialTheme.typography.labelSmall, color = TrailText)
             Text("Add to this journal", style = MaterialTheme.typography.headlineLarge, color = Ink)
-            Text("Each original is secured on this phone now, including its date and GPS. Sync resumes automatically on any connection.", style = MaterialTheme.typography.bodyMedium, color = InkMuted, modifier = Modifier.padding(top = 6.dp))
+            Text("Photos and videos are secured on this phone now. Photo dates and GPS are preserved; sync resumes automatically on any connection.", style = MaterialTheme.typography.bodyMedium, color = InkMuted, modifier = Modifier.padding(top = 6.dp))
             OutlinedTextField(caption, { caption = it }, Modifier.fillMaxWidth().padding(top = 18.dp), label = { Text("Shared caption · optional") })
             Row(Modifier.fillMaxWidth().padding(vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
@@ -926,7 +937,7 @@ private fun UploadSheet(photoCount: Int, onDismiss: () -> Unit, onUpload: (Strin
             Button(onClick = { onUpload(caption, queueForReview) }, Modifier.fillMaxWidth().height(54.dp)) {
                 Icon(Icons.Rounded.CameraAlt, null)
                 Spacer(Modifier.width(8.dp))
-                Text("Save $photoCount photo${if (photoCount == 1) "" else "s"}")
+                Text("Save $photoCount file${if (photoCount == 1) "" else "s"}")
             }
         }
     }
@@ -971,7 +982,8 @@ private fun PhotoViewer(
                     )
                 },
             ) {
-                AsyncImage(photo.url, photo.caption, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+                if (photo.isVideo) VideoPlayer(photo.url, photo.caption)
+                else AsyncImage(photo.url, photo.caption, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
             }
             Column(
                 Modifier
@@ -987,7 +999,7 @@ private fun PhotoViewer(
                     Text(species.commonName.ifBlank { species.scientificName }, style = MaterialTheme.typography.titleMedium, color = Color(0xFFBFD2B9))
                 }
                 AnimatedContent(
-                    targetState = photo.processingStatus == "in_review",
+                    targetState = photo.processingStatus == "in_review" && !photo.isVideo,
                     modifier = Modifier.padding(top = 10.dp),
                     label = "photo-review-state",
                 ) { inReview ->
@@ -1033,12 +1045,16 @@ private fun PhotoViewer(
                         }
                     }
                 }
+                if (photo.isVideo) {
+                    Text("Video playback", style = MaterialTheme.typography.titleMedium, color = Paper, modifier = Modifier.padding(top = 10.dp))
+                    Text("Videos are stored in the journal and are not eligible for species review.", style = MaterialTheme.typography.bodyMedium, color = Color(0xFFBFD2B9), modifier = Modifier.padding(top = 4.dp))
+                }
                 HorizontalDivider(color = Color(0xFF405148), modifier = Modifier.padding(vertical = 13.dp))
                 OutlinedTextField(
                     caption,
                     { caption = it },
                     Modifier.fillMaxWidth(),
-                    label = { Text("Photo note") },
+                    label = { Text(if (photo.isVideo) "Video note" else "Photo note") },
                     textStyle = MaterialTheme.typography.bodyLarge.copy(color = Paper),
                 )
                 Button(onClick = { onSaveCaption(caption) }, Modifier.fillMaxWidth().padding(top = 10.dp)) { Text("Save note") }
@@ -1048,12 +1064,30 @@ private fun PhotoViewer(
     if (confirmDelete) {
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
-            title = { Text("Delete this photo?") },
-            text = { Text("This removes the database record and the R2 image. This cannot be undone.") },
+            title = { Text(if (photo.isVideo) "Delete this video?" else "Delete this photo?") },
+            text = { Text("This removes the database record and stored media. This cannot be undone.") },
             confirmButton = { TextButton(onClick = onDelete) { Text("Delete", color = MaterialTheme.colorScheme.error) } },
             dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Keep photo") } },
         )
     }
+}
+
+private val Photo.isVideo: Boolean get() = contentType.startsWith("video/", ignoreCase = true)
+
+@Composable
+private fun VideoPlayer(url: String, contentDescription: String) {
+    val context = LocalContext.current
+    val player = remember(url) {
+        ExoPlayer.Builder(context).build().apply {
+            setMediaItem(MediaItem.fromUri(url))
+            prepare()
+        }
+    }
+    DisposableEffect(player) { onDispose { player.release() } }
+    AndroidView(
+        factory = { PlayerView(it).apply { this.player = player; useController = true; this.contentDescription = contentDescription.ifBlank { "Hike video" } } },
+        modifier = Modifier.fillMaxSize(),
+    )
 }
 
 @Composable
