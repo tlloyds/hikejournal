@@ -107,6 +107,82 @@ def test_candidate_snapshot_credits_subspecies_to_parent_species() -> None:
     }
 
 
+def test_candidate_snapshot_ignores_self_at_end_of_v2_ancestor_ids() -> None:
+    snapshot = candidate_taxon_snapshot(
+        taxon_id=559678,
+        scientific_name="Dendrocygna autumnalis fulgens",
+        raw_payload={
+            "results": [
+                {
+                    "taxon": {
+                        "id": 559678,
+                        "rank": "subspecies",
+                        "ancestor_ids": [1, 2, 6890, 6893, 559678],
+                    }
+                }
+            ]
+        },
+    )
+
+    assert snapshot["species_taxon_id"] == 6893
+
+
+@pytest.mark.parametrize(
+    ("observation_taxon_id", "observation_name", "species_taxon_id", "species_name"),
+    [
+        (559678, "Dendrocygna autumnalis fulgens", 6893, "Dendrocygna autumnalis"),
+        (27140, "Coluber constrictor priapus", 27137, "Coluber constrictor"),
+        (30985, "Sistrurus miliarius barbouri", 30983, "Sistrurus miliarius"),
+    ],
+)
+def test_infraspecies_without_backfill_credit_exact_parent_species(
+    observation_taxon_id: int,
+    observation_name: str,
+    species_taxon_id: int,
+    species_name: str,
+) -> None:
+    collection = build_collection_index(
+        [
+            {
+                "taxon_id": observation_taxon_id,
+                "species_taxon_id": None,
+                "rank": None,
+                "scientific_name": observation_name,
+                "photo_id": "local-photo",
+            }
+        ],
+        {"local-photo": {"public_url": "mine.jpg", "taken_at": "2026-07-20"}},
+    )
+
+    result = attach_collection_progress(
+        [{"taxon_id": species_taxon_id, "scientific_name": species_name}],
+        collection,
+    )
+
+    assert result["taxa"][0]["collected"] is True
+    assert result["taxa"][0]["collection_photo_url"] == "mine.jpg"
+
+
+def test_infraspecies_name_fallback_does_not_credit_another_species_in_genus() -> None:
+    collection = build_collection_index(
+        [
+            {
+                "taxon_id": 27140,
+                "species_taxon_id": None,
+                "scientific_name": "Coluber constrictor priapus",
+            }
+        ],
+        {},
+    )
+
+    result = attach_collection_progress(
+        [{"taxon_id": 999, "scientific_name": "Coluber flagellum"}],
+        collection,
+    )
+
+    assert result["taxa"][0]["collected"] is False
+
+
 def test_collection_progress_prefers_latest_personal_photo() -> None:
     collection = build_collection_index(
         [

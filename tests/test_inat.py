@@ -4,6 +4,7 @@ import json
 
 from hike_journal.services import inat
 from hike_journal.services.inat import (
+    InatClient,
     build_observation_sync_candidate,
     extract_observation_taxon_snapshot,
     extract_taxon_enrichment,
@@ -63,6 +64,54 @@ def test_extract_taxon_enrichment_resolves_subspecies_parent() -> None:
 
     assert enrichment["species_taxon_id"] == 123
     assert enrichment["ancestor_ids"] == [1, 2, 123]
+
+
+def test_extract_taxon_enrichment_ignores_v2_self_ancestor() -> None:
+    enrichment = extract_taxon_enrichment(
+        {
+            "id": 559678,
+            "name": "Dendrocygna autumnalis fulgens",
+            "rank": "subspecies",
+            "ancestor_ids": [1, 2, 6890, 6893, 559678],
+        }
+    )
+
+    assert enrichment["taxon_id"] == 559678
+    assert enrichment["species_taxon_id"] == 6893
+
+
+def test_taxon_enrichment_is_available_without_an_inat_account(monkeypatch) -> None:
+    captured = {}
+
+    class Response:
+        status_code = 200
+        text = ""
+
+        @staticmethod
+        def json():
+            return {
+                "results": [
+                    {
+                        "id": 559678,
+                        "name": "Dendrocygna autumnalis fulgens",
+                        "rank": "subspecies",
+                        "ancestor_ids": [1, 2, 6890, 6893],
+                    }
+                ]
+            }
+
+    client = InatClient(access_token="", base_url="https://api.example/v1")
+
+    def fake_request(method, url, **kwargs):
+        captured.update({"method": method, "url": url, **kwargs})
+        return Response()
+
+    monkeypatch.setattr(client, "_request", fake_request)
+
+    enrichment = client.fetch_taxon_enrichment(559678)
+
+    assert enrichment["species_taxon_id"] == 6893
+    assert captured["headers"].get("Authorization") is None
 
 
 def test_extract_observation_taxon_snapshot_reads_active_taxon() -> None:

@@ -61,6 +61,7 @@ INFRASPECIES_RANKS = {
     "infrahybrid",
     "hybrid",
 }
+NON_SPECIES_EPITHETS = {"sp", "spp", "cf", "aff", "x"}
 
 
 def seasonal_months(value: date) -> tuple[int, int, int]:
@@ -206,6 +207,48 @@ def credited_species_taxon_id(observation: dict[str, Any]) -> int | None:
         return None
 
 
+def scientific_species_key(scientific_name: str) -> str | None:
+    tokens = re.findall(r"[A-Za-z][A-Za-z.-]+", scientific_name.strip())
+    if len(tokens) < 2 or tokens[1].lower().rstrip(".") in NON_SPECIES_EPITHETS:
+        return None
+    return f"scientific:{tokens[0].casefold()} {tokens[1].casefold()}"
+
+
+def infraspecies_parent_key(observation: dict[str, Any]) -> str | None:
+    scientific_name = str(observation.get("scientific_name") or "").strip()
+    tokens = re.findall(r"[A-Za-z][A-Za-z.-]+", scientific_name)
+    rank = str(observation.get("rank") or "").strip().lower()
+    if rank not in INFRASPECIES_RANKS and len(tokens) < 3:
+        return None
+    return scientific_species_key(scientific_name)
+
+
+def species_ancestor_taxon_id(taxon: dict[str, Any], taxon_id: int) -> int | None:
+    ancestors = taxon.get("ancestors")
+    if isinstance(ancestors, list):
+        for ancestor in reversed(ancestors):
+            if not isinstance(ancestor, dict) or str(ancestor.get("rank") or "").lower() != "species":
+                continue
+            try:
+                return int(ancestor.get("id"))
+            except (TypeError, ValueError):
+                continue
+    ancestor_ids = taxon.get("ancestor_ids")
+    if isinstance(ancestor_ids, list):
+        for value in reversed(ancestor_ids):
+            try:
+                ancestor_id = int(value)
+            except (TypeError, ValueError):
+                continue
+            if ancestor_id != int(taxon_id):
+                return ancestor_id
+    try:
+        resolved = int(taxon.get("species_taxon_id"))
+    except (TypeError, ValueError):
+        return None
+    return resolved if resolved != int(taxon_id) else None
+
+
 def candidate_taxon_snapshot(
     *,
     taxon_id: int | None,
@@ -234,17 +277,7 @@ def candidate_taxon_snapshot(
     if rank == "species":
         species_taxon_id = int(taxon_id)
     elif rank in INFRASPECIES_RANKS:
-        ancestor_ids = (matched or {}).get("ancestor_ids")
-        if isinstance(ancestor_ids, list) and ancestor_ids:
-            try:
-                species_taxon_id = int(ancestor_ids[-1])
-            except (TypeError, ValueError):
-                pass
-        if species_taxon_id is None:
-            try:
-                species_taxon_id = int((matched or {}).get("species_taxon_id"))
-            except (TypeError, ValueError):
-                pass
+        species_taxon_id = species_ancestor_taxon_id(matched or {}, int(taxon_id))
     elif not rank and len(re.findall(r"[A-Za-z][A-Za-z.-]+", scientific_name.strip())) == 2:
         species_taxon_id = int(taxon_id)
     return {
@@ -257,27 +290,34 @@ def candidate_taxon_snapshot(
 def build_collection_index(
     observations: list[dict[str, Any]],
     photos_by_id: dict[str, dict[str, Any]],
-) -> dict[int, dict[str, Any]]:
-    collection: dict[int, dict[str, Any]] = {}
+) -> dict[int | str, dict[str, Any]]:
+    collection: dict[int | str, dict[str, Any]] = {}
     for observation in observations:
         taxon_id = credited_species_taxon_id(observation)
-        if taxon_id is None:
+        parent_key = infraspecies_parent_key(observation)
+        credit_keys: list[int | str] = []
+        if taxon_id is not None:
+            credit_keys.append(taxon_id)
+        if parent_key is not None:
+            credit_keys.append(parent_key)
+        if not credit_keys:
             continue
         photo = photos_by_id.get(str(observation.get("photo_id") or ""), {})
-        current = collection.get(taxon_id)
         observed_at = str(photo.get("taken_at") or observation.get("identified_at") or "")
-        current_observed_at = str((current or {}).get("collected_at") or "")
-        if current is None or observed_at > current_observed_at:
-            collection[taxon_id] = {
-                "collected_at": observed_at or None,
-                "collection_photo_url": str(photo.get("public_url") or "") or None,
-            }
+        for credit_key in credit_keys:
+            current = collection.get(credit_key)
+            current_observed_at = str((current or {}).get("collected_at") or "")
+            if current is None or observed_at > current_observed_at:
+                collection[credit_key] = {
+                    "collected_at": observed_at or None,
+                    "collection_photo_url": str(photo.get("public_url") or "") or None,
+                }
     return collection
 
 
 def attach_collection_progress(
     taxa: list[dict[str, Any]],
-    collection: dict[int, dict[str, Any]],
+    collection: dict[int | str, dict[str, Any]],
     *,
     focus_taxon_ids: list[int] | None = None,
 ) -> dict[str, Any]:
@@ -286,6 +326,10 @@ def attach_collection_progress(
     for item in taxa:
         taxon_id = int(item["taxon_id"])
         collected = collection.get(taxon_id)
+        if collected is None:
+            scientific_key = scientific_species_key(str(item.get("scientific_name") or ""))
+            if scientific_key is not None:
+                collected = collection.get(scientific_key)
         enriched.append(
             {
                 **item,

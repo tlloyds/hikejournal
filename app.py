@@ -50,6 +50,7 @@ from hike_journal.domain.library import (
     normalize_email,
     record_visible_for_user,
 )
+from hike_journal.domain.discovery import infraspecies_parent_key
 from hike_journal.queries import (
     fetch_hike_lightweight_observations,
     fetch_hike_locations,
@@ -3334,7 +3335,20 @@ def ensure_taxon_enrichment(repository: HikeJournalRepository, inat_client: Inat
     if raw_payload.get("manual_override"):
         return False
     taxon_id = observation.get("taxon_id")
-    if isinstance(enrichment, dict):
+    needs_parent_resolution = infraspecies_parent_key(observation) is not None
+    enrichment_taxon_id = (enrichment or {}).get("taxon_id") if isinstance(enrichment, dict) else None
+    enrichment_is_complete = (
+        isinstance(enrichment, dict)
+        and (
+            not needs_parent_resolution
+            or enrichment.get("species_taxon_id") not in (None, "")
+        )
+        and (
+            enrichment_taxon_id in (None, "")
+            or str(enrichment_taxon_id) == str(taxon_id)
+        )
+    )
+    if enrichment_is_complete:
         repository.update_observation_taxon_resolution(
             str(observation["id"]),
             rank=enrichment.get("rank"),

@@ -17,6 +17,7 @@ from hike_journal.config import (
     save_inat_token_record_for_user,
     settings,
 )
+from hike_journal.domain.discovery import species_ancestor_taxon_id
 from hike_journal.models import SpeciesCandidate
 
 
@@ -145,14 +146,9 @@ class InatClient:
         return candidates[0]
 
     def fetch_taxon_enrichment(self, taxon_id: int) -> dict[str, Any]:
-        if not self.is_configured:
-            raise InatConfigurationError("INAT_ACCESS_TOKEN is not configured yet.")
-
         url = f"{self.base_url}/taxa/{taxon_id}"
-        headers = self._headers(auth=True)
+        headers = self._headers(auth=False)
         response = self._request("get", url, headers=headers, timeout=30)
-        if response.status_code == 401:
-            raise InatAuthError("iNaturalist rejected this token during taxon lookup. Paste a fresh token below and try again.")
         if response.status_code >= 400:
             raise InatRequestError(f"iNaturalist taxon lookup returned {response.status_code}: {response.text[:200]}")
         payload = response.json()
@@ -661,9 +657,13 @@ def extract_taxon_enrichment(taxon: dict[str, Any]) -> dict[str, Any]:
         if (ancestor_id := _coerce_int(value)) is not None
     ]
     species_taxon_id = taxon_id if rank == "species" else None
-    if rank in {"subspecies", "variety", "form", "infrahybrid", "hybrid"} and ancestor_ids:
-        species_taxon_id = ancestor_ids[-1]
+    if (
+        taxon_id is not None
+        and rank in {"subspecies", "variety", "form", "infrahybrid", "hybrid"}
+    ):
+        species_taxon_id = species_ancestor_taxon_id(taxon, taxon_id)
     return {
+        "taxon_id": taxon_id,
         "preferred_common_name": preferred_common_name,
         "english_common_name": english_common_name,
         "rank": rank,

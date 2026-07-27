@@ -18,14 +18,14 @@ from hike_journal.domain.map_data import (
 
 
 LIGHTWEIGHT_OBSERVATION_COLUMNS = (
-    "id,photo_id,hike_id,owner_subject,owner_email,taxon_id,species_taxon_id,common_name,scientific_name,"
+    "id,photo_id,hike_id,owner_subject,owner_email,taxon_id,species_taxon_id,rank,common_name,scientific_name,"
     "confidence,status,is_primary,identified_at,source,inat_observation_id,inat_observation_url,"
     "inat_posted_at,inat_photo_attached,"
     "species_log_main_photo:raw_response_json->species_log_main_photo"
 )
 LEGACY_LIGHTWEIGHT_OBSERVATION_COLUMNS = LIGHTWEIGHT_OBSERVATION_COLUMNS.replace(
-    "taxon_id,species_taxon_id,",
-    "taxon_id,",
+    "species_taxon_id,rank,",
+    "",
 )
 
 
