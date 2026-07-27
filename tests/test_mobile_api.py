@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from fastapi.testclient import TestClient
+
 from mobile_api import (
     ReviewCandidateInput,
     ReviewDecisionInput,
@@ -7,11 +9,13 @@ from mobile_api import (
     _photo_payload,
     _review_candidates,
     _species_key,
+    app,
     get_nearby_species,
     list_discovery_areas,
     decide_species_review,
     derive_mobile_api_token,
     queue_photo_for_species_review,
+    require_mobile_key,
     request_species_recommendation,
 )
 from hike_journal.models import SpeciesCandidate
@@ -307,6 +311,62 @@ def test_current_location_discovery_rounds_coordinates_before_query(monkeypatch)
 
     assert captured["area"]["lat"] == 28.12
     assert captured["area"]["lng"] == -82.68
+
+
+def test_current_location_endpoint_parses_android_radius_query(monkeypatch):
+    captured = {}
+    repository = object()
+    service_container = type("Service", (), {"repository": repository})()
+
+    class Discovery:
+        def __init__(self, _repository):
+            pass
+
+        def nearby(self, **kwargs):
+            captured.update(kwargs)
+            return {"taxa": [], "progress": {"collected_count": 0, "total_count": 0}}
+
+    monkeypatch.setattr("mobile_api.get_services", lambda: service_container)
+    monkeypatch.setattr("mobile_api.SpeciesDiscoveryService", Discovery)
+    monkeypatch.setattr("mobile_api._discovery_collection_data", lambda _service: ([], {}))
+    app.dependency_overrides[require_mobile_key] = lambda: None
+    try:
+        response = TestClient(app).get(
+            "/v1/discovery/nearby",
+            params={
+                "date": "2026-07-27",
+                "radius_km": "10",
+                "lat": "28.12345",
+                "lng": "-82.67891",
+                "area_name": "Current area",
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(require_mobile_key, None)
+
+    assert response.status_code == 200
+    assert captured["radius_km"] == 10
+    assert captured["area"]["lat"] == 28.12
+    assert captured["area"]["lng"] == -82.68
+
+
+def test_nearby_endpoint_rejects_unsupported_radius_after_query_parsing():
+    app.dependency_overrides[require_mobile_key] = lambda: None
+    try:
+        response = TestClient(app).get(
+            "/v1/discovery/nearby",
+            params={
+                "date": "2026-07-27",
+                "radius_km": "7",
+                "lat": "28.12",
+                "lng": "-82.68",
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(require_mobile_key, None)
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "Radius must be one of (5, 10, 25)."
 
 
 def test_mobile_review_can_request_and_save_an_inaturalist_recommendation(monkeypatch):
