@@ -18,7 +18,10 @@ GitHub connection in Cloud Run:
 5. Under **Variables & Secrets**, add the production values from `.env`:
    `MOBILE_API_TOKEN`, `MOBILE_OWNER_EMAIL`, `SUPABASE_URL`, `SUPABASE_KEY`,
    storage settings (`STORAGE_BACKEND` and either the R2 or Supabase values),
-   and `INAT_ACCESS_TOKEN` if iNaturalist publishing is enabled. To allow
+   `SPECIES_DISCOVERY_ENABLED=true`, and
+   `INAT_DISCOVERY_BASE_URL=https://api.inaturalist.org/v2`.
+   `INAT_ACCESS_TOKEN` is only needed if iNaturalist publishing is enabled; the
+   Nearby species list itself uses public iNaturalist data. To allow
    Android to connect iNaturalist itself, also add `INAT_OAUTH_CLIENT_ID`,
    `INAT_OAUTH_CLIENT_SECRET`, and `MOBILE_INAT_OAUTH_REDIRECT_URI`. Register
    that exact callback URL with the same iNaturalist OAuth application; it must

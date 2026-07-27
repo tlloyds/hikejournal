@@ -6,6 +6,7 @@ from typing import Any
 
 from supabase import Client
 
+from hike_journal.domain.discovery import candidate_taxon_snapshot
 from hike_journal.models import HikeDraft, SpeciesCandidate
 from hike_journal.domain.map_data import (
     MAX_VIEWPORT_FEATURES,
@@ -17,10 +18,14 @@ from hike_journal.domain.map_data import (
 
 
 LIGHTWEIGHT_OBSERVATION_COLUMNS = (
-    "id,photo_id,hike_id,owner_subject,owner_email,taxon_id,common_name,scientific_name,"
+    "id,photo_id,hike_id,owner_subject,owner_email,taxon_id,species_taxon_id,common_name,scientific_name,"
     "confidence,status,is_primary,identified_at,source,inat_observation_id,inat_observation_url,"
     "inat_posted_at,inat_photo_attached,"
     "species_log_main_photo:raw_response_json->species_log_main_photo"
+)
+LEGACY_LIGHTWEIGHT_OBSERVATION_COLUMNS = LIGHTWEIGHT_OBSERVATION_COLUMNS.replace(
+    "taxon_id,species_taxon_id,",
+    "taxon_id,",
 )
 
 
@@ -141,6 +146,191 @@ class HikeJournalRepository:
             )
         except Exception:
             return []
+
+    def get_hike_location(self, location_id: str) -> dict[str, Any] | None:
+        try:
+            response = (
+                self.client.table("hike_locations")
+                .select("*")
+                .eq("id", location_id)
+                .limit(1)
+                .execute()
+            )
+        except Exception:
+            return None
+        rows = response.data or []
+        return rows[0] if rows else None
+
+    def get_species_discovery_snapshot(self, cache_key: str) -> dict[str, Any] | None:
+        try:
+            response = (
+                self.client.table("species_discovery_snapshots")
+                .select("*")
+                .eq("cache_key", cache_key)
+                .limit(1)
+                .execute()
+            )
+        except Exception:
+            return None
+        rows = response.data or []
+        return rows[0] if rows else None
+
+    def upsert_species_discovery_snapshot(self, payload: dict[str, Any]) -> dict[str, Any] | None:
+        try:
+            response = (
+                self.client.table("species_discovery_snapshots")
+                .upsert(payload, on_conflict="cache_key")
+                .execute()
+            )
+        except Exception:
+            return None
+        rows = response.data or []
+        return rows[0] if rows else None
+
+    def create_species_quest(
+        self,
+        payload: dict[str, Any],
+        taxa: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        try:
+            response = self.client.table("species_quests").insert(payload).execute()
+        except Exception as exc:
+            raise RuntimeError(
+                "Field Quests need sql/species_discovery_migration.sql before they can be saved."
+            ) from exc
+        quest = response.data[0]
+        quest_id = str(quest["id"])
+        target_rows = []
+        for item in taxa[:50]:
+            photo = item.get("reference_photo") if isinstance(item.get("reference_photo"), dict) else {}
+            target_rows.append(
+                {
+                    "quest_id": quest_id,
+                    "taxon_id": int(item["taxon_id"]),
+                    "common_name": str(item.get("common_name") or "Unknown species"),
+                    "scientific_name": str(item.get("scientific_name") or ""),
+                    "rank": str(item.get("rank") or "species"),
+                    "iconic_taxon_name": str(item.get("iconic_taxon_name") or "Other"),
+                    "observation_count": int(item.get("observation_count") or 0),
+                    "nearby_rank": int(item.get("nearby_rank") or len(target_rows) + 1),
+                    "frequency_band": str(item.get("frequency_band") or "Less often reported"),
+                    "reference_photo_url": str((photo or {}).get("url") or "") or None,
+                    "reference_photo_attribution": str((photo or {}).get("attribution") or "") or None,
+                    "reference_photo_license": str((photo or {}).get("license_code") or "") or None,
+                    "focus_order": item.get("focus_order"),
+                }
+            )
+        try:
+            if target_rows:
+                self.client.table("species_quest_taxa").insert(target_rows).execute()
+        except Exception:
+            self.client.table("species_quests").delete().eq("id", quest_id).execute()
+            raise
+        return self.get_species_quest(quest_id) or {**quest, "taxa": []}
+
+    def list_species_quests(
+        self,
+        *,
+        owner_subject: str | None,
+        owner_email: str | None,
+    ) -> list[dict[str, Any]]:
+        try:
+            query = self.client.table("species_quests").select("*").order("created_at", desc=True)
+            if owner_subject:
+                query = query.eq("owner_subject", owner_subject)
+            elif owner_email:
+                query = query.eq("owner_email", owner_email.strip().lower())
+            rows = query.execute().data or []
+        except Exception:
+            return []
+        return [self._attach_species_quest_taxa(row) for row in rows]
+
+    def get_species_quest(self, quest_id: str) -> dict[str, Any] | None:
+        try:
+            response = (
+                self.client.table("species_quests")
+                .select("*")
+                .eq("id", quest_id)
+                .limit(1)
+                .execute()
+            )
+        except Exception:
+            return None
+        rows = response.data or []
+        return self._attach_species_quest_taxa(rows[0]) if rows else None
+
+    def _attach_species_quest_taxa(self, quest: dict[str, Any]) -> dict[str, Any]:
+        try:
+            response = (
+                self.client.table("species_quest_taxa")
+                .select("*")
+                .eq("quest_id", str(quest["id"]))
+                .order("nearby_rank")
+                .execute()
+            )
+            target_rows = response.data or []
+        except Exception:
+            target_rows = []
+        taxa = []
+        for item in target_rows:
+            taxa.append(
+                {
+                    "taxon_id": item.get("taxon_id"),
+                    "common_name": item.get("common_name"),
+                    "scientific_name": item.get("scientific_name"),
+                    "rank": item.get("rank"),
+                    "iconic_taxon_name": item.get("iconic_taxon_name"),
+                    "observation_count": item.get("observation_count"),
+                    "nearby_rank": item.get("nearby_rank"),
+                    "frequency_band": item.get("frequency_band"),
+                    "focus_order": item.get("focus_order"),
+                    "reference_photo": (
+                        {
+                            "url": item.get("reference_photo_url"),
+                            "attribution": item.get("reference_photo_attribution") or "",
+                            "license_code": item.get("reference_photo_license") or "",
+                        }
+                        if item.get("reference_photo_url")
+                        else None
+                    ),
+                }
+            )
+        return {**quest, "taxa": taxa}
+
+    def update_species_quest(
+        self,
+        quest_id: str,
+        *,
+        title: str | None = None,
+        status: str | None = None,
+        linked_hike_id: str | None = None,
+        set_linked_hike: bool = False,
+        focus_taxon_ids: list[int] | None = None,
+    ) -> dict[str, Any] | None:
+        payload: dict[str, Any] = {}
+        if title is not None:
+            payload["title"] = title.strip()
+        if status is not None:
+            payload["status"] = status
+        if set_linked_hike:
+            payload["linked_hike_id"] = linked_hike_id
+        if payload:
+            payload["updated_at"] = datetime.now(UTC).isoformat()
+            self.client.table("species_quests").update(payload).eq("id", quest_id).execute()
+        if focus_taxon_ids is not None:
+            self.client.table("species_quest_taxa").update({"focus_order": None}).eq(
+                "quest_id",
+                quest_id,
+            ).execute()
+            for index, taxon_id in enumerate(focus_taxon_ids[:5]):
+                (
+                    self.client.table("species_quest_taxa")
+                    .update({"focus_order": index + 1})
+                    .eq("quest_id", quest_id)
+                    .eq("taxon_id", int(taxon_id))
+                    .execute()
+                )
+        return self.get_species_quest(quest_id)
 
     def upsert_hike_location(self, name: str, **values: Any) -> dict[str, Any] | None:
         clean_name = name.strip()
@@ -720,13 +910,36 @@ class HikeJournalRepository:
                 query = query.in_("photo_id", chunk_ids)
             return query
 
-        if normalized_ids is not None:
-            rows: list[dict[str, Any]] = []
-            for chunk_ids in self._chunks(normalized_ids):
-                rows.extend(self._select_all_rows(lambda chunk_ids=chunk_ids: query_factory(chunk_ids)))
-            return rows
+        try:
+            if normalized_ids is not None:
+                rows: list[dict[str, Any]] = []
+                for chunk_ids in self._chunks(normalized_ids):
+                    rows.extend(self._select_all_rows(lambda chunk_ids=chunk_ids: query_factory(chunk_ids)))
+                return rows
+            return self._select_all_rows(lambda: query_factory())
+        except Exception:
+            def legacy_query_factory(chunk_ids: list[str] | None = None):
+                query = self.client.table("species_observations").select(
+                    LEGACY_LIGHTWEIGHT_OBSERVATION_COLUMNS
+                )
+                if hike_id:
+                    query = query.eq("hike_id", hike_id)
+                if status:
+                    query = query.eq("status", status)
+                if chunk_ids is not None:
+                    query = query.in_("photo_id", chunk_ids)
+                return query
 
-        return self._select_all_rows(lambda: query_factory())
+            if normalized_ids is not None:
+                legacy_rows: list[dict[str, Any]] = []
+                for chunk_ids in self._chunks(normalized_ids):
+                    legacy_rows.extend(
+                        self._select_all_rows(
+                            lambda chunk_ids=chunk_ids: legacy_query_factory(chunk_ids)
+                        )
+                    )
+                return legacy_rows
+            return self._select_all_rows(lambda: legacy_query_factory())
 
     def list_observations_for_photo_ids(self, photo_ids: list[str]) -> list[dict[str, Any]]:
         normalized_ids = [str(photo_id) for photo_id in photo_ids if str(photo_id).strip()]
@@ -808,12 +1021,20 @@ class HikeJournalRepository:
         owner_subject: str | None = None,
         owner_email: str | None = None,
     ) -> dict[str, Any]:
+        taxon_snapshot = candidate_taxon_snapshot(
+            taxon_id=candidate.taxon_id,
+            scientific_name=candidate.scientific_name,
+            raw_payload=candidate.raw_payload,
+        )
         payload = {
             "hike_id": hike_id,
             "owner_subject": owner_subject,
             "owner_email": owner_email,
             "photo_id": photo_id,
             "taxon_id": candidate.taxon_id,
+            "species_taxon_id": taxon_snapshot["species_taxon_id"],
+            "rank": taxon_snapshot["rank"],
+            "iconic_taxon_name": taxon_snapshot["iconic_taxon_name"],
             "common_name": candidate.common_name,
             "scientific_name": candidate.scientific_name,
             "confidence": round(candidate.confidence, 4),
@@ -838,7 +1059,11 @@ class HikeJournalRepository:
             response = self.client.table("species_observations").insert(payload).execute()
             return response.data[0]
         except Exception:
-            legacy_payload = {key: value for key, value in payload.items() if key != "is_primary"}
+            legacy_payload = {
+                key: value
+                for key, value in payload.items()
+                if key not in {"is_primary", "species_taxon_id"}
+            }
             response = self.client.table("species_observations").upsert(legacy_payload, on_conflict="photo_id").execute()
             return response.data[0]
 
@@ -859,12 +1084,20 @@ class HikeJournalRepository:
     ) -> dict[str, Any]:
         if is_primary:
             self._clear_primary_for_photo(photo_id)
+        taxon_snapshot = candidate_taxon_snapshot(
+            taxon_id=taxon_id,
+            scientific_name=str(scientific_name or ""),
+            raw_payload=raw_payload,
+        )
         payload = {
             "hike_id": hike_id,
             "owner_subject": owner_subject,
             "owner_email": owner_email,
             "photo_id": photo_id,
             "taxon_id": taxon_id,
+            "species_taxon_id": taxon_snapshot["species_taxon_id"],
+            "rank": taxon_snapshot["rank"],
+            "iconic_taxon_name": taxon_snapshot["iconic_taxon_name"],
             "common_name": common_name,
             "scientific_name": scientific_name,
             "confidence": None,
@@ -876,8 +1109,13 @@ class HikeJournalRepository:
         try:
             response = self.client.table("species_observations").insert(payload).execute()
             return response.data[0]
-        except Exception as exc:
-            raise RuntimeError("The database needs the multi-observation migration before manual secondary species can be added.") from exc
+        except Exception:
+            payload.pop("species_taxon_id", None)
+            try:
+                response = self.client.table("species_observations").insert(payload).execute()
+                return response.data[0]
+            except Exception as exc:
+                raise RuntimeError("The database needs the multi-observation migration before manual secondary species can be added.") from exc
 
     def apply_candidate_to_observation(
         self,
@@ -890,8 +1128,16 @@ class HikeJournalRepository:
     ) -> dict[str, Any]:
         if is_primary:
             self._clear_primary_for_photo(photo_id, except_observation_id=observation_id)
+        taxon_snapshot = candidate_taxon_snapshot(
+            taxon_id=candidate.taxon_id,
+            scientific_name=candidate.scientific_name,
+            raw_payload=candidate.raw_payload,
+        )
         payload = {
             "taxon_id": candidate.taxon_id,
+            "species_taxon_id": taxon_snapshot["species_taxon_id"],
+            "rank": taxon_snapshot["rank"],
+            "iconic_taxon_name": taxon_snapshot["iconic_taxon_name"],
             "common_name": candidate.common_name,
             "scientific_name": candidate.scientific_name,
             "confidence": round(candidate.confidence, 4),
@@ -901,7 +1147,11 @@ class HikeJournalRepository:
         }
         if status is not None:
             payload["status"] = status
-        response = self.client.table("species_observations").update(payload).eq("id", observation_id).execute()
+        try:
+            response = self.client.table("species_observations").update(payload).eq("id", observation_id).execute()
+        except Exception:
+            payload.pop("species_taxon_id", None)
+            response = self.client.table("species_observations").update(payload).eq("id", observation_id).execute()
         return response.data[0]
 
     def update_observation_status(self, observation_id: str, status: str) -> dict[str, Any]:
@@ -950,6 +1200,32 @@ class HikeJournalRepository:
     def update_observation_raw_payload(self, observation_id: str, raw_payload: dict[str, Any]) -> dict[str, Any]:
         response = self.client.table("species_observations").update({"raw_response_json": raw_payload}).eq("id", observation_id).execute()
         return response.data[0]
+
+    def update_observation_taxon_resolution(
+        self,
+        observation_id: str,
+        *,
+        rank: str | None,
+        iconic_taxon_name: str | None,
+        species_taxon_id: int | None,
+    ) -> dict[str, Any] | None:
+        try:
+            response = (
+                self.client.table("species_observations")
+                .update(
+                    {
+                        "rank": rank,
+                        "iconic_taxon_name": iconic_taxon_name,
+                        "species_taxon_id": species_taxon_id,
+                    }
+                )
+                .eq("id", observation_id)
+                .execute()
+            )
+        except Exception:
+            return None
+        rows = response.data or []
+        return rows[0] if rows else None
 
     def update_observation_inat_posting(
         self,

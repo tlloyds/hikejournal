@@ -1,14 +1,310 @@
 from __future__ import annotations
 
+from datetime import date
 from html import escape
 from typing import Any
 
 import streamlit as st
 import streamlit.components.v1 as components
 
-from hike_journal.services.inat import InatClient
+from hike_journal.config import settings
+from hike_journal.domain.discovery import (
+    DISCOVERY_ALGORITHM_VERSION,
+    DISCOVERY_GROUPS,
+    DISCOVERY_RADII_KM,
+)
+from hike_journal.services.discovery import SpeciesDiscoveryService
+from hike_journal.services.inat import InatClient, InatRateLimitError, InatRequestError
 from hike_journal.services.repositories import HikeJournalRepository
 from hike_journal.ui.components import get_photo_thumbnail_url, section_heading
+
+
+def _render_discovery_species_rows(taxa: list[dict[str, Any]], *, show_focus: bool) -> None:
+    for item in taxa:
+        collected = bool(item.get("collected"))
+        photo_url = (
+            item.get("collection_photo_url")
+            if collected and item.get("collection_photo_url")
+            else (item.get("reference_photo") or {}).get("url")
+        )
+        photo = item.get("reference_photo") or {}
+        attribution = str(photo.get("attribution") or "").strip()
+        status = "Logged in your collection" if collected else str(item.get("frequency_band") or "Nearby record")
+        focus_order = item.get("focus_order")
+        focus_copy = f"<span class='field-quest-focus'>Focus {focus_order}</span>" if show_focus and focus_order else ""
+        image_markup = (
+            f"<img src='{escape(str(photo_url))}' alt='{escape(str(item.get('common_name') or 'Species'))}'>"
+            if photo_url
+            else "<div class='field-quest-image-fallback'>No image</div>"
+        )
+        st.markdown(
+            f"""
+            <div class="field-quest-species-row{' is-collected' if collected else ' is-unseen'}">
+                <div class="field-quest-species-image">{image_markup}</div>
+                <div class="field-quest-species-copy">
+                    <div class="field-quest-species-kicker">{escape(status)} {focus_copy}</div>
+                    <div class="field-quest-species-name">{escape(str(item.get('common_name') or 'Unknown species'))}</div>
+                    <div class="field-quest-species-scientific">{escape(str(item.get('scientific_name') or ''))}</div>
+                    <div class="field-quest-species-meta">
+                        {int(item.get('observation_count') or 0):,} research-grade reports nearby
+                        {f" · {escape(attribution)}" if attribution and not collected else ""}
+                    </div>
+                </div>
+                <div class="field-quest-species-rank">{int(item.get('nearby_rank') or 0):02d}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
+def _render_nearby_mode(
+    repository: HikeJournalRepository,
+    hikes: list[dict[str, Any]],
+    context: dict[str, Any],
+) -> None:
+    if not settings.species_discovery_enabled:
+        st.info("Nearby species discovery is currently turned off.")
+        return
+    service = SpeciesDiscoveryService(repository)
+    areas = service.list_areas(repository)
+    if not areas:
+        st.warning("No coordinate-backed hike locations are available yet.")
+        return
+    area_by_label = {area["name"]: area for area in areas}
+    labels = list(area_by_label)
+    selected_area_id = st.session_state.get("species_nearby_area_id")
+    selected_area_name = str(st.session_state.get("species_nearby_area_name") or "")
+    default_index = next(
+        (
+            index
+            for index, label in enumerate(labels)
+            if area_by_label[label]["id"] == selected_area_id
+            or label.casefold() == selected_area_name.casefold()
+        ),
+        0,
+    )
+    with st.container(key="species_discovery_controls"):
+        controls = st.columns([0.35, 0.18, 0.19, 0.28], gap="small")
+        area_label = controls[0].selectbox(
+            "Area",
+            labels,
+            index=default_index,
+            placeholder="Search saved trails",
+        )
+        target_date = controls[1].date_input("Season", value=date.today())
+        radius = controls[2].segmented_control(
+            "Radius",
+            list(DISCOVERY_RADII_KM),
+            default=st.session_state.get("species_nearby_radius", 10),
+            format_func=lambda value: f"{value} km",
+        ) or 10
+        group_label = controls[3].selectbox(
+            "Species group",
+            list(DISCOVERY_GROUPS),
+            index=list(DISCOVERY_GROUPS).index(
+                st.session_state.get("species_nearby_group", "All Life")
+                if st.session_state.get("species_nearby_group", "All Life") in DISCOVERY_GROUPS
+                else "All Life"
+            ),
+        )
+    area = area_by_label[area_label]
+    st.session_state.species_nearby_area_id = area["id"]
+    st.session_state.species_nearby_area_name = area["name"]
+    st.session_state.species_nearby_radius = radius
+    st.session_state.species_nearby_group = group_label
+    try:
+        with st.spinner("Reading recent field reports…"):
+            nearby = service.nearby(
+                area=area,
+                target_date=target_date,
+                radius_km=radius,
+                iconic_taxon=group_label,
+                observations=context.get("confirmed_observations") or [],
+                photos_by_id=context.get("photos_by_id") or {},
+            )
+    except (ValueError, InatRequestError, InatRateLimitError) as exc:
+        st.error(str(exc))
+        return
+
+    progress = nearby["progress"]
+    st.markdown(
+        f"""
+        <div class="field-quest-progress-copy">
+            <div>
+                <span>{escape(nearby['area']['name'])}</span>
+                <strong>{progress['collected_count']} of {progress['total_count']} logged</strong>
+            </div>
+            <p>{escape(nearby['period']['label'])} · {nearby['area']['radius_km']} km · reporting frequency, not encounter probability</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    completion = progress["collected_count"] / progress["total_count"] if progress["total_count"] else 0.0
+    st.progress(completion)
+    if nearby["data_density"]["message"]:
+        st.warning(nearby["data_density"]["message"])
+    if not nearby["taxa"]:
+        st.info("No research-grade species reports matched this area and season.")
+        return
+
+    unseen = [item for item in nearby["taxa"] if not item.get("collected")]
+    focus_options = {
+        f"{item['common_name']} · {item['scientific_name']}": int(item["taxon_id"])
+        for item in unseen
+    }
+    selected_focus_labels = st.multiselect(
+        "Focus finds",
+        list(focus_options),
+        max_selections=5,
+        placeholder="Choose up to five species for the next outing",
+        help="Focus finds are saved with the quest and can be changed later.",
+    )
+    action_cols = st.columns([0.24, 0.76])
+    if action_cols[0].button("Save Field Quest", type="primary", use_container_width=True):
+        selected_ids = [focus_options[label] for label in selected_focus_labels]
+        focus_order = {taxon_id: index + 1 for index, taxon_id in enumerate(selected_ids)}
+        quest_taxa = [
+            {**item, "focus_order": focus_order.get(int(item["taxon_id"]))}
+            for item in nearby["taxa"]
+        ]
+        user_context = st.session_state.get("current_user_context") or {}
+        try:
+            saved = repository.create_species_quest(
+                {
+                    "owner_subject": user_context.get("subject"),
+                    "owner_email": str(user_context.get("email") or "").strip().lower() or None,
+                    "location_id": area["id"],
+                    "linked_hike_id": None,
+                    "title": f"{area['name']} · {nearby['period']['label']}",
+                    "status": "active",
+                    "area_name": area["name"],
+                    "lat": nearby["area"]["lat"],
+                    "lng": nearby["area"]["lng"],
+                    "radius_km": radius,
+                    "target_date": target_date.isoformat(),
+                    "months": nearby["period"]["months"],
+                    "iconic_taxon": nearby["filters"]["iconic_taxon"],
+                    "algorithm_version": DISCOVERY_ALGORITHM_VERSION,
+                    "target_count": len(quest_taxa),
+                },
+                quest_taxa,
+            )
+        except RuntimeError as exc:
+            st.error(str(exc))
+        else:
+            st.session_state.species_quest_selected_id = saved["id"]
+            st.session_state.species_log_mode = "Field Quests"
+            st.rerun()
+    action_cols[1].caption(
+        f"Source refreshed {nearby['source']['fetched_at'][:10]}"
+        + (" · cached result" if nearby["source"]["from_cache"] else "")
+    )
+    _render_discovery_species_rows(nearby["taxa"], show_focus=False)
+
+
+def _render_quests_mode(
+    repository: HikeJournalRepository,
+    hikes: list[dict[str, Any]],
+    context: dict[str, Any],
+) -> None:
+    user_context = st.session_state.get("current_user_context") or {}
+    service = SpeciesDiscoveryService(repository)
+    quests = repository.list_species_quests(
+        owner_subject=user_context.get("subject"),
+        owner_email=user_context.get("email"),
+    )
+    status_filter = st.segmented_control(
+        "Quest status",
+        ["Active", "Archived"],
+        default=st.session_state.get("species_quest_status_filter", "Active"),
+        label_visibility="collapsed",
+    ) or "Active"
+    st.session_state.species_quest_status_filter = status_filter
+    quests = [quest for quest in quests if str(quest.get("status")) == status_filter.lower()]
+    if not quests:
+        st.info(
+            "No saved Field Quests yet. Open Nearby, choose an area and season, then save its checklist."
+            if status_filter == "Active"
+            else "No archived Field Quests."
+        )
+        return
+    quest_by_label = {
+        f"{quest.get('title') or 'Field Quest'} · {str(quest.get('created_at') or '')[:10]}": quest
+        for quest in quests
+    }
+    labels = list(quest_by_label)
+    selected_id = st.session_state.get("species_quest_selected_id")
+    selected_index = next(
+        (index for index, label in enumerate(labels) if str(quest_by_label[label]["id"]) == str(selected_id)),
+        0,
+    )
+    selected_label = st.selectbox("Saved quest", labels, index=selected_index)
+    quest = quest_by_label[selected_label]
+    st.session_state.species_quest_selected_id = quest["id"]
+    payload = service.quest_payload(
+        quest,
+        observations=context.get("confirmed_observations") or [],
+        photos_by_id=context.get("photos_by_id") or {},
+    )
+    progress = payload["progress"]
+    st.markdown(
+        f"""
+        <div class="field-quest-progress-copy">
+            <div><span>{escape(payload['area']['name'])}</span><strong>{progress['collected_count']} of {progress['total_count']} logged</strong></div>
+            <p>{escape(payload['period']['label'])} · frozen checklist · {progress['remaining_count']} remaining</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    completion = progress["collected_count"] / progress["total_count"] if progress["total_count"] else 0.0
+    st.progress(completion)
+
+    taxon_by_label = {
+        f"{item['common_name']} · {item['scientific_name']}": int(item["taxon_id"])
+        for item in payload["taxa"]
+        if not item.get("collected")
+    }
+    selected_focus = [
+        label
+        for label, taxon_id in taxon_by_label.items()
+        if any(
+            int(item["taxon_id"]) == taxon_id and item.get("focus_order")
+            for item in payload["taxa"]
+        )
+    ]
+    focus_labels = st.multiselect(
+        "Focus finds",
+        list(taxon_by_label),
+        default=selected_focus,
+        max_selections=5,
+    )
+    hike_by_label = {"No linked outing": None, **{str(hike.get("title") or "Untitled hike"): hike["id"] for hike in hikes}}
+    current_hike_id = payload.get("linked_hike_id")
+    hike_labels = list(hike_by_label)
+    hike_index = next(
+        (index for index, label in enumerate(hike_labels) if hike_by_label[label] == current_hike_id),
+        0,
+    )
+    linked_hike_label = st.selectbox("Linked outing", hike_labels, index=hike_index)
+    actions = st.columns([0.22, 0.22, 0.56])
+    if actions[0].button("Save quest", type="primary", use_container_width=True):
+        repository.update_species_quest(
+            str(quest["id"]),
+            linked_hike_id=hike_by_label[linked_hike_label],
+            set_linked_hike=True,
+            focus_taxon_ids=[taxon_by_label[label] for label in focus_labels],
+        )
+        st.rerun()
+    next_status = "archived" if payload["status"] == "active" else "active"
+    if actions[1].button(
+        "Archive" if next_status == "archived" else "Restore",
+        use_container_width=True,
+    ):
+        repository.update_species_quest(str(quest["id"]), status=next_status)
+        st.session_state.species_quest_selected_id = None
+        st.rerun()
+    actions[2].caption("Completed focus finds remain in the frozen checklist and continue to count toward progress.")
+    _render_discovery_species_rows(payload["taxa"], show_focus=True)
 
 
 def render_species_log_view(
@@ -52,10 +348,33 @@ def render_species_log_view(
         width=0,
     )
     st.markdown("<div id='species-log-top'></div>", unsafe_allow_html=True)
+    selected_mode = st.segmented_control(
+        "Species Log mode",
+        ["Collection", "Nearby", "Field Quests"],
+        default=st.session_state.get("species_log_mode", "Collection"),
+        label_visibility="collapsed",
+        key="species_log_mode_selector",
+    ) or "Collection"
+    st.session_state.species_log_mode = selected_mode
+    mode_copy = {
+        "Collection": (
+            "Field index",
+            "Search the species record, then open an entry to revisit where and when it was observed.",
+        ),
+        "Nearby": (
+            "Seasonal field reports",
+            "Choose a saved trail to see which unlogged species are reported there most often this season.",
+        ),
+        "Field Quests": (
+            "Saved checklists",
+            "Keep a stable area checklist, choose focus finds, and watch confirmed species advance it.",
+        ),
+    }
+    eyebrow, description = mode_copy[selected_mode]
     section_heading(
         "Species Log",
-        "Field index",
-        "Search the species record, then open an entry to revisit where and when it was observed.",
+        eyebrow,
+        description,
     )
     st.write("")
 
@@ -63,6 +382,12 @@ def render_species_log_view(
     species_rows = species_log_context.get("species_rows", [])
     representative_observations = species_log_context.get("representative_observations", {})
     posted_observations = species_log_context.get("posted_observations", [])
+    if selected_mode == "Nearby":
+        _render_nearby_mode(repository, hikes, species_log_context)
+        return
+    if selected_mode == "Field Quests":
+        _render_quests_mode(repository, hikes, species_log_context)
+        return
     if not all_species:
         st.info("Confirmed species will appear here once you begin reviewing photos.")
         return

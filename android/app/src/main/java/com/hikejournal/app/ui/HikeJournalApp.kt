@@ -65,6 +65,7 @@ import androidx.compose.material.icons.rounded.CloudQueue
 import androidx.compose.material.icons.rounded.CloudSync
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.Fullscreen
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.PlayCircle
@@ -87,6 +88,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -122,7 +124,10 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import coil.ImageLoader
+import coil.decode.VideoFrameDecoder
 import coil.request.ImageRequest
+import coil.request.videoFrameMillis
 import androidx.media3.common.MediaItem
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
@@ -159,6 +164,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
     var selectedPhoto by remember { mutableStateOf<Photo?>(null) }
     var pendingUpload by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var syncAttentionOpen by remember { mutableStateOf(false) }
+    var speciesEntryAreaName by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(state.inatAuthorizationUrl) {
         state.inatAuthorizationUrl?.let { url ->
@@ -192,7 +198,10 @@ fun HikeJournalApp(viewModel: AppViewModel) {
     LaunchedEffect(destination) {
         when (destination) {
             TopDestination.Archive -> Unit
-            TopDestination.Species -> viewModel.loadSpecies()
+            TopDestination.Species -> {
+                viewModel.loadSpecies()
+                viewModel.loadSpeciesDiscovery()
+            }
             TopDestination.Review -> viewModel.loadReviewQueue()
             TopDestination.Publish -> viewModel.loadPublishQueue()
             TopDestination.Map -> viewModel.loadSightings()
@@ -223,6 +232,11 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                         onBack = viewModel::closeJournal,
                         onEdit = { editingHike = journal },
                         onArchive = { viewModel.setArchived(journal) },
+                        onExploreSpecies = {
+                            speciesEntryAreaName = journal.locationName
+                            viewModel.closeJournal()
+                            destination = TopDestination.Species
+                        },
                         onAddPhotos = {
                             photoPicker.launch(PickVisualMediaRequest(PickVisualMedia.ImageAndVideo))
                         },
@@ -242,9 +256,22 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                 destination == TopDestination.Species -> SpeciesIndexScreen(
                     species = state.species,
                     hikes = state.hikes,
+                    discoveryAreas = state.discoveryAreas,
+                    nearbySpecies = state.nearbySpecies,
+                    quests = state.speciesQuests,
+                    initialNearbyAreaName = speciesEntryAreaName,
                     loading = state.isSpeciesLoading,
+                    discoveryLoading = state.isDiscoveryLoading,
+                    savingQuest = state.isSavingQuest,
                     offline = state.isOffline,
+                    discoveryNotice = state.discoveryNotice,
                     onRefresh = { viewModel.loadSpecies(force = true) },
+                    onRefreshDiscovery = { viewModel.loadSpeciesDiscovery(force = true) },
+                    onLoadNearby = viewModel::loadNearbySpecies,
+                    onSaveQuest = viewModel::saveNearbyQuest,
+                    onSaveQuestFocus = viewModel::saveQuestFocus,
+                    onArchiveQuest = viewModel::archiveQuest,
+                    onInitialAreaConsumed = { speciesEntryAreaName = null },
                     onOpenSpecies = viewModel::openSpecies,
                 )
                 destination == TopDestination.Review -> SpeciesReviewScreen(
@@ -609,6 +636,7 @@ private fun syncOperationLabel(kind: String): String = when (kind) {
     "delete_photo" -> "Delete photo"
     "queue_species_review" -> "Queue species review"
     "review_decision" -> "Save species decision"
+    "update_species_quest" -> "Save Field Quest focus"
     else -> "Sync change"
 }
 
@@ -715,6 +743,7 @@ private fun JournalScreen(
     onBack: () -> Unit,
     onEdit: () -> Unit,
     onArchive: () -> Unit,
+    onExploreSpecies: () -> Unit,
     onAddPhotos: () -> Unit,
     onPhoto: (Photo) -> Unit,
 ) {
@@ -752,6 +781,11 @@ private fun JournalScreen(
                         Spacer(Modifier.width(7.dp))
                         Text("Edit notes")
                     }
+                }
+                TextButton(onClick = onExploreSpecies, modifier = Modifier.padding(top = 6.dp)) {
+                    Icon(Icons.AutoMirrored.Rounded.FactCheck, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(7.dp))
+                    Text("Explore species near this outing")
                 }
                 if (state.uploadTotal > 0) {
                     Column(Modifier.fillMaxWidth().padding(top = 18.dp)) {
@@ -793,7 +827,6 @@ private fun JournalScreen(
                 }
             }
         }
-        item { WebDeskLink(hike) }
     }
 }
 
@@ -831,6 +864,8 @@ private fun PhotoTile(photo: Photo, modifier: Modifier, onPhoto: (Photo) -> Unit
     Column(modifier.clickable { onPhoto(photo) }) {
         Box(Modifier.fillMaxWidth().height(190.dp).background(Moss)) {
             if (photo.isVideo) {
+                VideoThumbnail(photo)
+                Box(Modifier.fillMaxSize().background(Color(0x33000000)))
                 Icon(Icons.Rounded.PlayCircle, "Play video", tint = Paper, modifier = Modifier.align(Alignment.Center).size(56.dp))
                 Text("VIDEO", style = MaterialTheme.typography.labelSmall, color = Paper, modifier = Modifier.align(Alignment.BottomStart).padding(8.dp))
             } else {
@@ -855,7 +890,9 @@ private fun PhotoTile(photo: Photo, modifier: Modifier, onPhoto: (Photo) -> Unit
         val speciesName = photo.species.firstOrNull { it.isPrimary }?.commonName
             ?: photo.species.firstOrNull()?.commonName
         Text(
-            speciesName?.takeIf { it.isNotBlank() } ?: photo.caption.ifBlank { formatTakenAt(photo.takenAt) },
+            speciesName?.takeIf { it.isNotBlank() } ?: photo.caption.ifBlank {
+                if (photo.isVideo) "Field Video" else formatTakenAt(photo.takenAt)
+            },
             style = MaterialTheme.typography.bodyMedium,
             color = if (speciesName.isNullOrBlank()) InkMuted else Moss,
             maxLines = 2,
@@ -863,6 +900,27 @@ private fun PhotoTile(photo: Photo, modifier: Modifier, onPhoto: (Photo) -> Unit
             modifier = Modifier.padding(top = 7.dp, bottom = 8.dp),
         )
     }
+}
+
+@Composable
+private fun VideoThumbnail(photo: Photo) {
+    val context = LocalContext.current
+    val imageLoader = remember(context) {
+        ImageLoader.Builder(context)
+            .components { add(VideoFrameDecoder.Factory()) }
+            .build()
+    }
+    AsyncImage(
+        model = ImageRequest.Builder(context)
+            .data(photo.url)
+            .videoFrameMillis(750)
+            .crossfade(true)
+            .build(),
+        imageLoader = imageLoader,
+        contentDescription = photo.caption.ifBlank { "Field Video" },
+        contentScale = ContentScale.Crop,
+        modifier = Modifier.fillMaxSize(),
+    )
 }
 
 @Composable
@@ -958,6 +1016,7 @@ private fun PhotoViewer(
 ) {
     var caption by remember(photo.id) { mutableStateOf(photo.caption) }
     var confirmDelete by remember { mutableStateOf(false) }
+    var videoFullscreen by remember(photo.id) { mutableStateOf(false) }
     var horizontalDragDistance by remember(photo.id) { mutableFloatStateOf(0f) }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Column(Modifier.fillMaxSize().background(Color(0xFF101511)).statusBarsPadding()) {
@@ -982,8 +1041,14 @@ private fun PhotoViewer(
                     )
                 },
             ) {
-                if (photo.isVideo) VideoPlayer(photo.url, photo.caption)
-                else AsyncImage(photo.url, photo.caption, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+                if (photo.isVideo) {
+                    VideoPlayer(photo.url, photo.caption)
+                    FilledIconButton(
+                        onClick = { videoFullscreen = true },
+                        modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
+                        colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xB018221C)),
+                    ) { Icon(Icons.Rounded.Fullscreen, "Open full-screen video", tint = Paper) }
+                } else AsyncImage(photo.url, photo.caption, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
             }
             Column(
                 Modifier
@@ -998,56 +1063,35 @@ private fun PhotoViewer(
                 photo.species.firstOrNull()?.let { species ->
                     Text(species.commonName.ifBlank { species.scientificName }, style = MaterialTheme.typography.titleMedium, color = Color(0xFFBFD2B9))
                 }
-                AnimatedContent(
-                    targetState = photo.processingStatus == "in_review" && !photo.isVideo,
-                    modifier = Modifier.padding(top = 10.dp),
-                    label = "photo-review-state",
-                ) { inReview ->
-                    if (inReview) {
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.AutoMirrored.Rounded.FactCheck, null, tint = Trail, modifier = Modifier.size(25.dp))
-                            Column(Modifier.padding(start = 10.dp)) {
-                                Text("In species review", style = MaterialTheme.typography.titleMedium, color = Paper)
-                                Text(
-                                    if (photo.syncState == "synced") {
-                                        "Ready in the shared Review workspace."
-                                    } else {
-                                        "Saved on this phone and will sync automatically."
-                                    },
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = Color(0xFFBFD2B9),
-                                )
-                            }
-                        }
-                    } else {
-                        Column {
-                            OutlinedButton(
-                                onClick = onQueueReview,
-                                enabled = !queuingReview,
-                                modifier = Modifier.fillMaxWidth().height(50.dp),
-                                border = BorderStroke(1.dp, Color(0xFF91AA8C)),
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Paper),
-                            ) {
-                                if (queuingReview) {
-                                    CircularProgressIndicator(Modifier.size(18.dp), color = Paper, strokeWidth = 2.dp)
-                                } else {
-                                    Icon(Icons.AutoMirrored.Rounded.FactCheck, null)
+                if (photo.isVideo) {
+                    Text("Field Video", style = MaterialTheme.typography.titleMedium, color = Paper, modifier = Modifier.padding(top = 10.dp))
+                    Text("Tap the expand icon for player-only viewing. Videos are not eligible for species review.", style = MaterialTheme.typography.bodyMedium, color = Color(0xFFBFD2B9), modifier = Modifier.padding(top = 4.dp))
+                } else {
+                    AnimatedContent(
+                        targetState = photo.processingStatus == "in_review",
+                        modifier = Modifier.padding(top = 10.dp),
+                        label = "photo-review-state",
+                    ) { inReview ->
+                        if (inReview) {
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.AutoMirrored.Rounded.FactCheck, null, tint = Trail, modifier = Modifier.size(25.dp))
+                                Column(Modifier.padding(start = 10.dp)) {
+                                    Text("In species review", style = MaterialTheme.typography.titleMedium, color = Paper)
+                                    Text(if (photo.syncState == "synced") "Ready in the shared Review workspace." else "Saved on this phone and will sync automatically.", style = MaterialTheme.typography.bodyMedium, color = Color(0xFFBFD2B9))
                                 }
-                                Spacer(Modifier.width(8.dp))
-                                Text(if (queuingReview) "Adding to review…" else "Send to species review")
                             }
-                            Text(
-                                "Shared with Android and Streamlit; syncs automatically.",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = Color(0xFFBFD2B9),
-                                modifier = Modifier.padding(top = 7.dp),
-                            )
+                        } else {
+                            Column {
+                                OutlinedButton(onClick = onQueueReview, enabled = !queuingReview, modifier = Modifier.fillMaxWidth().height(50.dp), border = BorderStroke(1.dp, Color(0xFF91AA8C)), colors = ButtonDefaults.outlinedButtonColors(contentColor = Paper)) {
+                                    if (queuingReview) CircularProgressIndicator(Modifier.size(18.dp), color = Paper, strokeWidth = 2.dp)
+                                    else Icon(Icons.AutoMirrored.Rounded.FactCheck, null)
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(if (queuingReview) "Adding to review…" else "Send to species review")
+                                }
+                                Text("Shared with Android and Streamlit; syncs automatically.", style = MaterialTheme.typography.bodyMedium, color = Color(0xFFBFD2B9), modifier = Modifier.padding(top = 7.dp))
+                            }
                         }
                     }
-                }
-                if (photo.isVideo) {
-                    Text("Video playback", style = MaterialTheme.typography.titleMedium, color = Paper, modifier = Modifier.padding(top = 10.dp))
-                    Text("Videos are stored in the journal and are not eligible for species review.", style = MaterialTheme.typography.bodyMedium, color = Color(0xFFBFD2B9), modifier = Modifier.padding(top = 4.dp))
                 }
                 HorizontalDivider(color = Color(0xFF405148), modifier = Modifier.padding(vertical = 13.dp))
                 OutlinedTextField(
@@ -1055,9 +1099,28 @@ private fun PhotoViewer(
                     { caption = it },
                     Modifier.fillMaxWidth(),
                     label = { Text(if (photo.isVideo) "Video note" else "Photo note") },
+                    placeholder = { Text(if (photo.isVideo) "Enter video note…" else "Enter photo note…") },
                     textStyle = MaterialTheme.typography.bodyLarge.copy(color = Paper),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Paper,
+                        unfocusedTextColor = Paper,
+                        focusedPlaceholderColor = Color(0xFFD3E0CF),
+                        unfocusedPlaceholderColor = Color(0xFFD3E0CF),
+                    ),
                 )
                 Button(onClick = { onSaveCaption(caption) }, Modifier.fillMaxWidth().padding(top = 10.dp)) { Text("Save note") }
+            }
+        }
+    }
+    if (videoFullscreen) {
+        Dialog(onDismissRequest = { videoFullscreen = false }, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+            Box(Modifier.fillMaxSize().background(Color.Black)) {
+                VideoPlayer(photo.url, photo.caption)
+                FilledIconButton(
+                    onClick = { videoFullscreen = false },
+                    modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(12.dp),
+                    colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xB018221C)),
+                ) { Icon(Icons.Rounded.Close, "Exit full-screen video", tint = Paper) }
             }
         }
     }
@@ -1072,7 +1135,9 @@ private fun PhotoViewer(
     }
 }
 
-private val Photo.isVideo: Boolean get() = contentType.startsWith("video/", ignoreCase = true)
+private val Photo.isVideo: Boolean
+    get() = contentType.startsWith("video/", ignoreCase = true) ||
+        url.substringBefore('?').substringAfterLast('.', "").lowercase() in setOf("mp4", "mov", "m4v", "3gp", "webm")
 
 @Composable
 private fun VideoPlayer(url: String, contentDescription: String) {
@@ -1128,25 +1193,6 @@ private fun SettingsDialog(
         confirmButton = { TextButton(onClick = { onSave(url, key) }) { Text("Reconnect") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
-}
-
-@Composable
-private fun WebDeskLink(hike: Hike) {
-    val context = LocalContext.current
-    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 40.dp)) {
-        HorizontalDivider(color = Line)
-        Text("DESKTOP WORKSPACE", style = MaterialTheme.typography.labelSmall, color = TrailText, modifier = Modifier.padding(top = 22.dp))
-        Text("Continue on the big screen", style = MaterialTheme.typography.headlineMedium, color = Ink)
-        Text("Streamlit remains the full archive workspace; Android and web now share the same reviews, maps, and iNaturalist records.", style = MaterialTheme.typography.bodyMedium, color = InkMuted, modifier = Modifier.padding(top = 5.dp))
-        TextButton(onClick = {
-            val url = "${BuildConfig.DEFAULT_WEB_URL}/?view=Journal&hike=${hike.id}"
-            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-        }) {
-            Text("Open web journal")
-            Spacer(Modifier.width(7.dp))
-            Icon(Icons.AutoMirrored.Rounded.OpenInNew, null, Modifier.size(18.dp))
-        }
-    }
 }
 
 @Composable

@@ -54,5 +54,8 @@ def test_reset_home_navigation_state_clears_transient_navigation() -> None:
         "library_page": 1,
         "species_log_focus_key": None,
         "species_log_record_open": False,
+        "species_log_mode": "Collection",
+        "species_nearby_area_id": None,
+        "species_nearby_area_name": "",
         "unrelated_preference": "keep",
     }

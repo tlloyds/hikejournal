@@ -53,6 +53,79 @@ class HikeJournalApi(private val context: Context) {
         "/v1/species/detail?key=${URLEncoder.encode(key, StandardCharsets.UTF_8.toString())}",
     )
 
+    suspend fun getDiscoveryAreasJson(query: String = ""): String = request(
+        "/v1/discovery/areas?q=${query.urlEncoded()}",
+    )
+
+    suspend fun getNearbySpeciesJson(
+        areaId: String?,
+        targetDate: String,
+        radiusKm: Int,
+        iconicTaxon: String?,
+        latitude: Double? = null,
+        longitude: Double? = null,
+    ): String {
+        val params = mutableListOf(
+            "date=${targetDate.urlEncoded()}",
+            "radius_km=$radiusKm",
+        )
+        if (!areaId.isNullOrBlank()) params += "area_id=${areaId.urlEncoded()}"
+        if (!iconicTaxon.isNullOrBlank()) params += "iconic_taxon=${iconicTaxon.urlEncoded()}"
+        if (latitude != null && longitude != null) {
+            params += "lat=${roundedDiscoveryCoordinate(latitude)}"
+            params += "lng=${roundedDiscoveryCoordinate(longitude)}"
+            params += "area_name=${"Current area".urlEncoded()}"
+        }
+        return request("/v1/discovery/nearby?${params.joinToString("&")}")
+    }
+
+    suspend fun getSpeciesQuestsJson(): String = request("/v1/discovery/quests")
+
+    suspend fun getSpeciesQuestJson(questId: String): String =
+        request("/v1/discovery/quests/${questId.urlEncoded()}")
+
+    suspend fun createSpeciesQuest(
+        areaId: String,
+        targetDate: String,
+        radiusKm: Int,
+        iconicTaxon: String?,
+        title: String,
+        linkedHikeId: String?,
+    ): String = request(
+        path = "/v1/discovery/quests",
+        method = "POST",
+        body = JSONObject()
+            .put("area_id", areaId)
+            .put("target_date", targetDate)
+            .put("radius_km", radiusKm)
+            .put("iconic_taxon", iconicTaxon ?: JSONObject.NULL)
+            .put("title", title)
+            .put("linked_hike_id", linkedHikeId ?: JSONObject.NULL)
+            .toString()
+            .toRequestBody(jsonMediaType),
+    )
+
+    suspend fun updateSpeciesQuest(
+        questId: String,
+        title: String? = null,
+        status: String? = null,
+        linkedHikeId: String? = null,
+        setLinkedHike: Boolean = false,
+        focusTaxonIds: List<Long>? = null,
+    ): String {
+        val payload = JSONObject()
+            .put("set_linked_hike", setLinkedHike)
+        if (title != null) payload.put("title", title)
+        if (status != null) payload.put("status", status)
+        if (setLinkedHike) payload.put("linked_hike_id", linkedHikeId ?: JSONObject.NULL)
+        if (focusTaxonIds != null) payload.put("focus_taxon_ids", org.json.JSONArray(focusTaxonIds))
+        return request(
+            path = "/v1/discovery/quests/${questId.urlEncoded()}",
+            method = "PATCH",
+            body = payload.toString().toRequestBody(jsonMediaType),
+        )
+    }
+
     suspend fun getSightingsJson(): String = request("/v1/sightings")
 
     suspend fun getReviewQueueJson(): String = request("/v1/species/review")
@@ -221,6 +294,7 @@ class HikeJournalApi(private val context: Context) {
         when (method) {
             "POST" -> builder.post(requireNotNull(body))
             "PUT" -> builder.put(requireNotNull(body))
+            "PATCH" -> builder.patch(requireNotNull(body))
             "DELETE" -> builder.delete(body)
         }
         execute(builder.build())
@@ -260,3 +334,6 @@ private fun ContentResolver.displayName(uri: Uri): String? {
         cursor.getString(0)
     }
 }
+
+private fun String.urlEncoded(): String =
+    URLEncoder.encode(this, StandardCharsets.UTF_8.toString())

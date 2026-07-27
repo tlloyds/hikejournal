@@ -2,6 +2,7 @@ package com.hikejournal.app.data
 
 import org.json.JSONArray
 import org.json.JSONObject
+import kotlin.math.round
 
 data class Hike(
     val id: String,
@@ -67,6 +68,77 @@ data class SpeciesRecord(
     val latestSeen: String?,
     val coverUrl: String,
     val encounters: List<Encounter> = emptyList(),
+)
+
+data class DiscoveryArea(
+    val id: String,
+    val name: String,
+    val latitude: Double,
+    val longitude: Double,
+    val locationType: String,
+)
+
+data class DiscoveryPhoto(
+    val url: String,
+    val attribution: String,
+    val licenseCode: String,
+)
+
+data class DiscoveryTaxon(
+    val taxonId: Long,
+    val commonName: String,
+    val scientificName: String,
+    val iconicTaxonName: String,
+    val observationCount: Int,
+    val nearbyRank: Int,
+    val frequencyBand: String,
+    val referencePhoto: DiscoveryPhoto?,
+    val collected: Boolean,
+    val collectedAt: String?,
+    val collectionPhotoUrl: String?,
+    val focusOrder: Int?,
+    val pendingCredit: Boolean,
+)
+
+data class DiscoveryProgress(
+    val collectedCount: Int,
+    val totalCount: Int,
+    val remainingCount: Int,
+)
+
+data class NearbySpecies(
+    val areaId: String,
+    val areaName: String,
+    val latitude: Double?,
+    val longitude: Double?,
+    val radiusKm: Int,
+    val targetDate: String,
+    val periodLabel: String,
+    val iconicTaxon: String?,
+    val dataDensity: String,
+    val dataDensityMessage: String,
+    val sourceGuidance: String,
+    val fromCache: Boolean,
+    val progress: DiscoveryProgress,
+    val taxa: List<DiscoveryTaxon>,
+)
+
+data class FieldQuest(
+    val id: String,
+    val title: String,
+    val status: String,
+    val linkedHikeId: String?,
+    val areaId: String,
+    val areaName: String,
+    val latitude: Double?,
+    val longitude: Double?,
+    val radiusKm: Int,
+    val targetDate: String,
+    val periodLabel: String,
+    val iconicTaxon: String?,
+    val progress: DiscoveryProgress,
+    val taxa: List<DiscoveryTaxon>,
+    val pendingFocusSync: Boolean = false,
 )
 
 data class Encounter(
@@ -175,6 +247,8 @@ data class PublishQueue(
 
 data class LoadResult<T>(val value: T, val fromCache: Boolean)
 
+fun roundedDiscoveryCoordinate(value: Double): Double = round(value * 100.0) / 100.0
+
 fun parseHikes(json: String): List<Hike> {
     val array = JSONArray(json)
     return List(array.length()) { index -> parseHike(array.getJSONObject(index)) }
@@ -188,6 +262,55 @@ fun parseSpeciesList(json: String): List<SpeciesRecord> {
 }
 
 fun parseSpecies(json: String): SpeciesRecord = parseSpecies(JSONObject(json))
+
+fun parseDiscoveryAreas(json: String): List<DiscoveryArea> {
+    val array = JSONArray(json)
+    return List(array.length()) { index ->
+        val item = array.getJSONObject(index)
+        DiscoveryArea(
+            id = item.optString("id"),
+            name = item.optString("name", "Unnamed area"),
+            latitude = item.optDouble("lat"),
+            longitude = item.optDouble("lng"),
+            locationType = item.optString("location_type"),
+        )
+    }
+}
+
+fun parseNearbySpecies(json: String): NearbySpecies {
+    val root = JSONObject(json)
+    val area = root.optJSONObject("area") ?: JSONObject()
+    val period = root.optJSONObject("period") ?: JSONObject()
+    val filters = root.optJSONObject("filters") ?: JSONObject()
+    val density = root.optJSONObject("data_density") ?: JSONObject()
+    val source = root.optJSONObject("source") ?: JSONObject()
+    return NearbySpecies(
+        areaId = area.optString("id"),
+        areaName = area.optString("name", "Selected area"),
+        latitude = area.optNullableDouble("lat"),
+        longitude = area.optNullableDouble("lng"),
+        radiusKm = area.optInt("radius_km", 10),
+        targetDate = period.optString("target_date"),
+        periodLabel = period.optString("label"),
+        iconicTaxon = filters.optNullableString("iconic_taxon"),
+        dataDensity = density.optString("level", "normal"),
+        dataDensityMessage = density.optString("message"),
+        sourceGuidance = source.optString(
+            "guidance",
+            "Reporting frequency is not a probability of encounter.",
+        ),
+        fromCache = source.optBoolean("from_cache"),
+        progress = parseDiscoveryProgress(root),
+        taxa = parseDiscoveryTaxa(root),
+    )
+}
+
+fun parseFieldQuest(json: String): FieldQuest = parseFieldQuest(JSONObject(json))
+
+fun parseFieldQuests(json: String): List<FieldQuest> {
+    val array = JSONArray(json)
+    return List(array.length()) { index -> parseFieldQuest(array.getJSONObject(index)) }
+}
 
 fun parseSightings(json: String): List<Sighting> {
     val array = JSONArray(json)
@@ -359,6 +482,66 @@ private fun parseSpecies(json: JSONObject): SpeciesRecord {
             )
         },
     )
+}
+
+private fun parseFieldQuest(root: JSONObject): FieldQuest {
+    val area = root.optJSONObject("area") ?: JSONObject()
+    val period = root.optJSONObject("period") ?: JSONObject()
+    val filters = root.optJSONObject("filters") ?: JSONObject()
+    return FieldQuest(
+        id = root.optString("id"),
+        title = root.optString("title", "Field Quest"),
+        status = root.optString("status", "active"),
+        linkedHikeId = root.optNullableString("linked_hike_id"),
+        areaId = area.optString("id"),
+        areaName = area.optString("name", "Selected area"),
+        latitude = area.optNullableDouble("lat"),
+        longitude = area.optNullableDouble("lng"),
+        radiusKm = area.optInt("radius_km", 10),
+        targetDate = period.optString("target_date"),
+        periodLabel = period.optString("label"),
+        iconicTaxon = filters.optNullableString("iconic_taxon"),
+        progress = parseDiscoveryProgress(root),
+        taxa = parseDiscoveryTaxa(root),
+    )
+}
+
+private fun parseDiscoveryProgress(root: JSONObject): DiscoveryProgress {
+    val progress = root.optJSONObject("progress") ?: JSONObject()
+    return DiscoveryProgress(
+        collectedCount = progress.optInt("collected_count"),
+        totalCount = progress.optInt("total_count"),
+        remainingCount = progress.optInt("remaining_count"),
+    )
+}
+
+private fun parseDiscoveryTaxa(root: JSONObject): List<DiscoveryTaxon> {
+    val taxa = root.optJSONArray("taxa") ?: JSONArray()
+    return List(taxa.length()) { index ->
+        val item = taxa.getJSONObject(index)
+        val photo = item.optJSONObject("reference_photo")
+        DiscoveryTaxon(
+            taxonId = item.optLong("taxon_id"),
+            commonName = item.optString("common_name", "Unknown species"),
+            scientificName = item.optString("scientific_name"),
+            iconicTaxonName = item.optString("iconic_taxon_name", "Other"),
+            observationCount = item.optInt("observation_count"),
+            nearbyRank = item.optInt("nearby_rank", index + 1),
+            frequencyBand = item.optString("frequency_band", "Less often reported"),
+            referencePhoto = photo?.optString("url")?.takeIf { it.isNotBlank() }?.let { url ->
+                DiscoveryPhoto(
+                    url = url,
+                    attribution = photo.optString("attribution"),
+                    licenseCode = photo.optString("license_code"),
+                )
+            },
+            collected = item.optBoolean("collected"),
+            collectedAt = item.optNullableString("collected_at"),
+            collectionPhotoUrl = item.optNullableString("collection_photo_url"),
+            focusOrder = item.optNullableInt("focus_order"),
+            pendingCredit = item.optBoolean("pending_credit"),
+        )
+    }
 }
 
 private fun JSONObject.optNullableString(key: String): String? =

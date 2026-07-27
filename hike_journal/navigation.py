@@ -24,6 +24,8 @@ QUERY_STATE_KEYS = (
     "species_log_posted_filter",
     "species_log_mapped_only",
     "species_log_include_secondary",
+    "species_log_mode",
+    "species_nearby_area_name",
     "map_photo_range_start",
     "map_photo_range_end",
 )
@@ -82,10 +84,14 @@ def hydrate_query_state(
         "species_log_hike_filter",
         "species_log_sort",
         "species_log_posted_filter",
+        "species_log_mode",
+        "species_nearby_area_name",
     }:
         raw_value = query_params.get(key)
         if raw_value is not None:
             state[key] = str(raw_value)
+            if key == "species_log_mode":
+                state["species_log_mode_selector"] = str(raw_value)
 
     for key in {
         "species_log_record_open",
@@ -129,6 +135,8 @@ def query_state_for_view(view: str, state: Mapping[str, Any]) -> dict[str, str]:
         return query
     if view == "Species Log":
         return {
+            "species_log_mode": str(state.get("species_log_mode", "Collection")),
+            "species_nearby_area_name": str(state.get("species_nearby_area_name", "")).strip(),
             "species_log_query": str(state.get("species_log_query", "")).strip(),
             "species_log_page": str(int(state.get("species_log_page", 1))),
             "species_log_page_size": str(int(state.get("species_log_page_size", 8))),

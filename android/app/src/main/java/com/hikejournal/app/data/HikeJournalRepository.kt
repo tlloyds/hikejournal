@@ -4,6 +4,8 @@ import android.content.Context
 import android.net.Uri
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.File
 
 class HikeJournalRepository(context: Context) {
@@ -63,6 +65,129 @@ class HikeJournalRepository(context: Context) {
         fetch = { api.getSpeciesDetailJson(key) },
         parse = ::parseSpecies,
     )
+
+    suspend fun loadDiscoveryAreas(query: String = ""): LoadResult<List<DiscoveryArea>> = loadWithCache(
+        cacheFile = File(cacheDirectory, "discovery-areas.json"),
+        fetch = { api.getDiscoveryAreasJson(query) },
+        parse = ::parseDiscoveryAreas,
+    )
+
+    suspend fun loadNearbySpecies(
+        areaId: String?,
+        targetDate: String,
+        radiusKm: Int,
+        iconicTaxon: String?,
+        latitude: Double? = null,
+        longitude: Double? = null,
+    ): LoadResult<NearbySpecies> {
+        val cacheKey = listOf(
+            areaId.orEmpty(),
+            targetDate,
+            radiusKm.toString(),
+            iconicTaxon.orEmpty(),
+            latitude?.let { "%.2f".format(java.util.Locale.US, it) }.orEmpty(),
+            longitude?.let { "%.2f".format(java.util.Locale.US, it) }.orEmpty(),
+        ).joinToString("|").hashCode()
+        val result = loadWithCache(
+            cacheFile = File(cacheDirectory, "nearby-$cacheKey.json"),
+            fetch = {
+                api.getNearbySpeciesJson(
+                    areaId = areaId,
+                    targetDate = targetDate,
+                    radiusKm = radiusKm,
+                    iconicTaxon = iconicTaxon,
+                    latitude = latitude,
+                    longitude = longitude,
+                )
+            },
+            parse = ::parseNearbySpecies,
+        )
+        return result.copy(value = overlayPendingCredit(result.value))
+    }
+
+    suspend fun loadSpeciesQuests(): LoadResult<List<FieldQuest>> {
+        val result = loadWithCache(
+            cacheFile = File(cacheDirectory, "species-quests.json"),
+            fetch = api::getSpeciesQuestsJson,
+            parse = ::parseFieldQuests,
+        )
+        return result.copy(value = overlayPendingQuests(result.value))
+    }
+
+    suspend fun loadSpeciesQuest(questId: String): LoadResult<FieldQuest> {
+        val result = loadWithCache(
+            cacheFile = File(cacheDirectory, "species-quest-$questId.json"),
+            fetch = { api.getSpeciesQuestJson(questId) },
+            parse = ::parseFieldQuest,
+        )
+        return result.copy(value = overlayPendingQuests(listOf(result.value)).first())
+    }
+
+    suspend fun createSpeciesQuest(
+        areaId: String,
+        targetDate: String,
+        radiusKm: Int,
+        iconicTaxon: String?,
+        title: String,
+        linkedHikeId: String?,
+        focusTaxonIds: List<Long>,
+    ): FieldQuest {
+        var questJson = api.createSpeciesQuest(
+            areaId = areaId,
+            targetDate = targetDate,
+            radiusKm = radiusKm,
+            iconicTaxon = iconicTaxon,
+            title = title,
+            linkedHikeId = linkedHikeId,
+        )
+        var quest = parseFieldQuest(questJson)
+        if (focusTaxonIds.isNotEmpty()) {
+            questJson = api.updateSpeciesQuest(quest.id, focusTaxonIds = focusTaxonIds.take(5))
+            quest = parseFieldQuest(questJson)
+        }
+        withContext(Dispatchers.IO) {
+            val listCache = File(cacheDirectory, "species-quests.json")
+            val cachedItems = runCatching {
+                listCache.takeIf { it.exists() }?.readText()?.let(::JSONArray)
+            }.getOrNull() ?: JSONArray()
+            val nextItems = JSONArray().put(JSONObject(questJson))
+            for (index in 0 until cachedItems.length()) {
+                val item = cachedItems.optJSONObject(index)
+                if (item?.optString("id") != quest.id) nextItems.put(item)
+            }
+            listCache.writeText(nextItems.toString())
+            File(cacheDirectory, "species-quest-${quest.id}.json").writeText(questJson)
+        }
+        return quest
+    }
+
+    suspend fun queueQuestFocus(quest: FieldQuest, focusTaxonIds: List<Long>): FieldQuest {
+        fieldQueue.queueQuestFocus(quest.id, focusTaxonIds.take(5))
+        return quest.withFocus(focusTaxonIds, pending = true)
+    }
+
+    suspend fun updateSpeciesQuest(
+        questId: String,
+        title: String? = null,
+        status: String? = null,
+        linkedHikeId: String? = null,
+        setLinkedHike: Boolean = false,
+    ): FieldQuest {
+        val quest = parseFieldQuest(
+            api.updateSpeciesQuest(
+                questId = questId,
+                title = title,
+                status = status,
+                linkedHikeId = linkedHikeId,
+                setLinkedHike = setLinkedHike,
+            ),
+        )
+        withContext(Dispatchers.IO) {
+            File(cacheDirectory, "species-quests.json").delete()
+            File(cacheDirectory, "species-quest-$questId.json").delete()
+        }
+        return quest
+    }
 
     suspend fun loadSightings(): LoadResult<List<Sighting>> = loadWithCache(
         cacheFile = File(cacheDirectory, "sightings.json"),
@@ -152,6 +277,38 @@ class HikeJournalRepository(context: Context) {
 
     suspend fun clearSyncAttention() = fieldQueue.clearAttention()
 
+    private suspend fun overlayPendingCredit(nearby: NearbySpecies): NearbySpecies {
+        val pendingTaxonIds = fieldQueue.pendingCreditTaxonIds()
+        if (pendingTaxonIds.isEmpty()) return nearby
+        return nearby.copy(
+            taxa = nearby.taxa.map { taxon ->
+                if (!taxon.collected && taxon.taxonId in pendingTaxonIds) {
+                    taxon.copy(pendingCredit = true)
+                } else {
+                    taxon
+                }
+            },
+        )
+    }
+
+    private suspend fun overlayPendingQuests(quests: List<FieldQuest>): List<FieldQuest> {
+        val pendingFocus = fieldQueue.pendingQuestFocus()
+        val pendingCredits = fieldQueue.pendingCreditTaxonIds()
+        return quests.map { quest ->
+            val focus = pendingFocus[quest.id]
+            val focused = if (focus == null) quest else quest.withFocus(focus, pending = true)
+            focused.copy(
+                taxa = focused.taxa.map { taxon ->
+                    if (!taxon.collected && taxon.taxonId in pendingCredits) {
+                        taxon.copy(pendingCredit = true)
+                    } else {
+                        taxon
+                    }
+                },
+            )
+        }
+    }
+
     private suspend fun <T> loadWithCache(
         cacheFile: File,
         fetch: suspend () -> String,
@@ -169,4 +326,12 @@ class HikeJournalRepository(context: Context) {
             LoadResult(parse(cached), fromCache = true)
         }
     }
+}
+
+private fun FieldQuest.withFocus(focusTaxonIds: List<Long>, pending: Boolean): FieldQuest {
+    val order = focusTaxonIds.take(5).withIndex().associate { (index, taxonId) -> taxonId to index + 1 }
+    return copy(
+        taxa = taxa.map { it.copy(focusOrder = order[it.taxonId]) },
+        pendingFocusSync = pending,
+    )
 }

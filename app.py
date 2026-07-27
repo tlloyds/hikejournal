@@ -3334,11 +3334,26 @@ def ensure_taxon_enrichment(repository: HikeJournalRepository, inat_client: Inat
     if raw_payload.get("manual_override"):
         return False
     taxon_id = observation.get("taxon_id")
-    if enrichment or not taxon_id:
-        return bool(enrichment)
+    if isinstance(enrichment, dict):
+        repository.update_observation_taxon_resolution(
+            str(observation["id"]),
+            rank=enrichment.get("rank"),
+            iconic_taxon_name=enrichment.get("iconic_taxon_name"),
+            species_taxon_id=enrichment.get("species_taxon_id"),
+        )
+        return True
+    if not taxon_id:
+        return False
     try:
         raw_payload["taxon_enrichment"] = inat_client.fetch_taxon_enrichment(int(taxon_id))
         repository.update_observation_raw_payload(observation["id"], raw_payload)
+        enrichment = raw_payload["taxon_enrichment"]
+        repository.update_observation_taxon_resolution(
+            str(observation["id"]),
+            rank=enrichment.get("rank"),
+            iconic_taxon_name=enrichment.get("iconic_taxon_name"),
+            species_taxon_id=enrichment.get("species_taxon_id"),
+        )
         invalidate_data_cache()
         return True
     except (InatConfigurationError, InatRequestError, ValueError):
@@ -3595,6 +3610,8 @@ def build_species_log_context(
     return {
         "all_species": all_species,
         "species_rows": species_rows,
+        "confirmed_observations": confirmed_observations,
+        "photos_by_id": photo_by_id,
         "representative_observations": representative_observations,
         "posted_observations": [observation for observation in confirmed_observations if observation.get("inat_observation_id")],
         "viewer_photos": ordered_viewer_photos,

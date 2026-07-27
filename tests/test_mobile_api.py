@@ -7,6 +7,8 @@ from mobile_api import (
     _photo_payload,
     _review_candidates,
     _species_key,
+    get_nearby_species,
+    list_discovery_areas,
     decide_species_review,
     derive_mobile_api_token,
     queue_photo_for_species_review,
@@ -256,6 +258,55 @@ def test_existing_photo_can_be_queued_for_species_review(monkeypatch):
 
     assert result == {"queued": True}
     assert repository.photo_status == ("photo-1", "in_review")
+
+
+def test_discovery_area_endpoint_returns_coordinate_backed_locations(monkeypatch):
+    repository = type(
+        "Repository",
+        (),
+        {
+            "list_hike_locations": lambda _self: [
+                {"id": "area-1", "name": "Alafia Scrub Preserve", "lat": 27.86, "lng": -82.34}
+            ]
+        },
+    )()
+    service = type("Service", (), {"repository": repository})()
+    monkeypatch.setattr("mobile_api.get_services", lambda: service)
+
+    result = list_discovery_areas("alafia")
+
+    assert result[0]["id"] == "area-1"
+
+
+def test_current_location_discovery_rounds_coordinates_before_query(monkeypatch):
+    captured = {}
+    repository = object()
+    service_container = type("Service", (), {"repository": repository})()
+
+    class Discovery:
+        def __init__(self, _repository):
+            pass
+
+        def nearby(self, **kwargs):
+            captured.update(kwargs)
+            return {"taxa": [], "progress": {"collected_count": 0, "total_count": 0}}
+
+    monkeypatch.setattr("mobile_api.get_services", lambda: service_container)
+    monkeypatch.setattr("mobile_api.SpeciesDiscoveryService", Discovery)
+    monkeypatch.setattr("mobile_api._discovery_collection_data", lambda _service: ([], {}))
+
+    get_nearby_species(
+        area_id=None,
+        target_date=__import__("datetime").date(2026, 7, 26),
+        radius_km=10,
+        iconic_taxon=None,
+        lat=28.12345,
+        lng=-82.67891,
+        area_name="Current area",
+    )
+
+    assert captured["area"]["lat"] == 28.12
+    assert captured["area"]["lng"] == -82.68
 
 
 def test_mobile_review_can_request_and_save_an_inaturalist_recommendation(monkeypatch):

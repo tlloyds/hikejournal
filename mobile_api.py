@@ -11,12 +11,13 @@ import time
 from typing import Any, Annotated, Literal
 from uuid import UUID
 
-from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile, status
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, UploadFile, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 from supabase import Client, create_client
 
 from hike_journal.config import settings
+from hike_journal.domain.discovery import DISCOVERY_ALGORITHM_VERSION
 from hike_journal.domain.library import filter_hikes_for_user, record_visible_for_user
 from hike_journal.models import HikeDraft, SpeciesCandidate
 from hike_journal.services.exif import extract_metadata
@@ -42,6 +43,7 @@ from hike_journal.services.inat_publishing import (
     publish_single_observation,
 )
 from hike_journal.services.repositories import HikeJournalRepository
+from hike_journal.services.discovery import SpeciesDiscoveryService
 from hike_journal.services.storage import StorageService
 
 
@@ -107,6 +109,23 @@ class PublishInput(BaseModel):
     captive: bool = False
 
 
+class SpeciesQuestInput(BaseModel):
+    area_id: str = Field(min_length=1, max_length=64)
+    target_date: date
+    radius_km: Literal[5, 10, 25] = 10
+    iconic_taxon: str | None = Field(default=None, max_length=40)
+    title: str = Field(default="", max_length=160)
+    linked_hike_id: str | None = Field(default=None, max_length=36)
+
+
+class SpeciesQuestPatchInput(BaseModel):
+    title: str | None = Field(default=None, max_length=160)
+    status: Literal["active", "archived"] | None = None
+    linked_hike_id: str | None = Field(default=None, max_length=36)
+    set_linked_hike: bool = False
+    focus_taxon_ids: list[int] | None = Field(default=None, max_length=5)
+
+
 class Services:
     def __init__(self) -> None:
         if not settings.supabase_configured:
@@ -133,7 +152,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title="HikeJournal Mobile Companion API",
-    version="0.5.4",
+    version="0.6.0",
     docs_url=None,
     redoc_url=None,
     lifespan=lifespan,
@@ -168,6 +187,36 @@ def _user_context() -> dict[str, Any]:
 
 def _visible_hikes(repository: HikeJournalRepository) -> list[dict[str, Any]]:
     return filter_hikes_for_user(repository.list_hikes(), _user_context())
+
+
+def _require_discovery_enabled() -> None:
+    if not settings.species_discovery_enabled:
+        raise HTTPException(status_code=404, detail="Species discovery is not enabled.")
+
+
+def _discovery_collection_data(
+    svc: Services,
+) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
+    observations, photos_by_id, _ = _visible_species_data(svc)
+    return observations, photos_by_id
+
+
+def _quest_visible_for_context(quest: dict[str, Any], context: dict[str, Any]) -> bool:
+    if context.get("mode") == "local-dev":
+        return True
+    subject = str(context.get("subject") or "")
+    email = str(context.get("email") or "").strip().lower()
+    return bool(
+        (subject and subject == str(quest.get("owner_subject") or ""))
+        or (email and email == str(quest.get("owner_email") or "").strip().lower())
+    )
+
+
+def _get_visible_quest(svc: Services, quest_id: str) -> dict[str, Any]:
+    quest = svc.repository.get_species_quest(quest_id)
+    if not quest or not _quest_visible_for_context(quest, _user_context()):
+        raise HTTPException(status_code=404, detail="Field Quest not found.")
+    return quest
 
 
 def _get_visible_hike(repository: HikeJournalRepository, hike_id: str) -> dict[str, Any]:
@@ -682,15 +731,22 @@ def _publish_queue_payload(svc: Services) -> dict[str, Any]:
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok", "service": "hikejournal-mobile", "version": "0.5.4"}
+    return {"status": "ok", "service": "hikejournal-mobile", "version": "0.6.0"}
 
 
 @app.get("/v1/config", dependencies=[Depends(require_mobile_key)])
 def app_config() -> dict[str, Any]:
     return {
         "web_url": os.getenv("MOBILE_WEB_URL", "http://192.168.0.157:8505").rstrip("/"),
-        "api_version": "0.5.4",
-        "capabilities": ["offline_sync", "grouped_inat_publish", "map_packs", "live_inat_cv", "mobile_inat_oauth"],
+        "api_version": "0.6.0",
+        "capabilities": [
+            "offline_sync",
+            "grouped_inat_publish",
+            "map_packs",
+            "live_inat_cv",
+            "mobile_inat_oauth",
+            "species_discovery",
+        ],
     }
 
 
@@ -758,6 +814,174 @@ def list_species() -> list[dict[str, Any]]:
     svc = get_services()
     observations, photos_by_id, hikes_by_id = _visible_species_data(svc)
     return _build_species_payloads(observations, photos_by_id, hikes_by_id)
+
+
+@app.get("/v1/discovery/areas", dependencies=[Depends(require_mobile_key)])
+def list_discovery_areas(q: str = Query(default="", max_length=160)) -> list[dict[str, Any]]:
+    _require_discovery_enabled()
+    svc = get_services()
+    return SpeciesDiscoveryService.list_areas(svc.repository, q)
+
+
+@app.get("/v1/discovery/nearby", dependencies=[Depends(require_mobile_key)])
+def get_nearby_species(
+    area_id: str | None = Query(default=None, max_length=64),
+    target_date: date = Query(alias="date"),
+    radius_km: Literal[5, 10, 25] = 10,
+    iconic_taxon: str | None = Query(default=None, max_length=40),
+    lat: float | None = Query(default=None, ge=-90, le=90),
+    lng: float | None = Query(default=None, ge=-180, le=180),
+    area_name: str | None = Query(default=None, max_length=160),
+) -> dict[str, Any]:
+    _require_discovery_enabled()
+    svc = get_services()
+    service = SpeciesDiscoveryService(svc.repository)
+    if area_id:
+        try:
+            area = service.resolve_area(svc.repository, area_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+    else:
+        if lat is None or lng is None:
+            raise HTTPException(status_code=400, detail="Choose an area or provide a current location.")
+        area = {
+            "id": "",
+            "name": (area_name or "Current area").strip() or "Current area",
+            "lat": round(float(lat), 2),
+            "lng": round(float(lng), 2),
+        }
+    observations, photos_by_id = _discovery_collection_data(svc)
+    try:
+        return service.nearby(
+            area=area,
+            target_date=target_date,
+            radius_km=radius_km,
+            iconic_taxon=iconic_taxon,
+            observations=observations,
+            photos_by_id=photos_by_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (InatRequestError, InatRateLimitError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.get("/v1/discovery/quests", dependencies=[Depends(require_mobile_key)])
+def list_species_quests() -> list[dict[str, Any]]:
+    _require_discovery_enabled()
+    svc = get_services()
+    context = _user_context()
+    observations, photos_by_id = _discovery_collection_data(svc)
+    service = SpeciesDiscoveryService(svc.repository)
+    return [
+        service.quest_payload(quest, observations=observations, photos_by_id=photos_by_id)
+        for quest in svc.repository.list_species_quests(
+            owner_subject=context.get("subject"),
+            owner_email=context.get("email"),
+        )
+        if _quest_visible_for_context(quest, context)
+    ]
+
+
+@app.post("/v1/discovery/quests", dependencies=[Depends(require_mobile_key)])
+def create_species_quest(payload: SpeciesQuestInput) -> dict[str, Any]:
+    _require_discovery_enabled()
+    svc = get_services()
+    context = _user_context()
+    service = SpeciesDiscoveryService(svc.repository)
+    try:
+        area = service.resolve_area(svc.repository, payload.area_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    linked_hike_id = _normalize_client_uuid(payload.linked_hike_id, field_name="linked_hike_id")
+    if linked_hike_id:
+        _get_visible_hike(svc.repository, linked_hike_id)
+    observations, photos_by_id = _discovery_collection_data(svc)
+    try:
+        nearby = service.nearby(
+            area=area,
+            target_date=payload.target_date,
+            radius_km=payload.radius_km,
+            iconic_taxon=payload.iconic_taxon,
+            observations=observations,
+            photos_by_id=photos_by_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (InatRequestError, InatRateLimitError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    title = payload.title.strip() or f"{area['name']} · {nearby['period']['label']}"
+    try:
+        quest = svc.repository.create_species_quest(
+            {
+                "owner_subject": context.get("subject"),
+                "owner_email": str(context.get("email") or "").strip().lower() or None,
+                "location_id": area["id"],
+                "linked_hike_id": linked_hike_id,
+                "title": title,
+                "status": "active",
+                "area_name": area["name"],
+                "lat": round(float(area["lat"]), 3),
+                "lng": round(float(area["lng"]), 3),
+                "radius_km": payload.radius_km,
+                "target_date": payload.target_date.isoformat(),
+                "months": nearby["period"]["months"],
+                "iconic_taxon": nearby["filters"]["iconic_taxon"],
+                "algorithm_version": DISCOVERY_ALGORITHM_VERSION,
+                "target_count": len(nearby["taxa"]),
+            },
+            nearby["taxa"],
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return service.quest_payload(quest, observations=observations, photos_by_id=photos_by_id)
+
+
+@app.get("/v1/discovery/quests/{quest_id}", dependencies=[Depends(require_mobile_key)])
+def get_species_quest(quest_id: str) -> dict[str, Any]:
+    _require_discovery_enabled()
+    svc = get_services()
+    quest = _get_visible_quest(svc, quest_id)
+    observations, photos_by_id = _discovery_collection_data(svc)
+    return SpeciesDiscoveryService(svc.repository).quest_payload(
+        quest,
+        observations=observations,
+        photos_by_id=photos_by_id,
+    )
+
+
+@app.patch("/v1/discovery/quests/{quest_id}", dependencies=[Depends(require_mobile_key)])
+def update_species_quest(quest_id: str, payload: SpeciesQuestPatchInput) -> dict[str, Any]:
+    _require_discovery_enabled()
+    svc = get_services()
+    quest = _get_visible_quest(svc, quest_id)
+    target_ids = {int(item["taxon_id"]) for item in quest.get("taxa") or []}
+    focus_ids = payload.focus_taxon_ids
+    if focus_ids is not None:
+        deduped_focus = list(dict.fromkeys(int(taxon_id) for taxon_id in focus_ids))
+        if len(deduped_focus) > 5 or any(taxon_id not in target_ids for taxon_id in deduped_focus):
+            raise HTTPException(status_code=400, detail="Focus finds must belong to this quest and are limited to five.")
+        focus_ids = deduped_focus
+    linked_hike_id = payload.linked_hike_id
+    if payload.set_linked_hike and linked_hike_id:
+        linked_hike_id = _normalize_client_uuid(linked_hike_id, field_name="linked_hike_id")
+        _get_visible_hike(svc.repository, linked_hike_id)
+    updated = svc.repository.update_species_quest(
+        quest_id,
+        title=payload.title,
+        status=payload.status,
+        linked_hike_id=linked_hike_id,
+        set_linked_hike=payload.set_linked_hike,
+        focus_taxon_ids=focus_ids,
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Field Quest not found.")
+    observations, photos_by_id = _discovery_collection_data(svc)
+    return SpeciesDiscoveryService(svc.repository).quest_payload(
+        updated,
+        observations=observations,
+        photos_by_id=photos_by_id,
+    )
 
 
 @app.get("/v1/species/review", dependencies=[Depends(require_mobile_key)])

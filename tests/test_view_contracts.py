@@ -1,4 +1,4 @@
-from inspect import signature
+from inspect import getsource, signature
 
 import app
 
@@ -47,6 +47,14 @@ def test_species_log_view_accepts_its_app_callbacks() -> None:
     }
 
     assert expected.issubset(signature(render_species_log_view).parameters)
+
+
+def test_species_log_view_exposes_collection_nearby_and_field_quests() -> None:
+    source = getsource(render_species_log_view)
+
+    assert '["Collection", "Nearby", "Field Quests"]' in source
+    assert "_render_nearby_mode" in source
+    assert "_render_quests_mode" in source
 
 
 def test_app_library_wrapper_forwards_every_callback(monkeypatch) -> None:
@@ -117,6 +125,7 @@ def test_journal_action_contract_contains_every_app_callback() -> None:
         "_parse_date",
         "paginate_photos",
         "persist_uploaded_photo",
+        "persist_uploaded_video",
         "render_alternate_suggestions",
         "render_bottom_review_handoff",
         "render_known_species_assignment_toolbar",

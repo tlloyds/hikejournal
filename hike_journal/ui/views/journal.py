@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from html import escape
 import json
 from typing import Any
+from urllib.parse import quote
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -386,6 +387,16 @@ def render_journal_view(
     actions: JournalActions,
 ) -> None:
     st.markdown("<div id='journal-top'></div>", unsafe_allow_html=True)
+    location_name = str(selected_hike.get("location_name") or "").strip()
+    nearby_href = (
+        "?view=Species%20Log&species_log_mode=Nearby"
+        f"&species_nearby_area_name={quote(location_name)}"
+    )
+    st.link_button(
+        "Explore species near this outing",
+        nearby_href,
+        help="Open the seasonal Nearby field list with this outing's location preselected.",
+    )
     with st.container(key="journal_upload"):
         st.markdown("<div class='journal-upload-label'>Add trail photos and videos</div>", unsafe_allow_html=True)
         st.caption("Photos are optimized for fast browsing. Videos are stored in their original phone format.")

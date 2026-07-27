@@ -91,6 +91,7 @@ create table if not exists public.species_observations (
     owner_email text,
     photo_id uuid not null references public.photos(id) on delete cascade,
     taxon_id bigint,
+    species_taxon_id bigint,
     common_name text,
     scientific_name text,
     preferred_common_name text,
@@ -112,6 +113,60 @@ create table if not exists public.species_observations (
     identified_at timestamptz not null default timezone('utc', now())
 );
 
+create table if not exists public.species_discovery_snapshots (
+    cache_key text primary key,
+    algorithm_version text not null,
+    lat double precision not null,
+    lng double precision not null,
+    radius_km integer not null check (radius_km in (5, 10, 25)),
+    months smallint[] not null,
+    iconic_taxon text,
+    observed_after date not null,
+    taxa jsonb not null default '[]'::jsonb,
+    fetched_at timestamptz not null,
+    expires_at timestamptz not null,
+    created_at timestamptz not null default timezone('utc', now())
+);
+
+create table if not exists public.species_quests (
+    id uuid primary key default gen_random_uuid(),
+    owner_subject text,
+    owner_email text,
+    location_id uuid references public.hike_locations(id) on delete set null,
+    linked_hike_id uuid references public.hikes(id) on delete set null,
+    title text not null,
+    status text not null default 'active' check (status in ('active', 'archived')),
+    area_name text not null,
+    lat double precision not null,
+    lng double precision not null,
+    radius_km integer not null check (radius_km in (5, 10, 25)),
+    target_date date not null,
+    months smallint[] not null,
+    iconic_taxon text,
+    algorithm_version text not null,
+    target_count integer not null default 0 check (target_count between 0 and 50),
+    created_at timestamptz not null default timezone('utc', now()),
+    updated_at timestamptz not null default timezone('utc', now())
+);
+
+create table if not exists public.species_quest_taxa (
+    quest_id uuid not null references public.species_quests(id) on delete cascade,
+    taxon_id bigint not null,
+    common_name text not null,
+    scientific_name text,
+    rank text not null default 'species',
+    iconic_taxon_name text,
+    observation_count integer not null default 0,
+    nearby_rank integer not null,
+    frequency_band text not null,
+    reference_photo_url text,
+    reference_photo_attribution text,
+    reference_photo_license text,
+    focus_order smallint check (focus_order between 1 and 5),
+    created_at timestamptz not null default timezone('utc', now()),
+    primary key (quest_id, taxon_id)
+);
+
 alter table public.species_observations add column if not exists preferred_common_name text;
 alter table public.species_observations add column if not exists english_common_name text;
 alter table public.species_observations add column if not exists rank text;
@@ -126,6 +181,12 @@ alter table public.species_observations add column if not exists inat_observatio
 alter table public.species_observations add column if not exists inat_observation_url text;
 alter table public.species_observations add column if not exists inat_posted_at timestamptz;
 alter table public.species_observations add column if not exists inat_photo_attached boolean;
+alter table public.species_observations add column if not exists species_taxon_id bigint;
+update public.species_observations
+set species_taxon_id = taxon_id
+where species_taxon_id is null
+  and taxon_id is not null
+  and lower(coalesce(rank, '')) = 'species';
 alter table public.photos add column if not exists owner_subject text;
 alter table public.photos add column if not exists owner_email text;
 alter table public.photos alter column hike_id drop not null;
@@ -188,6 +249,11 @@ create trigger hike_route_imports_touch_updated_at
 before update on public.hike_route_imports
 for each row execute procedure public.touch_updated_at();
 
+drop trigger if exists species_quests_touch_updated_at on public.species_quests;
+create trigger species_quests_touch_updated_at
+before update on public.species_quests
+for each row execute procedure public.touch_updated_at();
+
 create index if not exists hikes_date_idx on public.hikes (hike_date desc);
 create index if not exists hikes_owner_subject_idx on public.hikes (owner_subject);
 create index if not exists hikes_owner_email_idx on public.hikes (owner_email);
@@ -202,6 +268,18 @@ create index if not exists species_owner_subject_idx on public.species_observati
 create index if not exists species_owner_email_idx on public.species_observations (owner_email);
 create index if not exists species_status_idx on public.species_observations (status);
 create index if not exists species_inat_observation_id_idx on public.species_observations (inat_observation_id);
+create index if not exists species_observations_species_taxon_id_idx
+on public.species_observations (species_taxon_id)
+where status = 'confirmed';
+create unique index if not exists species_quest_taxa_focus_order_idx
+on public.species_quest_taxa (quest_id, focus_order)
+where focus_order is not null;
+create index if not exists species_quests_owner_subject_idx on public.species_quests (owner_subject);
+create index if not exists species_quests_owner_email_idx on public.species_quests (owner_email);
+create index if not exists species_quests_status_idx on public.species_quests (status);
+create index if not exists species_quest_taxa_taxon_id_idx on public.species_quest_taxa (taxon_id);
+create index if not exists species_discovery_snapshots_expires_at_idx
+on public.species_discovery_snapshots (expires_at);
 create index if not exists hike_collaborators_hike_id_idx on public.hike_collaborators (hike_id);
 create unique index if not exists hike_collaborators_unique_email_idx on public.hike_collaborators (hike_id, lower(collaborator_email));
 create index if not exists hike_locations_lower_name_idx on public.hike_locations (lower(name));
@@ -214,6 +292,9 @@ alter table public.hike_collaborators enable row level security;
 alter table public.hike_route_imports enable row level security;
 alter table public.hike_locations enable row level security;
 alter table public.hike_location_tags enable row level security;
+alter table public.species_discovery_snapshots enable row level security;
+alter table public.species_quests enable row level security;
+alter table public.species_quest_taxa enable row level security;
 alter table public.hikes force row level security;
 alter table public.photos force row level security;
 alter table public.species_observations force row level security;
@@ -221,6 +302,9 @@ alter table public.hike_collaborators force row level security;
 alter table public.hike_route_imports force row level security;
 alter table public.hike_locations force row level security;
 alter table public.hike_location_tags force row level security;
+alter table public.species_discovery_snapshots force row level security;
+alter table public.species_quests force row level security;
+alter table public.species_quest_taxa force row level security;
 
 drop policy if exists "Open single-user access for hikes" on public.hikes;
 drop policy if exists "Open single-user access for photos" on public.photos;
@@ -237,6 +321,9 @@ revoke all privileges on table public.hike_collaborators from anon, authenticate
 revoke all privileges on table public.hike_route_imports from anon, authenticated;
 revoke all privileges on table public.hike_locations from anon, authenticated;
 revoke all privileges on table public.hike_location_tags from anon, authenticated;
+revoke all privileges on table public.species_discovery_snapshots from anon, authenticated;
+revoke all privileges on table public.species_quests from anon, authenticated;
+revoke all privileges on table public.species_quest_taxa from anon, authenticated;
 
 insert into storage.buckets (id, name, public)
 values ('hike-journal', 'hike-journal', true)

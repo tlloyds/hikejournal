@@ -20,7 +20,9 @@ HikeJournal is a private field journal for specific hikes on specific dates. It 
 3. Copy `.env.example` to `.env` and fill in your Supabase values.
 4. Run the SQL in [sql/schema.sql](/Users/adl/Documents/Playground/hike-journal/sql/schema.sql).
 5. Run `sql/scalable_maps_migration.sql` to add PostGIS indexes and viewport map RPCs.
-6. Start the app:
+6. Run `sql/species_discovery_migration.sql` to add Nearby discovery snapshots
+   and stable Field Quests.
+7. Start the app:
    ```bash
    streamlit run app.py
    ```
@@ -37,6 +39,8 @@ If you already have a running project from the earlier single-observation versio
 
 - [sql/multi_observations_migration.sql](/Users/adl/Documents/Playground/hike-journal/sql/multi_observations_migration.sql)
 - [sql/auth_sharing_migration.sql](/Users/adl/Documents/Playground/hike-journal/sql/auth_sharing_migration.sql) for hike ownership, archive state, and collaborators
+- `sql/species_discovery_migration.sql` for species-level collection credit,
+  the 24-hour shared iNaturalist cache, and owner-scoped Field Quests
 
 ## Environment
 
@@ -59,7 +63,10 @@ Needed later for species scoring:
 
 - `INAT_ACCESS_TOKEN`
 - `INAT_BASE_URL` defaults to `https://api.inaturalist.org/v1`
+- `INAT_DISCOVERY_BASE_URL` defaults to `https://api.inaturalist.org/v2`
 - `INAT_CV_REQUEST_INTERVAL_SECONDS` defaults to `2.5` for slower image-ID requests
+- `SPECIES_DISCOVERY_ENABLED` defaults to `true`; set it to `false` to hide
+  Nearby and Field Quests during a rollout
 
 ## Google Auth
 
@@ -99,4 +106,9 @@ the Supabase linter is tracking it as a managed PostGIS false positive.
 - The map includes a toggle for all geotagged photos vs confirmed species.
 - Hikes can be archived and collaborators can be stored per hike after the auth/sharing migration is applied.
 - Photos can now carry one primary observation plus additional secondary species.
+- Species Log and Android now include Collection, seasonally ranked Nearby
+  reports, and saved 50-species Field Quests with up to five focus finds.
+- Nearby language describes iNaturalist reporting frequency, not encounter
+  probability. Discovery queries are cached for 24 hours and do not require an
+  iNaturalist account.
 - The iNaturalist client is wired for bearer-token auth. If your eventual access flow differs, the integration point is isolated in `hike_journal/services/inat.py`.

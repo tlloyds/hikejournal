@@ -46,6 +46,14 @@ SESSION_DEFAULTS: dict[str, StateDefault] = {
     "species_log_page_size": 8,
     "species_log_focus_key": None,
     "species_log_record_open": False,
+    "species_log_mode": "Collection",
+    "species_nearby_area_id": None,
+    "species_nearby_area_name": "",
+    "species_nearby_radius": 10,
+    "species_nearby_group": "All Life",
+    "species_nearby_focus_ids": [],
+    "species_quest_selected_id": None,
+    "species_quest_status_filter": "Active",
     "species_review_initialized_signature": None,
     "inat_post_feedback": dict,
     "inat_sync_candidates": dict,
@@ -88,3 +96,6 @@ def reset_home_navigation_state(state: MutableMapping[str, Any]) -> None:
     state["library_page"] = 1
     state["species_log_focus_key"] = None
     state["species_log_record_open"] = False
+    state["species_log_mode"] = "Collection"
+    state["species_nearby_area_id"] = None
+    state["species_nearby_area_name"] = ""

@@ -46,6 +46,7 @@ object OperationKind {
     const val DeletePhoto = "delete_photo"
     const val QueueSpeciesReview = "queue_species_review"
     const val ReviewDecision = "review_decision"
+    const val UpdateSpeciesQuest = "update_species_quest"
 }
 
 private const val MAX_LOCAL_MEDIA_BYTES = 30L * 1024L * 1024L
@@ -227,6 +228,16 @@ class FieldOperationQueue(private val context: Context) {
         enqueue(OperationKind.ReviewDecision, item.id, item.hikeId, payload)
     }
 
+    suspend fun queueQuestFocus(questId: String, focusTaxonIds: List<Long>) {
+        coalesce(OperationKind.UpdateSpeciesQuest, questId)
+        enqueue(
+            OperationKind.UpdateSpeciesQuest,
+            questId,
+            null,
+            JSONObject().put("focus_taxon_ids", org.json.JSONArray(focusTaxonIds.take(5))),
+        )
+    }
+
     suspend fun retryAttention() {
         dao.retryAttention(System.currentTimeMillis())
         SyncScheduler.schedule(context)
@@ -341,6 +352,26 @@ class FieldOperationQueue(private val context: Context) {
     suspend fun pendingReviewPhotoIds(): Set<String> = dao.listAll()
         .filter { it.kind == OperationKind.ReviewDecision }
         .mapTo(mutableSetOf()) { it.entityId }
+
+    suspend fun pendingCreditTaxonIds(): Set<Long> = dao.listAll()
+        .asSequence()
+        .filter { it.kind == OperationKind.ReviewDecision }
+        .map { JSONObject(it.payloadJson) }
+        .filter { it.optString("action") == "confirm" }
+        .mapNotNull { payload ->
+            payload.optJSONObject("candidate")
+                ?.takeUnless { it.isNull("taxon_id") }
+                ?.optLong("taxon_id")
+        }
+        .toSet()
+
+    suspend fun pendingQuestFocus(): Map<String, List<Long>> = dao.listAll()
+        .asSequence()
+        .filter { it.kind == OperationKind.UpdateSpeciesQuest }
+        .associate { operation ->
+            val ids = JSONObject(operation.payloadJson).optJSONArray("focus_taxon_ids")
+            operation.entityId to List(ids?.length() ?: 0) { index -> ids!!.optLong(index) }
+        }
 
     private suspend fun coalesce(kind: String, entityId: String) {
         dao.deleteQueued(kind, entityId)
@@ -535,6 +566,13 @@ class FieldSyncEngine(private val context: Context) {
                             ),
                         )
                     },
+                )
+            }
+            OperationKind.UpdateSpeciesQuest -> {
+                val ids = payload.optJSONArray("focus_taxon_ids")
+                api.updateSpeciesQuest(
+                    questId = operation.entityId,
+                    focusTaxonIds = List(ids?.length() ?: 0) { index -> ids!!.optLong(index) },
                 )
             }
             else -> throw IOException("Unknown offline operation: ${operation.kind}")

@@ -2,6 +2,18 @@
 
 package com.hikejournal.app.ui
 
+import android.Manifest
+import android.content.Context
+import android.content.pm.PackageManager
+import android.location.Location
+import android.location.LocationListener
+import android.location.LocationManager
+import android.os.Build
+import android.os.Bundle
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -28,15 +40,18 @@ import androidx.compose.material.icons.rounded.CloudOff
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Button
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -46,16 +61,23 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.hikejournal.app.data.Encounter
+import com.hikejournal.app.data.DiscoveryArea
+import com.hikejournal.app.data.DiscoveryTaxon
+import com.hikejournal.app.data.FieldQuest
 import com.hikejournal.app.data.Hike
+import com.hikejournal.app.data.NearbySpecies
 import com.hikejournal.app.data.SpeciesRecord
 import com.hikejournal.app.ui.theme.Ink
 import com.hikejournal.app.ui.theme.InkMuted
@@ -70,19 +92,90 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
+private enum class SpeciesMode(val label: String) {
+    Collection("Collection"),
+    Nearby("Nearby"),
+    Quests("Field Quests"),
+}
+
 @Composable
 fun SpeciesIndexScreen(
     species: List<SpeciesRecord>,
     hikes: List<Hike>,
+    discoveryAreas: List<DiscoveryArea>,
+    nearbySpecies: NearbySpecies?,
+    quests: List<FieldQuest>,
+    initialNearbyAreaName: String?,
     loading: Boolean,
+    discoveryLoading: Boolean,
+    savingQuest: Boolean,
     offline: Boolean,
+    discoveryNotice: String?,
     onRefresh: () -> Unit,
+    onRefreshDiscovery: () -> Unit,
+    onLoadNearby: (String?, String, Int, String?, Double?, Double?) -> Unit,
+    onSaveQuest: (String, String?, List<Long>) -> Unit,
+    onSaveQuestFocus: (FieldQuest, List<Long>) -> Unit,
+    onArchiveQuest: (FieldQuest) -> Unit,
+    onInitialAreaConsumed: () -> Unit,
     onOpenSpecies: (String) -> Unit,
 ) {
+    var mode by remember { mutableStateOf(SpeciesMode.Collection) }
     var query by remember { mutableStateOf("") }
     var mostSeenFirst by remember { mutableStateOf(false) }
     var selectedHikeId by remember { mutableStateOf<String?>(null) }
     var filterOpen by remember { mutableStateOf(false) }
+    var areaSearch by remember { mutableStateOf("") }
+    var selectedAreaId by remember { mutableStateOf<String?>(null) }
+    var targetDate by remember { mutableStateOf(LocalDate.now().toString()) }
+    var radiusKm by remember { mutableStateOf(10) }
+    var iconicTaxon by remember { mutableStateOf<String?>(null) }
+    var focusTaxonIds by remember { mutableStateOf(emptyList<Long>()) }
+    var linkedQuestHikeId by remember { mutableStateOf<String?>(null) }
+    var selectedQuestId by remember { mutableStateOf<String?>(null) }
+    var showArchivedQuests by remember { mutableStateOf(false) }
+    var locationNotice by remember { mutableStateOf<String?>(null) }
+    val context = LocalContext.current
+    val selectedArea = discoveryAreas.firstOrNull { it.id == selectedAreaId }
+    val visibleAreas = discoveryAreas.filter {
+        areaSearch.isBlank() || it.name.contains(areaSearch, ignoreCase = true)
+    }.take(6)
+    val visibleQuests = quests.filter { (it.status == "archived") == showArchivedQuests }
+    val selectedQuest = visibleQuests.firstOrNull { it.id == selectedQuestId }
+        ?: visibleQuests.firstOrNull()
+    LaunchedEffect(initialNearbyAreaName, discoveryAreas) {
+        if (initialNearbyAreaName != null && (initialNearbyAreaName.isBlank() || discoveryAreas.isNotEmpty())) {
+            mode = SpeciesMode.Nearby
+            areaSearch = initialNearbyAreaName
+            selectedAreaId = discoveryAreas.firstOrNull {
+                it.name.equals(initialNearbyAreaName, ignoreCase = true)
+            }?.id
+            onInitialAreaConsumed()
+        }
+    }
+    val locationPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) { result ->
+        if (result.values.any { it }) {
+            requestOneShotLocation(
+                context = context,
+                onLocation = { location ->
+                    locationNotice = null
+                    onLoadNearby(
+                        null,
+                        targetDate,
+                        radiusKm,
+                        iconicTaxon,
+                        location.latitude,
+                        location.longitude,
+                    )
+                },
+                onUnavailable = { locationNotice = "A current location was not available. Choose a saved trail instead." },
+            )
+        } else {
+            locationNotice = "Location permission was declined. You can still choose any saved trail."
+        }
+    }
     val scopedSpecies = species.mapNotNull { record ->
         if (selectedHikeId == null) {
             record
@@ -106,6 +199,13 @@ fun SpeciesIndexScreen(
             else items.sortedBy { it.commonName.lowercase(Locale.US) }
         }
     val encounterCount = scopedSpecies.sumOf { it.encounterCount }
+    val headerCount = when (mode) {
+        SpeciesMode.Collection -> "${scopedSpecies.size} SPECIES · $encounterCount ENCOUNTERS"
+        SpeciesMode.Nearby -> nearbySpecies?.let {
+            "${it.progress.collectedCount} OF ${it.progress.totalCount} COLLECTED"
+        } ?: "SEASONAL FIELD LIST"
+        SpeciesMode.Quests -> "${visibleQuests.size} ${if (showArchivedQuests) "ARCHIVED" else "ACTIVE"} QUESTS"
+    }
 
     Box(Modifier.fillMaxSize().background(Parchment)) {
         LazyColumn(
@@ -119,22 +219,50 @@ fun SpeciesIndexScreen(
                 Row(verticalAlignment = Alignment.Top) {
                     Column(Modifier.weight(1f)) {
                         Text("HikeJournal", style = MaterialTheme.typography.headlineSmall, color = Color(0xFFB7C8B5))
-                        Text("Field guide", style = MaterialTheme.typography.displayMedium, color = Paper)
+                        Text(
+                            when (mode) {
+                                SpeciesMode.Collection -> "Field guide"
+                                SpeciesMode.Nearby -> "Nearby field list"
+                                SpeciesMode.Quests -> "Field quests"
+                            },
+                            style = MaterialTheme.typography.displayMedium,
+                            color = Paper,
+                        )
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("${scopedSpecies.size} SPECIES · $encounterCount ENCOUNTERS", style = MaterialTheme.typography.labelSmall, color = Color(0xFFB7C8B5))
+                            Text(headerCount, style = MaterialTheme.typography.labelSmall, color = Color(0xFFB7C8B5))
                             if (offline) {
                                 Spacer(Modifier.width(9.dp))
                                 Icon(Icons.Rounded.CloudOff, null, tint = Trail, modifier = Modifier.size(15.dp))
                             }
                         }
                     }
-                    IconButton(onClick = onRefresh, enabled = !loading) {
-                        if (loading) CircularProgressIndicator(Modifier.size(20.dp), color = Paper, strokeWidth = 2.dp)
+                    IconButton(
+                        onClick = {
+                            if (mode == SpeciesMode.Collection) onRefresh() else onRefreshDiscovery()
+                        },
+                        enabled = !loading && !discoveryLoading,
+                    ) {
+                        if (loading || discoveryLoading) CircularProgressIndicator(Modifier.size(20.dp), color = Paper, strokeWidth = 2.dp)
                         else Icon(Icons.Rounded.Refresh, "Refresh species", tint = Paper)
                     }
                 }
             }
         }
+        item {
+            SpeciesModeTabs(mode = mode, onMode = { mode = it })
+        }
+        if (!discoveryNotice.isNullOrBlank() && mode != SpeciesMode.Collection) {
+            item {
+                Text(
+                    discoveryNotice,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TrailText,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp),
+                )
+            }
+        }
+        when (mode) {
+        SpeciesMode.Collection -> {
         item {
             HikeFilterControl(
                 hikes = hikes,
@@ -198,6 +326,222 @@ fun SpeciesIndexScreen(
             }
         }
         }
+        SpeciesMode.Nearby -> {
+            item {
+                NearbyControls(
+                    areas = visibleAreas,
+                    areaSearch = areaSearch,
+                    selectedArea = selectedArea,
+                    targetDate = targetDate,
+                    radiusKm = radiusKm,
+                    iconicTaxon = iconicTaxon,
+                    locationNotice = locationNotice,
+                    loading = discoveryLoading,
+                    onAreaSearch = {
+                        areaSearch = it
+                        if (selectedArea?.name != it) selectedAreaId = null
+                    },
+                    onArea = {
+                        selectedAreaId = it.id
+                        areaSearch = it.name
+                    },
+                    onDate = { targetDate = it },
+                    onRadius = { radiusKm = when (radiusKm) { 5 -> 10; 10 -> 25; else -> 5 } },
+                    onGroup = {
+                        val groups = listOf<String?>(null, "Plantae", "Aves", "Mammalia", "Reptilia", "Amphibia", "Insecta", "Arachnida", "Fungi", "Actinopterygii", "Mollusca")
+                        iconicTaxon = groups[(groups.indexOf(iconicTaxon) + 1).mod(groups.size)]
+                    },
+                    onExplore = {
+                        selectedArea?.let {
+                            onLoadNearby(it.id, targetDate, radiusKm, iconicTaxon, null, null)
+                        }
+                    },
+                    onUseLocation = {
+                        val hasPermission = ContextCompat.checkSelfPermission(
+                            context,
+                            Manifest.permission.ACCESS_COARSE_LOCATION,
+                        ) == PackageManager.PERMISSION_GRANTED
+                        if (hasPermission) {
+                            requestOneShotLocation(
+                                context,
+                                onLocation = { location ->
+                                    locationNotice = null
+                                    onLoadNearby(null, targetDate, radiusKm, iconicTaxon, location.latitude, location.longitude)
+                                },
+                                onUnavailable = { locationNotice = "A current location was not available. Choose a saved trail instead." },
+                            )
+                        } else {
+                            locationPermission.launch(
+                                arrayOf(
+                                    Manifest.permission.ACCESS_COARSE_LOCATION,
+                                    Manifest.permission.ACCESS_FINE_LOCATION,
+                                ),
+                            )
+                        }
+                    },
+                )
+            }
+            nearbySpecies?.let { nearby ->
+                item {
+                    DiscoveryProgressHeader(
+                        progress = nearby.progress.collectedCount,
+                        total = nearby.progress.totalCount,
+                        label = "${nearby.areaName} · ${nearby.periodLabel}",
+                        detail = nearby.sourceGuidance,
+                    )
+                }
+                if (nearby.dataDensity == "sparse" && nearby.dataDensityMessage.isNotBlank()) {
+                    item {
+                        Text(
+                            nearby.dataDensityMessage,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = TrailText,
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+                        )
+                    }
+                }
+                if (focusTaxonIds.isNotEmpty()) {
+                    item {
+                        FocusFinds(
+                            taxa = nearby.taxa.filter { it.taxonId in focusTaxonIds },
+                            pending = false,
+                        )
+                    }
+                }
+                item {
+                    val linkedHike = hikes.firstOrNull { it.id == linkedQuestHikeId }
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                        horizontalArrangement = Arrangement.End,
+                    ) {
+                        TextButton(
+                            onClick = {
+                                val choices = listOf<String?>(null) + hikes.map { it.id }
+                                linkedQuestHikeId = choices[(choices.indexOf(linkedQuestHikeId) + 1).mod(choices.size)]
+                            },
+                        ) {
+                            Text(linkedHike?.let { "Linked to ${it.title}" } ?: "Link an outing")
+                        }
+                    }
+                }
+                item {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("SEASONAL SPECIES", style = MaterialTheme.typography.labelSmall, color = TrailText)
+                        Button(
+                            onClick = {
+                                onSaveQuest(
+                                    "${nearby.areaName} · ${nearby.periodLabel}",
+                                    linkedQuestHikeId,
+                                    focusTaxonIds,
+                                )
+                            },
+                            enabled = !savingQuest && nearby.areaId.isNotBlank(),
+                            shape = RoundedCornerShape(4.dp),
+                        ) {
+                            Text(if (savingQuest) "Saving…" else "Save quest")
+                        }
+                    }
+                }
+                items(nearby.taxa, key = { "nearby-${it.taxonId}" }) { taxon ->
+                    DiscoverySpeciesRow(
+                        taxon = taxon,
+                        focused = taxon.taxonId in focusTaxonIds,
+                        onToggleFocus = {
+                            focusTaxonIds = toggleFocus(focusTaxonIds, taxon.taxonId)
+                        },
+                    )
+                }
+            } ?: item {
+                DiscoveryEmpty(
+                    if (discoveryLoading) "Gathering the local field list…"
+                    else "Choose a saved trail or use your current area to begin.",
+                )
+            }
+        }
+        SpeciesMode.Quests -> {
+            item {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        if (selectedQuest == null) "SAVED CHECKLISTS" else selectedQuest.title.uppercase(Locale.US),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = TrailText,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = { showArchivedQuests = !showArchivedQuests }) {
+                        Text(if (showArchivedQuests) "Show active" else "Show archive")
+                    }
+                }
+            }
+            if (visibleQuests.size > 1) {
+                item {
+                    TextButton(
+                        onClick = {
+                            val index = visibleQuests.indexOfFirst { it.id == selectedQuest?.id }
+                            selectedQuestId = visibleQuests[(index + 1).mod(visibleQuests.size)].id
+                        },
+                        modifier = Modifier.padding(horizontal = 12.dp),
+                    ) {
+                        Text("Next quest")
+                    }
+                }
+            }
+            selectedQuest?.let { quest ->
+                item {
+                    DiscoveryProgressHeader(
+                        progress = quest.progress.collectedCount,
+                        total = quest.progress.totalCount,
+                        label = "${quest.areaName} · ${quest.periodLabel}",
+                        detail = if (quest.pendingFocusSync) "Focus changes are queued for sync." else "This checklist is frozen; its target count will not change.",
+                    )
+                }
+                val focusedTaxa = quest.taxa.filter { it.focusOrder != null }.sortedBy { it.focusOrder }
+                if (focusedTaxa.isNotEmpty()) {
+                    item { FocusFinds(focusedTaxa, pending = quest.pendingFocusSync) }
+                }
+                item {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("QUEST CHECKLIST", style = MaterialTheme.typography.labelSmall, color = TrailText)
+                        TextButton(onClick = { onArchiveQuest(quest) }) {
+                            Text(if (quest.status == "archived") "Restore" else "Archive")
+                        }
+                    }
+                }
+                items(quest.taxa, key = { "quest-${quest.id}-${it.taxonId}" }) { taxon ->
+                    DiscoverySpeciesRow(
+                        taxon = taxon,
+                        focused = taxon.focusOrder != null,
+                        onToggleFocus = {
+                            onSaveQuestFocus(
+                                quest,
+                                toggleFocus(
+                                    quest.taxa.filter { it.focusOrder != null }.sortedBy { it.focusOrder }.map { it.taxonId },
+                                    taxon.taxonId,
+                                ),
+                            )
+                        },
+                    )
+                }
+            } ?: item {
+                DiscoveryEmpty(
+                    if (discoveryLoading) "Opening saved field quests…"
+                    else if (showArchivedQuests) "No archived quests." else "Save a nearby field list to make your first quest.",
+                )
+            }
+        }
+        }
+        }
     }
 
     if (filterOpen) {
@@ -210,6 +554,264 @@ fun SpeciesIndexScreen(
             },
             onDismiss = { filterOpen = false },
         )
+    }
+}
+
+@Composable
+private fun SpeciesModeTabs(mode: SpeciesMode, onMode: (SpeciesMode) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().background(Color(0xFFE3DEC9)).padding(horizontal = 12.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.SpaceEvenly,
+    ) {
+        SpeciesMode.entries.forEach { item ->
+            val color by animateColorAsState(if (item == mode) Moss else Color.Transparent, label = "species-mode")
+            TextButton(
+                onClick = { onMode(item) },
+                modifier = Modifier.background(color, RoundedCornerShape(3.dp)),
+            ) {
+                Text(item.label, color = if (item == mode) Paper else Ink)
+            }
+        }
+    }
+}
+
+@Composable
+private fun NearbyControls(
+    areas: List<DiscoveryArea>,
+    areaSearch: String,
+    selectedArea: DiscoveryArea?,
+    targetDate: String,
+    radiusKm: Int,
+    iconicTaxon: String?,
+    locationNotice: String?,
+    loading: Boolean,
+    onAreaSearch: (String) -> Unit,
+    onArea: (DiscoveryArea) -> Unit,
+    onDate: (String) -> Unit,
+    onRadius: () -> Unit,
+    onGroup: () -> Unit,
+    onExplore: () -> Unit,
+    onUseLocation: () -> Unit,
+) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp)) {
+        Text("Choose the ground you will walk", style = MaterialTheme.typography.headlineMedium, color = Ink)
+        Text(
+            "Lists use seasonally nearby iNaturalist reports—not a promise that a species will appear.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = InkMuted,
+            modifier = Modifier.padding(top = 4.dp, bottom = 12.dp),
+        )
+        OutlinedTextField(
+            value = areaSearch,
+            onValueChange = onAreaSearch,
+            label = { Text("Search saved trails") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(4.dp),
+        )
+        if (selectedArea == null && areaSearch.isNotBlank()) {
+            areas.forEach { area ->
+                TextButton(onClick = { onArea(area) }, modifier = Modifier.fillMaxWidth()) {
+                    Text(area.name, modifier = Modifier.fillMaxWidth(), color = Ink)
+                }
+            }
+        }
+        OutlinedTextField(
+            value = targetDate,
+            onValueChange = onDate,
+            label = { Text("Outing date · YYYY-MM-DD") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            shape = RoundedCornerShape(4.dp),
+        )
+        Row(
+            Modifier.fillMaxWidth().padding(top = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TextButton(onClick = onRadius) { Text("$radiusKm km radius") }
+            TextButton(onClick = onGroup) { Text(iconicTaxonLabel(iconicTaxon)) }
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(
+                onClick = onExplore,
+                enabled = selectedArea != null && !loading,
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(4.dp),
+            ) {
+                Text(if (loading) "Looking…" else "Explore nearby")
+            }
+            TextButton(onClick = onUseLocation, enabled = !loading) {
+                Text("Use my location")
+            }
+        }
+        Text(
+            "Current location is requested once, rounded to roughly 1 km by the server, and used only for this iNaturalist search.",
+            style = MaterialTheme.typography.labelSmall,
+            color = InkMuted,
+            modifier = Modifier.padding(top = 6.dp),
+        )
+        if (!locationNotice.isNullOrBlank()) {
+            Text(
+                locationNotice,
+                style = MaterialTheme.typography.bodyMedium,
+                color = TrailText,
+                modifier = Modifier.padding(top = 6.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun DiscoveryProgressHeader(progress: Int, total: Int, label: String, detail: String) {
+    val target = if (total <= 0) 0f else progress.toFloat() / total.toFloat()
+    val animated by animateFloatAsState(target, label = "quest-progress")
+    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Column(Modifier.weight(1f)) {
+                Text(label, style = MaterialTheme.typography.labelMedium, color = TrailText)
+                Text("$progress of $total collected", style = MaterialTheme.typography.headlineMedium, color = Ink)
+            }
+            Text("${total - progress} left", style = MaterialTheme.typography.bodyMedium, color = InkMuted)
+        }
+        LinearProgressIndicator(
+            progress = { animated },
+            modifier = Modifier.fillMaxWidth().padding(top = 10.dp).height(5.dp),
+            color = Moss,
+            trackColor = Line,
+        )
+        Text(detail, style = MaterialTheme.typography.labelSmall, color = InkMuted, modifier = Modifier.padding(top = 7.dp))
+    }
+}
+
+@Composable
+private fun FocusFinds(taxa: List<DiscoveryTaxon>, pending: Boolean) {
+    Column(
+        Modifier.fillMaxWidth().background(Color(0xFFE4DDC5)).padding(horizontal = 20.dp, vertical = 12.dp),
+    ) {
+        Text("FOCUS FINDS${if (pending) " · SYNC PENDING" else ""}", style = MaterialTheme.typography.labelSmall, color = TrailText)
+        taxa.forEachIndexed { index, taxon ->
+            Text("${index + 1}. ${taxon.commonName}", style = MaterialTheme.typography.titleMedium, color = Ink)
+        }
+    }
+}
+
+@Composable
+private fun DiscoverySpeciesRow(
+    taxon: DiscoveryTaxon,
+    focused: Boolean,
+    onToggleFocus: () -> Unit,
+) {
+    val saturation by animateFloatAsState(if (taxon.collected) 1f else 0f, label = "species-reveal")
+    val imageUrl = taxon.collectionPhotoUrl.takeIf { taxon.collected && !it.isNullOrBlank() }
+        ?: taxon.referencePhoto?.url.orEmpty()
+    val matrix = ColorMatrix().apply { setToSaturation(saturation) }
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(Modifier.size(86.dp).background(Color(0xFFD0CFBD))) {
+                AsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current).data(imageUrl).crossfade(true).build(),
+                    contentDescription = taxon.commonName,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                    colorFilter = ColorFilter.colorMatrix(matrix),
+                )
+            }
+            Column(Modifier.weight(1f).padding(start = 14.dp)) {
+                Text(
+                    if (taxon.collected) "COLLECTED" else taxon.frequencyBand.uppercase(Locale.US),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (taxon.collected) Moss else TrailText,
+                )
+                Text(taxon.commonName, style = MaterialTheme.typography.titleLarge, color = Ink, maxLines = 2)
+                Text(
+                    taxon.scientificName,
+                    style = MaterialTheme.typography.bodyMedium.copy(fontStyle = FontStyle.Italic),
+                    color = InkMuted,
+                    maxLines = 1,
+                )
+                if (taxon.pendingCredit) {
+                    Text("PENDING CREDIT", style = MaterialTheme.typography.labelSmall, color = Trail)
+                } else if (!taxon.collected && taxon.referencePhoto?.attribution?.isNotBlank() == true) {
+                    Text(
+                        "${taxon.referencePhoto.attribution} · ${taxon.referencePhoto.licenseCode}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = InkMuted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            TextButton(onClick = onToggleFocus) {
+                Text(if (focused) "Focused" else "Focus")
+            }
+        }
+        HorizontalDivider(color = Line, thickness = 1.dp)
+    }
+}
+
+@Composable
+private fun DiscoveryEmpty(message: String) {
+    Column(
+        Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 70.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        if (message.endsWith("…")) CircularProgressIndicator(color = Moss, strokeWidth = 2.dp)
+        Text(message, style = MaterialTheme.typography.bodyLarge, color = InkMuted, modifier = Modifier.padding(top = 12.dp))
+    }
+}
+
+private fun toggleFocus(current: List<Long>, taxonId: Long): List<Long> =
+    if (taxonId in current) current.filterNot { it == taxonId }
+    else if (current.size >= 5) current else current + taxonId
+
+private fun iconicTaxonLabel(value: String?): String = when (value) {
+    null -> "All life"
+    "Plantae" -> "Plants"
+    "Aves" -> "Birds"
+    "Mammalia" -> "Mammals"
+    "Reptilia" -> "Reptiles"
+    "Amphibia" -> "Amphibians"
+    "Insecta" -> "Insects"
+    "Arachnida" -> "Arachnids"
+    "Fungi" -> "Fungi"
+    "Actinopterygii" -> "Fish"
+    "Mollusca" -> "Mollusks"
+    else -> value
+}
+
+@Suppress("MissingPermission")
+private fun requestOneShotLocation(
+    context: Context,
+    onLocation: (Location) -> Unit,
+    onUnavailable: () -> Unit,
+) {
+    val manager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+        ?: return onUnavailable()
+    val provider = when {
+        manager.isProviderEnabled(LocationManager.GPS_PROVIDER) -> LocationManager.GPS_PROVIDER
+        manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER) -> LocationManager.NETWORK_PROVIDER
+        else -> return onUnavailable()
+    }
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        manager.getCurrentLocation(provider, null, context.mainExecutor) { location ->
+            if (location == null) onUnavailable() else onLocation(location)
+        }
+    } else {
+        val listener = object : LocationListener {
+            override fun onLocationChanged(location: Location) {
+                manager.removeUpdates(this)
+                onLocation(location)
+            }
+            override fun onProviderDisabled(provider: String) = onUnavailable()
+            override fun onProviderEnabled(provider: String) = Unit
+            @Deprecated("Deprecated in Android")
+            override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) = Unit
+        }
+        manager.requestSingleUpdate(provider, listener, null)
     }
 }
 

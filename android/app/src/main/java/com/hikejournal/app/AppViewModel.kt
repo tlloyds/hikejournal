@@ -7,6 +7,9 @@ import androidx.lifecycle.viewModelScope
 import com.hikejournal.app.data.Hike
 import com.hikejournal.app.data.HikeDraft
 import com.hikejournal.app.data.HikeJournalRepository
+import com.hikejournal.app.data.DiscoveryArea
+import com.hikejournal.app.data.FieldQuest
+import com.hikejournal.app.data.NearbySpecies
 import com.hikejournal.app.data.Photo
 import com.hikejournal.app.data.PublishItem
 import com.hikejournal.app.data.PublishOptions
@@ -27,6 +30,9 @@ data class AppState(
     val journal: Hike? = null,
     val species: List<SpeciesRecord> = emptyList(),
     val speciesDetail: SpeciesRecord? = null,
+    val discoveryAreas: List<DiscoveryArea> = emptyList(),
+    val nearbySpecies: NearbySpecies? = null,
+    val speciesQuests: List<FieldQuest> = emptyList(),
     val sightings: List<Sighting> = emptyList(),
     val reviewQueue: List<ReviewItem> = emptyList(),
     val publishQueue: PublishQueue = PublishQueue(false, 0, 0, 0, emptyList()),
@@ -37,6 +43,9 @@ data class AppState(
     val uploadCurrent: Int = 0,
     val uploadTotal: Int = 0,
     val isSpeciesLoading: Boolean = false,
+    val isDiscoveryLoading: Boolean = false,
+    val isSavingQuest: Boolean = false,
+    val discoveryNotice: String? = null,
     val isMapLoading: Boolean = false,
     val isReviewLoading: Boolean = false,
     val decidingReviewId: String? = null,
@@ -145,6 +154,151 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 .onFailure { error ->
                     _state.update { it.copy(isSpeciesLoading = false, error = error.userMessage()) }
                 }
+        }
+    }
+
+    fun loadSpeciesDiscovery(force: Boolean = false) {
+        if (_state.value.discoveryAreas.isNotEmpty() && _state.value.speciesQuests.isNotEmpty() && !force) return
+        viewModelScope.launch {
+            _state.update { it.copy(isDiscoveryLoading = true, discoveryNotice = null) }
+            runCatching {
+                repository.loadDiscoveryAreas() to repository.loadSpeciesQuests()
+            }.onSuccess { (areas, quests) ->
+                _state.update {
+                    it.copy(
+                        discoveryAreas = areas.value,
+                        speciesQuests = quests.value,
+                        isDiscoveryLoading = false,
+                        isOffline = areas.fromCache || quests.fromCache,
+                    )
+                }
+            }.onFailure { error ->
+                _state.update {
+                    it.copy(
+                        isDiscoveryLoading = false,
+                        discoveryNotice = error.userMessage(),
+                    )
+                }
+            }
+        }
+    }
+
+    fun loadNearbySpecies(
+        areaId: String?,
+        targetDate: String,
+        radiusKm: Int,
+        iconicTaxon: String?,
+        latitude: Double? = null,
+        longitude: Double? = null,
+    ) {
+        viewModelScope.launch {
+            _state.update { it.copy(isDiscoveryLoading = true, discoveryNotice = null) }
+            runCatching {
+                repository.loadNearbySpecies(
+                    areaId = areaId,
+                    targetDate = targetDate,
+                    radiusKm = radiusKm,
+                    iconicTaxon = iconicTaxon,
+                    latitude = latitude,
+                    longitude = longitude,
+                )
+            }.onSuccess { result ->
+                _state.update {
+                    it.copy(
+                        nearbySpecies = result.value,
+                        isDiscoveryLoading = false,
+                        isOffline = result.fromCache,
+                    )
+                }
+            }.onFailure { error ->
+                _state.update {
+                    it.copy(
+                        isDiscoveryLoading = false,
+                        discoveryNotice = error.userMessage(),
+                    )
+                }
+            }
+        }
+    }
+
+    fun saveNearbyQuest(
+        title: String,
+        linkedHikeId: String?,
+        focusTaxonIds: List<Long>,
+    ) {
+        val nearby = _state.value.nearbySpecies ?: return
+        if (nearby.areaId.isBlank()) {
+            _state.update { it.copy(discoveryNotice = "Choose a saved trail before saving a Field Quest.") }
+            return
+        }
+        viewModelScope.launch {
+            _state.update { it.copy(isSavingQuest = true, discoveryNotice = null) }
+            runCatching {
+                repository.createSpeciesQuest(
+                    areaId = nearby.areaId,
+                    targetDate = nearby.targetDate,
+                    radiusKm = nearby.radiusKm,
+                    iconicTaxon = nearby.iconicTaxon,
+                    title = title,
+                    linkedHikeId = linkedHikeId,
+                    focusTaxonIds = focusTaxonIds,
+                )
+            }.onSuccess { quest ->
+                _state.update {
+                    it.copy(
+                        speciesQuests = listOf(quest) + it.speciesQuests.filterNot { saved -> saved.id == quest.id },
+                        isSavingQuest = false,
+                        discoveryNotice = "Field Quest saved for offline use.",
+                    )
+                }
+            }.onFailure { error ->
+                _state.update {
+                    it.copy(isSavingQuest = false, discoveryNotice = error.userMessage())
+                }
+            }
+        }
+    }
+
+    fun saveQuestFocus(quest: FieldQuest, focusTaxonIds: List<Long>) {
+        viewModelScope.launch {
+            val updated = repository.queueQuestFocus(quest, focusTaxonIds)
+            _state.update {
+                it.copy(
+                    speciesQuests = it.speciesQuests.map { existing ->
+                        if (existing.id == updated.id) updated else existing
+                    },
+                    discoveryNotice = "Focus finds saved${if (it.isOffline) " and queued for sync" else ""}.",
+                )
+            }
+        }
+    }
+
+    fun archiveQuest(quest: FieldQuest) {
+        if (_state.value.isOffline) {
+            _state.update { it.copy(discoveryNotice = "Archiving a quest needs a connection.") }
+            return
+        }
+        viewModelScope.launch {
+            _state.update { it.copy(isSavingQuest = true, discoveryNotice = null) }
+            runCatching {
+                repository.updateSpeciesQuest(
+                    questId = quest.id,
+                    status = if (quest.status == "archived") "active" else "archived",
+                )
+            }.onSuccess { updated ->
+                _state.update {
+                    it.copy(
+                        speciesQuests = it.speciesQuests.map { existing ->
+                            if (existing.id == updated.id) updated else existing
+                        },
+                        isSavingQuest = false,
+                    )
+                }
+            }.onFailure { error ->
+                _state.update {
+                    it.copy(isSavingQuest = false, discoveryNotice = error.userMessage())
+                }
+            }
         }
     }
 

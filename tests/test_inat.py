@@ -51,6 +51,20 @@ def test_extract_taxon_enrichment_collects_aliases_and_summary() -> None:
     assert "bulltongue arrowhead" in enrichment["alias_names"]
 
 
+def test_extract_taxon_enrichment_resolves_subspecies_parent() -> None:
+    enrichment = extract_taxon_enrichment(
+        {
+            "id": 456,
+            "name": "Example species floridana",
+            "rank": "subspecies",
+            "ancestor_ids": [1, 2, 123],
+        }
+    )
+
+    assert enrichment["species_taxon_id"] == 123
+    assert enrichment["ancestor_ids"] == [1, 2, 123]
+
+
 def test_extract_observation_taxon_snapshot_reads_active_taxon() -> None:
     payload = {
         "results": [

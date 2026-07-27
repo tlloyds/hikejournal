@@ -653,11 +653,23 @@ def extract_taxon_enrichment(taxon: dict[str, Any]) -> dict[str, Any]:
             if alias
         }
     )
+    rank = _coerce_text(taxon.get("rank"))
+    taxon_id = _coerce_int(taxon.get("id"))
+    ancestor_ids = [
+        ancestor_id
+        for value in (taxon.get("ancestor_ids") or [])
+        if (ancestor_id := _coerce_int(value)) is not None
+    ]
+    species_taxon_id = taxon_id if rank == "species" else None
+    if rank in {"subspecies", "variety", "form", "infrahybrid", "hybrid"} and ancestor_ids:
+        species_taxon_id = ancestor_ids[-1]
     return {
         "preferred_common_name": preferred_common_name,
         "english_common_name": english_common_name,
-        "rank": _coerce_text(taxon.get("rank")),
+        "rank": rank,
         "iconic_taxon_name": _coerce_text(taxon.get("iconic_taxon_name")),
+        "ancestor_ids": ancestor_ids,
+        "species_taxon_id": species_taxon_id,
         "wikipedia_url": _coerce_text(taxon.get("wikipedia_url")),
         "wikipedia_summary": wikipedia_summary,
         "alias_names": alias_names,
