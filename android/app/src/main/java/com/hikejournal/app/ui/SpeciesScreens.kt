@@ -405,10 +405,8 @@ fun SpeciesIndexScreen(
                     }
                 }
                 item {
-                    FocusFinds(
-                        taxa = focusTaxonIds.mapNotNull { selectedId ->
-                            nearby.taxa.firstOrNull { it.taxonId == selectedId }
-                        },
+                    QuestTargetStrip(
+                        selectedCount = focusTaxonIds.size,
                         pending = false,
                     )
                 }
@@ -453,7 +451,7 @@ fun SpeciesIndexScreen(
                             Text(
                                 when {
                                     savingQuest -> "Saving…"
-                                    focusTaxonIds.size < 5 -> "Pick ${5 - focusTaxonIds.size} more"
+                                    focusTaxonIds.size < 5 -> questTargetPrompt(focusTaxonIds.size)
                                     else -> "Save quest"
                                 },
                             )
@@ -528,7 +526,12 @@ fun SpeciesIndexScreen(
                         noun = "found",
                     )
                 }
-                item { FocusFinds(focusedTaxa, pending = quest.pendingFocusSync) }
+                item {
+                    QuestTargetStrip(
+                        selectedCount = focusedTaxa.size,
+                        pending = quest.pendingFocusSync,
+                    )
+                }
                 item {
                     Column(
                         Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
@@ -550,7 +553,7 @@ fun SpeciesIndexScreen(
                                     when {
                                         !editingTargets -> "Change targets"
                                         focusedTaxa.size == 5 -> "Done"
-                                        else -> "Pick ${5 - focusedTaxa.size} more"
+                                        else -> questTargetPrompt(focusedTaxa.size)
                                     },
                                 )
                             }
@@ -743,7 +746,7 @@ private fun NearbyControls(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(4.dp),
         )
-        if (selectedArea == null) {
+        if (shouldShowSavedTrailResults(areaSearch, selectedArea != null)) {
             when {
                 areas.isNotEmpty() -> {
                     Text(
@@ -757,14 +760,6 @@ private fun NearbyControls(
                             Text(area.name, modifier = Modifier.fillMaxWidth(), color = Ink)
                         }
                     }
-                }
-                areaSearch.isBlank() -> {
-                    Text(
-                        "No coordinate-backed saved trails are available yet.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = InkMuted,
-                        modifier = Modifier.padding(top = 10.dp),
-                    )
                 }
                 else -> {
                     Text(
@@ -851,24 +846,63 @@ private fun DiscoveryProgressHeader(
 }
 
 @Composable
-private fun FocusFinds(taxa: List<DiscoveryTaxon>, pending: Boolean) {
-    Column(
-        Modifier.fillMaxWidth().background(Color(0xFFE4DDC5)).padding(horizontal = 20.dp, vertical = 12.dp),
+private fun QuestTargetStrip(selectedCount: Int, pending: Boolean) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .background(Color(0xFFE4DDC5))
+            .padding(horizontal = 20.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            "${taxa.size} OF 5 QUEST TARGETS${if (pending) " · SYNC PENDING" else ""}",
+            "QUEST TARGETS",
             style = MaterialTheme.typography.labelSmall,
-            color = if (taxa.size == 5) Trail else TrailText,
+            color = TrailText,
         )
+        Spacer(Modifier.weight(1f))
         repeat(5) { index ->
-            val taxon = taxa.getOrNull(index)
-            Text(
-                "${index + 1}. ${taxon?.commonName ?: "Choose a species"}",
-                style = MaterialTheme.typography.titleMedium,
-                color = if (taxon == null) InkMuted else Ink,
+            val isSelected = index < selectedCount
+            val markerColor by animateColorAsState(
+                if (isSelected) Trail else Color(0xFFC7C0AA),
+                label = "quest-target-${index + 1}",
+            )
+            Box(
+                Modifier
+                    .padding(start = if (index == 0) 0.dp else 5.dp)
+                    .size(24.dp)
+                    .background(markerColor, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    "${index + 1}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (isSelected) Paper else InkMuted,
+                )
+            }
+        }
+        Text(
+            "$selectedCount/5",
+            style = MaterialTheme.typography.labelMedium,
+            color = if (selectedCount == 5) Trail else Ink,
+            modifier = Modifier.padding(start = 9.dp),
+        )
+        if (pending) {
+            Icon(
+                Icons.Rounded.CloudOff,
+                "Quest target sync pending",
+                tint = TrailText,
+                modifier = Modifier.padding(start = 6.dp).size(15.dp),
             )
         }
     }
+}
+
+internal fun shouldShowSavedTrailResults(searchText: String, hasSelectedArea: Boolean): Boolean =
+    searchText.isNotBlank() && !hasSelectedArea
+
+internal fun questTargetPrompt(selectedCount: Int): String {
+    val remaining = (5 - selectedCount.coerceIn(0, 5)).coerceAtLeast(0)
+    return if (remaining == 5) "Pick 5" else "Pick $remaining more"
 }
 
 @Composable
