@@ -4,17 +4,23 @@ This directory packages the existing FastAPI companion as a small HTTPS service.
 
 ## Deploy on Google Cloud Run (recommended)
 
-The repository-root `Dockerfile` makes this API directly deployable from a
-GitHub connection in Cloud Run:
+The repository-root `Dockerfile` and `cloudbuild.json` make this API directly
+deployable from a GitHub connection in Cloud Run:
 
-1. In Google Cloud Console, open **Cloud Run** and choose **Deploy container**.
-2. Select **Continuously deploy from a repository**, connect the `tlloyds/hikejournal`
-   GitHub repository, and choose the `main` branch.
-3. Use **Dockerfile** as the build type. Leave the root directory as the
-   repository root, so Cloud Run uses `Dockerfile`.
-4. Name the service `hikejournal-mobile`, select a nearby region, and allow
-   unauthenticated invocations. The API itself requires the pairing key; this
-   setting lets the installed app reach it over HTTPS.
+1. In Google Cloud Console, open **Cloud Build → Triggers** and connect the
+   `tlloyds/hikejournal` GitHub repository to the `main` branch.
+2. Set the trigger region to `us-east1`, choose **Cloud Build configuration
+   file (YAML or JSON)**, and enter `/cloudbuild.json` as the configuration
+   location. Do not use the generated Dockerfile build: it only builds an
+   image and cannot set the logging mode required by a user-managed service
+   account.
+3. Select a build service account that can write to the
+   `cloud-run-source-deploy` Artifact Registry repository and deploy the
+   `hikejournal-git` Cloud Run service.
+4. The checked-in build configuration sends logs to Cloud Logging, builds and
+   pushes the image in `us-east1`, and deploys it to the existing
+   `hikejournal-git` service. This preserves that service's environment
+   variables and public URL.
 5. Under **Variables & Secrets**, add the production values from `.env`:
    `MOBILE_API_TOKEN`, `MOBILE_OWNER_EMAIL`, `SUPABASE_URL`, `SUPABASE_KEY`,
    storage settings (`STORAGE_BACKEND` and either the R2 or Supabase values),

@@ -1,0 +1,49 @@
+{
+  "steps": [
+    {
+      "name": "gcr.io/cloud-builders/docker",
+      "args": [
+        "build",
+        "--tag",
+        "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPOSITORY}/${_IMAGE_PATH}:$COMMIT_SHA",
+        "."
+      ]
+    },
+    {
+      "name": "gcr.io/cloud-builders/docker",
+      "args": [
+        "push",
+        "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPOSITORY}/${_IMAGE_PATH}:$COMMIT_SHA"
+      ]
+    },
+    {
+      "name": "gcr.io/google.com/cloudsdktool/cloud-sdk:slim",
+      "entrypoint": "gcloud",
+      "args": [
+        "run",
+        "deploy",
+        "${_SERVICE_NAME}",
+        "--image",
+        "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPOSITORY}/${_IMAGE_PATH}:$COMMIT_SHA",
+        "--region",
+        "${_REGION}",
+        "--platform",
+        "managed",
+        "--quiet"
+      ]
+    }
+  ],
+  "images": [
+    "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPOSITORY}/${_IMAGE_PATH}:$COMMIT_SHA"
+  ],
+  "substitutions": {
+    "_REGION": "us-east1",
+    "_ARTIFACT_REPOSITORY": "cloud-run-source-deploy",
+    "_IMAGE_PATH": "tlloyds-hikejournal/hikejournal-git",
+    "_SERVICE_NAME": "hikejournal-git"
+  },
+  "options": {
+    "logging": "CLOUD_LOGGING_ONLY"
+  },
+  "timeout": "1200s"
+}
