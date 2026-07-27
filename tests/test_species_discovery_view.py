@@ -15,6 +15,7 @@ def test_collected_discovery_row_renders_as_one_html_fragment(monkeypatch) -> No
                 "scientific_name": "Alligator mississippiensis",
                 "observation_count": 244,
                 "nearby_rank": 1,
+                "frequency_band": "Often reported",
                 "collected": True,
                 "collection_photo_url": "https://photos.example/alligator.jpg",
                 "reference_photo": {
@@ -29,6 +30,7 @@ def test_collected_discovery_row_renders_as_one_html_fragment(monkeypatch) -> No
     assert len(rendered) == 1
     assert "\n" not in rendered[0]
     assert "is-collected" in rendered[0]
+    assert "Logged in your collection · Often reported" in rendered[0]
     assert "244 research-grade reports nearby</div>" in rendered[0]
     assert '<div class="field-quest-species-rank">01</div>' in rendered[0]
     assert rendered[0].endswith("</div>")

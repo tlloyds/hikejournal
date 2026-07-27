@@ -22,6 +22,13 @@ from hike_journal.ui.components import get_photo_thumbnail_url, section_heading
 QUEST_FOCUS_LIMIT = 5
 
 
+def _discovery_status_label(item: dict[str, Any]) -> str:
+    frequency_band = str(item.get("frequency_band") or "Nearby record")
+    if item.get("collected"):
+        return f"Logged in your collection · {frequency_band}"
+    return frequency_band
+
+
 def _build_discovery_species_row_html(
     item: dict[str, Any],
     *,
@@ -36,7 +43,7 @@ def _build_discovery_species_row_html(
     )
     photo = item.get("reference_photo") or {}
     attribution = str(photo.get("attribution") or "").strip()
-    status = "Logged in your collection" if collected else str(item.get("frequency_band") or "Nearby record")
+    status = _discovery_status_label(item)
     focus_order = item.get("focus_order")
     focus_copy = (
         f"<span class='field-quest-focus'>Quest pick {int(focus_order)} of {QUEST_FOCUS_LIMIT}</span>"

@@ -20,4 +20,16 @@ class SpeciesNearbyUiTest {
         assertEquals("Pick 4 more", questTargetPrompt(1))
         assertEquals("Pick 1 more", questTargetPrompt(4))
     }
+
+    @Test
+    fun `collected species retain their nearby reporting score`() {
+        assertEquals(
+            "COLLECTED · REGULARLY REPORTED",
+            discoveryStatusLabel(collected = true, frequencyBand = "Regularly reported"),
+        )
+        assertEquals(
+            "LESS OFTEN REPORTED",
+            discoveryStatusLabel(collected = false, frequencyBand = "Less often reported"),
+        )
+    }
 }

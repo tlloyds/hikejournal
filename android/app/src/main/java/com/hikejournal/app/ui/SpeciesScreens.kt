@@ -905,6 +905,11 @@ internal fun questTargetPrompt(selectedCount: Int): String {
     return if (remaining == 5) "Pick 5" else "Pick $remaining more"
 }
 
+internal fun discoveryStatusLabel(collected: Boolean, frequencyBand: String): String {
+    val band = frequencyBand.ifBlank { "Nearby record" }.uppercase(Locale.US)
+    return if (collected) "COLLECTED · $band" else band
+}
+
 @Composable
 private fun DiscoverySpeciesRow(
     taxon: DiscoveryTaxon,
@@ -957,7 +962,7 @@ private fun DiscoverySpeciesRow(
             }
             Column(Modifier.weight(1f).padding(start = 14.dp)) {
                 Text(
-                    if (taxon.collected) "COLLECTED" else taxon.frequencyBand.uppercase(Locale.US),
+                    discoveryStatusLabel(taxon.collected, taxon.frequencyBand),
                     style = MaterialTheme.typography.labelSmall,
                     color = if (taxon.collected) Moss else TrailText,
                 )
