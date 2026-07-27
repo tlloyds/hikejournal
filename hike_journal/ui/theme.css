@@ -3171,6 +3171,34 @@ h1, h2, h3,
   animation: field-quest-enter 360ms ease both;
 }
 
+.field-quest-species-row.is-focus-selected {
+  box-shadow: inset 3px 0 0 var(--trail, #b2673a);
+  background: linear-gradient(90deg, rgba(178, 103, 58, 0.09), transparent 42%);
+  padding-left: 0.75rem;
+}
+
+[class*="st-key-species_focus_row_"] {
+  border-bottom: 1px solid rgba(36, 53, 42, 0.13);
+}
+
+[class*="st-key-species_focus_row_"] .field-quest-species-row {
+  border-bottom: 0;
+}
+
+[class*="st-key-species_focus_row_"] [data-testid="stButton"] button {
+  border-color: rgba(67, 91, 70, 0.36);
+  border-radius: 2px;
+  color: var(--moss-700, #526752);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+[class*="st-key-species_focus_row_"]:has(.is-focus-selected) [data-testid="stButton"] button {
+  border-color: var(--trail, #b2673a);
+  background: rgba(178, 103, 58, 0.1);
+  color: #8f4e2b;
+}
+
 .field-quest-species-image {
   width: 8rem;
   height: 7rem;
@@ -3283,6 +3311,21 @@ h1, h2, h3,
 
   .field-quest-species-rank {
     display: none;
+  }
+
+  [class*="st-key-species_focus_row_"] [data-testid="stHorizontalBlock"] {
+    align-items: end;
+  }
+
+  [class*="st-key-species_focus_row_"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child {
+    flex: 1 1 calc(100% - 6.5rem) !important;
+    width: calc(100% - 6.5rem) !important;
+  }
+
+  [class*="st-key-species_focus_row_"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:last-child {
+    flex: 0 0 6rem !important;
+    width: 6rem !important;
+    padding-bottom: 0.85rem;
   }
 }
 

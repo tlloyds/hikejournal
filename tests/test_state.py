@@ -19,9 +19,11 @@ def test_initialize_session_state_creates_independent_mutable_values() -> None:
     initialize_session_state(second)
     first["species_selected_ids"].add("photo-1")
     first["inat_post_feedback"]["observation-1"] = "done"
+    first["species_nearby_focus_ids"].append(123)
 
     assert second["species_selected_ids"] == set()
     assert second["inat_post_feedback"] == {}
+    assert second["species_nearby_focus_ids"] == []
 
 
 def test_reset_home_navigation_state_clears_transient_navigation() -> None:

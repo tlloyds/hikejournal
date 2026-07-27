@@ -10,7 +10,11 @@ from hike_journal.ui.views.journal import (
 )
 from hike_journal.ui.views.map import render_map_view
 from hike_journal.ui.views.publishing import PublishingActions, render_publishing_view
-from hike_journal.ui.views.species_log import render_species_log_view
+from hike_journal.ui.views.species_log import (
+    _render_nearby_mode,
+    _render_quests_mode,
+    render_species_log_view,
+)
 from hike_journal.ui.views.species_review import SpeciesReviewActions, render_species_review_view
 
 
@@ -55,6 +59,19 @@ def test_species_log_view_exposes_collection_nearby_and_field_quests() -> None:
     assert '["Collection", "Nearby", "Field Quests"]' in source
     assert "_render_nearby_mode" in source
     assert "_render_quests_mode" in source
+
+
+def test_species_discovery_uses_searchable_areas_and_direct_focus_controls() -> None:
+    nearby_source = getsource(_render_nearby_mode)
+    quests_source = getsource(_render_quests_mode)
+
+    assert '"Search saved trails"' in nearby_source
+    assert 'placeholder="Type a trail name…"' in nearby_source
+    assert "index=default_index" in nearby_source
+    assert "st.multiselect" not in nearby_source
+    assert "st.multiselect" not in quests_source
+    assert "focus_state_key=focus_state_key" in nearby_source
+    assert "focus_state_key=focus_state_key" in quests_source
 
 
 def test_app_library_wrapper_forwards_every_callback(monkeypatch) -> None:

@@ -79,6 +79,7 @@ import com.hikejournal.app.data.FieldQuest
 import com.hikejournal.app.data.Hike
 import com.hikejournal.app.data.NearbySpecies
 import com.hikejournal.app.data.SpeciesRecord
+import com.hikejournal.app.data.filterDiscoveryAreas
 import com.hikejournal.app.ui.theme.Ink
 import com.hikejournal.app.ui.theme.InkMuted
 import com.hikejournal.app.ui.theme.Line
@@ -137,9 +138,7 @@ fun SpeciesIndexScreen(
     var locationNotice by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
     val selectedArea = discoveryAreas.firstOrNull { it.id == selectedAreaId }
-    val visibleAreas = discoveryAreas.filter {
-        areaSearch.isBlank() || it.name.contains(areaSearch, ignoreCase = true)
-    }.take(6)
+    val visibleAreas = filterDiscoveryAreas(discoveryAreas, areaSearch)
     val visibleQuests = quests.filter { (it.status == "archived") == showArchivedQuests }
     val selectedQuest = visibleQuests.firstOrNull { it.id == selectedQuestId }
         ?: visibleQuests.firstOrNull()
@@ -609,10 +608,36 @@ private fun NearbyControls(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(4.dp),
         )
-        if (selectedArea == null && areaSearch.isNotBlank()) {
-            areas.forEach { area ->
-                TextButton(onClick = { onArea(area) }, modifier = Modifier.fillMaxWidth()) {
-                    Text(area.name, modifier = Modifier.fillMaxWidth(), color = Ink)
+        if (selectedArea == null) {
+            when {
+                areas.isNotEmpty() -> {
+                    Text(
+                        "SAVED TRAILS",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = TrailText,
+                        modifier = Modifier.padding(top = 10.dp, bottom = 2.dp),
+                    )
+                    areas.forEach { area ->
+                        TextButton(onClick = { onArea(area) }, modifier = Modifier.fillMaxWidth()) {
+                            Text(area.name, modifier = Modifier.fillMaxWidth(), color = Ink)
+                        }
+                    }
+                }
+                areaSearch.isBlank() -> {
+                    Text(
+                        "No coordinate-backed saved trails are available yet.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = InkMuted,
+                        modifier = Modifier.padding(top = 10.dp),
+                    )
+                }
+                else -> {
+                    Text(
+                        "No saved trails match “$areaSearch”.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = InkMuted,
+                        modifier = Modifier.padding(top = 10.dp),
+                    )
                 }
             }
         }

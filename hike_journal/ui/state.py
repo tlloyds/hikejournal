@@ -51,7 +51,7 @@ SESSION_DEFAULTS: dict[str, StateDefault] = {
     "species_nearby_area_name": "",
     "species_nearby_radius": 10,
     "species_nearby_group": "All Life",
-    "species_nearby_focus_ids": [],
+    "species_nearby_focus_ids": list,
     "species_quest_selected_id": None,
     "species_quest_status_filter": "Active",
     "species_review_initialized_signature": None,

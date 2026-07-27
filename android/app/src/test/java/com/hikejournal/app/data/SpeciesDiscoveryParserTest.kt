@@ -6,6 +6,22 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SpeciesDiscoveryParserTest {
+    private val discoveryAreas = listOf(
+        DiscoveryArea("1", "Alafia River State Park", 27.8, -82.1, "saved_location"),
+        DiscoveryArea("2", "Lettuce Lake Trail", 28.1, -82.4, "saved_location"),
+        DiscoveryArea("3", "Florida Trail", 28.2, -81.7, "saved_location"),
+    )
+
+    @Test
+    fun `saved trail search populates before typing and filters by name`() {
+        assertEquals(discoveryAreas, filterDiscoveryAreas(discoveryAreas, ""))
+        assertEquals(
+            listOf(discoveryAreas[1]),
+            filterDiscoveryAreas(discoveryAreas, "lettuce"),
+        )
+        assertTrue(filterDiscoveryAreas(discoveryAreas, "missing").isEmpty())
+    }
+
     @Test
     fun `foreground coordinates are rounded before discovery requests`() {
         assertEquals(28.54, roundedDiscoveryCoordinate(28.53831), 0.000001)

@@ -19,7 +19,12 @@ from hike_journal.services.repositories import HikeJournalRepository
 from hike_journal.ui.components import get_photo_thumbnail_url, section_heading
 
 
-def _build_discovery_species_row_html(item: dict[str, Any], *, show_focus: bool) -> str:
+def _build_discovery_species_row_html(
+    item: dict[str, Any],
+    *,
+    show_focus: bool,
+    focus_selected: bool = False,
+) -> str:
     collected = bool(item.get("collected"))
     photo_url = (
         item.get("collection_photo_url")
@@ -42,8 +47,9 @@ def _build_discovery_species_row_html(item: dict[str, Any], *, show_focus: bool)
     )
     attribution_copy = f" · {escape(attribution)}" if attribution and not collected else ""
     collected_class = " is-collected" if collected else " is-unseen"
+    focus_class = " is-focus-selected" if focus_selected else ""
     return (
-        f'<div class="field-quest-species-row{collected_class}">'
+        f'<div class="field-quest-species-row{collected_class}{focus_class}">'
         f'<div class="field-quest-species-image">{image_markup}</div>'
         '<div class="field-quest-species-copy">'
         f'<div class="field-quest-species-kicker">{escape(status)} {focus_copy}</div>'
@@ -57,9 +63,83 @@ def _build_discovery_species_row_html(item: dict[str, Any], *, show_focus: bool)
     )
 
 
-def _render_discovery_species_rows(taxa: list[dict[str, Any]], *, show_focus: bool) -> None:
+def _normalize_focus_taxon_ids(value: Any, taxa: list[dict[str, Any]]) -> list[int]:
+    valid_ids = {int(item["taxon_id"]) for item in taxa}
+    normalized: list[int] = []
+    for raw_id in value if isinstance(value, (list, tuple, set)) else []:
+        try:
+            taxon_id = int(raw_id)
+        except (TypeError, ValueError):
+            continue
+        if taxon_id in valid_ids and taxon_id not in normalized:
+            normalized.append(taxon_id)
+        if len(normalized) == 5:
+            break
+    return normalized
+
+
+def _toggle_focus_taxon_id(current: list[int], taxon_id: int) -> list[int]:
+    if taxon_id in current:
+        return [current_id for current_id in current if current_id != taxon_id]
+    if len(current) >= 5:
+        return current
+    return [*current, taxon_id]
+
+
+def _render_discovery_species_rows(
+    taxa: list[dict[str, Any]],
+    *,
+    show_focus: bool,
+    focus_state_key: str | None = None,
+    key_prefix: str = "discovery",
+) -> None:
+    focus_ids = (
+        _normalize_focus_taxon_ids(st.session_state.get(focus_state_key), taxa)
+        if focus_state_key
+        else []
+    )
+    if focus_state_key:
+        st.session_state[focus_state_key] = focus_ids
     for item in taxa:
-        st.html(_build_discovery_species_row_html(item, show_focus=show_focus))
+        taxon_id = int(item["taxon_id"])
+        focus_selected = taxon_id in focus_ids
+        display_item = {
+            **item,
+            "focus_order": focus_ids.index(taxon_id) + 1 if focus_selected else None,
+        }
+        if not focus_state_key:
+            st.html(
+                _build_discovery_species_row_html(
+                    item,
+                    show_focus=show_focus,
+                    focus_selected=bool(show_focus and item.get("focus_order")),
+                )
+            )
+            continue
+        with st.container(key=f"species_focus_row_{key_prefix}_{taxon_id}"):
+            row = st.columns([0.87, 0.13], gap="small", vertical_alignment="center")
+            with row[0]:
+                st.html(
+                    _build_discovery_species_row_html(
+                        display_item,
+                        show_focus=True,
+                        focus_selected=focus_selected,
+                    )
+                )
+            button_label = (
+                f"Focus {focus_ids.index(taxon_id) + 1}"
+                if focus_selected
+                else "Add focus"
+            )
+            if row[1].button(
+                button_label,
+                key=f"focus_action_{key_prefix}_{taxon_id}",
+                disabled=len(focus_ids) >= 5 and not focus_selected,
+                help="Remove this focus find" if focus_selected else "Add this species to your focus finds",
+                use_container_width=True,
+            ):
+                st.session_state[focus_state_key] = _toggle_focus_taxon_id(focus_ids, taxon_id)
+                st.rerun()
 
 
 def _render_nearby_mode(
@@ -75,26 +155,26 @@ def _render_nearby_mode(
     if not areas:
         st.warning("No coordinate-backed hike locations are available yet.")
         return
-    area_by_label = {area["name"]: area for area in areas}
-    labels = list(area_by_label)
     selected_area_id = st.session_state.get("species_nearby_area_id")
     selected_area_name = str(st.session_state.get("species_nearby_area_name") or "")
     default_index = next(
         (
             index
-            for index, label in enumerate(labels)
-            if area_by_label[label]["id"] == selected_area_id
-            or label.casefold() == selected_area_name.casefold()
+            for index, candidate in enumerate(areas)
+            if candidate["id"] == selected_area_id
+            or str(candidate["name"]).casefold() == selected_area_name.casefold()
         ),
-        0,
+        None,
     )
     with st.container(key="species_discovery_controls"):
         controls = st.columns([0.35, 0.18, 0.19, 0.28], gap="small")
-        area_label = controls[0].selectbox(
-            "Area",
-            labels,
+        area = controls[0].selectbox(
+            "Search saved trails",
+            areas,
             index=default_index,
-            placeholder="Search saved trails",
+            format_func=lambda candidate: str(candidate["name"]),
+            placeholder="Type a trail name…",
+            help="Open this list and type to filter your saved trails.",
         )
         target_date = controls[1].date_input("Season", value=date.today())
         radius = controls[2].segmented_control(
@@ -112,7 +192,9 @@ def _render_nearby_mode(
                 else "All Life"
             ),
         )
-    area = area_by_label[area_label]
+    if area is None:
+        st.caption("Start typing above, then choose a saved trail with coordinates.")
+        return
     st.session_state.species_nearby_area_id = area["id"]
     st.session_state.species_nearby_area_name = area["name"]
     st.session_state.species_nearby_radius = radius
@@ -152,22 +234,19 @@ def _render_nearby_mode(
         st.info("No research-grade species reports matched this area and season.")
         return
 
-    unseen = [item for item in nearby["taxa"] if not item.get("collected")]
-    focus_options = {
-        f"{item['common_name']} · {item['scientific_name']}": int(item["taxon_id"])
-        for item in unseen
-    }
-    selected_focus_labels = st.multiselect(
-        "Focus finds",
-        list(focus_options),
-        max_selections=5,
-        placeholder="Choose up to five species for the next outing",
-        help="Focus finds are saved with the quest and can be changed later.",
+    focus_state_key = "species_nearby_focus_ids"
+    focus_ids = _normalize_focus_taxon_ids(
+        st.session_state.get(focus_state_key),
+        nearby["taxa"],
+    )
+    st.session_state[focus_state_key] = focus_ids
+    st.markdown(
+        f"#### Choose focus finds · {len(focus_ids)} of 5\n"
+        "Select them directly from the field-guide list. Species already in your collection are eligible too."
     )
     action_cols = st.columns([0.24, 0.76])
     if action_cols[0].button("Save Field Quest", type="primary", use_container_width=True):
-        selected_ids = [focus_options[label] for label in selected_focus_labels]
-        focus_order = {taxon_id: index + 1 for index, taxon_id in enumerate(selected_ids)}
+        focus_order = {taxon_id: index + 1 for index, taxon_id in enumerate(focus_ids)}
         quest_taxa = [
             {**item, "focus_order": focus_order.get(int(item["taxon_id"]))}
             for item in nearby["taxa"]
@@ -204,7 +283,12 @@ def _render_nearby_mode(
         f"Source refreshed {nearby['source']['fetched_at'][:10]}"
         + (" · cached result" if nearby["source"]["from_cache"] else "")
     )
-    _render_discovery_species_rows(nearby["taxa"], show_focus=False)
+    _render_discovery_species_rows(
+        nearby["taxa"],
+        show_focus=True,
+        focus_state_key=focus_state_key,
+        key_prefix="nearby",
+    )
 
 
 def _render_quests_mode(
@@ -264,24 +348,24 @@ def _render_quests_mode(
     completion = progress["collected_count"] / progress["total_count"] if progress["total_count"] else 0.0
     st.progress(completion)
 
-    taxon_by_label = {
-        f"{item['common_name']} · {item['scientific_name']}": int(item["taxon_id"])
-        for item in payload["taxa"]
-        if not item.get("collected")
-    }
-    selected_focus = [
-        label
-        for label, taxon_id in taxon_by_label.items()
-        if any(
-            int(item["taxon_id"]) == taxon_id and item.get("focus_order")
-            for item in payload["taxa"]
-        )
-    ]
-    focus_labels = st.multiselect(
-        "Focus finds",
-        list(taxon_by_label),
-        default=selected_focus,
-        max_selections=5,
+    focus_state_key = f"species_quest_focus_ids_{quest['id']}"
+    if focus_state_key not in st.session_state:
+        st.session_state[focus_state_key] = [
+            int(item["taxon_id"])
+            for item in sorted(
+                payload["taxa"],
+                key=lambda item: int(item.get("focus_order") or 999),
+            )
+            if item.get("focus_order")
+        ][:5]
+    focus_ids = _normalize_focus_taxon_ids(
+        st.session_state.get(focus_state_key),
+        payload["taxa"],
+    )
+    st.session_state[focus_state_key] = focus_ids
+    st.markdown(
+        f"#### Focus finds · {len(focus_ids)} of 5\n"
+        "Use the controls beside any checklist species, including one you have already logged."
     )
     hike_by_label = {"No linked outing": None, **{str(hike.get("title") or "Untitled hike"): hike["id"] for hike in hikes}}
     current_hike_id = payload.get("linked_hike_id")
@@ -297,7 +381,7 @@ def _render_quests_mode(
             str(quest["id"]),
             linked_hike_id=hike_by_label[linked_hike_label],
             set_linked_hike=True,
-            focus_taxon_ids=[taxon_by_label[label] for label in focus_labels],
+            focus_taxon_ids=focus_ids,
         )
         st.rerun()
     next_status = "archived" if payload["status"] == "active" else "active"
@@ -306,10 +390,16 @@ def _render_quests_mode(
         use_container_width=True,
     ):
         repository.update_species_quest(str(quest["id"]), status=next_status)
+        st.session_state.pop(focus_state_key, None)
         st.session_state.species_quest_selected_id = None
         st.rerun()
     actions[2].caption("Completed focus finds remain in the frozen checklist and continue to count toward progress.")
-    _render_discovery_species_rows(payload["taxa"], show_focus=True)
+    _render_discovery_species_rows(
+        payload["taxa"],
+        show_focus=True,
+        focus_state_key=focus_state_key,
+        key_prefix=f"quest_{quest['id']}",
+    )
 
 
 def render_species_log_view(

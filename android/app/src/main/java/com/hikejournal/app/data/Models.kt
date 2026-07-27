@@ -78,6 +78,19 @@ data class DiscoveryArea(
     val locationType: String,
 )
 
+fun filterDiscoveryAreas(
+    areas: List<DiscoveryArea>,
+    query: String,
+    limit: Int = 6,
+): List<DiscoveryArea> {
+    val normalizedQuery = query.trim()
+    return areas
+        .asSequence()
+        .filter { normalizedQuery.isBlank() || it.name.contains(normalizedQuery, ignoreCase = true) }
+        .take(limit)
+        .toList()
+}
+
 data class DiscoveryPhoto(
     val url: String,
     val attribution: String,
