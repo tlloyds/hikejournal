@@ -19,42 +19,47 @@ from hike_journal.services.repositories import HikeJournalRepository
 from hike_journal.ui.components import get_photo_thumbnail_url, section_heading
 
 
+def _build_discovery_species_row_html(item: dict[str, Any], *, show_focus: bool) -> str:
+    collected = bool(item.get("collected"))
+    photo_url = (
+        item.get("collection_photo_url")
+        if collected and item.get("collection_photo_url")
+        else (item.get("reference_photo") or {}).get("url")
+    )
+    photo = item.get("reference_photo") or {}
+    attribution = str(photo.get("attribution") or "").strip()
+    status = "Logged in your collection" if collected else str(item.get("frequency_band") or "Nearby record")
+    focus_order = item.get("focus_order")
+    focus_copy = (
+        f"<span class='field-quest-focus'>Focus {int(focus_order)}</span>"
+        if show_focus and focus_order
+        else ""
+    )
+    image_markup = (
+        f"<img src='{escape(str(photo_url))}' alt='{escape(str(item.get('common_name') or 'Species'))}'>"
+        if photo_url
+        else "<div class='field-quest-image-fallback'>No image</div>"
+    )
+    attribution_copy = f" · {escape(attribution)}" if attribution and not collected else ""
+    collected_class = " is-collected" if collected else " is-unseen"
+    return (
+        f'<div class="field-quest-species-row{collected_class}">'
+        f'<div class="field-quest-species-image">{image_markup}</div>'
+        '<div class="field-quest-species-copy">'
+        f'<div class="field-quest-species-kicker">{escape(status)} {focus_copy}</div>'
+        f'<div class="field-quest-species-name">{escape(str(item.get("common_name") or "Unknown species"))}</div>'
+        f'<div class="field-quest-species-scientific">{escape(str(item.get("scientific_name") or ""))}</div>'
+        f'<div class="field-quest-species-meta">{int(item.get("observation_count") or 0):,} '
+        f"research-grade reports nearby{attribution_copy}</div>"
+        "</div>"
+        f'<div class="field-quest-species-rank">{int(item.get("nearby_rank") or 0):02d}</div>'
+        "</div>"
+    )
+
+
 def _render_discovery_species_rows(taxa: list[dict[str, Any]], *, show_focus: bool) -> None:
     for item in taxa:
-        collected = bool(item.get("collected"))
-        photo_url = (
-            item.get("collection_photo_url")
-            if collected and item.get("collection_photo_url")
-            else (item.get("reference_photo") or {}).get("url")
-        )
-        photo = item.get("reference_photo") or {}
-        attribution = str(photo.get("attribution") or "").strip()
-        status = "Logged in your collection" if collected else str(item.get("frequency_band") or "Nearby record")
-        focus_order = item.get("focus_order")
-        focus_copy = f"<span class='field-quest-focus'>Focus {focus_order}</span>" if show_focus and focus_order else ""
-        image_markup = (
-            f"<img src='{escape(str(photo_url))}' alt='{escape(str(item.get('common_name') or 'Species'))}'>"
-            if photo_url
-            else "<div class='field-quest-image-fallback'>No image</div>"
-        )
-        st.markdown(
-            f"""
-            <div class="field-quest-species-row{' is-collected' if collected else ' is-unseen'}">
-                <div class="field-quest-species-image">{image_markup}</div>
-                <div class="field-quest-species-copy">
-                    <div class="field-quest-species-kicker">{escape(status)} {focus_copy}</div>
-                    <div class="field-quest-species-name">{escape(str(item.get('common_name') or 'Unknown species'))}</div>
-                    <div class="field-quest-species-scientific">{escape(str(item.get('scientific_name') or ''))}</div>
-                    <div class="field-quest-species-meta">
-                        {int(item.get('observation_count') or 0):,} research-grade reports nearby
-                        {f" · {escape(attribution)}" if attribution and not collected else ""}
-                    </div>
-                </div>
-                <div class="field-quest-species-rank">{int(item.get('nearby_rank') or 0):02d}</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+        st.html(_build_discovery_species_row_html(item, show_focus=show_focus))
 
 
 def _render_nearby_mode(
