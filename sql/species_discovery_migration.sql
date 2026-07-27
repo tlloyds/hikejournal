@@ -1,11 +1,24 @@
 alter table public.species_observations
 add column if not exists species_taxon_id bigint;
 
+alter table public.species_observations
+add column if not exists rank text;
+
+alter table public.species_observations
+add column if not exists iconic_taxon_name text;
+
 update public.species_observations
 set species_taxon_id = taxon_id
 where species_taxon_id is null
   and taxon_id is not null
-  and lower(coalesce(rank, '')) = 'species';
+  and (
+      lower(coalesce(rank, '')) = 'species'
+      or (
+          coalesce(trim(rank), '') = ''
+          and trim(coalesce(scientific_name, '')) ~
+              '^[A-Za-z][A-Za-z.-]+[[:space:]]+[A-Za-z][A-Za-z.-]+$'
+      )
+  );
 
 create index if not exists species_observations_species_taxon_id_idx
 on public.species_observations (species_taxon_id)
@@ -75,6 +88,14 @@ create index if not exists species_quests_status_idx on public.species_quests (s
 create index if not exists species_quest_taxa_taxon_id_idx on public.species_quest_taxa (taxon_id);
 create index if not exists species_discovery_snapshots_expires_at_idx
 on public.species_discovery_snapshots (expires_at);
+
+create or replace function public.touch_updated_at()
+returns trigger as $$
+begin
+    new.updated_at = timezone('utc', now());
+    return new;
+end;
+$$ language plpgsql;
 
 drop trigger if exists species_quests_touch_updated_at on public.species_quests;
 create trigger species_quests_touch_updated_at

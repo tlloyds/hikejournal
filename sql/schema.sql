@@ -186,7 +186,14 @@ update public.species_observations
 set species_taxon_id = taxon_id
 where species_taxon_id is null
   and taxon_id is not null
-  and lower(coalesce(rank, '')) = 'species';
+  and (
+      lower(coalesce(rank, '')) = 'species'
+      or (
+          coalesce(trim(rank), '') = ''
+          and trim(coalesce(scientific_name, '')) ~
+              '^[A-Za-z][A-Za-z.-]+[[:space:]]+[A-Za-z][A-Za-z.-]+$'
+      )
+  );
 alter table public.photos add column if not exists owner_subject text;
 alter table public.photos add column if not exists owner_email text;
 alter table public.photos alter column hike_id drop not null;
