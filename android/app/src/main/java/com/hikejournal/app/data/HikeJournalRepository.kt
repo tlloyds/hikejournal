@@ -189,6 +189,14 @@ class HikeJournalRepository(context: Context) {
         return quest
     }
 
+    suspend fun deleteSpeciesQuest(questId: String) {
+        api.deleteSpeciesQuest(questId)
+        withContext(Dispatchers.IO) {
+            File(cacheDirectory, "species-quests.json").delete()
+            File(cacheDirectory, "species-quest-$questId.json").delete()
+        }
+    }
+
     suspend fun loadSightings(): LoadResult<List<Sighting>> = loadWithCache(
         cacheFile = File(cacheDirectory, "sightings.json"),
         fetch = api::getSightingsJson,

@@ -40,6 +40,7 @@ import androidx.compose.material.icons.rounded.CloudOff
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.HorizontalDivider
@@ -118,6 +119,7 @@ fun SpeciesIndexScreen(
     onSaveQuest: (String, String?, List<Long>) -> Unit,
     onSaveQuestFocus: (FieldQuest, List<Long>) -> Unit,
     onArchiveQuest: (FieldQuest) -> Unit,
+    onDeleteQuest: (FieldQuest) -> Unit,
     onInitialAreaConsumed: () -> Unit,
     onOpenSpecies: (String) -> Unit,
 ) {
@@ -136,6 +138,9 @@ fun SpeciesIndexScreen(
     var selectedQuestId by remember { mutableStateOf<String?>(null) }
     var showArchivedQuests by remember { mutableStateOf(false) }
     var locationNotice by remember { mutableStateOf<String?>(null) }
+    var editingQuestId by remember { mutableStateOf<String?>(null) }
+    var previewTaxon by remember { mutableStateOf<DiscoveryTaxon?>(null) }
+    var pendingDeleteQuest by remember { mutableStateOf<FieldQuest?>(null) }
     val context = LocalContext.current
     val selectedArea = discoveryAreas.firstOrNull { it.id == selectedAreaId }
     val visibleAreas = filterDiscoveryAreas(discoveryAreas, areaSearch)
@@ -399,13 +404,13 @@ fun SpeciesIndexScreen(
                         )
                     }
                 }
-                if (focusTaxonIds.isNotEmpty()) {
-                    item {
-                        FocusFinds(
-                            taxa = nearby.taxa.filter { it.taxonId in focusTaxonIds },
-                            pending = false,
-                        )
-                    }
+                item {
+                    FocusFinds(
+                        taxa = focusTaxonIds.mapNotNull { selectedId ->
+                            nearby.taxa.firstOrNull { it.taxonId == selectedId }
+                        },
+                        pending = false,
+                    )
                 }
                 item {
                     val linkedHike = hikes.firstOrNull { it.id == linkedQuestHikeId }
@@ -429,7 +434,11 @@ fun SpeciesIndexScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text("SEASONAL SPECIES", style = MaterialTheme.typography.labelSmall, color = TrailText)
+                        Text(
+                            "${focusTaxonIds.size} OF 5 QUEST TARGETS",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (focusTaxonIds.size == 5) Trail else TrailText,
+                        )
                         Button(
                             onClick = {
                                 onSaveQuest(
@@ -438,20 +447,30 @@ fun SpeciesIndexScreen(
                                     focusTaxonIds,
                                 )
                             },
-                            enabled = !savingQuest && nearby.areaId.isNotBlank(),
+                            enabled = !savingQuest && nearby.areaId.isNotBlank() && focusTaxonIds.size == 5,
                             shape = RoundedCornerShape(4.dp),
                         ) {
-                            Text(if (savingQuest) "Saving…" else "Save quest")
+                            Text(
+                                when {
+                                    savingQuest -> "Saving…"
+                                    focusTaxonIds.size < 5 -> "Pick ${5 - focusTaxonIds.size} more"
+                                    else -> "Save quest"
+                                },
+                            )
                         }
                     }
                 }
                 items(nearby.taxa, key = { "nearby-${it.taxonId}" }) { taxon ->
                     DiscoverySpeciesRow(
                         taxon = taxon,
-                        focused = taxon.taxonId in focusTaxonIds,
+                        focusOrder = focusTaxonIds.indexOf(taxon.taxonId)
+                            .takeIf { it >= 0 }
+                            ?.plus(1),
                         onToggleFocus = {
                             focusTaxonIds = toggleFocus(focusTaxonIds, taxon.taxonId)
                         },
+                        onPreview = { previewTaxon = taxon },
+                        selectionEnabled = focusTaxonIds.size < 5 || taxon.taxonId in focusTaxonIds,
                     )
                 }
             } ?: item {
@@ -493,44 +512,91 @@ fun SpeciesIndexScreen(
                 }
             }
             selectedQuest?.let { quest ->
+                val focusedTaxa = quest.taxa.filter { it.focusOrder != null }.sortedBy { it.focusOrder }
+                val foundTargets = focusedTaxa.count { it.collected }
+                val editingTargets = editingQuestId == quest.id
                 item {
                     DiscoveryProgressHeader(
-                        progress = quest.progress.collectedCount,
-                        total = quest.progress.totalCount,
+                        progress = foundTargets,
+                        total = focusedTaxa.size,
                         label = "${quest.areaName} · ${quest.periodLabel}",
-                        detail = if (quest.pendingFocusSync) "Focus changes are queued for sync." else "This checklist is frozen; its target count will not change.",
+                        detail = if (quest.pendingFocusSync) {
+                            "Target changes are queued for sync."
+                        } else {
+                            "This quest follows only your five chosen species."
+                        },
+                        noun = "found",
                     )
                 }
-                val focusedTaxa = quest.taxa.filter { it.focusOrder != null }.sortedBy { it.focusOrder }
-                if (focusedTaxa.isNotEmpty()) {
-                    item { FocusFinds(focusedTaxa, pending = quest.pendingFocusSync) }
-                }
+                item { FocusFinds(focusedTaxa, pending = quest.pendingFocusSync) }
                 item {
-                    Row(
+                    Column(
                         Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text("QUEST CHECKLIST", style = MaterialTheme.typography.labelSmall, color = TrailText)
-                        TextButton(onClick = { onArchiveQuest(quest) }) {
-                            Text(if (quest.status == "archived") "Restore" else "Archive")
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                if (editingTargets) "CHOOSE EXACTLY FIVE TARGETS" else "YOUR FIVE TARGETS",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = TrailText,
+                            )
+                            TextButton(onClick = {
+                                editingQuestId = if (editingTargets) null else quest.id
+                            }, enabled = !editingTargets || focusedTaxa.size == 5) {
+                                Text(
+                                    when {
+                                        !editingTargets -> "Change targets"
+                                        focusedTaxa.size == 5 -> "Done"
+                                        else -> "Pick ${5 - focusedTaxa.size} more"
+                                    },
+                                )
+                            }
+                        }
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End,
+                        ) {
+                            TextButton(onClick = { onArchiveQuest(quest) }) {
+                                Text(if (quest.status == "archived") "Restore" else "Archive")
+                            }
+                            TextButton(onClick = { pendingDeleteQuest = quest }) {
+                                Text("Delete", color = Color(0xFF8F3D32))
+                            }
                         }
                     }
                 }
-                items(quest.taxa, key = { "quest-${quest.id}-${it.taxonId}" }) { taxon ->
+                val displayedTaxa = if (editingTargets) quest.taxa else focusedTaxa
+                items(displayedTaxa, key = { "quest-${quest.id}-${it.taxonId}" }) { taxon ->
+                    val focusOrder = focusedTaxa.indexOfFirst { it.taxonId == taxon.taxonId }
+                        .takeIf { it >= 0 }
+                        ?.plus(1)
                     DiscoverySpeciesRow(
                         taxon = taxon,
-                        focused = taxon.focusOrder != null,
-                        onToggleFocus = {
-                            onSaveQuestFocus(
-                                quest,
-                                toggleFocus(
-                                    quest.taxa.filter { it.focusOrder != null }.sortedBy { it.focusOrder }.map { it.taxonId },
-                                    taxon.taxonId,
-                                ),
-                            )
+                        focusOrder = focusOrder,
+                        onToggleFocus = if (editingTargets) {
+                            {
+                                onSaveQuestFocus(
+                                    quest,
+                                    toggleFocus(
+                                        focusedTaxa.map { it.taxonId },
+                                        taxon.taxonId,
+                                    ),
+                                )
+                            }
+                        } else {
+                            null
                         },
+                        onPreview = { previewTaxon = taxon },
+                        selectionEnabled = focusedTaxa.size < 5 || focusOrder != null,
                     )
+                }
+                if (focusedTaxa.isEmpty() && !editingTargets) {
+                    item {
+                        DiscoveryEmpty("Choose five targets to turn this saved list into a field quest.")
+                    }
                 }
             } ?: item {
                 DiscoveryEmpty(
@@ -552,6 +618,75 @@ fun SpeciesIndexScreen(
                 filterOpen = false
             },
             onDismiss = { filterOpen = false },
+        )
+    }
+    previewTaxon?.let { taxon ->
+        AlertDialog(
+            onDismissRequest = { previewTaxon = null },
+            title = {
+                Column {
+                    Text("REFERENCE SPECIMEN", style = MaterialTheme.typography.labelSmall, color = TrailText)
+                    Text(taxon.commonName, style = MaterialTheme.typography.headlineMedium, color = Ink)
+                    Text(
+                        taxon.scientificName,
+                        style = MaterialTheme.typography.bodyMedium.copy(fontStyle = FontStyle.Italic),
+                        color = InkMuted,
+                    )
+                }
+            },
+            text = {
+                Column {
+                    AsyncImage(
+                        model = ImageRequest.Builder(LocalContext.current)
+                            .data(taxon.referencePhoto?.url.orEmpty())
+                            .crossfade(true)
+                            .build(),
+                        contentDescription = "${taxon.commonName} in color",
+                        modifier = Modifier.fillMaxWidth().height(320.dp),
+                        contentScale = ContentScale.Crop,
+                    )
+                    taxon.referencePhoto?.let { photo ->
+                        Text(
+                            listOf(photo.attribution, photo.licenseCode)
+                                .filter { it.isNotBlank() }
+                                .joinToString(" · "),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = InkMuted,
+                            modifier = Modifier.padding(top = 9.dp),
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { previewTaxon = null }) { Text("Close") }
+            },
+            containerColor = Paper,
+        )
+    }
+    pendingDeleteQuest?.let { quest ->
+        AlertDialog(
+            onDismissRequest = { pendingDeleteQuest = null },
+            title = { Text("Delete Field Quest?", color = Ink) },
+            text = {
+                Text(
+                    "“${quest.title}” and its saved target list will be removed permanently. Your species observations will not be affected.",
+                    color = InkMuted,
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onDeleteQuest(quest)
+                        pendingDeleteQuest = null
+                    },
+                ) {
+                    Text("Delete permanently", color = Color(0xFF8F3D32))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDeleteQuest = null }) { Text("Cancel") }
+            },
+            containerColor = Paper,
         )
     }
 }
@@ -688,14 +823,20 @@ private fun NearbyControls(
 }
 
 @Composable
-private fun DiscoveryProgressHeader(progress: Int, total: Int, label: String, detail: String) {
+private fun DiscoveryProgressHeader(
+    progress: Int,
+    total: Int,
+    label: String,
+    detail: String,
+    noun: String = "collected",
+) {
     val target = if (total <= 0) 0f else progress.toFloat() / total.toFloat()
     val animated by animateFloatAsState(target, label = "quest-progress")
     Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Column(Modifier.weight(1f)) {
                 Text(label, style = MaterialTheme.typography.labelMedium, color = TrailText)
-                Text("$progress of $total collected", style = MaterialTheme.typography.headlineMedium, color = Ink)
+                Text("$progress of $total $noun", style = MaterialTheme.typography.headlineMedium, color = Ink)
             }
             Text("${total - progress} left", style = MaterialTheme.typography.bodyMedium, color = InkMuted)
         }
@@ -714,9 +855,18 @@ private fun FocusFinds(taxa: List<DiscoveryTaxon>, pending: Boolean) {
     Column(
         Modifier.fillMaxWidth().background(Color(0xFFE4DDC5)).padding(horizontal = 20.dp, vertical = 12.dp),
     ) {
-        Text("FOCUS FINDS${if (pending) " · SYNC PENDING" else ""}", style = MaterialTheme.typography.labelSmall, color = TrailText)
-        taxa.forEachIndexed { index, taxon ->
-            Text("${index + 1}. ${taxon.commonName}", style = MaterialTheme.typography.titleMedium, color = Ink)
+        Text(
+            "${taxa.size} OF 5 QUEST TARGETS${if (pending) " · SYNC PENDING" else ""}",
+            style = MaterialTheme.typography.labelSmall,
+            color = if (taxa.size == 5) Trail else TrailText,
+        )
+        repeat(5) { index ->
+            val taxon = taxa.getOrNull(index)
+            Text(
+                "${index + 1}. ${taxon?.commonName ?: "Choose a species"}",
+                style = MaterialTheme.typography.titleMedium,
+                color = if (taxon == null) InkMuted else Ink,
+            )
         }
     }
 }
@@ -724,19 +874,33 @@ private fun FocusFinds(taxa: List<DiscoveryTaxon>, pending: Boolean) {
 @Composable
 private fun DiscoverySpeciesRow(
     taxon: DiscoveryTaxon,
-    focused: Boolean,
-    onToggleFocus: () -> Unit,
+    focusOrder: Int?,
+    onToggleFocus: (() -> Unit)?,
+    onPreview: () -> Unit,
+    selectionEnabled: Boolean = true,
 ) {
     val saturation by animateFloatAsState(if (taxon.collected) 1f else 0f, label = "species-reveal")
     val imageUrl = taxon.collectionPhotoUrl.takeIf { taxon.collected && !it.isNullOrBlank() }
         ?: taxon.referencePhoto?.url.orEmpty()
     val matrix = ColorMatrix().apply { setToSaturation(saturation) }
-    Column(Modifier.fillMaxWidth()) {
+    Column(
+        Modifier.fillMaxWidth().background(
+            if (focusOrder != null) Color(0x1FB2673A) else Color.Transparent,
+        ),
+    ) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(Modifier.size(86.dp).background(Color(0xFFD0CFBD))) {
+            Box(
+                Modifier
+                    .size(86.dp)
+                    .background(Color(0xFFD0CFBD))
+                    .clickable(
+                        enabled = !taxon.collected && !taxon.referencePhoto?.url.isNullOrBlank(),
+                        onClick = onPreview,
+                    ),
+            ) {
                 AsyncImage(
                     model = ImageRequest.Builder(LocalContext.current).data(imageUrl).crossfade(true).build(),
                     contentDescription = taxon.commonName,
@@ -744,6 +908,18 @@ private fun DiscoverySpeciesRow(
                     contentScale = ContentScale.Crop,
                     colorFilter = ColorFilter.colorMatrix(matrix),
                 )
+                if (!taxon.collected && !taxon.referencePhoto?.url.isNullOrBlank()) {
+                    Text(
+                        "VIEW IN COLOR",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Paper,
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .background(Color(0xB81A2A20))
+                            .padding(horizontal = 4.dp, vertical = 3.dp),
+                    )
+                }
             }
             Column(Modifier.weight(1f).padding(start = 14.dp)) {
                 Text(
@@ -770,8 +946,10 @@ private fun DiscoverySpeciesRow(
                     )
                 }
             }
-            TextButton(onClick = onToggleFocus) {
-                Text(if (focused) "Focused" else "Focus")
+            if (onToggleFocus != null) {
+                TextButton(onClick = onToggleFocus, enabled = selectionEnabled) {
+                    Text(if (focusOrder != null) "Selected $focusOrder/5" else "Select")
+                }
             }
         }
         HorizontalDivider(color = Line, thickness = 1.dp)

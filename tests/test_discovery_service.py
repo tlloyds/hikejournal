@@ -126,6 +126,34 @@ def test_quest_progress_keeps_the_frozen_target_denominator() -> None:
         "total_count": 50,
         "remaining_count": 50,
     }
+    assert payload["focus_progress"] == {
+        "collected_count": 0,
+        "total_count": 0,
+        "remaining_count": 0,
+    }
+
+
+def test_quest_payload_exposes_only_ordered_focus_targets_for_the_quest_view() -> None:
+    payload = SpeciesDiscoveryService(Repository(), now=datetime(2026, 7, 26, tzinfo=UTC)).quest_payload(
+        {
+            "id": "quest-1",
+            "target_count": 50,
+            "taxa": [
+                {"taxon_id": 1, "common_name": "One", "focus_order": 2},
+                {"taxon_id": 2, "common_name": "Two", "focus_order": None},
+                {"taxon_id": 3, "common_name": "Three", "focus_order": 1},
+            ],
+        },
+        observations=[{"taxon_id": 3, "rank": "species", "photo_id": "photo-3"}],
+        photos_by_id={"photo-3": {"public_url": "three.jpg", "taken_at": "2026-07-20"}},
+    )
+
+    assert [item["taxon_id"] for item in payload["focus_taxa"]] == [3, 1]
+    assert payload["focus_progress"] == {
+        "collected_count": 1,
+        "total_count": 2,
+        "remaining_count": 1,
+    }
 
 
 def test_inat_discovery_client_builds_public_frequency_query(monkeypatch) -> None:

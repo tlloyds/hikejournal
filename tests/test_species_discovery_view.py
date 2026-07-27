@@ -63,7 +63,45 @@ def test_selected_focus_row_has_direct_selection_state() -> None:
     )
 
     assert "is-collected is-focus-selected" in html
-    assert "Focus 1" in html
+    assert "Quest pick 1 of 5" in html
+
+
+def test_unseen_reference_photo_opens_a_color_view() -> None:
+    html = species_log._build_discovery_species_row_html(
+        {
+            "taxon_id": 2,
+            "common_name": "White Ibis",
+            "scientific_name": "Eudocimus albus",
+            "observation_count": 88,
+            "nearby_rank": 2,
+            "collected": False,
+            "reference_photo": {
+                "url": "https://inat.example/ibis.jpg",
+                "attribution": "(c) Example Naturalist",
+            },
+        },
+        show_focus=False,
+    )
+
+    assert "field-quest-species-image-link" in html
+    assert "View White Ibis in color" in html
+    assert "target='_blank'" in html
+    assert "<span>View in color</span>" in html
+
+
+def test_focus_picker_shows_five_numbered_slots_and_selection_count() -> None:
+    html = species_log._build_focus_picker_html(
+        [
+            {"taxon_id": 1, "common_name": "White Ibis"},
+            {"taxon_id": 2, "common_name": "Roseate Spoonbill"},
+        ],
+        [1, 2],
+    )
+
+    assert "2 of 5 selected" in html
+    assert html.count("field-quest-focus-slot") == 5
+    assert "White Ibis" in html
+    assert "Choose a species" in html
 
 
 def test_collected_species_can_be_selected_from_its_displayed_row() -> None:
@@ -88,9 +126,9 @@ _render_discovery_species_rows(
     ).run()
 
     assert not app.exception
-    assert app.button[0].label == "Add focus"
+    assert app.button[0].label == "Select"
 
     app.button[0].click().run()
 
     assert not app.exception
-    assert app.button[0].label == "Focus 1"
+    assert app.button[0].label == "Selected 1/5"

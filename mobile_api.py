@@ -988,6 +988,15 @@ def update_species_quest(quest_id: str, payload: SpeciesQuestPatchInput) -> dict
     )
 
 
+@app.delete("/v1/discovery/quests/{quest_id}", dependencies=[Depends(require_mobile_key)])
+def delete_species_quest(quest_id: str) -> dict[str, Any]:
+    _require_discovery_enabled()
+    svc = get_services()
+    quest = _get_visible_quest(svc, quest_id)
+    svc.repository.delete_species_quest(str(quest["id"]))
+    return {"deleted": True, "id": str(quest["id"])}
+
+
 @app.get("/v1/species/review", dependencies=[Depends(require_mobile_key)])
 def list_species_review() -> list[dict[str, Any]]:
     return _review_queue_payload(get_services())

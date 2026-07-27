@@ -3172,9 +3172,9 @@ h1, h2, h3,
 }
 
 .field-quest-species-row.is-focus-selected {
-  box-shadow: inset 3px 0 0 var(--trail, #b2673a);
-  background: linear-gradient(90deg, rgba(178, 103, 58, 0.09), transparent 42%);
-  padding-left: 0.75rem;
+  box-shadow: inset 4px 0 0 var(--trail, #b2673a);
+  background: linear-gradient(90deg, rgba(178, 103, 58, 0.14), rgba(178, 103, 58, 0.035) 62%, transparent);
+  padding-left: 0.9rem;
 }
 
 [class*="st-key-species_focus_row_"] {
@@ -3195,8 +3195,100 @@ h1, h2, h3,
 
 [class*="st-key-species_focus_row_"]:has(.is-focus-selected) [data-testid="stButton"] button {
   border-color: var(--trail, #b2673a);
-  background: rgba(178, 103, 58, 0.1);
+  background: var(--trail, #b2673a);
+  box-shadow: 0 5px 14px rgba(82, 54, 34, 0.14);
+  color: #fffaf0;
+  transform: translateY(-1px);
+}
+
+.field-quest-focus-picker {
+  display: grid;
+  grid-template-columns: minmax(9.5rem, 0.23fr) minmax(0, 1fr);
+  align-items: stretch;
+  gap: 1.15rem;
+  margin: 0.75rem 0 1rem;
+  padding: 0.9rem 0;
+  border-top: 1px solid rgba(36, 53, 42, 0.16);
+  border-bottom: 1px solid rgba(36, 53, 42, 0.16);
+}
+
+.field-quest-focus-picker-copy {
+  display: grid;
+  align-content: center;
+  gap: 0.15rem;
+}
+
+.field-quest-focus-picker-copy span {
+  color: var(--moss-700, #526752);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.field-quest-focus-picker-copy strong {
+  color: var(--ink, #243129);
+  font-family: "Cormorant Garamond", Georgia, serif;
+  font-size: 1.55rem;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.field-quest-focus-picker.is-complete .field-quest-focus-picker-copy strong {
   color: #8f4e2b;
+}
+
+.field-quest-focus-picker ol {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.field-quest-focus-slot {
+  display: grid;
+  grid-template-columns: 1.55rem minmax(0, 1fr);
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 3.35rem;
+  padding: 0.45rem 0.65rem;
+  border-left: 1px solid rgba(36, 53, 42, 0.15);
+  color: rgba(36, 49, 41, 0.48);
+}
+
+.field-quest-focus-slot span {
+  display: grid;
+  width: 1.55rem;
+  height: 1.55rem;
+  place-items: center;
+  border: 1px solid rgba(67, 91, 70, 0.3);
+  border-radius: 50%;
+  font-family: "Cormorant Garamond", Georgia, serif;
+  font-size: 0.95rem;
+}
+
+.field-quest-focus-slot strong {
+  overflow: hidden;
+  font-size: 0.76rem;
+  font-weight: 600;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+}
+
+.field-quest-focus-slot.is-filled {
+  color: var(--ink, #243129);
+}
+
+.field-quest-focus-slot.is-filled span {
+  border-color: var(--trail, #b2673a);
+  background: var(--trail, #b2673a);
+  color: #fffaf0;
+}
+
+.field-quest-focus-slot.is-filled strong {
+  animation: field-quest-pick-in 240ms ease both;
 }
 
 .field-quest-species-image {
@@ -3211,6 +3303,42 @@ h1, h2, h3,
   height: 100%;
   object-fit: cover;
   transition: filter 420ms ease, transform 420ms ease, opacity 240ms ease;
+}
+
+.field-quest-species-image-link {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  color: #fffaf0;
+}
+
+.field-quest-species-image-link span {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  padding: 1.5rem 0.45rem 0.38rem;
+  background: linear-gradient(transparent, rgba(18, 28, 21, 0.82));
+  color: #fffaf0;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  opacity: 0.88;
+  text-align: center;
+  text-transform: uppercase;
+  transform: translateY(0);
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+
+.field-quest-species-image-link:hover span,
+.field-quest-species-image-link:focus-visible span {
+  opacity: 1;
+}
+
+.field-quest-species-image-link:focus-visible {
+  outline: 3px solid var(--trail, #b2673a);
+  outline-offset: -3px;
 }
 
 .field-quest-species-row.is-unseen .field-quest-species-image img {
@@ -3288,6 +3416,17 @@ h1, h2, h3,
   }
 }
 
+@keyframes field-quest-pick-in {
+  from {
+    opacity: 0.4;
+    transform: translateX(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
 @media (max-width: 760px) {
   .field-quest-progress-copy {
     align-items: start;
@@ -3311,6 +3450,26 @@ h1, h2, h3,
 
   .field-quest-species-rank {
     display: none;
+  }
+
+  .field-quest-focus-picker {
+    grid-template-columns: 1fr;
+    gap: 0.65rem;
+  }
+
+  .field-quest-focus-picker ol {
+    grid-template-columns: 1fr;
+  }
+
+  .field-quest-focus-slot {
+    min-height: 2.7rem;
+    border-top: 1px solid rgba(36, 53, 42, 0.11);
+    border-left: 0;
+  }
+
+  .field-quest-species-image-link span {
+    opacity: 1;
+    transform: none;
   }
 
   [class*="st-key-species_focus_row_"] [data-testid="stHorizontalBlock"] {

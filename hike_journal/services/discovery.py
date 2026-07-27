@@ -281,6 +281,16 @@ class SpeciesDiscoveryService:
             frozen_target_count - int(progress["progress"]["collected_count"]),
             0,
         )
+        focus_taxa = sorted(
+            [item for item in progress["taxa"] if item.get("focus_order")],
+            key=lambda item: int(item.get("focus_order") or 0),
+        )
+        focus_collected_count = sum(1 for item in focus_taxa if item.get("collected"))
+        focus_progress = {
+            "collected_count": focus_collected_count,
+            "total_count": len(focus_taxa),
+            "remaining_count": max(len(focus_taxa) - focus_collected_count, 0),
+        }
         return {
             "id": str(quest.get("id") or ""),
             "title": str(quest.get("title") or "Field Quest"),
@@ -300,6 +310,8 @@ class SpeciesDiscoveryService:
             },
             "filters": {"iconic_taxon": quest.get("iconic_taxon")},
             "created_at": quest.get("created_at"),
+            "focus_taxa": focus_taxa,
+            "focus_progress": focus_progress,
             **progress,
         }
 

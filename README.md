@@ -107,7 +107,12 @@ the Supabase linter is tracking it as a managed PostGIS false positive.
 - Hikes can be archived and collaborators can be stored per hike after the auth/sharing migration is applied.
 - Photos can now carry one primary observation plus additional secondary species.
 - Species Log and Android now include Collection, seasonally ranked Nearby
-  reports, and saved 50-species Field Quests with up to five focus finds.
+  reports, and five-target Field Quests. Each quest keeps its original
+  50-species nearby list as an editable candidate pool, while its main view and
+  progress stay focused on the five chosen species.
+- Unseen reference specimens can be opened in color, collected targets reveal
+  the user's photograph, and quests can be renamed, linked, archived, restored,
+  or permanently deleted without affecting observations.
 - Nearby language describes iNaturalist reporting frequency, not encounter
   probability. Discovery queries are cached for 24 hours and do not require an
   iNaturalist account.

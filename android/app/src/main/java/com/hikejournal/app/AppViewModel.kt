@@ -302,6 +302,31 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun deleteQuest(quest: FieldQuest) {
+        if (_state.value.isOffline) {
+            _state.update { it.copy(discoveryNotice = "Deleting a quest needs a connection.") }
+            return
+        }
+        viewModelScope.launch {
+            _state.update { it.copy(isSavingQuest = true, discoveryNotice = null) }
+            runCatching {
+                repository.deleteSpeciesQuest(quest.id)
+            }.onSuccess {
+                _state.update {
+                    it.copy(
+                        speciesQuests = it.speciesQuests.filterNot { saved -> saved.id == quest.id },
+                        isSavingQuest = false,
+                        discoveryNotice = "Field Quest deleted. Your observations were not changed.",
+                    )
+                }
+            }.onFailure { error ->
+                _state.update {
+                    it.copy(isSavingQuest = false, discoveryNotice = error.userMessage())
+                }
+            }
+        }
+    }
+
     fun openSpecies(key: String) {
         viewModelScope.launch {
             _state.update { it.copy(isSpeciesLoading = true, error = null) }

@@ -72,6 +72,10 @@ def test_species_discovery_uses_searchable_areas_and_direct_focus_controls() -> 
     assert "st.multiselect" not in quests_source
     assert "focus_state_key=focus_state_key" in nearby_source
     assert "focus_state_key=focus_state_key" in quests_source
+    assert "len(focus_ids) != QUEST_FOCUS_LIMIT" in nearby_source
+    assert 'payload["focus_taxa"]' in quests_source
+    assert '"Change targets"' in quests_source
+    assert '"Delete permanently"' in quests_source
 
 
 def test_app_library_wrapper_forwards_every_callback(monkeypatch) -> None:

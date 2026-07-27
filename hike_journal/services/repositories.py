@@ -332,6 +332,9 @@ class HikeJournalRepository:
                 )
         return self.get_species_quest(quest_id)
 
+    def delete_species_quest(self, quest_id: str) -> None:
+        self.client.table("species_quests").delete().eq("id", quest_id).execute()
+
     def upsert_hike_location(self, name: str, **values: Any) -> dict[str, Any] | None:
         clean_name = name.strip()
         if not clean_name:

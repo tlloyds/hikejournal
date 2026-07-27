@@ -10,6 +10,7 @@ from mobile_api import (
     _review_candidates,
     _species_key,
     app,
+    delete_species_quest,
     get_nearby_species,
     list_discovery_areas,
     decide_species_review,
@@ -367,6 +368,27 @@ def test_nearby_endpoint_rejects_unsupported_radius_after_query_parsing():
 
     assert response.status_code == 422
     assert response.json()["detail"] == "Radius must be one of (5, 10, 25)."
+
+
+def test_delete_species_quest_checks_visibility_then_deletes(monkeypatch):
+    class Repository:
+        deleted = None
+
+        def delete_species_quest(self, quest_id):
+            self.deleted = quest_id
+
+    repository = Repository()
+    service = type("Service", (), {"repository": repository})()
+    monkeypatch.setattr("mobile_api.get_services", lambda: service)
+    monkeypatch.setattr(
+        "mobile_api._get_visible_quest",
+        lambda _service, quest_id: {"id": quest_id, "title": "Wetland birds"},
+    )
+
+    result = delete_species_quest("quest-1")
+
+    assert result == {"deleted": True, "id": "quest-1"}
+    assert repository.deleted == "quest-1"
 
 
 def test_mobile_review_can_request_and_save_an_inaturalist_recommendation(monkeypatch):

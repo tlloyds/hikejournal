@@ -126,6 +126,13 @@ class HikeJournalApi(private val context: Context) {
         )
     }
 
+    suspend fun deleteSpeciesQuest(questId: String) {
+        request(
+            path = "/v1/discovery/quests/${questId.urlEncoded()}",
+            method = "DELETE",
+        )
+    }
+
     suspend fun getSightingsJson(): String = request("/v1/sightings")
 
     suspend fun getReviewQueueJson(): String = request("/v1/species/review")

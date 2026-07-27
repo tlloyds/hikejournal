@@ -19,6 +19,9 @@ from hike_journal.services.repositories import HikeJournalRepository
 from hike_journal.ui.components import get_photo_thumbnail_url, section_heading
 
 
+QUEST_FOCUS_LIMIT = 5
+
+
 def _build_discovery_species_row_html(
     item: dict[str, Any],
     *,
@@ -36,15 +39,28 @@ def _build_discovery_species_row_html(
     status = "Logged in your collection" if collected else str(item.get("frequency_band") or "Nearby record")
     focus_order = item.get("focus_order")
     focus_copy = (
-        f"<span class='field-quest-focus'>Focus {int(focus_order)}</span>"
+        f"<span class='field-quest-focus'>Quest pick {int(focus_order)} of {QUEST_FOCUS_LIMIT}</span>"
         if show_focus and focus_order
         else ""
     )
-    image_markup = (
-        f"<img src='{escape(str(photo_url))}' alt='{escape(str(item.get('common_name') or 'Species'))}'>"
-        if photo_url
-        else "<div class='field-quest-image-fallback'>No image</div>"
-    )
+    common_name = str(item.get("common_name") or "Species")
+    if photo_url:
+        image = (
+            f"<img src='{escape(str(photo_url), quote=True)}' "
+            f"alt='{escape(common_name, quote=True)}'>"
+        )
+        reference_url = str(photo.get("url") or "").strip()
+        if not collected and reference_url:
+            image_markup = (
+                f"<a class='field-quest-species-image-link' "
+                f"href='{escape(reference_url, quote=True)}' target='_blank' "
+                f"rel='noopener noreferrer' aria-label='View {escape(common_name, quote=True)} in color'>"
+                f"{image}<span>View in color</span></a>"
+            )
+        else:
+            image_markup = image
+    else:
+        image_markup = "<div class='field-quest-image-fallback'>No image</div>"
     attribution_copy = f" · {escape(attribution)}" if attribution and not collected else ""
     collected_class = " is-collected" if collected else " is-unseen"
     focus_class = " is-focus-selected" if focus_selected else ""
@@ -63,6 +79,34 @@ def _build_discovery_species_row_html(
     )
 
 
+def _build_focus_picker_html(
+    taxa: list[dict[str, Any]],
+    focus_ids: list[int],
+    *,
+    noun: str = "selected",
+) -> str:
+    lookup = {int(item["taxon_id"]): item for item in taxa}
+    slots: list[str] = []
+    for index in range(QUEST_FOCUS_LIMIT):
+        item = lookup.get(focus_ids[index]) if index < len(focus_ids) else None
+        name = str((item or {}).get("common_name") or "Choose a species")
+        slot_class = " is-filled" if item else ""
+        slots.append(
+            f"<li class='field-quest-focus-slot{slot_class}'>"
+            f"<span>{index + 1}</span><strong>{escape(name)}</strong></li>"
+        )
+    count = len(focus_ids)
+    complete_class = " is-complete" if count == QUEST_FOCUS_LIMIT else ""
+    return (
+        f"<div class='field-quest-focus-picker{complete_class}'>"
+        "<div class='field-quest-focus-picker-copy'>"
+        f"<span>Quest targets</span><strong>{count} of {QUEST_FOCUS_LIMIT} {escape(noun)}</strong>"
+        "</div>"
+        f"<ol>{''.join(slots)}</ol>"
+        "</div>"
+    )
+
+
 def _normalize_focus_taxon_ids(value: Any, taxa: list[dict[str, Any]]) -> list[int]:
     valid_ids = {int(item["taxon_id"]) for item in taxa}
     normalized: list[int] = []
@@ -73,7 +117,7 @@ def _normalize_focus_taxon_ids(value: Any, taxa: list[dict[str, Any]]) -> list[i
             continue
         if taxon_id in valid_ids and taxon_id not in normalized:
             normalized.append(taxon_id)
-        if len(normalized) == 5:
+        if len(normalized) == QUEST_FOCUS_LIMIT:
             break
     return normalized
 
@@ -81,7 +125,7 @@ def _normalize_focus_taxon_ids(value: Any, taxa: list[dict[str, Any]]) -> list[i
 def _toggle_focus_taxon_id(current: list[int], taxon_id: int) -> list[int]:
     if taxon_id in current:
         return [current_id for current_id in current if current_id != taxon_id]
-    if len(current) >= 5:
+    if len(current) >= QUEST_FOCUS_LIMIT:
         return current
     return [*current, taxon_id]
 
@@ -127,15 +171,15 @@ def _render_discovery_species_rows(
                     )
                 )
             button_label = (
-                f"Focus {focus_ids.index(taxon_id) + 1}"
+                f"Selected {focus_ids.index(taxon_id) + 1}/{QUEST_FOCUS_LIMIT}"
                 if focus_selected
-                else "Add focus"
+                else "Select"
             )
             if row[1].button(
                 button_label,
                 key=f"focus_action_{key_prefix}_{taxon_id}",
-                disabled=len(focus_ids) >= 5 and not focus_selected,
-                help="Remove this focus find" if focus_selected else "Add this species to your focus finds",
+                disabled=len(focus_ids) >= QUEST_FOCUS_LIMIT and not focus_selected,
+                help="Remove this quest target" if focus_selected else "Select this species for the quest",
                 use_container_width=True,
             ):
                 st.session_state[focus_state_key] = _toggle_focus_taxon_id(focus_ids, taxon_id)
@@ -240,12 +284,21 @@ def _render_nearby_mode(
         nearby["taxa"],
     )
     st.session_state[focus_state_key] = focus_ids
-    st.markdown(
-        f"#### Choose focus finds · {len(focus_ids)} of 5\n"
-        "Select them directly from the field-guide list. Species already in your collection are eligible too."
-    )
-    action_cols = st.columns([0.24, 0.76])
-    if action_cols[0].button("Save Field Quest", type="primary", use_container_width=True):
+    st.markdown("#### Build a five-species quest")
+    st.caption("Select exactly five targets from the field guide. Species already in your collection are eligible.")
+    st.html(_build_focus_picker_html(nearby["taxa"], focus_ids))
+    action_cols = st.columns([0.24, 0.16, 0.60])
+    if action_cols[0].button(
+        (
+            "Save Field Quest"
+            if len(focus_ids) == QUEST_FOCUS_LIMIT
+            else f"Choose {QUEST_FOCUS_LIMIT - len(focus_ids)} more"
+        ),
+        type="primary",
+        use_container_width=True,
+        disabled=len(focus_ids) != QUEST_FOCUS_LIMIT,
+        help="Choose five species before saving." if len(focus_ids) != QUEST_FOCUS_LIMIT else None,
+    ):
         focus_order = {taxon_id: index + 1 for index, taxon_id in enumerate(focus_ids)}
         quest_taxa = [
             {**item, "focus_order": focus_order.get(int(item["taxon_id"]))}
@@ -276,10 +329,18 @@ def _render_nearby_mode(
         except RuntimeError as exc:
             st.error(str(exc))
         else:
+            st.session_state[focus_state_key] = []
             st.session_state.species_quest_selected_id = saved["id"]
             st.session_state.species_log_mode = "Field Quests"
             st.rerun()
-    action_cols[1].caption(
+    if action_cols[1].button(
+        "Clear picks",
+        use_container_width=True,
+        disabled=not focus_ids,
+    ):
+        st.session_state[focus_state_key] = []
+        st.rerun()
+    action_cols[2].caption(
         f"Source refreshed {nearby['source']['fetched_at'][:10]}"
         + (" · cached result" if nearby["source"]["from_cache"] else "")
     )
@@ -335,12 +396,13 @@ def _render_quests_mode(
         observations=context.get("confirmed_observations") or [],
         photos_by_id=context.get("photos_by_id") or {},
     )
-    progress = payload["progress"]
+    progress = payload["focus_progress"]
+    focus_taxa = payload["focus_taxa"]
     st.markdown(
         f"""
         <div class="field-quest-progress-copy">
-            <div><span>{escape(payload['area']['name'])}</span><strong>{progress['collected_count']} of {progress['total_count']} logged</strong></div>
-            <p>{escape(payload['period']['label'])} · frozen checklist · {progress['remaining_count']} remaining</p>
+            <div><span>{escape(payload['title'])}</span><strong>{progress['collected_count']} of {progress['total_count']} found</strong></div>
+            <p>{escape(payload['area']['name'])} · {escape(payload['period']['label'])} · {progress['remaining_count']} target{'s' if progress['remaining_count'] != 1 else ''} remaining</p>
         </div>
         """,
         unsafe_allow_html=True,
@@ -357,49 +419,150 @@ def _render_quests_mode(
                 key=lambda item: int(item.get("focus_order") or 999),
             )
             if item.get("focus_order")
-        ][:5]
+        ][:QUEST_FOCUS_LIMIT]
     focus_ids = _normalize_focus_taxon_ids(
         st.session_state.get(focus_state_key),
         payload["taxa"],
     )
     st.session_state[focus_state_key] = focus_ids
-    st.markdown(
-        f"#### Focus finds · {len(focus_ids)} of 5\n"
-        "Use the controls beside any checklist species, including one you have already logged."
-    )
-    hike_by_label = {"No linked outing": None, **{str(hike.get("title") or "Untitled hike"): hike["id"] for hike in hikes}}
-    current_hike_id = payload.get("linked_hike_id")
-    hike_labels = list(hike_by_label)
-    hike_index = next(
-        (index for index, label in enumerate(hike_labels) if hike_by_label[label] == current_hike_id),
-        0,
-    )
-    linked_hike_label = st.selectbox("Linked outing", hike_labels, index=hike_index)
-    actions = st.columns([0.22, 0.22, 0.56])
-    if actions[0].button("Save quest", type="primary", use_container_width=True):
-        repository.update_species_quest(
-            str(quest["id"]),
-            linked_hike_id=hike_by_label[linked_hike_label],
-            set_linked_hike=True,
-            focus_taxon_ids=focus_ids,
-        )
-        st.rerun()
-    next_status = "archived" if payload["status"] == "active" else "active"
-    if actions[1].button(
-        "Archive" if next_status == "archived" else "Restore",
+    edit_state_key = f"species_quest_editing_{quest['id']}"
+    editing = bool(st.session_state.get(edit_state_key))
+    st.html(_build_focus_picker_html(payload["taxa"], focus_ids, noun="chosen"))
+    edit_actions = st.columns([0.24, 0.76])
+    if edit_actions[0].button(
+        "Cancel changes" if editing else "Change targets",
         use_container_width=True,
     ):
-        repository.update_species_quest(str(quest["id"]), status=next_status)
-        st.session_state.pop(focus_state_key, None)
-        st.session_state.species_quest_selected_id = None
+        if editing:
+            st.session_state[focus_state_key] = [
+                int(item["taxon_id"])
+                for item in sorted(
+                    payload["taxa"],
+                    key=lambda item: int(item.get("focus_order") or 999),
+                )
+                if item.get("focus_order")
+            ][:QUEST_FOCUS_LIMIT]
+        st.session_state[edit_state_key] = not editing
         st.rerun()
-    actions[2].caption("Completed focus finds remain in the frozen checklist and continue to count toward progress.")
-    _render_discovery_species_rows(
-        payload["taxa"],
-        show_focus=True,
-        focus_state_key=focus_state_key,
-        key_prefix=f"quest_{quest['id']}",
+    edit_actions[1].caption(
+        "Your quest shows only these five targets. The original nearby list stays available while changing them."
     )
+
+    if editing:
+        save_cols = st.columns([0.24, 0.76])
+        if save_cols[0].button(
+            "Save five targets",
+            type="primary",
+            use_container_width=True,
+            disabled=len(focus_ids) != QUEST_FOCUS_LIMIT,
+        ):
+            repository.update_species_quest(
+                str(quest["id"]),
+                focus_taxon_ids=focus_ids,
+            )
+            st.session_state[edit_state_key] = False
+            st.rerun()
+        save_cols[1].caption(
+            f"{len(focus_ids)} of {QUEST_FOCUS_LIMIT} selected · logged species can remain quest targets."
+        )
+        _render_discovery_species_rows(
+            payload["taxa"],
+            show_focus=True,
+            focus_state_key=focus_state_key,
+            key_prefix=f"quest_{quest['id']}",
+        )
+    elif focus_taxa:
+        st.markdown("#### Your five targets")
+        _render_discovery_species_rows(
+            focus_taxa,
+            show_focus=True,
+            key_prefix=f"quest_targets_{quest['id']}",
+        )
+    else:
+        st.info("This older quest has no targets yet. Choose five species to make it actionable.")
+
+    with st.expander("Manage this quest"):
+        title = st.text_input(
+            "Quest name",
+            value=str(payload["title"]),
+            max_chars=160,
+            key=f"species_quest_title_{quest['id']}",
+        )
+        hike_by_label = {
+            "No linked outing": None,
+            **{str(hike.get("title") or "Untitled hike"): hike["id"] for hike in hikes},
+        }
+        current_hike_id = payload.get("linked_hike_id")
+        hike_labels = list(hike_by_label)
+        hike_index = next(
+            (
+                index
+                for index, label in enumerate(hike_labels)
+                if hike_by_label[label] == current_hike_id
+            ),
+            0,
+        )
+        linked_hike_label = st.selectbox(
+            "Linked outing",
+            hike_labels,
+            index=hike_index,
+            key=f"species_quest_hike_{quest['id']}",
+        )
+        manage_actions = st.columns([0.24, 0.20, 0.20, 0.36])
+        if manage_actions[0].button(
+            "Save details",
+            type="primary",
+            use_container_width=True,
+            key=f"save_quest_details_{quest['id']}",
+            disabled=not title.strip(),
+        ):
+            repository.update_species_quest(
+                str(quest["id"]),
+                title=title,
+                linked_hike_id=hike_by_label[linked_hike_label],
+                set_linked_hike=True,
+            )
+            st.rerun()
+        next_status = "archived" if payload["status"] == "active" else "active"
+        if manage_actions[1].button(
+            "Archive" if next_status == "archived" else "Restore",
+            use_container_width=True,
+            key=f"archive_quest_{quest['id']}",
+        ):
+            repository.update_species_quest(str(quest["id"]), status=next_status)
+            st.session_state.pop(focus_state_key, None)
+            st.session_state.species_quest_selected_id = None
+            st.rerun()
+        delete_state_key = f"species_quest_delete_confirm_{quest['id']}"
+        if manage_actions[2].button(
+            "Delete quest",
+            use_container_width=True,
+            key=f"delete_quest_{quest['id']}",
+        ):
+            st.session_state[delete_state_key] = True
+            st.rerun()
+        manage_actions[3].caption("Archiving is reversible. Deleting removes the quest and its saved target list.")
+        if st.session_state.get(delete_state_key):
+            st.warning(f'Delete “{payload["title"]}” permanently? Your observations will not be affected.')
+            confirm_actions = st.columns([0.24, 0.20, 0.56])
+            if confirm_actions[0].button(
+                "Delete permanently",
+                type="primary",
+                use_container_width=True,
+                key=f"confirm_delete_quest_{quest['id']}",
+            ):
+                repository.delete_species_quest(str(quest["id"]))
+                for state_key in (focus_state_key, edit_state_key, delete_state_key):
+                    st.session_state.pop(state_key, None)
+                st.session_state.species_quest_selected_id = None
+                st.rerun()
+            if confirm_actions[1].button(
+                "Cancel",
+                use_container_width=True,
+                key=f"cancel_delete_quest_{quest['id']}",
+            ):
+                st.session_state.pop(delete_state_key, None)
+                st.rerun()
 
 
 def render_species_log_view(
@@ -458,11 +621,11 @@ def render_species_log_view(
         ),
         "Nearby": (
             "Seasonal field reports",
-            "Choose a saved trail to see which unlogged species are reported there most often this season.",
+            "Choose a saved trail to see which species are reported there most often this season.",
         ),
         "Field Quests": (
-            "Saved checklists",
-            "Keep a stable area checklist, choose focus finds, and watch confirmed species advance it.",
+            "Five-species quests",
+            "Keep one clear target list for the outing, then watch confirmed observations complete it.",
         ),
     }
     eyebrow, description = mode_copy[selected_mode]
