@@ -157,6 +157,77 @@ class InatClient:
             raise InatRequestError("iNaturalist taxon lookup returned no usable taxon details.")
         return extract_taxon_enrichment(results[0])
 
+    def fetch_taxon_enrichments(self, taxon_ids: list[int]) -> dict[int, dict[str, Any]]:
+        normalized_ids: list[int] = []
+        for value in taxon_ids:
+            taxon_id = _coerce_int(value)
+            if taxon_id is not None and taxon_id > 0 and taxon_id not in normalized_ids:
+                normalized_ids.append(taxon_id)
+        enrichments: dict[int, dict[str, Any]] = {}
+        url = f"{self.base_url}/taxa"
+        headers = self._headers(auth=False)
+        for start in range(0, len(normalized_ids), 100):
+            chunk = normalized_ids[start : start + 100]
+            response = self._request(
+                "get",
+                url,
+                headers=headers,
+                params=[*(("id", taxon_id) for taxon_id in chunk), ("per_page", 200)],
+                timeout=30,
+            )
+            if response.status_code >= 400:
+                raise InatRequestError(f"iNaturalist taxon lookup returned {response.status_code}: {response.text[:200]}")
+            for taxon in response.json().get("results") or []:
+                if not isinstance(taxon, dict):
+                    continue
+                enrichment = extract_taxon_enrichment(taxon)
+                if enrichment.get("taxon_id") is not None:
+                    enrichments[int(enrichment["taxon_id"])] = enrichment
+
+        # The list endpoint omits inactive taxa by default. Preserve historical
+        # observations by looking up only the missing IDs individually.
+        for taxon_id in normalized_ids:
+            if taxon_id not in enrichments:
+                try:
+                    enrichments[taxon_id] = self.fetch_taxon_enrichment(taxon_id)
+                except InatRequestError:
+                    continue
+        return enrichments
+
+    def fetch_exact_taxon_enrichment(self, query: str) -> dict[str, Any] | None:
+        normalized_query = _normalize_name(query)
+        if not normalized_query:
+            return None
+        url = f"{self.base_url}/taxa"
+        headers = self._headers(auth=False)
+        for active_filter in (None, "false"):
+            params: dict[str, Any] = {"q": query.strip(), "per_page": 30}
+            if active_filter is not None:
+                params["is_active"] = active_filter
+            response = self._request("get", url, headers=headers, params=params, timeout=30)
+            if response.status_code >= 400:
+                raise InatRequestError(f"iNaturalist taxon search returned {response.status_code}: {response.text[:200]}")
+            results = [item for item in response.json().get("results") or [] if isinstance(item, dict)]
+            scientific_matches = [
+                item
+                for item in results
+                if _normalize_name(item.get("name")) == normalized_query
+            ]
+            if scientific_matches:
+                return extract_taxon_enrichment(scientific_matches[0])
+            common_matches = [
+                item
+                for item in results
+                if normalized_query
+                in {
+                    _normalize_name(item.get("preferred_common_name")),
+                    _normalize_name(item.get("english_common_name")),
+                }
+            ]
+            if len(common_matches) == 1:
+                return extract_taxon_enrichment(common_matches[0])
+        return None
+
     def fetch_observation(self, observation_id: int | str) -> dict[str, Any]:
         observations = self.fetch_observations([observation_id])
         if not observations:
@@ -670,6 +741,12 @@ def extract_taxon_enrichment(taxon: dict[str, Any]) -> dict[str, Any]:
         "iconic_taxon_name": _coerce_text(taxon.get("iconic_taxon_name")),
         "ancestor_ids": ancestor_ids,
         "species_taxon_id": species_taxon_id,
+        "is_active": taxon.get("is_active"),
+        "current_synonymous_taxon_ids": [
+            synonym_id
+            for value in (taxon.get("current_synonymous_taxon_ids") or [])
+            if (synonym_id := _coerce_int(value)) is not None
+        ],
         "wikipedia_url": _coerce_text(taxon.get("wikipedia_url")),
         "wikipedia_summary": wikipedia_summary,
         "alias_names": alias_names,

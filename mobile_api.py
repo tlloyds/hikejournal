@@ -45,6 +45,7 @@ from hike_journal.services.inat_publishing import (
 from hike_journal.services.repositories import HikeJournalRepository
 from hike_journal.services.discovery import SpeciesDiscoveryService
 from hike_journal.services.storage import StorageService
+from hike_journal.services.taxonomy import ensure_observation_taxonomy
 
 
 MAX_UPLOAD_BYTES = 30 * 1024 * 1024
@@ -1011,7 +1012,8 @@ def request_species_recommendation(photo_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=409, detail="Queue this photo for species review before requesting an ID.")
 
     try:
-        candidates, _ = _mobile_inat_client().score_species_candidates(
+        inat_client = _mobile_inat_client()
+        candidates, _ = inat_client.score_species_candidates(
             image_bytes=_download_photo_for_cv(svc, photo),
             filename=f"{photo_id}.jpg",
             lat=photo.get("lat"),
@@ -1020,13 +1022,15 @@ def request_species_recommendation(photo_id: str) -> dict[str, Any]:
             limit=5,
         )
         primary = candidates[0]
-        svc.repository.upsert_observation(
+        observation = svc.repository.upsert_observation(
             photo.get("hike_id"),
             photo_id,
             primary,
             owner_subject=photo.get("owner_subject"),
             owner_email=photo.get("owner_email"),
         )
+        if isinstance(observation, dict):
+            ensure_observation_taxonomy(svc.repository, inat_client, observation)
     except InatConfigurationError as exc:
         raise HTTPException(status_code=409, detail="Connect iNaturalist in Streamlit before requesting recommendations on Android.") from exc
     except InatAuthError as exc:
@@ -1072,6 +1076,7 @@ def decide_species_review(photo_id: str, payload: ReviewDecisionInput) -> dict[s
         svc.repository.delete_observations([str(observation_id)])
         svc.repository.update_photo_processing_status(photo_id, "in_review")
     else:
+        inat_client = _mobile_inat_client()
         if payload.candidate:
             candidate = SpeciesCandidate(
                 taxon_id=payload.candidate.taxon_id,
@@ -1084,7 +1089,7 @@ def decide_species_review(photo_id: str, payload: ReviewDecisionInput) -> dict[s
                     else {}
                 ),
             )
-            svc.repository.apply_candidate_to_observation(
+            updated = svc.repository.apply_candidate_to_observation(
                 str(observation_id),
                 photo_id=photo_id,
                 candidate=candidate,
@@ -1092,7 +1097,9 @@ def decide_species_review(photo_id: str, payload: ReviewDecisionInput) -> dict[s
                 is_primary=True,
             )
         else:
-            svc.repository.update_observation_status(str(observation_id), "confirmed")
+            updated = svc.repository.update_observation_status(str(observation_id), "confirmed")
+        if isinstance(updated, dict):
+            ensure_observation_taxonomy(svc.repository, inat_client, updated)
         svc.repository.update_photo_processing_status(photo_id, "ready")
 
     _species_data_cache = None

@@ -250,7 +250,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                         loading = state.isSpeciesLoading,
                         onBack = viewModel::closeSpecies,
                         onOpenSpecies = viewModel::openSpecies,
-                        onOpenHike = viewModel::openEncounterHike,
+                        onOpenPhoto = { selectedPhoto = it },
                     )
                 }
                 destination == TopDestination.Species -> SpeciesIndexScreen(

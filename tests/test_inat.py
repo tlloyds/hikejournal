@@ -114,6 +114,42 @@ def test_taxon_enrichment_is_available_without_an_inat_account(monkeypatch) -> N
     assert captured["headers"].get("Authorization") is None
 
 
+def test_batch_taxon_enrichment_uses_public_lookup(monkeypatch) -> None:
+    captured = {}
+
+    class Response:
+        status_code = 200
+        text = ""
+
+        @staticmethod
+        def json():
+            return {
+                "results": [
+                    {"id": 11, "name": "Example alpha", "rank": "species"},
+                    {
+                        "id": 12,
+                        "name": "Example alpha beta",
+                        "rank": "subspecies",
+                        "ancestor_ids": [1, 11],
+                    },
+                ]
+            }
+
+    client = InatClient(access_token="", base_url="https://api.example/v1")
+
+    def fake_request(method, url, **kwargs):
+        captured.update({"method": method, "url": url, **kwargs})
+        return Response()
+
+    monkeypatch.setattr(client, "_request", fake_request)
+
+    result = client.fetch_taxon_enrichments([11, 12, 11])
+
+    assert sorted(result) == [11, 12]
+    assert result[12]["species_taxon_id"] == 11
+    assert captured["headers"].get("Authorization") is None
+
+
 def test_extract_observation_taxon_snapshot_reads_active_taxon() -> None:
     payload = {
         "results": [

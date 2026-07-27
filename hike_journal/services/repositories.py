@@ -1193,6 +1193,10 @@ class HikeJournalRepository:
             payload["confidence"] = None
         if taxon_id is not None or (taxon_id is None and source in {"manual_override", "community_id_request"}):
             payload["taxon_id"] = taxon_id
+        if source in {"manual_override", "community_id_request"}:
+            payload["species_taxon_id"] = None
+            payload["rank"] = None
+            payload["iconic_taxon_name"] = None
         try:
             response = self.client.table("species_observations").update(payload).eq("id", observation_id).execute()
         except Exception:
@@ -1208,20 +1212,22 @@ class HikeJournalRepository:
         self,
         observation_id: str,
         *,
+        taxon_id: int | None = None,
         rank: str | None,
         iconic_taxon_name: str | None,
         species_taxon_id: int | None,
     ) -> dict[str, Any] | None:
+        payload = {
+            "rank": rank,
+            "iconic_taxon_name": iconic_taxon_name,
+            "species_taxon_id": species_taxon_id,
+        }
+        if taxon_id is not None:
+            payload["taxon_id"] = taxon_id
         try:
             response = (
                 self.client.table("species_observations")
-                .update(
-                    {
-                        "rank": rank,
-                        "iconic_taxon_name": iconic_taxon_name,
-                        "species_taxon_id": species_taxon_id,
-                    }
-                )
+                .update(payload)
                 .eq("id", observation_id)
                 .execute()
             )
@@ -1229,6 +1235,50 @@ class HikeJournalRepository:
             return None
         rows = response.data or []
         return rows[0] if rows else None
+
+    def update_observation_taxon_resolutions(
+        self,
+        observation_ids: list[str],
+        *,
+        taxon_id: int,
+        rank: str | None,
+        iconic_taxon_name: str | None,
+        species_taxon_id: int | None,
+    ) -> int:
+        normalized_ids = list(dict.fromkeys(str(value) for value in observation_ids if str(value).strip()))
+        updated_count = 0
+        payload = {
+            "taxon_id": int(taxon_id),
+            "rank": rank,
+            "iconic_taxon_name": iconic_taxon_name,
+            "species_taxon_id": species_taxon_id,
+        }
+        for chunk_ids in self._chunks(normalized_ids, size=200):
+            response = (
+                self.client.table("species_observations")
+                .update(payload)
+                .in_("id", chunk_ids)
+                .execute()
+            )
+            updated_count += len(response.data or [])
+        return updated_count
+
+    def list_observations_for_taxonomy_reconciliation(
+        self,
+        *,
+        status: str = "confirmed",
+    ) -> list[dict[str, Any]]:
+        return self._select_all_rows(
+            lambda: (
+                self.client.table("species_observations")
+                .select(
+                    "id,taxon_id,species_taxon_id,rank,iconic_taxon_name,"
+                    "common_name,scientific_name,status"
+                )
+                .eq("status", status)
+                .not_.is_("taxon_id", "null")
+            )
+        )
 
     def update_observation_inat_posting(
         self,
@@ -1304,6 +1354,9 @@ class HikeJournalRepository:
         }
         payload = {
             "taxon_id": inat_snapshot.get("taxon_id"),
+            "species_taxon_id": None,
+            "rank": None,
+            "iconic_taxon_name": None,
             "common_name": str(inat_snapshot.get("common_name") or "").strip() or None,
             "scientific_name": str(inat_snapshot.get("scientific_name") or "").strip() or None,
             "confidence": None,

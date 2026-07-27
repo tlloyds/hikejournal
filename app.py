@@ -50,7 +50,6 @@ from hike_journal.domain.library import (
     normalize_email,
     record_visible_for_user,
 )
-from hike_journal.domain.discovery import infraspecies_parent_key
 from hike_journal.queries import (
     fetch_hike_lightweight_observations,
     fetch_hike_locations,
@@ -105,6 +104,7 @@ from hike_journal.services.species_identification import (
     update_species_log_main_photo_payload,
 )
 from hike_journal.services.storage import StorageService
+from hike_journal.services.taxonomy import ensure_observation_taxonomy
 from hike_journal.ui.components import (
     format_photo_meta,
     format_photo_meta_html,
@@ -2259,6 +2259,7 @@ def _start_species_info_save(save_key: str) -> None:
 @st.dialog("Edit species", width="small")
 def render_species_edit_dialog(
     repository: HikeJournalRepository,
+    inat_client: InatClient,
     observation: dict[str, Any],
     *,
     key_prefix: str,
@@ -2302,7 +2303,9 @@ def render_species_edit_dialog(
                 taxon_id=None if manual_correction_from_rejected else observation.get("taxon_id"),
                 clear_confidence=manual_correction_from_rejected,
             )
-            sync_species_override_payload(repository, observation, updated)
+            updated = sync_species_override_payload(repository, observation, updated)
+            if changed_names and updated.get("taxon_id") is not None:
+                ensure_taxon_enrichment(repository, inat_client, updated)
     except Exception as exc:
         st.session_state[save_key] = False
         st.error(f"Could not save species info: {exc}")
@@ -2380,7 +2383,7 @@ def render_species_summary(
         )
     with info_cols[1]:
         if st.button("✎ ▾", key=f"{key_prefix}_edit_species", help="Edit species"):
-            render_species_edit_dialog(repository, observation, key_prefix=key_prefix)
+            render_species_edit_dialog(repository, inat_client, observation, key_prefix=key_prefix)
 
 
 def render_secondary_species_summary(photo_observations: list[dict[str, Any]], primary_observation_id: str | None) -> None:
@@ -3330,55 +3333,17 @@ def clean_summary_text(value: str) -> str:
 
 
 def ensure_taxon_enrichment(repository: HikeJournalRepository, inat_client: InatClient, observation: dict[str, Any]) -> bool:
-    raw_payload = dict(observation.get("raw_response_json") or {})
-    enrichment = raw_payload.get("taxon_enrichment")
-    if raw_payload.get("manual_override"):
-        return False
-    taxon_id = observation.get("taxon_id")
-    needs_parent_resolution = infraspecies_parent_key(observation) is not None
-    enrichment_taxon_id = (enrichment or {}).get("taxon_id") if isinstance(enrichment, dict) else None
-    enrichment_is_complete = (
-        isinstance(enrichment, dict)
-        and (
-            not needs_parent_resolution
-            or enrichment.get("species_taxon_id") not in (None, "")
-        )
-        and (
-            enrichment_taxon_id in (None, "")
-            or str(enrichment_taxon_id) == str(taxon_id)
-        )
-    )
-    if enrichment_is_complete:
-        repository.update_observation_taxon_resolution(
-            str(observation["id"]),
-            rank=enrichment.get("rank"),
-            iconic_taxon_name=enrichment.get("iconic_taxon_name"),
-            species_taxon_id=enrichment.get("species_taxon_id"),
-        )
-        return True
-    if not taxon_id:
-        return False
-    try:
-        raw_payload["taxon_enrichment"] = inat_client.fetch_taxon_enrichment(int(taxon_id))
-        repository.update_observation_raw_payload(observation["id"], raw_payload)
-        enrichment = raw_payload["taxon_enrichment"]
-        repository.update_observation_taxon_resolution(
-            str(observation["id"]),
-            rank=enrichment.get("rank"),
-            iconic_taxon_name=enrichment.get("iconic_taxon_name"),
-            species_taxon_id=enrichment.get("species_taxon_id"),
-        )
+    if ensure_observation_taxonomy(repository, inat_client, observation):
         invalidate_data_cache()
         return True
-    except (InatConfigurationError, InatRequestError, ValueError):
-        return False
+    return False
 
 
 def sync_species_override_payload(
     repository: HikeJournalRepository,
     original_observation: dict[str, Any],
     updated_observation: dict[str, Any],
-) -> None:
+) -> dict[str, Any]:
     original_common = (original_observation.get("common_name") or "").strip() or None
     original_scientific = (original_observation.get("scientific_name") or "").strip() or None
     updated_common = (updated_observation.get("common_name") or "").strip() or None
@@ -3411,8 +3376,9 @@ def sync_species_override_payload(
             if isinstance(restored, dict):
                 raw_payload["taxon_enrichment"] = restored
 
-    repository.update_observation_raw_payload(updated_observation["id"], raw_payload)
+    updated = repository.update_observation_raw_payload(updated_observation["id"], raw_payload)
     invalidate_data_cache()
+    return updated
 
 
 def group_observations_by_photo(observations: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
@@ -4328,7 +4294,7 @@ def render_publish_lane_management_controls(
                     taxon_id=taxon_id,
                     clear_confidence=True,
                 )
-                sync_species_override_payload(repository, observation, updated)
+                updated = sync_species_override_payload(repository, observation, updated)
                 if taxon_id is not None:
                     ensure_taxon_enrichment(repository, inat_client, updated)
                 invalidate_data_cache()

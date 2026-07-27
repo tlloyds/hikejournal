@@ -79,6 +79,7 @@ import com.hikejournal.app.data.DiscoveryTaxon
 import com.hikejournal.app.data.FieldQuest
 import com.hikejournal.app.data.Hike
 import com.hikejournal.app.data.NearbySpecies
+import com.hikejournal.app.data.Photo
 import com.hikejournal.app.data.SpeciesRecord
 import com.hikejournal.app.data.filterDiscoveryAreas
 import com.hikejournal.app.ui.theme.Ink
@@ -1103,7 +1104,7 @@ fun SpeciesDetailScreen(
     loading: Boolean,
     onBack: () -> Unit,
     onOpenSpecies: (String) -> Unit,
-    onOpenHike: (String) -> Unit,
+    onOpenPhoto: (Photo) -> Unit,
 ) {
     val currentIndex = allSpecies.indexOfFirst { it.key == species.key }
     var horizontalDragDistance by remember(species.key) { mutableFloatStateOf(0f) }
@@ -1168,7 +1169,7 @@ fun SpeciesDetailScreen(
             }
         }
         items(species.encounters, key = { it.photo.id }) { encounter ->
-            EncounterRow(encounter, onOpenHike)
+            EncounterRow(encounter, onOpenPhoto)
         }
     }
 }
@@ -1197,10 +1198,9 @@ private fun SpeciesHero(species: SpeciesRecord, onBack: () -> Unit) {
 }
 
 @Composable
-private fun EncounterRow(encounter: Encounter, onOpenHike: (String) -> Unit) {
-    val clickable = encounter.hikeId != null
+private fun EncounterRow(encounter: Encounter, onOpenPhoto: (Photo) -> Unit) {
     Column(
-        Modifier.fillMaxWidth().clickable(enabled = clickable) { encounter.hikeId?.let(onOpenHike) },
+        Modifier.fillMaxWidth().clickable { onOpenPhoto(encounter.photo) },
     ) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
             AsyncImage(
@@ -1218,6 +1218,7 @@ private fun EncounterRow(encounter: Encounter, onOpenHike: (String) -> Unit) {
                 if (encounter.photo.caption.isNotBlank()) {
                     Text(encounter.photo.caption, style = MaterialTheme.typography.bodyMedium, color = InkMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
+                Text("View this species photo", style = MaterialTheme.typography.labelSmall, color = TrailText, modifier = Modifier.padding(top = 5.dp))
             }
         }
         HorizontalDivider(color = Line, modifier = Modifier.padding(start = 171.dp))
