@@ -201,7 +201,7 @@ class HikeJournalRepository:
         quest = response.data[0]
         quest_id = str(quest["id"])
         target_rows = []
-        for item in taxa[:50]:
+        for item in taxa[:100]:
             photo = item.get("reference_photo") if isinstance(item.get("reference_photo"), dict) else {}
             target_rows.append(
                 {
@@ -217,6 +217,8 @@ class HikeJournalRepository:
                     "reference_photo_url": str((photo or {}).get("url") or "") or None,
                     "reference_photo_attribution": str((photo or {}).get("attribution") or "") or None,
                     "reference_photo_license": str((photo or {}).get("license_code") or "") or None,
+                    "wikipedia_url": str(item.get("wikipedia_url") or "") or None,
+                    "wikipedia_summary": str(item.get("wikipedia_summary") or "") or None,
                     "focus_order": item.get("focus_order"),
                 }
             )
@@ -293,6 +295,8 @@ class HikeJournalRepository:
                         if item.get("reference_photo_url")
                         else None
                     ),
+                    "wikipedia_url": item.get("wikipedia_url") or "",
+                    "wikipedia_summary": item.get("wikipedia_summary") or "",
                 }
             )
         return {**quest, "taxa": taxa}
@@ -322,7 +326,7 @@ class HikeJournalRepository:
                 "quest_id",
                 quest_id,
             ).execute()
-            for index, taxon_id in enumerate(focus_taxon_ids[:5]):
+            for index, taxon_id in enumerate(focus_taxon_ids[:10]):
                 (
                     self.client.table("species_quest_taxa")
                     .update({"focus_order": index + 1})

@@ -144,7 +144,7 @@ create table if not exists public.species_quests (
     months smallint[] not null,
     iconic_taxon text,
     algorithm_version text not null,
-    target_count integer not null default 0 check (target_count between 0 and 50),
+    target_count integer not null default 0 check (target_count between 0 and 100),
     created_at timestamptz not null default timezone('utc', now()),
     updated_at timestamptz not null default timezone('utc', now())
 );
@@ -162,7 +162,9 @@ create table if not exists public.species_quest_taxa (
     reference_photo_url text,
     reference_photo_attribution text,
     reference_photo_license text,
-    focus_order smallint check (focus_order between 1 and 5),
+    wikipedia_url text,
+    wikipedia_summary text,
+    focus_order smallint check (focus_order between 1 and 10),
     created_at timestamptz not null default timezone('utc', now()),
     primary key (quest_id, taxon_id)
 );

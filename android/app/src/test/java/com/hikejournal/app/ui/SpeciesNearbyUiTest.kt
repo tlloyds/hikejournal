@@ -15,10 +15,10 @@ class SpeciesNearbyUiTest {
     }
 
     @Test
-    fun `first quest target prompt omits more`() {
-        assertEquals("Pick 5", questTargetPrompt(0))
-        assertEquals("Pick 4 more", questTargetPrompt(1))
-        assertEquals("Pick 1 more", questTargetPrompt(4))
+    fun `quest target prompt requires only one selection`() {
+        assertEquals("Pick at least 1", questTargetPrompt(0))
+        assertEquals("Save quest", questTargetPrompt(1))
+        assertEquals("Save quest", questTargetPrompt(10))
     }
 
     @Test

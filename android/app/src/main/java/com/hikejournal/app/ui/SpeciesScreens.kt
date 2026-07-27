@@ -17,6 +17,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -34,6 +35,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.CloudOff
@@ -55,6 +57,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -67,6 +70,7 @@ import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.core.content.ContextCompat
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextOverflow
@@ -101,6 +105,10 @@ private enum class SpeciesMode(val label: String) {
     Quests("Field Quests"),
 }
 
+private const val QuestFocusLimit = 10
+private const val StandardNearbyLimit = 50
+private const val ExpandedNearbyLimit = 100
+
 @Composable
 fun SpeciesIndexScreen(
     species: List<SpeciesRecord>,
@@ -116,7 +124,7 @@ fun SpeciesIndexScreen(
     discoveryNotice: String?,
     onRefresh: () -> Unit,
     onRefreshDiscovery: () -> Unit,
-    onLoadNearby: (String?, String, Int, String?, Double?, Double?) -> Unit,
+    onLoadNearby: (String?, String, Int, String?, Double?, Double?, Int) -> Unit,
     onSaveQuest: (String, String?, List<Long>) -> Unit,
     onSaveQuestFocus: (FieldQuest, List<Long>) -> Unit,
     onArchiveQuest: (FieldQuest) -> Unit,
@@ -132,7 +140,7 @@ fun SpeciesIndexScreen(
     var areaSearch by remember { mutableStateOf("") }
     var selectedAreaId by remember { mutableStateOf<String?>(null) }
     var targetDate by remember { mutableStateOf(LocalDate.now().toString()) }
-    var radiusKm by remember { mutableStateOf(10) }
+    var radiusKm by remember { mutableIntStateOf(10) }
     var iconicTaxon by remember { mutableStateOf<String?>(null) }
     var focusTaxonIds by remember { mutableStateOf(emptyList<Long>()) }
     var linkedQuestHikeId by remember { mutableStateOf<String?>(null) }
@@ -142,12 +150,18 @@ fun SpeciesIndexScreen(
     var editingQuestId by remember { mutableStateOf<String?>(null) }
     var previewTaxon by remember { mutableStateOf<DiscoveryTaxon?>(null) }
     var pendingDeleteQuest by remember { mutableStateOf<FieldQuest?>(null) }
+    var nearbyResultLimit by remember { mutableIntStateOf(StandardNearbyLimit) }
     val context = LocalContext.current
     val selectedArea = discoveryAreas.firstOrNull { it.id == selectedAreaId }
     val visibleAreas = filterDiscoveryAreas(discoveryAreas, areaSearch)
     val visibleQuests = quests.filter { (it.status == "archived") == showArchivedQuests }
     val selectedQuest = visibleQuests.firstOrNull { it.id == selectedQuestId }
-        ?: visibleQuests.firstOrNull()
+        ?: visibleQuests.singleOrNull()
+    LaunchedEffect(nearbySpecies) {
+        val availableIds = nearbySpecies?.taxa?.mapTo(mutableSetOf()) { it.taxonId }.orEmpty()
+        focusTaxonIds = focusTaxonIds.filter { it in availableIds }
+        nearbyResultLimit = nearbySpecies?.resultLimit ?: StandardNearbyLimit
+    }
     LaunchedEffect(initialNearbyAreaName, discoveryAreas) {
         if (initialNearbyAreaName != null && (initialNearbyAreaName.isBlank() || discoveryAreas.isNotEmpty())) {
             mode = SpeciesMode.Nearby
@@ -173,6 +187,7 @@ fun SpeciesIndexScreen(
                         iconicTaxon,
                         location.latitude,
                         location.longitude,
+                        nearbyResultLimit,
                     )
                 },
                 onUnavailable = { locationNotice = "A current location was not available. Choose a saved trail instead." },
@@ -254,7 +269,13 @@ fun SpeciesIndexScreen(
             }
         }
         item {
-            SpeciesModeTabs(mode = mode, onMode = { mode = it })
+            SpeciesModeTabs(
+                mode = mode,
+                onMode = {
+                    if (it == SpeciesMode.Quests && mode != SpeciesMode.Quests) selectedQuestId = null
+                    mode = it
+                },
+            )
         }
         if (!discoveryNotice.isNullOrBlank() && mode != SpeciesMode.Collection) {
             item {
@@ -358,7 +379,16 @@ fun SpeciesIndexScreen(
                     },
                     onExplore = {
                         selectedArea?.let {
-                            onLoadNearby(it.id, targetDate, radiusKm, iconicTaxon, null, null)
+                            nearbyResultLimit = StandardNearbyLimit
+                            onLoadNearby(
+                                it.id,
+                                targetDate,
+                                radiusKm,
+                                iconicTaxon,
+                                null,
+                                null,
+                                StandardNearbyLimit,
+                            )
                         }
                     },
                     onUseLocation = {
@@ -371,7 +401,16 @@ fun SpeciesIndexScreen(
                                 context,
                                 onLocation = { location ->
                                     locationNotice = null
-                                    onLoadNearby(null, targetDate, radiusKm, iconicTaxon, location.latitude, location.longitude)
+                                    nearbyResultLimit = StandardNearbyLimit
+                                    onLoadNearby(
+                                        null,
+                                        targetDate,
+                                        radiusKm,
+                                        iconicTaxon,
+                                        location.latitude,
+                                        location.longitude,
+                                        StandardNearbyLimit,
+                                    )
                                 },
                                 onUnavailable = { locationNotice = "A current location was not available. Choose a saved trail instead." },
                             )
@@ -405,6 +444,46 @@ fun SpeciesIndexScreen(
                         )
                     }
                 }
+                if (
+                    nearby.resultLimit == StandardNearbyLimit &&
+                    nearby.progress.totalCount == StandardNearbyLimit &&
+                    nearby.progress.collectedCount == StandardNearbyLimit
+                ) {
+                    item {
+                        Column(
+                            Modifier.fillMaxWidth().background(Color(0xFFE4DDC5))
+                                .padding(horizontal = 20.dp, vertical = 14.dp),
+                        ) {
+                            Text(
+                                "FIELD LIST COMPLETE",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = TrailText,
+                            )
+                            Text(
+                                "You found all 50. Open the next 50 nearby species?",
+                                style = MaterialTheme.typography.titleLarge,
+                                color = Ink,
+                            )
+                            TextButton(
+                                onClick = {
+                                    nearbyResultLimit = ExpandedNearbyLimit
+                                    onLoadNearby(
+                                        nearby.areaId.takeIf { it.isNotBlank() },
+                                        nearby.targetDate,
+                                        nearby.radiusKm,
+                                        nearby.iconicTaxon,
+                                        nearby.latitude,
+                                        nearby.longitude,
+                                        ExpandedNearbyLimit,
+                                    )
+                                },
+                                enabled = !discoveryLoading,
+                            ) {
+                                Text("Expand to 100 species")
+                            }
+                        }
+                    }
+                }
                 item {
                     QuestTargetStrip(
                         selectedCount = focusTaxonIds.size,
@@ -434,9 +513,9 @@ fun SpeciesIndexScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
-                            "${focusTaxonIds.size} OF 5 QUEST TARGETS",
+                            "${focusTaxonIds.size} OF $QuestFocusLimit QUEST TARGETS",
                             style = MaterialTheme.typography.labelSmall,
-                            color = if (focusTaxonIds.size == 5) Trail else TrailText,
+                            color = if (focusTaxonIds.isNotEmpty()) Trail else TrailText,
                         )
                         Button(
                             onClick = {
@@ -446,13 +525,13 @@ fun SpeciesIndexScreen(
                                     focusTaxonIds,
                                 )
                             },
-                            enabled = !savingQuest && nearby.areaId.isNotBlank() && focusTaxonIds.size == 5,
+                            enabled = !savingQuest && nearby.areaId.isNotBlank() && focusTaxonIds.isNotEmpty(),
                             shape = RoundedCornerShape(4.dp),
                         ) {
                             Text(
                                 when {
                                     savingQuest -> "Saving…"
-                                    focusTaxonIds.size < 5 -> questTargetPrompt(focusTaxonIds.size)
+                                    focusTaxonIds.isEmpty() -> questTargetPrompt(focusTaxonIds.size)
                                     else -> "Save quest"
                                 },
                             )
@@ -469,7 +548,7 @@ fun SpeciesIndexScreen(
                             focusTaxonIds = toggleFocus(focusTaxonIds, taxon.taxonId)
                         },
                         onPreview = { previewTaxon = taxon },
-                        selectionEnabled = focusTaxonIds.size < 5 || taxon.taxonId in focusTaxonIds,
+                        selectionEnabled = focusTaxonIds.size < QuestFocusLimit || taxon.taxonId in focusTaxonIds,
                     )
                 }
             } ?: item {
@@ -487,33 +566,54 @@ fun SpeciesIndexScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        if (selectedQuest == null) "SAVED CHECKLISTS" else selectedQuest.title.uppercase(Locale.US),
+                        if (selectedQuest == null) "CHOOSE A FIELD QUEST" else selectedQuest.title.uppercase(Locale.US),
                         style = MaterialTheme.typography.labelSmall,
                         color = TrailText,
                         modifier = Modifier.weight(1f),
                     )
-                    TextButton(onClick = { showArchivedQuests = !showArchivedQuests }) {
+                    TextButton(
+                        onClick = {
+                            showArchivedQuests = !showArchivedQuests
+                            selectedQuestId = null
+                        },
+                    ) {
                         Text(if (showArchivedQuests) "Show active" else "Show archive")
                     }
                 }
             }
-            if (visibleQuests.size > 1) {
-                item {
-                    TextButton(
-                        onClick = {
-                            val index = visibleQuests.indexOfFirst { it.id == selectedQuest?.id }
-                            selectedQuestId = visibleQuests[(index + 1).mod(visibleQuests.size)].id
+            if (visibleQuests.size > 1 && selectedQuest == null) {
+                items(visibleQuests, key = { "quest-tile-${it.id}" }) { quest ->
+                    QuestTile(
+                        quest = quest,
+                        onOpen = {
+                            editingQuestId = null
+                            selectedQuestId = quest.id
                         },
-                        modifier = Modifier.padding(horizontal = 12.dp),
-                    ) {
-                        Text("Next quest")
-                    }
+                    )
                 }
-            }
-            selectedQuest?.let { quest ->
+            } else if (selectedQuest != null) {
+                val quest = selectedQuest
                 val focusedTaxa = quest.taxa.filter { it.focusOrder != null }.sortedBy { it.focusOrder }
                 val foundTargets = focusedTaxa.count { it.collected }
                 val editingTargets = editingQuestId == quest.id
+                if (visibleQuests.size > 1) {
+                    item {
+                        TextButton(
+                            onClick = {
+                                editingQuestId = null
+                                selectedQuestId = null
+                            },
+                            modifier = Modifier.padding(horizontal = 8.dp),
+                        ) {
+                            Icon(
+                                Icons.AutoMirrored.Rounded.ArrowBack,
+                                null,
+                                modifier = Modifier.size(17.dp),
+                            )
+                            Text("All quests", modifier = Modifier.padding(start = 5.dp))
+                        }
+                    }
+                }
                 item {
                     DiscoveryProgressHeader(
                         progress = foundTargets,
@@ -522,7 +622,7 @@ fun SpeciesIndexScreen(
                         detail = if (quest.pendingFocusSync) {
                             "Target changes are queued for sync."
                         } else {
-                            "This quest follows only your five chosen species."
+                            "This quest follows your chosen species."
                         },
                         noun = "found",
                     )
@@ -543,17 +643,17 @@ fun SpeciesIndexScreen(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Text(
-                                if (editingTargets) "CHOOSE EXACTLY FIVE TARGETS" else "YOUR FIVE TARGETS",
+                                if (editingTargets) "CHOOSE 1–10 TARGETS" else "YOUR QUEST TARGETS",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = TrailText,
                             )
                             TextButton(onClick = {
                                 editingQuestId = if (editingTargets) null else quest.id
-                            }, enabled = !editingTargets || focusedTaxa.size == 5) {
+                            }, enabled = !editingTargets || focusedTaxa.isNotEmpty()) {
                                 Text(
                                     when {
                                         !editingTargets -> "Change targets"
-                                        focusedTaxa.size == 5 -> "Done"
+                                        focusedTaxa.isNotEmpty() -> "Done"
                                         else -> questTargetPrompt(focusedTaxa.size)
                                     },
                                 )
@@ -582,31 +682,35 @@ fun SpeciesIndexScreen(
                         focusOrder = focusOrder,
                         onToggleFocus = if (editingTargets) {
                             {
-                                onSaveQuestFocus(
-                                    quest,
-                                    toggleFocus(
-                                        focusedTaxa.map { it.taxonId },
-                                        taxon.taxonId,
-                                    ),
+                                val updated = toggleFocus(
+                                    focusedTaxa.map { it.taxonId },
+                                    taxon.taxonId,
                                 )
+                                if (updated.isNotEmpty()) onSaveQuestFocus(quest, updated)
                             }
                         } else {
                             null
                         },
                         onPreview = { previewTaxon = taxon },
-                        selectionEnabled = focusedTaxa.size < 5 || focusOrder != null,
+                        selectionEnabled = when {
+                            focusOrder != null && focusedTaxa.size == 1 -> false
+                            focusOrder != null -> true
+                            else -> focusedTaxa.size < QuestFocusLimit
+                        },
                     )
                 }
                 if (focusedTaxa.isEmpty() && !editingTargets) {
                     item {
-                        DiscoveryEmpty("Choose five targets to turn this saved list into a field quest.")
+                        DiscoveryEmpty("Choose at least one target to make this Field Quest actionable.")
                     }
                 }
-            } ?: item {
+            } else {
+                item {
                 DiscoveryEmpty(
                     if (discoveryLoading) "Opening saved field quests…"
                     else if (showArchivedQuests) "No archived quests." else "Save a nearby field list to make your first quest.",
                 )
+                }
             }
         }
         }
@@ -625,11 +729,23 @@ fun SpeciesIndexScreen(
         )
     }
     previewTaxon?.let { taxon ->
+        val uriHandler = LocalUriHandler.current
+        val previewImageUrl = taxon.collectionPhotoUrl
+            .takeIf { taxon.collected && !it.isNullOrBlank() }
+            ?: taxon.referencePhoto?.url.orEmpty()
         AlertDialog(
             onDismissRequest = { previewTaxon = null },
             title = {
                 Column {
-                    Text("REFERENCE SPECIMEN", style = MaterialTheme.typography.labelSmall, color = TrailText)
+                    Text(
+                        if (taxon.collected && !taxon.collectionPhotoUrl.isNullOrBlank()) {
+                            "YOUR OBSERVATION"
+                        } else {
+                            "REFERENCE SPECIMEN"
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = TrailText,
+                    )
                     Text(taxon.commonName, style = MaterialTheme.typography.headlineMedium, color = Ink)
                     Text(
                         taxon.scientificName,
@@ -639,25 +755,75 @@ fun SpeciesIndexScreen(
                 }
             },
             text = {
-                Column {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
                     AsyncImage(
                         model = ImageRequest.Builder(LocalContext.current)
-                            .data(taxon.referencePhoto?.url.orEmpty())
+                            .data(previewImageUrl)
                             .crossfade(true)
                             .build(),
                         contentDescription = "${taxon.commonName} in color",
                         modifier = Modifier.fillMaxWidth().height(320.dp),
                         contentScale = ContentScale.Crop,
                     )
-                    taxon.referencePhoto?.let { photo ->
+                    if (taxon.collected && !taxon.collectionPhotoUrl.isNullOrBlank()) {
                         Text(
-                            listOf(photo.attribution, photo.licenseCode)
+                            listOf(
+                                "Your HikeJournal observation",
+                                taxon.collectedAt?.take(10).orEmpty(),
+                            )
                                 .filter { it.isNotBlank() }
                                 .joinToString(" · "),
                             style = MaterialTheme.typography.labelSmall,
                             color = InkMuted,
                             modifier = Modifier.padding(top = 9.dp),
                         )
+                    } else {
+                        taxon.referencePhoto?.let { photo ->
+                            Text(
+                                listOf(photo.attribution, photo.licenseCode)
+                                    .filter { it.isNotBlank() }
+                                    .joinToString(" · "),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = InkMuted,
+                                modifier = Modifier.padding(top = 9.dp),
+                            )
+                        }
+                    }
+                    Text(
+                        "WHY IT’S HERE",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = TrailText,
+                        modifier = Modifier.padding(top = 18.dp),
+                    )
+                    Text(
+                        taxon.matchReason.ifBlank {
+                            "This species matched both the selected location and seasonal date window."
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Ink,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                    if (taxon.wikipediaSummary.isNotBlank()) {
+                        Text(
+                            "FROM WIKIPEDIA",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TrailText,
+                            modifier = Modifier.padding(top = 18.dp),
+                        )
+                        Text(
+                            taxon.wikipediaSummary,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Ink,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                    }
+                    if (taxon.wikipediaUrl.isNotBlank()) {
+                        TextButton(
+                            onClick = { uriHandler.openUri(taxon.wikipediaUrl) },
+                            modifier = Modifier.padding(top = 2.dp),
+                        ) {
+                            Text("Read on Wikipedia")
+                        }
                     }
                 }
             },
@@ -819,6 +985,62 @@ private fun NearbyControls(
 }
 
 @Composable
+private fun QuestTile(quest: FieldQuest, onOpen: () -> Unit) {
+    val focusedTaxa = quest.taxa.filter { it.focusOrder != null }
+    val found = focusedTaxa.count { it.collected }
+    val progress = if (focusedTaxa.isEmpty()) 0f else found.toFloat() / focusedTaxa.size.toFloat()
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 7.dp)
+            .background(Paper, RoundedCornerShape(6.dp))
+            .clickable(onClick = onOpen)
+            .padding(horizontal = 18.dp, vertical = 16.dp),
+    ) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.Top,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    quest.title,
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = Ink,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    "${quest.areaName} · ${quest.periodLabel}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = InkMuted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Text(
+                "$found of ${focusedTaxa.size}",
+                style = MaterialTheme.typography.labelMedium,
+                color = Moss,
+                modifier = Modifier.padding(start = 12.dp, top = 4.dp),
+            )
+        }
+        LinearProgressIndicator(
+            progress = { progress },
+            modifier = Modifier.fillMaxWidth().padding(top = 12.dp).height(4.dp),
+            color = Moss,
+            trackColor = Line,
+        )
+        Text(
+            "Open quest",
+            style = MaterialTheme.typography.labelSmall,
+            color = TrailText,
+            modifier = Modifier.padding(top = 8.dp),
+        )
+    }
+}
+
+@Composable
 private fun DiscoveryProgressHeader(
     progress: Int,
     total: Int,
@@ -848,52 +1070,56 @@ private fun DiscoveryProgressHeader(
 
 @Composable
 private fun QuestTargetStrip(selectedCount: Int, pending: Boolean) {
-    Row(
+    Column(
         Modifier
             .fillMaxWidth()
             .background(Color(0xFFE4DDC5))
             .padding(horizontal = 20.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            "QUEST TARGETS",
-            style = MaterialTheme.typography.labelSmall,
-            color = TrailText,
-        )
-        Spacer(Modifier.weight(1f))
-        repeat(5) { index ->
-            val isSelected = index < selectedCount
-            val markerColor by animateColorAsState(
-                if (isSelected) Trail else Color(0xFFC7C0AA),
-                label = "quest-target-${index + 1}",
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "QUEST TARGETS",
+                style = MaterialTheme.typography.labelSmall,
+                color = TrailText,
             )
-            Box(
-                Modifier
-                    .padding(start = if (index == 0) 0.dp else 5.dp)
-                    .size(24.dp)
-                    .background(markerColor, CircleShape),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    "${index + 1}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (isSelected) Paper else InkMuted,
+            Spacer(Modifier.weight(1f))
+            Text(
+                "$selectedCount/$QuestFocusLimit",
+                style = MaterialTheme.typography.labelMedium,
+                color = if (selectedCount > 0) Trail else Ink,
+            )
+            if (pending) {
+                Icon(
+                    Icons.Rounded.CloudOff,
+                    "Quest target sync pending",
+                    tint = TrailText,
+                    modifier = Modifier.padding(start = 6.dp).size(15.dp),
                 )
             }
         }
-        Text(
-            "$selectedCount/5",
-            style = MaterialTheme.typography.labelMedium,
-            color = if (selectedCount == 5) Trail else Ink,
-            modifier = Modifier.padding(start = 9.dp),
-        )
-        if (pending) {
-            Icon(
-                Icons.Rounded.CloudOff,
-                "Quest target sync pending",
-                tint = TrailText,
-                modifier = Modifier.padding(start = 6.dp).size(15.dp),
-            )
+        Row(
+            Modifier.fillMaxWidth().padding(top = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            repeat(QuestFocusLimit) { index ->
+                val isSelected = index < selectedCount
+                val markerColor by animateColorAsState(
+                    if (isSelected) Trail else Color(0xFFC7C0AA),
+                    label = "quest-target-${index + 1}",
+                )
+                Box(
+                    Modifier
+                        .size(22.dp)
+                        .background(markerColor, CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        "${index + 1}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (isSelected) Paper else InkMuted,
+                    )
+                }
+            }
         }
     }
 }
@@ -902,8 +1128,7 @@ internal fun shouldShowSavedTrailResults(searchText: String, hasSelectedArea: Bo
     searchText.isNotBlank() && !hasSelectedArea
 
 internal fun questTargetPrompt(selectedCount: Int): String {
-    val remaining = (5 - selectedCount.coerceIn(0, 5)).coerceAtLeast(0)
-    return if (remaining == 5) "Pick 5" else "Pick $remaining more"
+    return if (selectedCount <= 0) "Pick at least 1" else "Save quest"
 }
 
 internal fun discoveryStatusLabel(collected: Boolean, frequencyBand: String): String {
@@ -937,7 +1162,7 @@ private fun DiscoverySpeciesRow(
                     .size(86.dp)
                     .background(Color(0xFFD0CFBD))
                     .clickable(
-                        enabled = !taxon.collected && !taxon.referencePhoto?.url.isNullOrBlank(),
+                        enabled = imageUrl.isNotBlank(),
                         onClick = onPreview,
                     ),
             ) {
@@ -948,9 +1173,13 @@ private fun DiscoverySpeciesRow(
                     contentScale = ContentScale.Crop,
                     colorFilter = ColorFilter.colorMatrix(matrix),
                 )
-                if (!taxon.collected && !taxon.referencePhoto?.url.isNullOrBlank()) {
+                if (imageUrl.isNotBlank()) {
                     Text(
-                        "VIEW IN COLOR",
+                        if (taxon.collected && !taxon.collectionPhotoUrl.isNullOrBlank()) {
+                            "OPEN PHOTO"
+                        } else {
+                            "VIEW IN COLOR"
+                        },
                         style = MaterialTheme.typography.labelSmall,
                         color = Paper,
                         modifier = Modifier
@@ -988,7 +1217,7 @@ private fun DiscoverySpeciesRow(
             }
             if (onToggleFocus != null) {
                 TextButton(onClick = onToggleFocus, enabled = selectionEnabled) {
-                    Text(if (focusOrder != null) "Selected $focusOrder/5" else "Select")
+                    Text(if (focusOrder != null) "Selected $focusOrder/$QuestFocusLimit" else "Select")
                 }
             }
         }
@@ -1009,7 +1238,7 @@ private fun DiscoveryEmpty(message: String) {
 
 private fun toggleFocus(current: List<Long>, taxonId: Long): List<Long> =
     if (taxonId in current) current.filterNot { it == taxonId }
-    else if (current.size >= 5) current else current + taxonId
+    else if (current.size >= QuestFocusLimit) current else current + taxonId
 
 private fun iconicTaxonLabel(value: String?): String = when (value) {
     null -> "All life"

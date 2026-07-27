@@ -20,3 +20,11 @@ def test_discovery_migration_defines_touch_function_before_trigger() -> None:
     assert migration.index("create or replace function public.touch_updated_at") < migration.index(
         "create trigger species_quests_touch_updated_at"
     )
+
+
+def test_discovery_migration_expands_quest_and_focus_limits() -> None:
+    migration = Path("sql/species_discovery_migration.sql").read_text(encoding="utf-8").lower()
+
+    assert "target_count between 0 and 100" in migration
+    assert "focus_order between 1 and 10" in migration
+    assert "add column if not exists wikipedia_summary text" in migration

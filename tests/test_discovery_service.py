@@ -75,6 +75,7 @@ def test_nearby_fetches_saves_and_attaches_collection_progress() -> None:
     assert result["progress"]["collected_count"] == 1
     assert result["taxa"][0]["collection_photo_url"] == "mine.jpg"
     assert result["source"]["guidance"].startswith("Reporting frequency")
+    assert "Both the location and date window are applied." in result["taxa"][0]["match_reason"]
 
 
 def test_fresh_snapshot_avoids_network() -> None:
@@ -190,3 +191,34 @@ def test_inat_discovery_client_builds_public_frequency_query(monkeypatch) -> Non
     assert captured["params"]["rank"] == "species"
     assert captured["params"]["month"] == "6,7,8"
     assert captured["params"]["iconic_taxa"] == "Plantae"
+
+
+def test_inat_discovery_client_can_request_the_expanded_field_list(monkeypatch) -> None:
+    captured = {}
+
+    class Response:
+        status_code = 200
+        text = ""
+        headers = {}
+
+        @staticmethod
+        def json():
+            return {"results": []}
+
+    def fake_get(_url, **kwargs):
+        captured.update(kwargs)
+        return Response()
+
+    monkeypatch.setattr("hike_journal.services.discovery.requests.get", fake_get)
+
+    InatDiscoveryClient("https://api.example/v2").fetch_species_counts(
+        lat=28.1,
+        lng=-82.7,
+        radius_km=10,
+        months=(6, 7, 8),
+        iconic_taxon=None,
+        observed_after="2016-07-26",
+        limit=100,
+    )
+
+    assert captured["params"]["per_page"] == 100

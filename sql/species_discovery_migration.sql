@@ -55,7 +55,7 @@ create table if not exists public.species_quests (
     months smallint[] not null,
     iconic_taxon text,
     algorithm_version text not null,
-    target_count integer not null default 0 check (target_count between 0 and 50),
+    target_count integer not null default 0 check (target_count between 0 and 100),
     created_at timestamptz not null default timezone('utc', now()),
     updated_at timestamptz not null default timezone('utc', now())
 );
@@ -73,7 +73,9 @@ create table if not exists public.species_quest_taxa (
     reference_photo_url text,
     reference_photo_attribution text,
     reference_photo_license text,
-    focus_order smallint check (focus_order between 1 and 5),
+    wikipedia_url text,
+    wikipedia_summary text,
+    focus_order smallint check (focus_order between 1 and 10),
     created_at timestamptz not null default timezone('utc', now()),
     primary key (quest_id, taxon_id)
 );
@@ -88,6 +90,26 @@ create index if not exists species_quests_status_idx on public.species_quests (s
 create index if not exists species_quest_taxa_taxon_id_idx on public.species_quest_taxa (taxon_id);
 create index if not exists species_discovery_snapshots_expires_at_idx
 on public.species_discovery_snapshots (expires_at);
+
+alter table public.species_quest_taxa
+add column if not exists wikipedia_url text;
+
+alter table public.species_quest_taxa
+add column if not exists wikipedia_summary text;
+
+alter table public.species_quests
+drop constraint if exists species_quests_target_count_check;
+
+alter table public.species_quests
+add constraint species_quests_target_count_check
+check (target_count between 0 and 100);
+
+alter table public.species_quest_taxa
+drop constraint if exists species_quest_taxa_focus_order_check;
+
+alter table public.species_quest_taxa
+add constraint species_quest_taxa_focus_order_check
+check (focus_order between 1 and 10);
 
 create or replace function public.touch_updated_at()
 returns trigger as $$

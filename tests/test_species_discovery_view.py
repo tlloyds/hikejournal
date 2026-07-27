@@ -46,7 +46,7 @@ def test_focus_selection_includes_collected_taxa_and_preserves_order() -> None:
     assert species_log._normalize_focus_taxon_ids([1, 3, 999, 1], taxa) == [1, 3]
     assert species_log._toggle_focus_taxon_id([1], 2) == [1, 2]
     assert species_log._toggle_focus_taxon_id([1, 2], 1) == [2]
-    assert species_log._toggle_focus_taxon_id([1, 2, 3, 4, 5], 6) == [1, 2, 3, 4, 5]
+    assert species_log._toggle_focus_taxon_id(list(range(1, 11)), 11) == list(range(1, 11))
 
 
 def test_selected_focus_row_has_direct_selection_state() -> None:
@@ -65,7 +65,7 @@ def test_selected_focus_row_has_direct_selection_state() -> None:
     )
 
     assert "is-collected is-focus-selected" in html
-    assert "Quest pick 1 of 5" in html
+    assert "Quest pick 1 of 10" in html
 
 
 def test_unseen_reference_photo_opens_a_color_view() -> None:
@@ -91,7 +91,7 @@ def test_unseen_reference_photo_opens_a_color_view() -> None:
     assert "<span>View in color</span>" in html
 
 
-def test_focus_picker_shows_five_numbered_slots_and_selection_count() -> None:
+def test_focus_picker_shows_ten_numbered_slots_and_selection_count() -> None:
     html = species_log._build_focus_picker_html(
         [
             {"taxon_id": 1, "common_name": "White Ibis"},
@@ -100,8 +100,8 @@ def test_focus_picker_shows_five_numbered_slots_and_selection_count() -> None:
         [1, 2],
     )
 
-    assert "2 of 5 selected" in html
-    assert html.count("field-quest-focus-slot") == 5
+    assert "2 of 10 selected" in html
+    assert html.count("field-quest-focus-slot") == 10
     assert "White Ibis" in html
     assert "Choose a species" in html
 
@@ -133,4 +133,20 @@ _render_discovery_species_rows(
     app.button[0].click().run()
 
     assert not app.exception
-    assert app.button[0].label == "Selected 1/5"
+    assert app.button[0].label == "Selected 1/10"
+
+
+def test_collected_discovery_photo_opens_the_personal_observation() -> None:
+    html = species_log._build_discovery_species_row_html(
+        {
+            "taxon_id": 1,
+            "common_name": "American Alligator",
+            "collected": True,
+            "collection_photo_url": "https://photos.example/mine.jpg",
+        },
+        show_focus=False,
+    )
+
+    assert "https://photos.example/mine.jpg" in html
+    assert "Open your American Alligator observation" in html
+    assert "<span>Open photo</span>" in html

@@ -234,7 +234,7 @@ class FieldOperationQueue(private val context: Context) {
             OperationKind.UpdateSpeciesQuest,
             questId,
             null,
-            JSONObject().put("focus_taxon_ids", org.json.JSONArray(focusTaxonIds.take(5))),
+            JSONObject().put("focus_taxon_ids", org.json.JSONArray(focusTaxonIds.take(10))),
         )
     }
 

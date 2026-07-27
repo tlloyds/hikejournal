@@ -64,10 +64,12 @@ class HikeJournalApi(private val context: Context) {
         iconicTaxon: String?,
         latitude: Double? = null,
         longitude: Double? = null,
+        limit: Int = 50,
     ): String {
         val params = mutableListOf(
             "date=${targetDate.urlEncoded()}",
             "radius_km=$radiusKm",
+            "limit=$limit",
         )
         if (!areaId.isNullOrBlank()) params += "area_id=${areaId.urlEncoded()}"
         if (!iconicTaxon.isNullOrBlank()) params += "iconic_taxon=${iconicTaxon.urlEncoded()}"
@@ -91,6 +93,7 @@ class HikeJournalApi(private val context: Context) {
         iconicTaxon: String?,
         title: String,
         linkedHikeId: String?,
+        resultLimit: Int,
     ): String = request(
         path = "/v1/discovery/quests",
         method = "POST",
@@ -101,6 +104,7 @@ class HikeJournalApi(private val context: Context) {
             .put("iconic_taxon", iconicTaxon ?: JSONObject.NULL)
             .put("title", title)
             .put("linked_hike_id", linkedHikeId ?: JSONObject.NULL)
+            .put("result_limit", resultLimit)
             .toString()
             .toRequestBody(jsonMediaType),
     )

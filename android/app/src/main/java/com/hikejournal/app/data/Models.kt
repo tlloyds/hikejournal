@@ -109,6 +109,9 @@ data class DiscoveryTaxon(
     val collected: Boolean,
     val collectedAt: String?,
     val collectionPhotoUrl: String?,
+    val wikipediaUrl: String,
+    val wikipediaSummary: String,
+    val matchReason: String,
     val focusOrder: Int?,
     val pendingCredit: Boolean,
 )
@@ -128,6 +131,7 @@ data class NearbySpecies(
     val targetDate: String,
     val periodLabel: String,
     val iconicTaxon: String?,
+    val resultLimit: Int,
     val dataDensity: String,
     val dataDensityMessage: String,
     val sourceGuidance: String,
@@ -306,6 +310,7 @@ fun parseNearbySpecies(json: String): NearbySpecies {
         targetDate = period.optString("target_date"),
         periodLabel = period.optString("label"),
         iconicTaxon = filters.optNullableString("iconic_taxon"),
+        resultLimit = filters.optInt("result_limit", 50),
         dataDensity = density.optString("level", "normal"),
         dataDensityMessage = density.optString("message"),
         sourceGuidance = source.optString(
@@ -551,6 +556,9 @@ private fun parseDiscoveryTaxa(root: JSONObject): List<DiscoveryTaxon> {
             collected = item.optBoolean("collected"),
             collectedAt = item.optNullableString("collected_at"),
             collectionPhotoUrl = item.optNullableString("collection_photo_url"),
+            wikipediaUrl = item.optString("wikipedia_url"),
+            wikipediaSummary = item.optString("wikipedia_summary"),
+            matchReason = item.optString("match_reason"),
             focusOrder = item.optNullableInt("focus_order"),
             pendingCredit = item.optBoolean("pending_credit"),
         )

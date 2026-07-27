@@ -19,7 +19,7 @@ from hike_journal.services.repositories import HikeJournalRepository
 from hike_journal.ui.components import get_photo_thumbnail_url, section_heading
 
 
-QUEST_FOCUS_LIMIT = 5
+QUEST_FOCUS_LIMIT = 10
 
 
 def _discovery_status_label(item: dict[str, Any]) -> str:
@@ -56,19 +56,38 @@ def _build_discovery_species_row_html(
             f"<img src='{escape(str(photo_url), quote=True)}' "
             f"alt='{escape(common_name, quote=True)}'>"
         )
-        reference_url = str(photo.get("url") or "").strip()
-        if not collected and reference_url:
-            image_markup = (
-                f"<a class='field-quest-species-image-link' "
-                f"href='{escape(reference_url, quote=True)}' target='_blank' "
-                f"rel='noopener noreferrer' aria-label='View {escape(common_name, quote=True)} in color'>"
-                f"{image}<span>View in color</span></a>"
-            )
-        else:
-            image_markup = image
+        link_copy = "Open photo" if collected else "View in color"
+        aria_copy = (
+            f"Open your {common_name} observation"
+            if collected
+            else f"View {common_name} in color"
+        )
+        image_markup = (
+            f"<a class='field-quest-species-image-link' "
+            f"href='{escape(str(photo_url), quote=True)}' target='_blank' "
+            f"rel='noopener noreferrer' aria-label='{escape(aria_copy, quote=True)}'>"
+            f"{image}<span>{link_copy}</span></a>"
+        )
     else:
         image_markup = "<div class='field-quest-image-fallback'>No image</div>"
     attribution_copy = f" · {escape(attribution)}" if attribution and not collected else ""
+    match_reason = str(item.get("match_reason") or "").strip()
+    wikipedia_url = str(item.get("wikipedia_url") or "").strip()
+    wikipedia_summary = str(item.get("wikipedia_summary") or "").strip()
+    context_markup = ""
+    if match_reason or wikipedia_summary or wikipedia_url:
+        wikipedia_markup = (
+            f" <a href='{escape(wikipedia_url, quote=True)}' target='_blank' "
+            "rel='noopener noreferrer'>Read on Wikipedia</a>"
+            if wikipedia_url
+            else ""
+        )
+        context_markup = (
+            "<details class='field-quest-species-context'><summary>Why it’s here</summary>"
+            f"<p>{escape(match_reason)}</p>"
+            f"{f'<p>{escape(wikipedia_summary)}</p>' if wikipedia_summary else ''}"
+            f"{wikipedia_markup}</details>"
+        )
     collected_class = " is-collected" if collected else " is-unseen"
     focus_class = " is-focus-selected" if focus_selected else ""
     return (
@@ -80,6 +99,7 @@ def _build_discovery_species_row_html(
         f'<div class="field-quest-species-scientific">{escape(str(item.get("scientific_name") or ""))}</div>'
         f'<div class="field-quest-species-meta">{int(item.get("observation_count") or 0):,} '
         f"research-grade reports nearby{attribution_copy}</div>"
+        f"{context_markup}"
         "</div>"
         f'<div class="field-quest-species-rank">{int(item.get("nearby_rank") or 0):02d}</div>'
         "</div>"
@@ -246,6 +266,13 @@ def _render_nearby_mode(
     if area is None:
         st.caption("Start typing above, then choose a saved trail with coordinates.")
         return
+    discovery_query_key = "|".join(
+        [str(area["id"]), target_date.isoformat(), str(radius), str(group_label)]
+    )
+    if st.session_state.get("species_nearby_query_key") != discovery_query_key:
+        st.session_state.species_nearby_query_key = discovery_query_key
+        st.session_state.species_nearby_limit = 50
+    result_limit = int(st.session_state.get("species_nearby_limit", 50))
     st.session_state.species_nearby_area_id = area["id"]
     st.session_state.species_nearby_area_name = area["name"]
     st.session_state.species_nearby_radius = radius
@@ -259,6 +286,7 @@ def _render_nearby_mode(
                 iconic_taxon=group_label,
                 observations=context.get("confirmed_observations") or [],
                 photos_by_id=context.get("photos_by_id") or {},
+                limit=result_limit,
             )
     except (ValueError, InatRequestError, InatRateLimitError) as exc:
         st.error(str(exc))
@@ -291,20 +319,37 @@ def _render_nearby_mode(
         nearby["taxa"],
     )
     st.session_state[focus_state_key] = focus_ids
-    st.markdown("#### Build a five-species quest")
-    st.caption("Select exactly five targets from the field guide. Species already in your collection are eligible.")
+    if (
+        result_limit == 50
+        and progress["total_count"] == 50
+        and progress["collected_count"] == 50
+    ):
+        expansion = st.columns([0.30, 0.70])
+        if expansion[0].button(
+            "Expand to 100 species",
+            type="primary",
+            use_container_width=True,
+        ):
+            st.session_state.species_nearby_limit = 100
+            st.rerun()
+        expansion[1].caption("You completed the first 50. Open the next 50 nearby species.")
+    elif result_limit == 100:
+        st.caption("Expanded field list · showing up to 100 nearby species.")
+
+    st.markdown("#### Build a Field Quest")
+    st.caption("Choose between one and ten targets. Species already in your collection are eligible.")
     st.html(_build_focus_picker_html(nearby["taxa"], focus_ids))
     action_cols = st.columns([0.24, 0.16, 0.60])
     if action_cols[0].button(
         (
             "Save Field Quest"
-            if len(focus_ids) == QUEST_FOCUS_LIMIT
-            else f"Choose {QUEST_FOCUS_LIMIT - len(focus_ids)} more"
+            if focus_ids
+            else "Choose at least one"
         ),
         type="primary",
         use_container_width=True,
-        disabled=len(focus_ids) != QUEST_FOCUS_LIMIT,
-        help="Choose five species before saving." if len(focus_ids) != QUEST_FOCUS_LIMIT else None,
+        disabled=not focus_ids,
+        help="Choose at least one species before saving." if not focus_ids else None,
     ):
         focus_order = {taxon_id: index + 1 for index, taxon_id in enumerate(focus_ids)}
         quest_taxa = [
@@ -385,18 +430,38 @@ def _render_quests_mode(
             else "No archived Field Quests."
         )
         return
-    quest_by_label = {
-        f"{quest.get('title') or 'Field Quest'} · {str(quest.get('created_at') or '')[:10]}": quest
-        for quest in quests
-    }
-    labels = list(quest_by_label)
     selected_id = st.session_state.get("species_quest_selected_id")
-    selected_index = next(
-        (index for index, label in enumerate(labels) if str(quest_by_label[label]["id"]) == str(selected_id)),
-        0,
+    quest = next(
+        (candidate for candidate in quests if str(candidate["id"]) == str(selected_id)),
+        quests[0] if len(quests) == 1 else None,
     )
-    selected_label = st.selectbox("Saved quest", labels, index=selected_index)
-    quest = quest_by_label[selected_label]
+    if quest is None:
+        st.markdown("#### Choose a Field Quest")
+        tile_columns = st.columns(2, gap="medium")
+        for index, candidate in enumerate(quests):
+            candidate_payload = service.quest_payload(
+                candidate,
+                observations=context.get("confirmed_observations") or [],
+                photos_by_id=context.get("photos_by_id") or {},
+            )
+            candidate_progress = candidate_payload["focus_progress"]
+            with tile_columns[index % 2].container(border=True):
+                st.markdown(f"**{candidate_payload['title']}**")
+                st.caption(
+                    f"{candidate_payload['area']['name']} · "
+                    f"{candidate_progress['collected_count']} of {candidate_progress['total_count']} found"
+                )
+                if st.button(
+                    "Open quest",
+                    key=f"open_species_quest_{candidate['id']}",
+                    use_container_width=True,
+                ):
+                    st.session_state.species_quest_selected_id = candidate["id"]
+                    st.rerun()
+        return
+    if len(quests) > 1 and st.button("← All quests"):
+        st.session_state.species_quest_selected_id = None
+        st.rerun()
     st.session_state.species_quest_selected_id = quest["id"]
     payload = service.quest_payload(
         quest,
@@ -452,16 +517,16 @@ def _render_quests_mode(
         st.session_state[edit_state_key] = not editing
         st.rerun()
     edit_actions[1].caption(
-        "Your quest shows only these five targets. The original nearby list stays available while changing them."
+        "Your quest shows only the targets you choose. The original nearby list stays available while changing them."
     )
 
     if editing:
         save_cols = st.columns([0.24, 0.76])
         if save_cols[0].button(
-            "Save five targets",
+            "Save targets",
             type="primary",
             use_container_width=True,
-            disabled=len(focus_ids) != QUEST_FOCUS_LIMIT,
+            disabled=not focus_ids,
         ):
             repository.update_species_quest(
                 str(quest["id"]),
@@ -479,14 +544,14 @@ def _render_quests_mode(
             key_prefix=f"quest_{quest['id']}",
         )
     elif focus_taxa:
-        st.markdown("#### Your five targets")
+        st.markdown("#### Your quest targets")
         _render_discovery_species_rows(
             focus_taxa,
             show_focus=True,
             key_prefix=f"quest_targets_{quest['id']}",
         )
     else:
-        st.info("This older quest has no targets yet. Choose five species to make it actionable.")
+        st.info("This older quest has no targets yet. Choose at least one species to make it actionable.")
 
     with st.expander("Manage this quest"):
         title = st.text_input(
@@ -631,7 +696,7 @@ def render_species_log_view(
             "Choose a saved trail to see which species are reported there most often this season.",
         ),
         "Field Quests": (
-            "Five-species quests",
+            "Field quests",
             "Keep one clear target list for the outing, then watch confirmed observations complete it.",
         ),
     }

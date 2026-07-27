@@ -79,6 +79,7 @@ class HikeJournalRepository(context: Context) {
         iconicTaxon: String?,
         latitude: Double? = null,
         longitude: Double? = null,
+        limit: Int = 50,
     ): LoadResult<NearbySpecies> {
         val cacheKey = listOf(
             areaId.orEmpty(),
@@ -87,6 +88,7 @@ class HikeJournalRepository(context: Context) {
             iconicTaxon.orEmpty(),
             latitude?.let { "%.2f".format(java.util.Locale.US, it) }.orEmpty(),
             longitude?.let { "%.2f".format(java.util.Locale.US, it) }.orEmpty(),
+            limit.toString(),
         ).joinToString("|").hashCode()
         val result = loadWithCache(
             cacheFile = File(cacheDirectory, "nearby-$cacheKey.json"),
@@ -98,6 +100,7 @@ class HikeJournalRepository(context: Context) {
                     iconicTaxon = iconicTaxon,
                     latitude = latitude,
                     longitude = longitude,
+                    limit = limit,
                 )
             },
             parse = ::parseNearbySpecies,
@@ -131,6 +134,7 @@ class HikeJournalRepository(context: Context) {
         title: String,
         linkedHikeId: String?,
         focusTaxonIds: List<Long>,
+        resultLimit: Int,
     ): FieldQuest {
         var questJson = api.createSpeciesQuest(
             areaId = areaId,
@@ -139,10 +143,11 @@ class HikeJournalRepository(context: Context) {
             iconicTaxon = iconicTaxon,
             title = title,
             linkedHikeId = linkedHikeId,
+            resultLimit = resultLimit,
         )
         var quest = parseFieldQuest(questJson)
         if (focusTaxonIds.isNotEmpty()) {
-            questJson = api.updateSpeciesQuest(quest.id, focusTaxonIds = focusTaxonIds.take(5))
+            questJson = api.updateSpeciesQuest(quest.id, focusTaxonIds = focusTaxonIds.take(10))
             quest = parseFieldQuest(questJson)
         }
         withContext(Dispatchers.IO) {
@@ -162,7 +167,7 @@ class HikeJournalRepository(context: Context) {
     }
 
     suspend fun queueQuestFocus(quest: FieldQuest, focusTaxonIds: List<Long>): FieldQuest {
-        fieldQueue.queueQuestFocus(quest.id, focusTaxonIds.take(5))
+        fieldQueue.queueQuestFocus(quest.id, focusTaxonIds.take(10))
         return quest.withFocus(focusTaxonIds, pending = true)
     }
 
@@ -337,7 +342,7 @@ class HikeJournalRepository(context: Context) {
 }
 
 private fun FieldQuest.withFocus(focusTaxonIds: List<Long>, pending: Boolean): FieldQuest {
-    val order = focusTaxonIds.take(5).withIndex().associate { (index, taxonId) -> taxonId to index + 1 }
+    val order = focusTaxonIds.take(10).withIndex().associate { (index, taxonId) -> taxonId to index + 1 }
     return copy(
         taxa = taxa.map { it.copy(focusOrder = order[it.taxonId]) },
         pendingFocusSync = pending,

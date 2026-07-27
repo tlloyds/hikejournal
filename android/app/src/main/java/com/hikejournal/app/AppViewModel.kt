@@ -190,6 +190,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         iconicTaxon: String?,
         latitude: Double? = null,
         longitude: Double? = null,
+        limit: Int = 50,
     ) {
         viewModelScope.launch {
             _state.update { it.copy(isDiscoveryLoading = true, discoveryNotice = null) }
@@ -201,6 +202,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     iconicTaxon = iconicTaxon,
                     latitude = latitude,
                     longitude = longitude,
+                    limit = limit,
                 )
             }.onSuccess { result ->
                 _state.update {
@@ -242,6 +244,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     title = title,
                     linkedHikeId = linkedHikeId,
                     focusTaxonIds = focusTaxonIds,
+                    resultLimit = nearby.resultLimit,
                 )
             }.onSuccess { quest ->
                 _state.update {

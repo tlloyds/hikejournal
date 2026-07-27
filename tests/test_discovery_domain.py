@@ -76,6 +76,28 @@ def test_species_counts_are_deduplicated_banded_and_species_only() -> None:
     assert taxa[0]["reference_photo"]["license_code"] == "cc-by"
 
 
+def test_species_counts_preserve_plain_wikipedia_context_and_support_100() -> None:
+    results = [
+        {
+            "count": 100 - index,
+            "taxon": {
+                "id": index + 1,
+                "rank": "species",
+                "name": f"Species example{index}",
+                "wikipedia_url": f"https://en.wikipedia.org/wiki/Species_{index}",
+                "wikipedia_summary": "<b>Field species</b> &amp; habitat specialist.",
+            },
+        }
+        for index in range(100)
+    ]
+
+    taxa = normalize_species_counts({"results": results}, limit=100)
+
+    assert len(taxa) == 100
+    assert taxa[0]["wikipedia_summary"] == "Field species & habitat specialist."
+    assert taxa[0]["wikipedia_url"].startswith("https://en.wikipedia.org/")
+
+
 def test_collection_credit_excludes_genus_only_records() -> None:
     assert credited_species_taxon_id({"taxon_id": 1, "rank": "genus", "scientific_name": "Quercus"}) is None
     assert credited_species_taxon_id({"taxon_id": 2, "rank": "species", "scientific_name": "Quercus virginiana"}) == 2

@@ -117,6 +117,7 @@ class SpeciesQuestInput(BaseModel):
     iconic_taxon: str | None = Field(default=None, max_length=40)
     title: str = Field(default="", max_length=160)
     linked_hike_id: str | None = Field(default=None, max_length=36)
+    result_limit: Literal[50, 100] = 50
 
 
 class SpeciesQuestPatchInput(BaseModel):
@@ -124,7 +125,7 @@ class SpeciesQuestPatchInput(BaseModel):
     status: Literal["active", "archived"] | None = None
     linked_hike_id: str | None = Field(default=None, max_length=36)
     set_linked_hike: bool = False
-    focus_taxon_ids: list[int] | None = Field(default=None, max_length=5)
+    focus_taxon_ids: list[int] | None = Field(default=None, min_length=1, max_length=10)
 
 
 class Services:
@@ -833,6 +834,7 @@ def get_nearby_species(
     lat: float | None = Query(default=None, ge=-90, le=90),
     lng: float | None = Query(default=None, ge=-180, le=180),
     area_name: str | None = Query(default=None, max_length=160),
+    limit: Literal[50, 100] = Query(default=50),
 ) -> dict[str, Any]:
     _require_discovery_enabled()
     try:
@@ -864,6 +866,7 @@ def get_nearby_species(
             iconic_taxon=iconic_taxon,
             observations=observations,
             photos_by_id=photos_by_id,
+            limit=limit,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -910,6 +913,7 @@ def create_species_quest(payload: SpeciesQuestInput) -> dict[str, Any]:
             iconic_taxon=payload.iconic_taxon,
             observations=observations,
             photos_by_id=photos_by_id,
+            limit=payload.result_limit,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -964,8 +968,11 @@ def update_species_quest(quest_id: str, payload: SpeciesQuestPatchInput) -> dict
     focus_ids = payload.focus_taxon_ids
     if focus_ids is not None:
         deduped_focus = list(dict.fromkeys(int(taxon_id) for taxon_id in focus_ids))
-        if len(deduped_focus) > 5 or any(taxon_id not in target_ids for taxon_id in deduped_focus):
-            raise HTTPException(status_code=400, detail="Focus finds must belong to this quest and are limited to five.")
+        if not deduped_focus or len(deduped_focus) > 10 or any(taxon_id not in target_ids for taxon_id in deduped_focus):
+            raise HTTPException(
+                status_code=400,
+                detail="Choose between one and ten focus finds that belong to this quest.",
+            )
         focus_ids = deduped_focus
     linked_hike_id = payload.linked_hike_id
     if payload.set_linked_hike and linked_hike_id:

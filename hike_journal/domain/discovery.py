@@ -2,13 +2,16 @@ from __future__ import annotations
 
 from datetime import date
 import hashlib
+from html import unescape
 import json
 import re
 from typing import Any
 
 
-DISCOVERY_ALGORITHM_VERSION = "inat-frequency-v1"
+DISCOVERY_ALGORITHM_VERSION = "inat-frequency-v2"
 DISCOVERY_LIMIT = 50
+DISCOVERY_EXPANDED_LIMIT = 100
+DISCOVERY_LIMITS = (DISCOVERY_LIMIT, DISCOVERY_EXPANDED_LIMIT)
 DISCOVERY_RADII_KM = (5, 10, 25)
 DISCOVERY_GROUPS: dict[str, str | None] = {
     "All Life": None,
@@ -79,6 +82,13 @@ def normalize_radius(value: int | float) -> int:
     return radius
 
 
+def normalize_discovery_limit(value: int | float) -> int:
+    limit = int(value)
+    if limit not in DISCOVERY_LIMITS:
+        raise ValueError(f"Species limit must be one of {DISCOVERY_LIMITS}.")
+    return limit
+
+
 def normalize_iconic_taxon(value: str | None) -> str | None:
     if not value or value == "All Life":
         return None
@@ -97,6 +107,7 @@ def discovery_cache_key(
     months: tuple[int, int, int],
     iconic_taxon: str | None,
     observed_after: str,
+    limit: int = DISCOVERY_LIMIT,
 ) -> str:
     payload = {
         "algorithm": DISCOVERY_ALGORITHM_VERSION,
@@ -106,6 +117,7 @@ def discovery_cache_key(
         "months": sorted(months),
         "iconic_taxon": iconic_taxon,
         "observed_after": observed_after,
+        "limit": normalize_discovery_limit(limit),
     }
     serialized = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
@@ -129,7 +141,13 @@ def _photo_payload(photo: Any) -> dict[str, Any] | None:
     }
 
 
+def _plain_text(value: Any) -> str:
+    text = re.sub(r"<[^>]+>", " ", str(value or ""))
+    return re.sub(r"\s+", " ", unescape(text)).strip()
+
+
 def normalize_species_counts(payload: dict[str, Any], *, limit: int = DISCOVERY_LIMIT) -> list[dict[str, Any]]:
+    normalized_limit = normalize_discovery_limit(limit)
     results = payload.get("results") or []
     normalized: list[dict[str, Any]] = []
     seen_taxon_ids: set[int] = set()
@@ -160,9 +178,11 @@ def normalize_species_counts(payload: dict[str, Any], *, limit: int = DISCOVERY_
                 "iconic_taxon_name": str(taxon.get("iconic_taxon_name") or "Other"),
                 "observation_count": max(count, 0),
                 "reference_photo": _photo_payload(taxon.get("default_photo")),
+                "wikipedia_url": str(taxon.get("wikipedia_url") or "").strip(),
+                "wikipedia_summary": _plain_text(taxon.get("wikipedia_summary")),
             }
         )
-        if len(normalized) >= limit:
+        if len(normalized) >= normalized_limit:
             break
     normalized.sort(key=lambda item: (-item["observation_count"], item["common_name"].casefold()))
     return apply_frequency_bands(normalized)
@@ -355,6 +375,29 @@ def attach_collection_progress(
             "remaining_count": max(len(enriched) - collected_count, 0),
         },
     }
+
+
+def attach_discovery_reasons(
+    taxa: list[dict[str, Any]],
+    *,
+    area_name: str,
+    radius_km: int,
+    period_label: str,
+) -> list[dict[str, Any]]:
+    place = area_name.strip() or "the selected area"
+    period = period_label.strip() or "the selected season"
+    return [
+        {
+            **item,
+            "match_reason": (
+                f"Shown because iNaturalist has {int(item.get('observation_count') or 0):,} "
+                f"research-grade report{'s' if int(item.get('observation_count') or 0) != 1 else ''} "
+                f"within {int(radius_km)} km of {place} during {period}. "
+                "Both the location and date window are applied."
+            ),
+        }
+        for item in taxa
+    ]
 
 
 def classify_data_density(taxa: list[dict[str, Any]]) -> dict[str, Any]:
