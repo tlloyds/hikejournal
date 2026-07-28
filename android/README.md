@@ -15,8 +15,13 @@ the current Supabase database and Cloudflare R2 photo library through the small
 If the Mac receives a different local IP address, open the gear in HikeJournal
 and replace the server address. The API always uses port `8506`.
 
-## Included in v0.5.2
+## Included in v0.5.19
 
+- Native Trail Medals nested in the Library, with 36 polished lifetime
+  achievements across hikes, mileage, long outings, Field Quests, rare finds,
+  the Field Guide, and taxon specialties
+- Offline-safe, deterministic medal progress with an upcoming-medal summary and
+  detailed criteria for every locked or earned medal
 - Native Library with search, current/archive browsing, and cached offline reads
 - Journal detail with notes, metadata, photos, and species labels
 - Create and edit hikes with durable offline drafts

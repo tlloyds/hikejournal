@@ -43,6 +43,9 @@ data class AppState(
     val uploadCurrent: Int = 0,
     val uploadTotal: Int = 0,
     val isSpeciesLoading: Boolean = false,
+    val isBadgeLoading: Boolean = false,
+    val badgesHydrated: Boolean = false,
+    val badgeNotice: String? = null,
     val isDiscoveryLoading: Boolean = false,
     val isSavingQuest: Boolean = false,
     val discoveryNotice: String? = null,
@@ -157,6 +160,34 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun loadBadgeProgress(force: Boolean = false) {
+        if (_state.value.badgesHydrated && !force) return
+        viewModelScope.launch {
+            _state.update { it.copy(isBadgeLoading = true, badgeNotice = null) }
+            runCatching {
+                repository.loadSpecies() to repository.loadSpeciesQuests()
+            }.onSuccess { (species, quests) ->
+                _state.update {
+                    it.copy(
+                        species = species.value,
+                        speciesQuests = quests.value,
+                        isBadgeLoading = false,
+                        badgesHydrated = true,
+                        badgeNotice = null,
+                        isOffline = species.fromCache || quests.fromCache,
+                    )
+                }
+            }.onFailure { error ->
+                _state.update {
+                    it.copy(
+                        isBadgeLoading = false,
+                        badgeNotice = "Showing saved medal progress. Refresh when connected.",
+                    )
+                }
+            }
+        }
+    }
+
     fun loadSpeciesDiscovery(force: Boolean = false) {
         if (_state.value.discoveryAreas.isNotEmpty() && _state.value.speciesQuests.isNotEmpty() && !force) return
         viewModelScope.launch {
@@ -169,6 +200,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         discoveryAreas = areas.value,
                         speciesQuests = quests.value,
                         isDiscoveryLoading = false,
+                        badgesHydrated = true,
                         isOffline = areas.fromCache || quests.fromCache,
                     )
                 }

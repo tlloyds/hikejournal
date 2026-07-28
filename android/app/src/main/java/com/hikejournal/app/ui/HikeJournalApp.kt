@@ -59,6 +59,7 @@ import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Archive
 import androidx.compose.material.icons.rounded.CameraAlt
+import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.CloudOff
 import androidx.compose.material.icons.rounded.CloudQueue
@@ -73,6 +74,7 @@ import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Unarchive
+import androidx.compose.material.icons.rounded.WorkspacePremium
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -161,6 +163,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
     var editingHike by remember { mutableStateOf<Hike?>(null) }
     var creatingHike by remember { mutableStateOf(false) }
     var settingsOpen by remember { mutableStateOf(false) }
+    var badgesOpen by remember { mutableStateOf(false) }
     var selectedPhoto by remember { mutableStateOf<Photo?>(null) }
     var pendingUpload by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var syncAttentionOpen by remember { mutableStateOf(false) }
@@ -179,7 +182,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
 
     BackHandler(
         enabled = selectedPhoto != null || syncAttentionOpen || settingsOpen || pendingUpload.isNotEmpty() ||
-            creatingHike || editingHike != null || state.journal != null || state.speciesDetail != null,
+            creatingHike || editingHike != null || badgesOpen || state.journal != null || state.speciesDetail != null,
     ) {
         when {
             selectedPhoto != null -> selectedPhoto = null
@@ -190,6 +193,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                 creatingHike = false
                 editingHike = null
             }
+            badgesOpen -> badgesOpen = false
             state.journal != null -> viewModel.closeJournal()
             state.speciesDetail != null -> viewModel.closeSpecies()
         }
@@ -211,6 +215,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
     val screenKey = when {
         state.journal != null -> "journal:${state.journal?.id}"
         state.speciesDetail != null -> "species:${state.speciesDetail?.key}"
+        badgesOpen -> "badges"
         else -> destination.name
     }
 
@@ -253,6 +258,12 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                         onOpenPhoto = { selectedPhoto = it },
                     )
                 }
+                key == "badges" -> BadgesScreen(
+                    state = state,
+                    loading = state.isBadgeLoading,
+                    onBack = { badgesOpen = false },
+                    onRefresh = { viewModel.loadBadgeProgress(force = true) },
+                )
                 destination == TopDestination.Species -> SpeciesIndexScreen(
                     species = state.species,
                     hikes = state.hikes,
@@ -309,6 +320,10 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                     onRefresh = { viewModel.refreshLibrary() },
                     onCreate = { creatingHike = true },
                     onSettings = { settingsOpen = true },
+                    onBadges = {
+                        badgesOpen = true
+                        viewModel.loadBadgeProgress()
+                    },
                     onSync = viewModel::syncNow,
                     onRetrySync = viewModel::retrySyncAttention,
                     onShowSyncAttention = { syncAttentionOpen = true },
@@ -316,7 +331,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
             }
         }
 
-        if (state.journal == null && state.speciesDetail == null) {
+        if (state.journal == null && state.speciesDetail == null && !badgesOpen) {
             TopNavigation(
                 selected = destination,
                 onSelect = { destination = it },
@@ -415,6 +430,7 @@ private fun LibraryScreen(
     onRefresh: () -> Unit,
     onCreate: () -> Unit,
     onSettings: () -> Unit,
+    onBadges: () -> Unit,
     onSync: () -> Unit,
     onRetrySync: () -> Unit,
     onShowSyncAttention: () -> Unit,
@@ -451,6 +467,7 @@ private fun LibraryScreen(
                     refreshing = state.isRefreshing,
                     onRefresh = onRefresh,
                     onSettings = onSettings,
+                    onBadges = onBadges,
                 )
             }
             item {
@@ -500,6 +517,7 @@ private fun LibraryHeader(
     refreshing: Boolean,
     onRefresh: () -> Unit,
     onSettings: () -> Unit,
+    onBadges: () -> Unit,
 ) {
     Column(
         Modifier
@@ -532,6 +550,29 @@ private fun LibraryHeader(
             IconButton(onClick = onSettings) {
                 Icon(Icons.Rounded.Settings, "Settings", tint = Paper)
             }
+        }
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onBadges)
+                .padding(top = 16.dp, bottom = 1.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                Icons.Rounded.WorkspacePremium,
+                contentDescription = null,
+                tint = Trail,
+                modifier = Modifier.size(25.dp),
+            )
+            Column(Modifier.weight(1f).padding(start = 11.dp)) {
+                Text("TRAIL MEDALS", style = MaterialTheme.typography.labelSmall, color = Trail)
+                Text(
+                    "Milestones from every outing and field find",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color(0xFFD7DFD2),
+                )
+            }
+            Icon(Icons.Rounded.ChevronRight, "View trail medals", tint = Color(0xFFB8C9B6))
         }
     }
 }
