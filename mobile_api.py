@@ -294,7 +294,7 @@ def _hike_payload(
 
 
 def _species_key(observation: dict[str, Any]) -> str:
-    taxon_id = observation.get("taxon_id")
+    taxon_id = observation.get("species_taxon_id") or observation.get("taxon_id")
     if taxon_id not in (None, ""):
         return f"taxon:{taxon_id}"
     scientific_name = str(observation.get("scientific_name") or "").strip().casefold()
@@ -401,6 +401,15 @@ def _build_species_payloads(
             cover_photo,
             hikes_by_id.get(str(cover_photo.get("hike_id") or "")),
         )
+        iconic_taxon_name = next(
+            (
+                str(item.get("iconic_taxon_name")).strip()
+                for item in ordered
+                if str(item.get("iconic_taxon_name") or "").strip()
+                and str(item.get("iconic_taxon_name") or "").strip().casefold() != "other"
+            ),
+            "Other",
+        )
         payloads.append(
             {
                 "key": key,
@@ -408,7 +417,7 @@ def _build_species_payloads(
                 "common_name": str(lead.get("common_name") or lead.get("scientific_name") or "Unknown species"),
                 "scientific_name": str(lead.get("scientific_name") or ""),
                 "rank": str(lead.get("rank") or ""),
-                "iconic_taxon_name": str(lead.get("iconic_taxon_name") or "Other"),
+                "iconic_taxon_name": iconic_taxon_name,
                 "wikipedia_url": str(lead.get("wikipedia_url") or ""),
                 "wikipedia_summary": str(lead.get("wikipedia_summary") or ""),
                 "encounter_count": len(encounter_photo_ids),

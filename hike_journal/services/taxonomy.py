@@ -40,7 +40,8 @@ def taxon_enrichment_is_complete(enrichment: Any) -> bool:
         return False
     taxon_id = enrichment.get("taxon_id")
     rank = normalize_taxon_name(enrichment.get("rank"))
-    if taxon_id in (None, "") or not rank:
+    iconic_taxon_name = normalize_taxon_name(enrichment.get("iconic_taxon_name"))
+    if taxon_id in (None, "") or not rank or not iconic_taxon_name:
         return False
     if rank in INFRASPECIES_RANKS:
         return enrichment.get("species_taxon_id") not in (None, "")

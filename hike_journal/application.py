@@ -57,6 +57,7 @@ class ApplicationActions:
     render_empty_state: Any
     render_footer: Any
     render_inat_token_dialog: Any
+    render_badges_tab: Any
     render_journal_tab: Any
     render_library_tab: Any
     render_login_gate: Any
@@ -120,13 +121,13 @@ def run_application(actions: ApplicationActions) -> None:
     hike_location_tags = fetch_hike_location_tags()
     hikes = attach_location_tags_to_hikes(hikes, hike_locations, hike_location_tags)
     visible_hikes = filter_hikes_for_user(hikes, user_context)
-    view_options = ["Library", "Journal", "Species Review", "Map", "Species Log"]
+    view_options = ["Library", "Journal", "Trail Medals", "Species Review", "Map", "Species Log"]
 
     query_hike_id = st.query_params.get("hike")
     query_photo_id = st.query_params.get("photo")
     requested_view = st.query_params.get("view")
     requested_scope = st.query_params.get("scope")
-    top_level_views = {"Library", "Species Review", "Map", "Species Log"}
+    top_level_views = {"Library", "Trail Medals", "Species Review", "Map", "Species Log"}
     if requested_view in view_options:
         st.session_state.active_view = str(requested_view)
         st.session_state.pending_view = str(requested_view)
@@ -312,7 +313,7 @@ def run_application(actions: ApplicationActions) -> None:
             ),
         )
     visible_confirmed_observations = []
-    if visible_hikes and st.session_state.active_view != "Map":
+    if st.session_state.active_view != "Map":
         visible_confirmed_observations = [
             observation
             for observation in fetch_confirmed_observations_light()
@@ -384,6 +385,13 @@ def run_application(actions: ApplicationActions) -> None:
             library_photo_refs,
             visible_confirmed_observations,
             library_cover_photos,
+            user_context,
+        )
+    elif st.session_state.active_view == "Trail Medals":
+        actions.render_badges_tab(
+            repository,
+            visible_hikes,
+            visible_confirmed_observations,
             user_context,
         )
     elif st.session_state.active_view == "Journal":

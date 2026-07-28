@@ -67,6 +67,16 @@ def test_species_key_prefers_stable_taxon_id():
     ) == "taxon:1234"
 
 
+def test_species_key_credits_infraspecies_to_its_parent_species():
+    assert _species_key(
+        {
+            "taxon_id": 5678,
+            "species_taxon_id": 1234,
+            "scientific_name": "Liatris gracilis var. gracilis",
+        }
+    ) == "taxon:1234"
+
+
 def test_species_key_falls_back_to_normalized_scientific_name():
     assert _species_key(
         {"taxon_id": None, "scientific_name": "  Liatris Gracilis ", "common_name": "Blazing star"}
@@ -81,6 +91,7 @@ def test_species_payload_counts_unique_photo_encounters_and_hikes():
             "hike_id": "hike-a",
             "common_name": "Pinewoods milkweed",
             "scientific_name": "Asclepias humistrata",
+            "iconic_taxon_name": "Plantae",
         },
         {
             "taxon_id": 42,
@@ -117,6 +128,7 @@ def test_species_payload_counts_unique_photo_encounters_and_hikes():
         "hike-b": "https://img/b.jpg",
     }
     assert payload["cover_url"] == "https://img/b.jpg"
+    assert payload["iconic_taxon_name"] == "Plantae"
 
 
 def test_review_candidates_put_current_suggestion_first_and_deduplicate():

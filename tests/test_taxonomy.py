@@ -2,6 +2,7 @@ from hike_journal.services.taxonomy import (
     ensure_observation_taxonomy,
     preferred_current_enrichment,
     resolve_observation_enrichment,
+    taxon_enrichment_is_complete,
     taxonomy_resolution_fields,
 )
 
@@ -81,6 +82,16 @@ def test_coarser_taxon_never_retains_species_credit() -> None:
         "iconic_taxon_name": "Aves",
         "species_taxon_id": None,
     }
+
+
+def test_enrichment_requires_iconic_group_for_badge_progress() -> None:
+    incomplete = enrichment(42134, "Sus scrofa", common_name="Wild Boar")
+    incomplete["iconic_taxon_name"] = None
+
+    assert not taxon_enrichment_is_complete(incomplete)
+    assert taxon_enrichment_is_complete(
+        enrichment(42134, "Sus scrofa", common_name="Wild Boar")
+    )
 
 
 def test_ensure_taxonomy_corrects_id_and_persists_enrichment() -> None:

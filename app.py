@@ -116,6 +116,7 @@ from hike_journal.ui.components import (
 )
 from hike_journal.ui.theme import apply_theme
 from hike_journal.ui.state import initialize_session_state, reset_home_navigation_state
+from hike_journal.ui.views.badges import render_badges_view
 from hike_journal.ui.views.library import render_library_view
 from hike_journal.ui.views.journal import JournalActions, render_journal_view, render_standalone_journal_view
 from hike_journal.ui.views.map import render_map_view
@@ -258,6 +259,7 @@ def main() -> None:
             render_empty_state=render_empty_state,
             render_footer=render_footer,
             render_inat_token_dialog=render_inat_token_dialog,
+            render_badges_tab=render_badges_tab,
             render_journal_tab=render_journal_tab,
             render_library_tab=render_library_tab,
             render_login_gate=render_login_gate,
@@ -685,6 +687,7 @@ def render_sidebar(
     st.markdown("<div class='sidebar-section-label'>Navigate</div>", unsafe_allow_html=True)
     nav_items = [
         ("Library", "Library", "?view=Library"),
+        ("Trail medals", "Trail Medals", "?view=Trail%20Medals"),
         ("Species review", "Species Review", "?view=Species%20Review"),
         ("Master map", "Map", "?view=Map&scope=global"),
         ("Species log", "Species Log", "?view=Species%20Log"),
@@ -692,7 +695,10 @@ def render_sidebar(
     nav_markup = []
     for label, view_name, href in nav_items:
         active_class = " active" if active_view == view_name else ""
-        nav_markup.append(f'<a class="sidebar-nav-link{active_class}" href="{href}" target="_self">{escape(label)}</a>')
+        nested_class = " sidebar-nav-link--nested" if view_name == "Trail Medals" else ""
+        nav_markup.append(
+            f'<a class="sidebar-nav-link{nested_class}{active_class}" href="{href}" target="_self">{escape(label)}</a>'
+        )
     st.markdown(f"<div class='sidebar-nav-shell'>{''.join(nav_markup)}</div>", unsafe_allow_html=True)
 
     if current_hike:
@@ -1317,6 +1323,20 @@ def render_library_tab(
         render_edit_hike_dialog=render_edit_hike_dialog,
         render_quick_upload_dialog=render_quick_upload_dialog,
         reset_library_page=reset_library_page,
+    )
+
+
+def render_badges_tab(
+    repository: HikeJournalRepository,
+    hikes: list[dict[str, Any]],
+    confirmed_observations: list[dict[str, Any]],
+    user_context: dict[str, Any],
+) -> None:
+    render_badges_view(
+        repository,
+        hikes,
+        confirmed_observations,
+        user_context,
     )
 
 def _journal_actions() -> JournalActions:

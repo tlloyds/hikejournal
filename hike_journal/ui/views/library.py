@@ -88,6 +88,7 @@ def render_library_view(
             <span>{format_total_miles(total_logged_miles)}</span>
             <span>{total_photo_count} photographs</span>
             <span>{total_confirmed_count} species</span>
+            <a class="library-medals-link" href="?view=Trail%20Medals" target="_self">View Trail Medals <span aria-hidden="true">→</span></a>
         </div>
         """,
         unsafe_allow_html=True,

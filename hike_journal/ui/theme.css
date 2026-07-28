@@ -272,6 +272,22 @@ a {
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
 }
 
+.sidebar-nav-link--nested {
+  min-height: 2.25rem;
+  margin: -0.08rem 0 0.08rem 0.85rem;
+  padding: 0.5rem 0.8rem;
+  color: rgba(248,243,234,0.66);
+  font-size: 0.82rem;
+}
+
+.sidebar-nav-link--nested::before {
+  content: "";
+  width: 0.38rem;
+  height: 1px;
+  margin-right: 0.5rem;
+  background: rgba(242,177,110,0.65);
+}
+
 .sidebar-nav-link.disabled {
   color: rgba(248,243,234,0.34);
   cursor: default;
@@ -2721,6 +2737,541 @@ h1, h2, h3,
   color: rgba(20, 35, 27, 0.66);
   font-size: 0.78rem;
   font-weight: 800;
+}
+
+.library-medals-link {
+  margin-left: auto;
+  color: var(--palmetto) !important;
+  transition: color 160ms ease, transform 160ms ease;
+}
+
+.library-medals-link:hover {
+  color: var(--river-silt) !important;
+  transform: translateX(2px);
+}
+
+.trail-medals {
+  --medal-bronze: #A86C3D;
+  --medal-bronze-light: #E2AF75;
+  --medal-silver: #87918E;
+  --medal-silver-light: #D8DEDA;
+  --medal-gold: #B98B32;
+  --medal-gold-light: #F2D690;
+  --medal-evergreen: #22523D;
+  --medal-evergreen-light: #89A993;
+  max-width: 1180px;
+  margin: 0 auto;
+  padding-bottom: 3rem;
+}
+
+.trail-medal-hero {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(19rem, 0.8fr);
+  align-items: center;
+  min-height: 360px;
+  overflow: hidden;
+  padding: clamp(2rem, 5vw, 4.3rem);
+  border-radius: 6px;
+  color: #F8F3EA;
+  background:
+    radial-gradient(circle at 88% 6%, rgba(218,167,80,0.25) 0 12%, transparent 34%),
+    radial-gradient(circle at 74% 88%, rgba(255,255,255,0.06) 0 1px, transparent 1.5px) 0 0 / 19px 19px,
+    linear-gradient(126deg, #11291D 0%, #214633 58%, #315845 100%);
+  box-shadow: 0 24px 58px rgba(15,35,24,0.16);
+  isolation: isolate;
+  animation: field-reveal 360ms ease both;
+}
+
+.trail-medal-hero::after {
+  content: "";
+  position: absolute;
+  inset: auto -7% -48% 39%;
+  height: 88%;
+  z-index: -1;
+  opacity: 0.55;
+  background:
+    linear-gradient(145deg, transparent 0 46%, rgba(118,150,128,0.28) 46.5% 56%, transparent 56.5%),
+    linear-gradient(35deg, transparent 0 48%, rgba(81,118,94,0.32) 48.5% 61%, transparent 61.5%);
+  transform: rotate(-4deg);
+}
+
+.trail-medal-hero-copy {
+  max-width: 43rem;
+}
+
+.trail-medal-eyebrow,
+.trail-medal-section-head p {
+  margin: 0 0 0.7rem;
+  color: #F2B16E;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.trail-medal-hero h1 {
+  max-width: 36rem;
+  margin: 0;
+  color: #FFFFFF;
+  font-family: 'Fraunces', serif;
+  font-size: clamp(2.7rem, 5.4vw, 5rem);
+  font-weight: 500;
+  letter-spacing: -0.035em;
+  line-height: 0.94;
+}
+
+.trail-medal-hero-copy > p:not(.trail-medal-eyebrow) {
+  max-width: 36rem;
+  margin: 1.1rem 0 1.5rem;
+  color: rgba(248,243,234,0.75);
+  font-size: 0.98rem;
+  line-height: 1.65;
+}
+
+.trail-medal-total {
+  display: flex;
+  align-items: baseline;
+  gap: 0.55rem;
+}
+
+.trail-medal-total strong {
+  color: #F4C87A;
+  font-family: 'Fraunces', serif;
+  font-size: 2rem;
+  font-weight: 600;
+}
+
+.trail-medal-total span {
+  color: rgba(248,243,234,0.7);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.trail-medal-overall-progress,
+.trail-medal-progress {
+  overflow: hidden;
+  background: rgba(255,255,255,0.11);
+}
+
+.trail-medal-overall-progress {
+  width: min(25rem, 100%);
+  height: 3px;
+  margin-top: 0.5rem;
+}
+
+.trail-medal-overall-progress span,
+.trail-medal-progress span {
+  display: block;
+  width: calc(var(--progress) * 100%);
+  height: 100%;
+  transform-origin: left;
+  animation: trail-progress-in 700ms 180ms ease both;
+}
+
+.trail-medal-overall-progress span {
+  background: linear-gradient(90deg, #D8994F, #F4D18D);
+}
+
+.trail-medal-next {
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 1rem;
+  min-width: 0;
+  text-align: center;
+}
+
+.trail-medal-next > div:last-child {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.trail-medal-next span {
+  color: #F2B16E;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.trail-medal-next strong {
+  color: #FFFFFF;
+  font-family: 'Fraunces', serif;
+  font-size: 1.28rem;
+  font-weight: 500;
+}
+
+.trail-medal-next small {
+  color: rgba(248,243,234,0.64);
+  font-size: 0.73rem;
+}
+
+.trail-medal-note {
+  padding: 1rem 0 2rem;
+  border-bottom: 1px solid var(--line);
+  color: rgba(20,35,27,0.6);
+  font-size: 0.75rem;
+  line-height: 1.55;
+}
+
+.trail-medal-section {
+  padding: 2.6rem 0 2.8rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.trail-medal-section-head {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 2rem;
+  margin-bottom: 2rem;
+}
+
+.trail-medal-section-head p {
+  margin-bottom: 0.38rem;
+  color: var(--river-silt);
+}
+
+.trail-medal-section-head h2 {
+  max-width: 40rem;
+  margin: 0;
+  color: var(--charcoal);
+  font-family: 'Fraunces', serif;
+  font-size: clamp(1.4rem, 2.5vw, 2.05rem);
+  font-weight: 500;
+  line-height: 1.12;
+}
+
+.trail-medal-section-head > span {
+  flex: none;
+  padding-bottom: 0.16rem;
+  color: rgba(20,35,27,0.52);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.trail-medal-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(142px, 1fr));
+  gap: 2.25rem 1rem;
+}
+
+.trail-medal-item {
+  min-width: 0;
+  color: var(--charcoal);
+  text-align: center;
+  animation: trail-medal-in 420ms calc(var(--medal-index) * 22ms) ease both;
+}
+
+.trail-medal-item summary {
+  display: grid;
+  justify-items: center;
+  gap: 0.48rem;
+  list-style: none;
+  cursor: pointer;
+}
+
+.trail-medal-item summary::-webkit-details-marker {
+  display: none;
+}
+
+.trail-medal-item summary:focus-visible {
+  border-radius: 6px;
+  outline: 2px solid rgba(197,106,53,0.6);
+  outline-offset: 6px;
+}
+
+.trail-medal-name {
+  min-height: 2.5em;
+  color: rgba(20,35,27,0.62);
+  font-family: 'Fraunces', serif;
+  font-size: 1rem;
+  font-weight: 500;
+  line-height: 1.25;
+}
+
+.trail-medal-item.is-earned .trail-medal-name {
+  color: var(--charcoal);
+}
+
+.trail-medal-state {
+  color: rgba(20,35,27,0.43);
+  font-size: 0.64rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  line-height: 1.25;
+  text-transform: uppercase;
+}
+
+.trail-medal-item.is-earned .trail-medal-state {
+  color: #347052;
+}
+
+.trail-medal-detail {
+  margin: 0.85rem 0.25rem 0;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--line);
+  animation: field-reveal 180ms ease both;
+}
+
+.trail-medal-detail p {
+  margin: 0 0 0.65rem;
+  color: rgba(20,35,27,0.66);
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+
+.trail-medal-detail > span {
+  display: block;
+  margin-top: 0.42rem;
+  color: rgba(20,35,27,0.48);
+  font-size: 0.62rem;
+  font-weight: 700;
+}
+
+.trail-medal-progress {
+  height: 3px;
+  background: rgba(31,59,44,0.1);
+}
+
+.trail-medal-progress span {
+  background: linear-gradient(90deg, var(--river-silt), var(--gold));
+}
+
+.trail-medal-seal {
+  --medal: var(--medal-bronze);
+  --medal-light: var(--medal-bronze-light);
+  --ribbon: #76513B;
+  position: relative;
+  width: 92px;
+  height: 108px;
+  filter: grayscale(1);
+  opacity: 0.43;
+  transition: filter 200ms ease, opacity 200ms ease, transform 200ms ease;
+}
+
+.trail-medal-seal--silver {
+  --medal: var(--medal-silver);
+  --medal-light: var(--medal-silver-light);
+  --ribbon: #66726E;
+}
+
+.trail-medal-seal--gold {
+  --medal: var(--medal-gold);
+  --medal-light: var(--medal-gold-light);
+  --ribbon: #996129;
+}
+
+.trail-medal-seal--evergreen {
+  --medal: var(--medal-evergreen);
+  --medal-light: var(--medal-evergreen-light);
+  --ribbon: #143E2D;
+}
+
+.trail-medal-seal.is-earned,
+.trail-medal-seal.is-preview {
+  filter: none;
+  opacity: 1;
+}
+
+.trail-medal-seal.is-preview {
+  opacity: 0.9;
+}
+
+.trail-medal-seal--large {
+  width: 142px;
+  height: 166px;
+}
+
+.trail-medal-item summary:hover .trail-medal-seal {
+  transform: translateY(-4px) rotate(-1deg);
+}
+
+.trail-medal-disc {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  display: grid;
+  place-items: center;
+  width: 86px;
+  height: 86px;
+  z-index: 2;
+  border: 1px solid rgba(255,255,255,0.48);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 50% 8%, rgba(255,255,255,0.74) 0 2px, transparent 2.5px),
+    radial-gradient(circle at 8% 50%, rgba(255,255,255,0.5) 0 2px, transparent 2.5px),
+    radial-gradient(circle at 92% 50%, rgba(255,255,255,0.5) 0 2px, transparent 2.5px),
+    radial-gradient(circle at 50% 92%, rgba(255,255,255,0.48) 0 2px, transparent 2.5px),
+    conic-gradient(from 25deg, var(--medal), var(--medal-light), var(--medal), var(--medal-light), var(--medal));
+  box-shadow:
+    inset 0 0 0 6px rgba(255,255,255,0.14),
+    inset 0 0 0 9px rgba(64,49,28,0.18),
+    0 9px 18px rgba(20,35,27,0.16);
+  transform: translateX(-50%);
+}
+
+.trail-medal-seal--large .trail-medal-disc {
+  width: 132px;
+  height: 132px;
+  box-shadow:
+    inset 0 0 0 8px rgba(255,255,255,0.14),
+    inset 0 0 0 12px rgba(64,49,28,0.18),
+    0 18px 36px rgba(4,15,9,0.3);
+}
+
+.trail-medal-face {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  width: 58px;
+  height: 58px;
+  border: 1px solid rgba(255,255,255,0.5);
+  border-radius: 50%;
+  color: #FFFDF6;
+  background:
+    radial-gradient(circle at 34% 28%, rgba(255,255,255,0.28), transparent 45%),
+    color-mix(in srgb, var(--medal) 82%, #203B2D);
+  box-shadow: inset 0 0 0 2px rgba(48,41,26,0.15);
+  text-shadow: 0 1px 2px rgba(20,35,27,0.28);
+}
+
+.trail-medal-seal--large .trail-medal-face {
+  width: 88px;
+  height: 88px;
+}
+
+.trail-medal-face strong {
+  font-family: 'Fraunces', serif;
+  font-size: 1.15rem;
+  font-weight: 600;
+  letter-spacing: -0.04em;
+  line-height: 1;
+}
+
+.trail-medal-seal--large .trail-medal-face strong {
+  font-size: 1.65rem;
+}
+
+.trail-medal-face small {
+  margin-top: 0.18rem;
+  color: rgba(255,255,255,0.84);
+  font-size: 0.54rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.trail-medal-seal--large .trail-medal-face small {
+  font-size: 0.68rem;
+}
+
+.trail-medal-ribbon {
+  position: absolute;
+  top: 67px;
+  width: 32px;
+  height: 39px;
+  z-index: 1;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--ribbon) 78%, #000), var(--ribbon));
+  clip-path: polygon(0 0, 100% 0, 88% 100%, 52% 78%, 14% 100%);
+}
+
+.trail-medal-seal--large .trail-medal-ribbon {
+  top: 105px;
+  width: 46px;
+  height: 57px;
+}
+
+.trail-medal-ribbon--left {
+  left: 19px;
+  transform: rotate(7deg);
+}
+
+.trail-medal-ribbon--right {
+  right: 19px;
+  transform: scaleX(-1) rotate(7deg);
+}
+
+.trail-medal-seal--large .trail-medal-ribbon--left {
+  left: 30px;
+}
+
+.trail-medal-seal--large .trail-medal-ribbon--right {
+  right: 30px;
+}
+
+@keyframes trail-medal-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes trail-progress-in {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+@media (max-width: 760px) {
+  .trail-medal-hero {
+    grid-template-columns: 1fr;
+    gap: 2.2rem;
+    min-height: 0;
+    padding: 2.2rem 1.25rem 2.4rem;
+    border-radius: 0;
+  }
+
+  .trail-medal-hero h1 {
+    max-width: 28rem;
+    font-size: clamp(2.75rem, 13vw, 4rem);
+  }
+
+  .trail-medal-next {
+    grid-template-columns: 116px minmax(0, 1fr);
+    justify-items: start;
+    text-align: left;
+  }
+
+  .trail-medal-next .trail-medal-seal--large {
+    width: 108px;
+    height: 126px;
+    transform: scale(0.75);
+    transform-origin: left center;
+  }
+
+  .trail-medal-note {
+    padding: 1rem 0.4rem 1.4rem;
+  }
+
+  .trail-medal-section {
+    padding: 2.25rem 0.25rem;
+  }
+
+  .trail-medal-section-head {
+    align-items: start;
+    gap: 1rem;
+  }
+
+  .trail-medal-section-head > span {
+    max-width: 4rem;
+    text-align: right;
+  }
+
+  .trail-medal-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 2rem 0.55rem;
+  }
+
+  .trail-medal-name {
+    font-size: 0.95rem;
+  }
+
+  .library-medals-link {
+    flex-basis: 100%;
+    margin: 0.25rem 0 0;
+  }
 }
 
 .photo-link,

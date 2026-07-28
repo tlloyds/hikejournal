@@ -2,6 +2,7 @@ from inspect import getsource, signature
 
 import app
 
+from hike_journal.ui.views.badges import render_badges_view
 from hike_journal.ui.views.library import render_library_view
 from hike_journal.ui.views.journal import (
     JournalActions,
@@ -30,6 +31,15 @@ def test_library_view_accepts_its_app_callbacks() -> None:
     }
 
     assert expected.issubset(signature(render_library_view).parameters)
+
+
+def test_badges_view_accepts_owner_scoped_inputs() -> None:
+    assert set(signature(render_badges_view).parameters) == {
+        "repository",
+        "hikes",
+        "confirmed_observations",
+        "user_context",
+    }
 
 
 def test_map_view_accepts_confidence_formatter() -> None:
@@ -95,6 +105,19 @@ def test_app_library_wrapper_forwards_every_callback(monkeypatch) -> None:
         "render_quick_upload_dialog",
         "reset_library_page",
     }
+
+
+def test_app_badges_wrapper_forwards_collection_data(monkeypatch) -> None:
+    captured = []
+    monkeypatch.setattr(app, "render_badges_view", lambda *args: captured.extend(args))
+    repository = object()
+    hikes = [{"id": "hike-1"}]
+    observations = [{"taxon_id": 42}]
+    user_context = {"subject": "user-1"}
+
+    app.render_badges_tab(repository, hikes, observations, user_context)
+
+    assert captured == [repository, hikes, observations, user_context]
 
 
 def test_app_map_wrapper_forwards_confidence_formatter(monkeypatch) -> None:
