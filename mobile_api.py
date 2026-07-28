@@ -17,7 +17,11 @@ from pydantic import BaseModel, Field
 from supabase import Client, create_client
 
 from hike_journal.config import settings
-from hike_journal.domain.discovery import DISCOVERY_ALGORITHM_VERSION, normalize_radius
+from hike_journal.domain.discovery import (
+    DISCOVERY_ALGORITHM_VERSION,
+    normalize_discovery_limit,
+    normalize_radius,
+)
 from hike_journal.domain.library import filter_hikes_for_user, record_visible_for_user
 from hike_journal.models import HikeDraft, SpeciesCandidate
 from hike_journal.services.exif import extract_metadata
@@ -843,11 +847,12 @@ def get_nearby_species(
     lat: float | None = Query(default=None, ge=-90, le=90),
     lng: float | None = Query(default=None, ge=-180, le=180),
     area_name: str | None = Query(default=None, max_length=160),
-    limit: Literal[50, 100] = Query(default=50),
+    limit: int = Query(default=50),
 ) -> dict[str, Any]:
     _require_discovery_enabled()
     try:
         normalized_radius = normalize_radius(radius_km)
+        normalized_limit = normalize_discovery_limit(limit)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     svc = get_services()
@@ -875,7 +880,7 @@ def get_nearby_species(
             iconic_taxon=iconic_taxon,
             observations=observations,
             photos_by_id=photos_by_id,
-            limit=limit,
+            limit=normalized_limit,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

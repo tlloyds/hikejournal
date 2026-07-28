@@ -320,13 +320,15 @@ def test_current_location_discovery_rounds_coordinates_before_query(monkeypatch)
         lat=28.12345,
         lng=-82.67891,
         area_name="Current area",
+        limit=50,
     )
 
     assert captured["area"]["lat"] == 28.12
     assert captured["area"]["lng"] == -82.68
+    assert captured["limit"] == 50
 
 
-def test_current_location_endpoint_parses_android_radius_query(monkeypatch):
+def test_current_location_endpoint_parses_android_discovery_query(monkeypatch):
     captured = {}
     repository = object()
     service_container = type("Service", (), {"repository": repository})()
@@ -344,23 +346,26 @@ def test_current_location_endpoint_parses_android_radius_query(monkeypatch):
     monkeypatch.setattr("mobile_api._discovery_collection_data", lambda _service: ([], {}))
     app.dependency_overrides[require_mobile_key] = lambda: None
     try:
-        response = TestClient(app).get(
-            "/v1/discovery/nearby",
-            params={
-                "date": "2026-07-27",
-                "radius_km": "10",
-                "lat": "28.12345",
-                "lng": "-82.67891",
-                "area_name": "Current area",
-            },
-        )
+        for limit in ("50", "100"):
+            response = TestClient(app).get(
+                "/v1/discovery/nearby",
+                params={
+                    "date": "2026-07-27",
+                    "radius_km": "10",
+                    "lat": "28.12345",
+                    "lng": "-82.67891",
+                    "area_name": "Current area",
+                    "limit": limit,
+                },
+            )
+
+            assert response.status_code == 200
+            assert captured["radius_km"] == 10
+            assert captured["limit"] == int(limit)
+            assert captured["area"]["lat"] == 28.12
+            assert captured["area"]["lng"] == -82.68
     finally:
         app.dependency_overrides.pop(require_mobile_key, None)
-
-    assert response.status_code == 200
-    assert captured["radius_km"] == 10
-    assert captured["area"]["lat"] == 28.12
-    assert captured["area"]["lng"] == -82.68
 
 
 def test_nearby_endpoint_rejects_unsupported_radius_after_query_parsing():
@@ -380,6 +385,26 @@ def test_nearby_endpoint_rejects_unsupported_radius_after_query_parsing():
 
     assert response.status_code == 422
     assert response.json()["detail"] == "Radius must be one of (5, 10, 25)."
+
+
+def test_nearby_endpoint_rejects_unsupported_limit_after_query_parsing():
+    app.dependency_overrides[require_mobile_key] = lambda: None
+    try:
+        response = TestClient(app).get(
+            "/v1/discovery/nearby",
+            params={
+                "date": "2026-07-27",
+                "radius_km": "10",
+                "lat": "28.12",
+                "lng": "-82.68",
+                "limit": "75",
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(require_mobile_key, None)
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "Species limit must be one of (50, 100)."
 
 
 def test_delete_species_quest_checks_visibility_then_deletes(monkeypatch):
