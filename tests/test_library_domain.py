@@ -7,6 +7,10 @@ from hike_journal.domain.library import (
     record_visible_for_user,
     standalone_journal_is_active,
 )
+from hike_journal.domain.species_filters import (
+    SPECIES_TYPE_OPTIONS,
+    observation_matches_species_type,
+)
 
 
 def test_visibility_respects_owner_and_visible_hike_scope() -> None:
@@ -40,6 +44,19 @@ def test_unique_species_prefers_scientific_identity() -> None:
     ]
 
     assert count_unique_species(observations) == 2
+
+
+def test_species_type_filter_supports_specific_and_broad_animal_groups() -> None:
+    bird = {"iconic_taxon_name": "Aves"}
+    plant = {"iconic_taxon_name": "Plantae"}
+    protozoan = {"iconic_taxon_name": "Protozoa"}
+
+    assert observation_matches_species_type(bird, "Birds")
+    assert observation_matches_species_type(bird, "Animals")
+    assert not observation_matches_species_type(plant, "Animals")
+    assert observation_matches_species_type(protozoan, "Other life")
+    assert "Birds" in SPECIES_TYPE_OPTIONS
+    assert observation_matches_species_type(bird, "All types")
 
 
 def test_standalone_journal_requires_explicit_scope_and_no_hike() -> None:

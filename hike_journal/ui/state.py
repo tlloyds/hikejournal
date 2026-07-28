@@ -34,6 +34,7 @@ SESSION_DEFAULTS: dict[str, StateDefault] = {
     "inat_oauth_attempt_state": None,
     "inat_token_dialog_open": False,
     "species_log_hike_filter": "All hikes",
+    "species_log_type_filter": "All types",
     "species_log_mapped_only": False,
     "species_log_include_secondary": True,
     "species_log_sort": "Most recent",

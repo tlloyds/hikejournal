@@ -50,6 +50,10 @@ from hike_journal.domain.library import (
     normalize_email,
     record_visible_for_user,
 )
+from hike_journal.domain.species_filters import (
+    SPECIES_TYPE_OPTIONS,
+    observation_matches_species_type,
+)
 from hike_journal.queries import (
     fetch_hike_lightweight_observations,
     fetch_hike_locations,
@@ -3447,6 +3451,9 @@ def build_species_log_context(
     include_secondary = bool(st.session_state.get("species_log_include_secondary", True))
     sort_order = str(st.session_state.get("species_log_sort", "Most recent"))
     posted_filter = str(st.session_state.get("species_log_posted_filter", "All"))
+    species_type = str(st.session_state.get("species_log_type_filter", "All types"))
+    if species_type not in SPECIES_TYPE_OPTIONS:
+        species_type = "All types"
     taxon_search_hints = build_species_taxon_search_hints(query, inat_client)
 
     preferences_are_inline = all(
@@ -3502,12 +3509,16 @@ def build_species_log_context(
         representative_observations = {observation["id"]: observation for observation in full_representatives}
     for entries in all_species:
         observation = representative_observations.get(entries[0]["observation"]["id"], entries[0]["observation"])
+        type_match = any(
+            observation_matches_species_type(entry["observation"], species_type)
+            for entry in entries
+        )
         query_match = (
             not normalized_query
             or any(normalized_query in term for term in build_species_search_terms(observation))
             or observation_matches_taxon_search_hints(observation, taxon_search_hints)
         )
-        if query_match:
+        if type_match and query_match:
             matching_groups.append(entries)
 
     species_rows = []

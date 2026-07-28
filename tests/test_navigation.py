@@ -56,6 +56,7 @@ def test_query_state_and_href_preserve_species_log_context() -> None:
         "species_log_page": 2,
         "species_log_page_size": 8,
         "species_log_hike_filter": "All hikes",
+        "species_log_type_filter": "Birds",
         "species_log_sort": "Most recent",
         "species_log_posted_filter": "All",
         "species_log_mapped_only": True,
@@ -69,6 +70,7 @@ def test_query_state_and_href_preserve_species_log_context() -> None:
 
     assert query["species_log_mapped_only"] == "1"
     assert query["species_log_include_secondary"] == "0"
+    assert query["species_log_type_filter"] == "Birds"
     assert "oak%20%26%20pine" in href
 
 

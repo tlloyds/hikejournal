@@ -83,9 +83,11 @@ import com.hikejournal.app.data.DiscoveryTaxon
 import com.hikejournal.app.data.FieldQuest
 import com.hikejournal.app.data.Hike
 import com.hikejournal.app.data.NearbySpecies
+import com.hikejournal.app.data.ObservationTypeFilter
 import com.hikejournal.app.data.Photo
 import com.hikejournal.app.data.SpeciesRecord
 import com.hikejournal.app.data.filterDiscoveryAreas
+import com.hikejournal.app.data.filterSpeciesByObservationType
 import com.hikejournal.app.ui.theme.Ink
 import com.hikejournal.app.ui.theme.InkMuted
 import com.hikejournal.app.ui.theme.Line
@@ -137,6 +139,8 @@ fun SpeciesIndexScreen(
     var mostSeenFirst by remember { mutableStateOf(false) }
     var selectedHikeId by remember { mutableStateOf<String?>(null) }
     var filterOpen by remember { mutableStateOf(false) }
+    var observationType by remember { mutableStateOf(ObservationTypeFilter.All) }
+    var observationTypeFilterOpen by remember { mutableStateOf(false) }
     var areaSearch by remember { mutableStateOf("") }
     var selectedAreaId by remember { mutableStateOf<String?>(null) }
     var targetDate by remember { mutableStateOf(LocalDate.now().toString()) }
@@ -209,7 +213,8 @@ fun SpeciesIndexScreen(
             }
         }
     }
-    val filtered = scopedSpecies
+    val typeScopedSpecies = filterSpeciesByObservationType(scopedSpecies, observationType)
+    val filtered = typeScopedSpecies
         .filter {
             query.isBlank() || it.commonName.contains(query, ignoreCase = true) ||
                 it.scientificName.contains(query, ignoreCase = true)
@@ -218,9 +223,9 @@ fun SpeciesIndexScreen(
             if (mostSeenFirst) items.sortedByDescending { it.encounterCount }
             else items.sortedBy { it.commonName.lowercase(Locale.US) }
         }
-    val encounterCount = scopedSpecies.sumOf { it.encounterCount }
+    val encounterCount = typeScopedSpecies.sumOf { it.encounterCount }
     val headerCount = when (mode) {
-        SpeciesMode.Collection -> "${scopedSpecies.size} SPECIES · $encounterCount ENCOUNTERS"
+        SpeciesMode.Collection -> "${typeScopedSpecies.size} SPECIES · $encounterCount ENCOUNTERS"
         SpeciesMode.Nearby -> nearbySpecies?.let {
             "${it.progress.collectedCount} OF ${it.progress.totalCount} COLLECTED"
         } ?: "SEASONAL FIELD LIST"
@@ -297,6 +302,13 @@ fun SpeciesIndexScreen(
             )
         }
         item {
+            ObservationTypeFilterControl(
+                selectedType = observationType,
+                matchingCount = typeScopedSpecies.size,
+                onClick = { observationTypeFilterOpen = true },
+            )
+        }
+        item {
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 15.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -335,12 +347,21 @@ fun SpeciesIndexScreen(
             item {
                 Column(Modifier.fillMaxWidth().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
-                        if (selectedHikeId != null && query.isBlank()) "No confirmed species" else "No species match",
+                        when {
+                            query.isNotBlank() -> "No species match"
+                            observationType != ObservationTypeFilter.All -> "No ${observationType.label.lowercase()} yet"
+                            else -> "No confirmed species"
+                        },
                         style = MaterialTheme.typography.headlineMedium,
                         color = Ink,
                     )
                     Text(
-                        if (selectedHikeId != null && query.isBlank()) "This outing has no confirmed encounters yet." else "Try a common or scientific name.",
+                        when {
+                            query.isNotBlank() -> "Try a common or scientific name."
+                            observationType != ObservationTypeFilter.All -> "Choose another observation type to widen the field guide."
+                            selectedHikeId != null -> "This outing has no confirmed encounters yet."
+                            else -> "Confirmed observations will appear here after review."
+                        },
                         style = MaterialTheme.typography.bodyMedium,
                         color = InkMuted,
                     )
@@ -726,6 +747,16 @@ fun SpeciesIndexScreen(
                 filterOpen = false
             },
             onDismiss = { filterOpen = false },
+        )
+    }
+    if (observationTypeFilterOpen) {
+        ObservationTypeFilterSheet(
+            selectedType = observationType,
+            onSelect = {
+                observationType = it
+                observationTypeFilterOpen = false
+            },
+            onDismiss = { observationTypeFilterOpen = false },
         )
     }
     previewTaxon?.let { taxon ->

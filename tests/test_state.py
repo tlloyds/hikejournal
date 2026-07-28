@@ -8,6 +8,7 @@ def test_initialize_session_state_preserves_existing_values() -> None:
 
     assert state["active_view"] == "Map"
     assert state["journal_page"] == 4
+    assert state["species_log_type_filter"] == "All types"
     assert set(SESSION_DEFAULTS).issubset(state)
 
 

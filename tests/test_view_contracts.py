@@ -67,6 +67,8 @@ def test_species_log_view_exposes_collection_nearby_and_field_quests() -> None:
     source = getsource(render_species_log_view)
 
     assert '["Collection", "Nearby", "Field Quests"]' in source
+    assert '"Observation type"' in source
+    assert "species_log_type_filter" in source
     assert "_render_nearby_mode" in source
     assert "_render_quests_mode" in source
 

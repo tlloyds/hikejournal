@@ -40,6 +40,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.hikejournal.app.data.Hike
+import com.hikejournal.app.data.ObservationTypeFilter
 import com.hikejournal.app.ui.theme.Ink
 import com.hikejournal.app.ui.theme.InkMuted
 import com.hikejournal.app.ui.theme.Line
@@ -162,6 +163,91 @@ fun HikeFilterSheet(
             }
         }
     }
+}
+
+@Composable
+fun ObservationTypeFilterControl(
+    selectedType: ObservationTypeFilter,
+    matchingCount: Int,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Parchment)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 20.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Rounded.Tune, null, tint = Trail, modifier = Modifier.size(20.dp))
+        Column(Modifier.weight(1f).padding(start = 12.dp)) {
+            Text("OBSERVATION TYPE", style = MaterialTheme.typography.labelSmall, color = TrailText)
+            Text(selectedType.label, style = MaterialTheme.typography.titleMedium, color = Ink)
+        }
+        Text(
+            "$matchingCount species",
+            style = MaterialTheme.typography.labelMedium,
+            color = InkMuted,
+        )
+        Spacer(Modifier.width(4.dp))
+        Icon(Icons.Rounded.KeyboardArrowDown, "Choose an observation type", tint = Moss)
+    }
+    HorizontalDivider(color = Line)
+}
+
+@Composable
+fun ObservationTypeFilterSheet(
+    selectedType: ObservationTypeFilter,
+    onSelect: (ObservationTypeFilter) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Paper) {
+        Column(Modifier.fillMaxWidth().navigationBarsPadding()) {
+            Column(Modifier.padding(horizontal = 20.dp)) {
+                Text("FIELD GUIDE SCOPE", style = MaterialTheme.typography.labelSmall, color = TrailText)
+                Text("Observation type", style = MaterialTheme.typography.headlineLarge, color = Ink)
+                Text(
+                    "Show plants, animals, or a more specific branch of the field guide.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = InkMuted,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
+            LazyColumn(Modifier.fillMaxWidth().heightIn(max = 520.dp).padding(top = 10.dp)) {
+                items(ObservationTypeFilter.entries, key = { it.name }) { type ->
+                    ObservationTypeFilterRow(
+                        type = type,
+                        selected = type == selectedType,
+                        onClick = { onSelect(type) },
+                    )
+                }
+                item { Spacer(Modifier.height(14.dp)) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ObservationTypeFilterRow(
+    type: ObservationTypeFilter,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 20.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            type.label,
+            style = MaterialTheme.typography.titleMedium,
+            color = Ink,
+            modifier = Modifier.weight(1f),
+        )
+        AnimatedVisibility(visible = selected, enter = fadeIn(), exit = fadeOut()) {
+            Icon(Icons.Rounded.Check, "Selected", tint = Moss, modifier = Modifier.size(22.dp))
+        }
+    }
+    HorizontalDivider(color = Line, modifier = Modifier.padding(start = 20.dp))
 }
 
 @Composable

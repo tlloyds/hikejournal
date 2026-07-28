@@ -13,6 +13,7 @@ from hike_journal.domain.discovery import (
     DISCOVERY_GROUPS,
     DISCOVERY_RADII_KM,
 )
+from hike_journal.domain.species_filters import SPECIES_TYPE_OPTIONS
 from hike_journal.services.discovery import SpeciesDiscoveryService
 from hike_journal.services.inat import InatClient, InatRateLimitError, InatRequestError
 from hike_journal.services.repositories import HikeJournalRepository
@@ -729,9 +730,11 @@ def render_species_log_view(
     sort_options = ["Most recent", "Most seen", "A-Z", "Newest species first"]
     if st.session_state.get("species_log_sort") not in sort_options:
         st.session_state.species_log_sort = "Most recent"
+    if st.session_state.get("species_log_type_filter") not in SPECIES_TYPE_OPTIONS:
+        st.session_state.species_log_type_filter = "All types"
 
     with st.container(key="species_log_filters"):
-        controls = st.columns([0.28, 0.18, 0.14, 0.12, 0.14, 0.14], gap="small")
+        controls = st.columns([0.24, 0.15, 0.15, 0.11, 0.10, 0.12, 0.13], gap="small")
         query = controls[0].text_input(
             "Search species",
             placeholder="Blueberry, milkweed, duck potato, Vaccinium, oak...",
@@ -746,24 +749,31 @@ def render_species_log_view(
             label_visibility="collapsed",
             on_change=reset_species_log_page,
         )
-        controls[2].toggle(
+        controls[2].selectbox(
+            "Observation type",
+            SPECIES_TYPE_OPTIONS,
+            key="species_log_type_filter",
+            label_visibility="collapsed",
+            on_change=reset_species_log_page,
+        )
+        controls[3].toggle(
             "Mapped only",
             key="species_log_mapped_only",
             on_change=reset_species_log_page,
         )
-        controls[3].selectbox(
+        controls[4].selectbox(
             "Posted filter",
             ["All", "Posted", "Not posted"],
             key="species_log_posted_filter",
             label_visibility="collapsed",
             on_change=reset_species_log_page,
         )
-        controls[4].toggle(
+        controls[5].toggle(
             "Include secondary",
             key="species_log_include_secondary",
             on_change=reset_species_log_page,
         )
-        controls[5].selectbox(
+        controls[6].selectbox(
             "Sort species",
             sort_options,
             key="species_log_sort",
