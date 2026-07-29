@@ -1323,16 +1323,27 @@ private fun iconicTaxonLabel(value: String?): String = when (value) {
 }
 
 @Suppress("MissingPermission")
-private fun requestOneShotLocation(
+internal fun requestOneShotLocation(
     context: Context,
     onLocation: (Location) -> Unit,
     onUnavailable: () -> Unit,
 ) {
     val manager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
         ?: return onUnavailable()
+    val hasFineLocation = ContextCompat.checkSelfPermission(
+        context,
+        Manifest.permission.ACCESS_FINE_LOCATION,
+    ) == PackageManager.PERMISSION_GRANTED
+    val hasCoarseLocation = ContextCompat.checkSelfPermission(
+        context,
+        Manifest.permission.ACCESS_COARSE_LOCATION,
+    ) == PackageManager.PERMISSION_GRANTED
     val provider = when {
-        manager.isProviderEnabled(LocationManager.GPS_PROVIDER) -> LocationManager.GPS_PROVIDER
-        manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER) -> LocationManager.NETWORK_PROVIDER
+        hasFineLocation && manager.isProviderEnabled(LocationManager.GPS_PROVIDER) ->
+            LocationManager.GPS_PROVIDER
+        (hasFineLocation || hasCoarseLocation) &&
+            manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER) ->
+            LocationManager.NETWORK_PROVIDER
         else -> return onUnavailable()
     }
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {

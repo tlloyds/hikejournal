@@ -2,7 +2,11 @@
 
 package com.hikejournal.app.ui
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.os.Bundle
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -21,6 +25,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
@@ -36,6 +41,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -48,6 +54,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
 import com.hikejournal.app.data.DiscoveryTaxon
 import com.hikejournal.app.data.FieldQuest
@@ -102,6 +109,8 @@ private const val QUEST_OBSCURED_SOURCE = "field-quest-obscured-sightings"
 private const val QUEST_OBSCURED_LAYER = "field-quest-obscured-sightings-circles"
 private const val QUEST_SELECTED_SOURCE = "field-quest-selected-sighting"
 private const val QUEST_SELECTED_LAYER = "field-quest-selected-sighting-circle"
+private const val QUEST_USER_SOURCE = "field-quest-user-location"
+private const val QUEST_USER_LAYER = "field-quest-user-location-circle"
 private val QUEST_SATELLITE_STYLE = """
     {
       "version": 8,
@@ -128,6 +137,11 @@ private data class QuestMapArea(
     val radiusKm: Int,
 )
 
+private data class QuestUserLocation(
+    val latitude: Double,
+    val longitude: Double,
+)
+
 @Composable
 fun QuestSightingsMapScreen(
     quest: FieldQuest,
@@ -140,6 +154,50 @@ fun QuestSightingsMapScreen(
 ) {
     var selected by remember { mutableStateOf<QuestSighting?>(null) }
     var layerMode by remember { mutableStateOf(QuestMapLayerMode.Trail) }
+    var userLocation by remember { mutableStateOf<QuestUserLocation?>(null) }
+    var locationNotice by remember { mutableStateOf<String?>(null) }
+    val context = LocalContext.current
+    fun requestLocationFix() {
+        requestOneShotLocation(
+            context = context,
+            onLocation = { location ->
+                userLocation = QuestUserLocation(location.latitude, location.longitude)
+                locationNotice = null
+            },
+            onUnavailable = {
+                locationNotice = "Current location is unavailable. Check GPS and try refresh."
+            },
+        )
+    }
+    val locationPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) { result ->
+        if (result.values.any { it }) {
+            requestLocationFix()
+        } else {
+            locationNotice = "Location permission is off. Sightings still map normally."
+        }
+    }
+    fun refreshUserLocation() {
+        val hasPermission =
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) ==
+                PackageManager.PERMISSION_GRANTED ||
+                ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
+                PackageManager.PERMISSION_GRANTED
+        if (hasPermission) {
+            requestLocationFix()
+        } else {
+            locationPermission.launch(
+                arrayOf(
+                    Manifest.permission.ACCESS_COARSE_LOCATION,
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                ),
+            )
+        }
+    }
+    LaunchedEffect(Unit) {
+        refreshUserLocation()
+    }
     val area = mapData?.let {
         QuestMapArea(it.latitude, it.longitude, it.radiusKm)
     } ?: if (quest.latitude != null && quest.longitude != null) {
@@ -156,6 +214,7 @@ fun QuestSightingsMapScreen(
             sightings = sightings,
             selectedSighting = selected,
             area = area,
+            userLocation = userLocation,
             layerMode = layerMode,
             onSelect = { selected = it },
             modifier = Modifier.fillMaxSize(),
@@ -202,7 +261,13 @@ fun QuestSightingsMapScreen(
                 ) {
                     Icon(Icons.Rounded.Layers, "Change map layer", tint = Paper)
                 }
-                IconButton(onClick = onRefresh, enabled = !loading) {
+                IconButton(
+                    onClick = {
+                        onRefresh()
+                        refreshUserLocation()
+                    },
+                    enabled = !loading,
+                ) {
                     if (loading) {
                         CircularProgressIndicator(Modifier.size(20.dp), color = Paper, strokeWidth = 2.dp)
                     } else {
@@ -221,12 +286,25 @@ fun QuestSightingsMapScreen(
                     color = Color(0xFFB7C8B5),
                 )
                 if (mapData != null) {
-                    Text(
-                        if (obscuredCount > 0) "$publicCount precise · $obscuredCount approximate"
-                        else "$publicCount public locations",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color(0xFFB7C8B5),
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (userLocation != null) {
+                            Box(
+                                Modifier.size(8.dp).background(Color(0xFF2587D8), CircleShape),
+                            )
+                            Text(
+                                "YOU · ",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color(0xFF9BCBF2),
+                                modifier = Modifier.padding(start = 4.dp),
+                            )
+                        }
+                        Text(
+                            if (obscuredCount > 0) "$publicCount exact · $obscuredCount approx"
+                            else "$publicCount reports",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color(0xFFB7C8B5),
+                        )
+                    }
                 }
             }
             if (layerMode == QuestMapLayerMode.Satellite) {
@@ -273,7 +351,7 @@ fun QuestSightingsMapScreen(
             }
         }
 
-        val guidance = notice ?: mapData?.sourceGuidance
+        val guidance = notice ?: locationNotice ?: mapData?.sourceGuidance
         if (selected == null && !guidance.isNullOrBlank() && !(loading && mapData == null)) {
             Text(
                 guidance,
@@ -374,6 +452,7 @@ private fun QuestNativeMap(
     sightings: List<QuestSighting>,
     selectedSighting: QuestSighting?,
     area: QuestMapArea?,
+    userLocation: QuestUserLocation?,
     layerMode: QuestMapLayerMode,
     onSelect: (QuestSighting) -> Unit,
     modifier: Modifier = Modifier,
@@ -384,6 +463,7 @@ private fun QuestNativeMap(
     controller.sightingsById = sightings.associateBy { it.id }
     controller.selectedSighting = selectedSighting
     controller.area = area
+    controller.userLocation = userLocation
     val mapView = remember {
         MapLibre.getInstance(context)
         val options = MapLibreMapOptions.createFromAttributes(context).textureMode(true)
@@ -403,13 +483,14 @@ private fun QuestNativeMap(
     AndroidView(
         factory = {
             mapView.apply {
-                getMapAsync { map -> controller.attach(map, sightings, area) }
+                getMapAsync { map -> controller.attach(map, sightings, area, userLocation) }
             }
         },
         update = {
-            controller.updateLayer(layerMode, sightings, area)
+            controller.updateLayer(layerMode, sightings, area, userLocation)
             controller.updateSightings(sightings, area)
             controller.updateSelectedSighting(selectedSighting)
+            controller.updateUserLocation(userLocation)
         },
         modifier = modifier,
     )
@@ -420,12 +501,18 @@ private class QuestNativeMapController {
     var sightingsById: Map<String, QuestSighting> = emptyMap()
     var selectedSighting: QuestSighting? = null
     var area: QuestMapArea? = null
+    var userLocation: QuestUserLocation? = null
     private var map: MapLibreMap? = null
     private var fitted = false
     private var layerMode = QuestMapLayerMode.Trail
     private var clickListenerAttached = false
 
-    fun attach(map: MapLibreMap, sightings: List<QuestSighting>, area: QuestMapArea?) {
+    fun attach(
+        map: MapLibreMap,
+        sightings: List<QuestSighting>,
+        area: QuestMapArea?,
+        userLocation: QuestUserLocation?,
+    ) {
         this.map = map
         if (!clickListenerAttached) {
             clickListenerAttached = true
@@ -442,17 +529,18 @@ private class QuestNativeMapController {
                 id != null
             }
         }
-        loadStyle(map, layerMode, sightings, area)
+        loadStyle(map, layerMode, sightings, area, userLocation)
     }
 
     fun updateLayer(
         nextLayerMode: QuestMapLayerMode,
         sightings: List<QuestSighting>,
         area: QuestMapArea?,
+        userLocation: QuestUserLocation?,
     ) {
         if (nextLayerMode == layerMode) return
         layerMode = nextLayerMode
-        map?.let { loadStyle(it, nextLayerMode, sightings, area) }
+        map?.let { loadStyle(it, nextLayerMode, sightings, area, userLocation) }
     }
 
     private fun loadStyle(
@@ -460,6 +548,7 @@ private class QuestNativeMapController {
         nextLayerMode: QuestMapLayerMode,
         sightings: List<QuestSighting>,
         area: QuestMapArea?,
+        userLocation: QuestUserLocation?,
     ) {
         val builder = if (nextLayerMode == QuestMapLayerMode.Satellite) {
             Style.Builder().fromJson(QUEST_SATELLITE_STYLE)
@@ -484,6 +573,12 @@ private class QuestNativeMapController {
                 GeoJsonSource(
                     QUEST_SELECTED_SOURCE,
                     sightingsFeatureCollection(selectedSighting?.let(::listOf) ?: emptyList()),
+                ),
+            )
+            style.addSource(
+                GeoJsonSource(
+                    QUEST_USER_SOURCE,
+                    userLocationFeatureCollection(userLocation),
                 ),
             )
             style.addLayer(
@@ -520,15 +615,25 @@ private class QuestNativeMapController {
             )
             style.addLayer(
                 CircleLayer(QUEST_SELECTED_LAYER, QUEST_SELECTED_SOURCE).withProperties(
+                    circleColor("#F4F0E5"),
+                    circleRadius(8f),
+                    circleOpacity(1f),
+                    circleStrokeColor("#183A2D"),
+                    circleStrokeWidth(2.2f),
+                ),
+            )
+            style.addLayer(
+                CircleLayer(QUEST_USER_LAYER, QUEST_USER_SOURCE).withProperties(
                     circleColor("#2587D8"),
                     circleRadius(8f),
                     circleOpacity(1f),
                     circleStrokeColor("#F4F0E5"),
-                    circleStrokeWidth(2.2f),
+                    circleStrokeWidth(3f),
                 ),
             )
             updateSightings(sightings, area)
             updateSelectedSighting(selectedSighting)
+            updateUserLocation(userLocation)
         }
     }
 
@@ -553,6 +658,14 @@ private class QuestNativeMapController {
         map?.getStyle { style ->
             style.getSourceAs<GeoJsonSource>(QUEST_SELECTED_SOURCE)?.setGeoJson(
                 sightingsFeatureCollection(sighting?.let(::listOf) ?: emptyList()),
+            )
+        }
+    }
+
+    fun updateUserLocation(location: QuestUserLocation?) {
+        map?.getStyle { style ->
+            style.getSourceAs<GeoJsonSource>(QUEST_USER_SOURCE)?.setGeoJson(
+                userLocationFeatureCollection(location),
             )
         }
     }
@@ -594,6 +707,13 @@ private fun sightingsFeatureCollection(sightings: List<QuestSighting>): FeatureC
                 addStringProperty("sighting_id", sighting.id)
             }
         },
+    )
+
+private fun userLocationFeatureCollection(location: QuestUserLocation?): FeatureCollection =
+    FeatureCollection.fromFeatures(
+        location?.let {
+            listOf(Feature.fromGeometry(Point.fromLngLat(it.longitude, it.latitude)))
+        } ?: emptyList(),
     )
 
 private fun areaFeatureCollection(area: QuestMapArea?): FeatureCollection {
