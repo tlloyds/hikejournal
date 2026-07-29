@@ -290,6 +290,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                     onSaveQuestFocus = viewModel::saveQuestFocus,
                     onArchiveQuest = viewModel::archiveQuest,
                     onDeleteQuest = viewModel::deleteQuest,
+                    onOpenNearbyMap = viewModel::openNearbySightingsMap,
                     onOpenQuestMap = viewModel::openQuestSightingsMap,
                     onRefreshQuestMap = viewModel::refreshQuestSightingsMap,
                     onCloseQuestMap = viewModel::closeQuestSightingsMap,

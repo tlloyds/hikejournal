@@ -12,6 +12,7 @@ from mobile_api import (
     app,
     delete_species_quest,
     get_nearby_species,
+    get_nearby_species_sightings,
     get_species_quest_sightings,
     list_discovery_areas,
     decide_species_review,
@@ -367,6 +368,57 @@ def test_current_location_endpoint_parses_android_discovery_query(monkeypatch):
             assert captured["area"]["lng"] == -82.68
     finally:
         app.dependency_overrides.pop(require_mobile_key, None)
+
+
+def test_nearby_sightings_endpoint_accepts_the_current_result_context(monkeypatch):
+    captured = {}
+    repository = object()
+    service_container = type("Service", (), {"repository": repository})()
+
+    class Discovery:
+        def __init__(self, received_repository):
+            assert received_repository is repository
+
+        def nearby_sightings_payload(self, **kwargs):
+            captured.update(kwargs)
+            return {"mapped_count": 1, "sightings": [{"id": "obs-1"}]}
+
+    monkeypatch.setattr("mobile_api.get_services", lambda: service_container)
+    monkeypatch.setattr("mobile_api.SpeciesDiscoveryService", Discovery)
+
+    result = get_nearby_species_sightings(
+        taxon_id=163916,
+        area_id=None,
+        target_date=__import__("datetime").date(2026, 7, 28),
+        radius_km=10,
+        lat=28.12345,
+        lng=-82.67891,
+        area_name="Current area",
+    )
+
+    assert result["mapped_count"] == 1
+    assert captured["area"]["lat"] == 28.12
+    assert captured["area"]["lng"] == -82.68
+    assert captured["taxon_id"] == 163916
+
+    app.dependency_overrides[require_mobile_key] = lambda: None
+    try:
+        response = TestClient(app).get(
+            "/v1/discovery/nearby/sightings",
+            params={
+                "taxon_id": "163916",
+                "date": "2026-07-28",
+                "radius_km": "10",
+                "lat": "28.12345",
+                "lng": "-82.67891",
+                "area_name": "Current area",
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(require_mobile_key, None)
+
+    assert response.status_code == 200
+    assert response.json()["sightings"] == [{"id": "obs-1"}]
 
 
 def test_nearby_endpoint_rejects_unsupported_radius_after_query_parsing():

@@ -479,6 +479,38 @@ class SpeciesDiscoveryService:
             },
         }
 
+    def nearby_sightings_payload(
+        self,
+        *,
+        area: dict[str, Any],
+        target_date: date,
+        radius_km: int | float,
+        taxon_id: int,
+        limit: int = DISCOVERY_OBSERVATION_LIMIT,
+    ) -> dict[str, Any]:
+        months = seasonal_months(target_date)
+        return self.quest_sightings_payload(
+            {
+                "id": "",
+                "title": "Nearby field list",
+                "area_name": str(area.get("name") or "Selected area"),
+                "lat": area.get("lat"),
+                "lng": area.get("lng"),
+                "radius_km": normalize_radius(radius_km),
+                "target_date": target_date.isoformat(),
+                "months": list(months),
+                "taxa": [
+                    {
+                        "taxon_id": int(taxon_id),
+                        "common_name": "Nearby species",
+                        "scientific_name": "",
+                    }
+                ],
+            },
+            taxon_id=taxon_id,
+            limit=limit,
+        )
+
     def _observed_after(self) -> str:
         try:
             return self.now.date().replace(year=self.now.year - 10).isoformat()

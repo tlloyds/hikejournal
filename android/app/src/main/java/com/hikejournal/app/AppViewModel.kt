@@ -36,6 +36,7 @@ data class AppState(
     val nearbySpecies: NearbySpecies? = null,
     val speciesQuests: List<FieldQuest> = emptyList(),
     val questMapQuest: FieldQuest? = null,
+    val questMapNearby: NearbySpecies? = null,
     val questMapTaxon: DiscoveryTaxon? = null,
     val questSightingsMap: QuestSightingsMap? = null,
     val sightings: List<Sighting> = emptyList(),
@@ -306,6 +307,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             _state.update {
                 it.copy(
                     questMapQuest = quest,
+                    questMapNearby = null,
                     questMapTaxon = taxon,
                     questSightingsMap = null,
                     isQuestMapLoading = true,
@@ -338,16 +340,61 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun openNearbySightingsMap(nearby: NearbySpecies, taxon: DiscoveryTaxon) {
+        val mapContext = nearby.asMapContext()
+        viewModelScope.launch {
+            _state.update {
+                it.copy(
+                    questMapQuest = mapContext,
+                    questMapNearby = nearby,
+                    questMapTaxon = taxon,
+                    questSightingsMap = null,
+                    isQuestMapLoading = true,
+                    questMapNotice = null,
+                )
+            }
+            runCatching { repository.loadNearbySightings(nearby, taxon.taxonId) }
+                .onSuccess { result ->
+                    _state.update {
+                        it.copy(
+                            questSightingsMap = result.value,
+                            isQuestMapLoading = false,
+                            questMapNotice = if (result.fromCache) {
+                                "Showing the last saved sighting map. Refresh when connected."
+                            } else {
+                                null
+                            },
+                            isOffline = result.fromCache,
+                        )
+                    }
+                }
+                .onFailure { error ->
+                    _state.update {
+                        it.copy(
+                            isQuestMapLoading = false,
+                            questMapNotice = error.userMessage(),
+                        )
+                    }
+                }
+        }
+    }
+
     fun refreshQuestSightingsMap() {
         val quest = _state.value.questMapQuest ?: return
         val taxon = _state.value.questMapTaxon ?: return
-        openQuestSightingsMap(quest, taxon)
+        val nearby = _state.value.questMapNearby
+        if (nearby != null) {
+            openNearbySightingsMap(nearby, taxon)
+        } else {
+            openQuestSightingsMap(quest, taxon)
+        }
     }
 
     fun closeQuestSightingsMap() {
         _state.update {
             it.copy(
                 questMapQuest = null,
+                questMapNearby = null,
                 questMapTaxon = null,
                 questSightingsMap = null,
                 isQuestMapLoading = false,
@@ -769,3 +816,20 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
 private fun Throwable?.userMessage(): String =
     this?.message?.takeIf { it.isNotBlank() } ?: "HikeJournal could not complete that request."
+
+private fun NearbySpecies.asMapContext(): FieldQuest = FieldQuest(
+    id = "",
+    title = "Nearby field list",
+    status = "active",
+    linkedHikeId = null,
+    areaId = areaId,
+    areaName = areaName,
+    latitude = latitude,
+    longitude = longitude,
+    radiusKm = radiusKm,
+    targetDate = targetDate,
+    periodLabel = periodLabel,
+    iconicTaxon = iconicTaxon,
+    progress = progress,
+    taxa = taxa,
+)

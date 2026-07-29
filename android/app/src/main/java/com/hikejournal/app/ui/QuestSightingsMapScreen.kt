@@ -229,11 +229,15 @@ fun QuestSightingsMapScreen(
         ) {
             Row(verticalAlignment = Alignment.Top) {
                 IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to Field Quest", tint = Paper)
+                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to species", tint = Paper)
                 }
                 Column(Modifier.weight(1f).padding(top = 3.dp)) {
                     Text(
-                        "FIELD QUEST · INATURALIST",
+                        if (quest.id.isBlank()) {
+                            "NEARBY SPECIES · INATURALIST"
+                        } else {
+                            "FIELD QUEST · INATURALIST"
+                        },
                         style = MaterialTheme.typography.labelSmall,
                         color = Color(0xFFB7C8B5),
                     )

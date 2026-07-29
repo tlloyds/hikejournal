@@ -888,6 +888,50 @@ def get_nearby_species(
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
+@app.get("/v1/discovery/nearby/sightings", dependencies=[Depends(require_mobile_key)])
+def get_nearby_species_sightings(
+    taxon_id: int = Query(gt=0),
+    area_id: str | None = Query(default=None, max_length=64),
+    target_date: date = Query(alias="date"),
+    radius_km: int = Query(default=10),
+    lat: float | None = Query(default=None, ge=-90, le=90),
+    lng: float | None = Query(default=None, ge=-180, le=180),
+    area_name: str | None = Query(default=None, max_length=160),
+) -> dict[str, Any]:
+    _require_discovery_enabled()
+    try:
+        normalized_radius = normalize_radius(radius_km)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    svc = get_services()
+    service = SpeciesDiscoveryService(svc.repository)
+    if area_id:
+        try:
+            area = service.resolve_area(svc.repository, area_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+    else:
+        if lat is None or lng is None:
+            raise HTTPException(status_code=400, detail="Choose an area or provide a current location.")
+        area = {
+            "id": "",
+            "name": (area_name or "Current area").strip() or "Current area",
+            "lat": round(float(lat), 2),
+            "lng": round(float(lng), 2),
+        }
+    try:
+        return service.nearby_sightings_payload(
+            area=area,
+            target_date=target_date,
+            radius_km=normalized_radius,
+            taxon_id=taxon_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (InatRequestError, InatRateLimitError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
 @app.get("/v1/discovery/quests", dependencies=[Depends(require_mobile_key)])
 def list_species_quests() -> list[dict[str, Any]]:
     _require_discovery_enabled()

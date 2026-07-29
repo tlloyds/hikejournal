@@ -86,6 +86,22 @@ class HikeJournalApi(private val context: Context) {
     suspend fun getSpeciesQuestJson(questId: String): String =
         request("/v1/discovery/quests/${questId.urlEncoded()}")
 
+    suspend fun getNearbySightingsJson(nearby: NearbySpecies, taxonId: Long): String {
+        val params = mutableListOf(
+            "taxon_id=$taxonId",
+            "date=${nearby.targetDate.urlEncoded()}",
+            "radius_km=${nearby.radiusKm}",
+        )
+        if (nearby.areaId.isNotBlank()) {
+            params += "area_id=${nearby.areaId.urlEncoded()}"
+        } else if (nearby.latitude != null && nearby.longitude != null) {
+            params += "lat=${roundedDiscoveryCoordinate(nearby.latitude)}"
+            params += "lng=${roundedDiscoveryCoordinate(nearby.longitude)}"
+            params += "area_name=${nearby.areaName.urlEncoded()}"
+        }
+        return request("/v1/discovery/nearby/sightings?${params.joinToString("&")}")
+    }
+
     suspend fun getQuestSightingsJson(questId: String, taxonId: Long): String =
         request(
             "/v1/discovery/quests/${questId.urlEncoded()}/sightings?taxon_id=$taxonId",

@@ -137,6 +137,7 @@ fun SpeciesIndexScreen(
     onSaveQuestFocus: (FieldQuest, List<Long>) -> Unit,
     onArchiveQuest: (FieldQuest) -> Unit,
     onDeleteQuest: (FieldQuest) -> Unit,
+    onOpenNearbyMap: (NearbySpecies, DiscoveryTaxon) -> Unit,
     onOpenQuestMap: (FieldQuest, DiscoveryTaxon) -> Unit,
     onRefreshQuestMap: () -> Unit,
     onCloseQuestMap: () -> Unit,
@@ -785,6 +786,9 @@ fun SpeciesIndexScreen(
         val mapQuest = selectedQuest?.takeIf { quest ->
             mode == SpeciesMode.Quests && quest.taxa.any { it.taxonId == taxon.taxonId }
         }
+        val mapNearby = nearbySpecies?.takeIf { nearby ->
+            mode == SpeciesMode.Nearby && nearby.taxa.any { it.taxonId == taxon.taxonId }
+        }
         val previewImageUrl = taxon.collectionPhotoUrl
             .takeIf { taxon.collected && !it.isNullOrBlank() }
             ?: taxon.referencePhoto?.url.orEmpty()
@@ -884,11 +888,15 @@ fun SpeciesIndexScreen(
             },
             confirmButton = {
                 Row {
-                    if (mapQuest != null) {
+                    if (mapQuest != null || mapNearby != null) {
                         Button(
                             onClick = {
                                 previewTaxon = null
-                                onOpenQuestMap(mapQuest, taxon)
+                                if (mapQuest != null) {
+                                    onOpenQuestMap(mapQuest, taxon)
+                                } else if (mapNearby != null) {
+                                    onOpenNearbyMap(mapNearby, taxon)
+                                }
                             },
                         ) {
                             Text("Map sightings")

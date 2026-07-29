@@ -126,6 +126,25 @@ class HikeJournalRepository(context: Context) {
         return result.copy(value = overlayPendingQuests(listOf(result.value)).first())
     }
 
+    suspend fun loadNearbySightings(
+        nearby: NearbySpecies,
+        taxonId: Long,
+    ): LoadResult<QuestSightingsMap> {
+        val cacheKey = listOf(
+            nearby.areaId,
+            nearby.latitude?.toString().orEmpty(),
+            nearby.longitude?.toString().orEmpty(),
+            nearby.targetDate,
+            nearby.radiusKm.toString(),
+            taxonId.toString(),
+        ).joinToString("|").hashCode()
+        return loadWithCache(
+            cacheFile = File(cacheDirectory, "nearby-sightings-$cacheKey.json"),
+            fetch = { api.getNearbySightingsJson(nearby, taxonId) },
+            parse = ::parseQuestSightingsMap,
+        )
+    }
+
     suspend fun loadQuestSightings(questId: String, taxonId: Long): LoadResult<QuestSightingsMap> =
         loadWithCache(
             cacheFile = File(cacheDirectory, "quest-sightings-$questId-$taxonId.json"),

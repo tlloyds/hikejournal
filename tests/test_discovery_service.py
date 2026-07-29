@@ -333,3 +333,30 @@ def test_quest_sightings_rejects_species_outside_the_quest() -> None:
         raise AssertionError("Expected a validation error")
     except ValueError as exc:
         assert "belongs to this Field Quest" in str(exc)
+
+
+def test_nearby_sightings_reuses_the_seasonal_map_query() -> None:
+    captured = {}
+
+    class SightingsClient:
+        def fetch_species_observations(self, **kwargs):
+            captured.update(kwargs)
+            return {"total_results": 0, "results": []}
+
+    result = SpeciesDiscoveryService(
+        Repository(),
+        inat_client=SightingsClient(),
+        now=datetime(2026, 7, 28, tzinfo=UTC),
+    ).nearby_sightings_payload(
+        area={"id": "", "name": "Current area", "lat": 28.5, "lng": -81.0},
+        target_date=date(2026, 7, 28),
+        radius_km=10,
+        taxon_id=163916,
+    )
+
+    assert captured["taxon_id"] == 163916
+    assert captured["months"] == (6, 7, 8)
+    assert captured["lat"] == 28.5
+    assert captured["lng"] == -81.0
+    assert result["quest"]["title"] == "Nearby field list"
+    assert result["mapped_count"] == 0
