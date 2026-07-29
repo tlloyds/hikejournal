@@ -85,6 +85,7 @@ import com.hikejournal.app.data.Hike
 import com.hikejournal.app.data.NearbySpecies
 import com.hikejournal.app.data.ObservationTypeFilter
 import com.hikejournal.app.data.Photo
+import com.hikejournal.app.data.QuestSightingsMap
 import com.hikejournal.app.data.SpeciesRecord
 import com.hikejournal.app.data.filterDiscoveryAreas
 import com.hikejournal.app.data.filterSpeciesByObservationType
@@ -118,12 +119,17 @@ fun SpeciesIndexScreen(
     discoveryAreas: List<DiscoveryArea>,
     nearbySpecies: NearbySpecies?,
     quests: List<FieldQuest>,
+    questMapQuest: FieldQuest?,
+    questMapTaxon: DiscoveryTaxon?,
+    questSightingsMap: QuestSightingsMap?,
     initialNearbyAreaName: String?,
     loading: Boolean,
     discoveryLoading: Boolean,
     savingQuest: Boolean,
     offline: Boolean,
     discoveryNotice: String?,
+    questMapLoading: Boolean,
+    questMapNotice: String?,
     onRefresh: () -> Unit,
     onRefreshDiscovery: () -> Unit,
     onLoadNearby: (String?, String, Int, String?, Double?, Double?, Int) -> Unit,
@@ -131,6 +137,9 @@ fun SpeciesIndexScreen(
     onSaveQuestFocus: (FieldQuest, List<Long>) -> Unit,
     onArchiveQuest: (FieldQuest) -> Unit,
     onDeleteQuest: (FieldQuest) -> Unit,
+    onOpenQuestMap: (FieldQuest, DiscoveryTaxon) -> Unit,
+    onRefreshQuestMap: () -> Unit,
+    onCloseQuestMap: () -> Unit,
     onInitialAreaConsumed: () -> Unit,
     onOpenSpecies: (String) -> Unit,
 ) {
@@ -161,6 +170,18 @@ fun SpeciesIndexScreen(
     val visibleQuests = quests.filter { (it.status == "archived") == showArchivedQuests }
     val selectedQuest = visibleQuests.firstOrNull { it.id == selectedQuestId }
         ?: visibleQuests.singleOrNull()
+    if (questMapQuest != null && questMapTaxon != null) {
+        QuestSightingsMapScreen(
+            quest = questMapQuest,
+            taxon = questMapTaxon,
+            mapData = questSightingsMap,
+            loading = questMapLoading,
+            notice = questMapNotice,
+            onBack = onCloseQuestMap,
+            onRefresh = onRefreshQuestMap,
+        )
+        return
+    }
     LaunchedEffect(nearbySpecies) {
         val availableIds = nearbySpecies?.taxa?.mapTo(mutableSetOf()) { it.taxonId }.orEmpty()
         focusTaxonIds = focusTaxonIds.filter { it in availableIds }
@@ -761,6 +782,9 @@ fun SpeciesIndexScreen(
     }
     previewTaxon?.let { taxon ->
         val uriHandler = LocalUriHandler.current
+        val mapQuest = selectedQuest?.takeIf { quest ->
+            mode == SpeciesMode.Quests && quest.taxa.any { it.taxonId == taxon.taxonId }
+        }
         val previewImageUrl = taxon.collectionPhotoUrl
             .takeIf { taxon.collected && !it.isNullOrBlank() }
             ?: taxon.referencePhoto?.url.orEmpty()
@@ -859,7 +883,19 @@ fun SpeciesIndexScreen(
                 }
             },
             confirmButton = {
-                TextButton(onClick = { previewTaxon = null }) { Text("Close") }
+                Row {
+                    if (mapQuest != null) {
+                        Button(
+                            onClick = {
+                                previewTaxon = null
+                                onOpenQuestMap(mapQuest, taxon)
+                            },
+                        ) {
+                            Text("Map sightings")
+                        }
+                    }
+                    TextButton(onClick = { previewTaxon = null }) { Text("Close") }
+                }
             },
             containerColor = Paper,
         )

@@ -126,6 +126,13 @@ class HikeJournalRepository(context: Context) {
         return result.copy(value = overlayPendingQuests(listOf(result.value)).first())
     }
 
+    suspend fun loadQuestSightings(questId: String, taxonId: Long): LoadResult<QuestSightingsMap> =
+        loadWithCache(
+            cacheFile = File(cacheDirectory, "quest-sightings-$questId-$taxonId.json"),
+            fetch = { api.getQuestSightingsJson(questId, taxonId) },
+            parse = ::parseQuestSightingsMap,
+        )
+
     suspend fun createSpeciesQuest(
         areaId: String,
         targetDate: String,

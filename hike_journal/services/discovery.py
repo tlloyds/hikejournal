@@ -31,6 +31,11 @@ DISCOVERY_FIELDS = (
     "english_common_name:!t,iconic_taxon_name:!t,wikipedia_url:!t,wikipedia_summary:!t,default_photo:"
     "(url:!t,medium_url:!t,attribution:!t,license_code:!t)))"
 )
+DISCOVERY_OBSERVATION_FIELDS = (
+    "(id:!t,observed_on:!t,uri:!t,geojson:!t,obscured:!t,geoprivacy:!t,"
+    "taxon_geoprivacy:!t,place_guess:!t,positional_accuracy:!t,photos:all,user:(login:!t))"
+)
+DISCOVERY_OBSERVATION_LIMIT = 200
 logger = logging.getLogger(__name__)
 
 
@@ -97,6 +102,63 @@ class InatDiscoveryClient:
             raise InatRequestError("iNaturalist discovery returned invalid JSON.") from exc
         if not isinstance(payload, dict):
             raise InatRequestError("iNaturalist discovery returned an unexpected response.")
+        return payload
+
+    def fetch_species_observations(
+        self,
+        *,
+        taxon_id: int,
+        lat: float,
+        lng: float,
+        radius_km: int,
+        months: tuple[int, ...],
+        observed_after: str,
+        limit: int = DISCOVERY_OBSERVATION_LIMIT,
+    ) -> dict[str, Any]:
+        params: dict[str, Any] = {
+            "taxon_id": int(taxon_id),
+            "lat": round(float(lat), 4),
+            "lng": round(float(lng), 4),
+            "radius": int(radius_km),
+            "month": ",".join(str(month) for month in months),
+            "quality_grade": "research",
+            "captive": "false",
+            "geo": "true",
+            "d1": observed_after,
+            "order": "desc",
+            "order_by": "observed_on",
+            "per_page": min(max(int(limit), 1), DISCOVERY_OBSERVATION_LIMIT),
+            "fields": DISCOVERY_OBSERVATION_FIELDS,
+        }
+        try:
+            response = requests.get(
+                f"{self.base_url}/observations",
+                params=params,
+                headers={"User-Agent": self.user_agent, "Accept": "application/json"},
+                timeout=30,
+            )
+        except requests.RequestException as exc:
+            raise InatRequestError(f"iNaturalist sightings request failed: {exc}") from exc
+        if response.status_code == 429:
+            retry_after: float | None = None
+            try:
+                retry_after = float(response.headers.get("Retry-After") or "")
+            except (TypeError, ValueError):
+                pass
+            raise InatRateLimitError(
+                "iNaturalist is asking HikeJournal to slow down.",
+                retry_after=retry_after,
+            )
+        if response.status_code >= 400:
+            raise InatRequestError(
+                f"iNaturalist sightings returned {response.status_code}: {response.text[:200]}"
+            )
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise InatRequestError("iNaturalist sightings returned invalid JSON.") from exc
+        if not isinstance(payload, dict):
+            raise InatRequestError("iNaturalist sightings returned an unexpected response.")
         return payload
 
 
@@ -336,6 +398,87 @@ class SpeciesDiscoveryService:
             **progress,
         }
 
+    def quest_sightings_payload(
+        self,
+        quest: dict[str, Any],
+        *,
+        taxon_id: int,
+        limit: int = DISCOVERY_OBSERVATION_LIMIT,
+    ) -> dict[str, Any]:
+        taxon = next(
+            (
+                item
+                for item in (quest.get("taxa") or [])
+                if int(item.get("taxon_id") or 0) == int(taxon_id)
+            ),
+            None,
+        )
+        if taxon is None:
+            raise ValueError("Choose a species that belongs to this Field Quest.")
+        try:
+            lat = float(quest["lat"])
+            lng = float(quest["lng"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError("This Field Quest does not have a mappable area.") from exc
+
+        months = tuple(int(month) for month in (quest.get("months") or []))
+        if not months:
+            try:
+                months = seasonal_months(date.fromisoformat(str(quest.get("target_date") or "")))
+            except ValueError as exc:
+                raise ValueError("This Field Quest does not have a valid seasonal window.") from exc
+        radius = normalize_radius(quest.get("radius_km") or 10)
+        raw_payload = self.inat_client.fetch_species_observations(
+            taxon_id=int(taxon_id),
+            lat=lat,
+            lng=lng,
+            radius_km=radius,
+            months=months,
+            observed_after=self._observed_after(),
+            limit=limit,
+        )
+        raw_results = raw_payload.get("results")
+        if not isinstance(raw_results, list):
+            raise InatRequestError("iNaturalist sightings returned an unexpected response.")
+        sightings = [
+            normalized
+            for item in raw_results
+            if isinstance(item, dict)
+            for normalized in [_normalize_public_sighting(item)]
+            if normalized is not None
+        ]
+        try:
+            total_results = max(int(raw_payload.get("total_results") or len(sightings)), 0)
+        except (TypeError, ValueError):
+            total_results = len(sightings)
+        return {
+            "quest": {
+                "id": str(quest.get("id") or ""),
+                "title": str(quest.get("title") or "Field Quest"),
+                "area_name": str(quest.get("area_name") or "Selected area"),
+                "lat": round(lat, 4),
+                "lng": round(lng, 4),
+                "radius_km": radius,
+                "period_label": _period_label(months),
+            },
+            "taxon": {
+                "taxon_id": int(taxon_id),
+                "common_name": str(taxon.get("common_name") or "Unknown species"),
+                "scientific_name": str(taxon.get("scientific_name") or ""),
+            },
+            "total_results": total_results,
+            "mapped_count": len(sightings),
+            "limited": total_results > len(sightings),
+            "sightings": sightings,
+            "source": {
+                "provider": "iNaturalist",
+                "guidance": (
+                    "Markers use locations iNaturalist makes public. Obscured markers are approximate, "
+                    "and private coordinates are never exposed."
+                ),
+            },
+        }
+
     def _observed_after(self) -> str:
         try:
             return self.now.date().replace(year=self.now.year - 10).isoformat()
@@ -362,3 +505,49 @@ def _period_label(months: tuple[int, ...] | list[int]) -> str:
         if isinstance(month, int) and 1 <= month <= 12
     ]
     return " · ".join(names)
+
+
+def _normalize_public_sighting(item: dict[str, Any]) -> dict[str, Any] | None:
+    geojson = item.get("geojson")
+    coordinates = geojson.get("coordinates") if isinstance(geojson, dict) else None
+    if not isinstance(coordinates, list) or len(coordinates) < 2:
+        return None
+    try:
+        lng = float(coordinates[0])
+        lat = float(coordinates[1])
+    except (TypeError, ValueError):
+        return None
+    if not (-90 <= lat <= 90 and -180 <= lng <= 180):
+        return None
+
+    photos = item.get("photos")
+    photo = photos[0] if isinstance(photos, list) and photos and isinstance(photos[0], dict) else {}
+    user = item.get("user") if isinstance(item.get("user"), dict) else {}
+    obscured = bool(
+        item.get("obscured")
+        or str(item.get("geoprivacy") or "").lower() == "obscured"
+        or str(item.get("taxon_geoprivacy") or "").lower() == "obscured"
+    )
+    accuracy = item.get("positional_accuracy")
+    try:
+        accuracy_m = round(float(accuracy)) if accuracy is not None else None
+    except (TypeError, ValueError):
+        accuracy_m = None
+    photo_url = str(photo.get("url") or "")
+    if "/square." in photo_url:
+        photo_url = photo_url.replace("/square.", "/medium.")
+    observation_id = str(item.get("id") or "")
+    return {
+        "id": observation_id,
+        "lat": lat,
+        "lng": lng,
+        "observed_on": str(item.get("observed_on") or ""),
+        "place_guess": str(item.get("place_guess") or ""),
+        "observer": str(user.get("login") or ""),
+        "uri": str(item.get("uri") or f"https://www.inaturalist.org/observations/{observation_id}"),
+        "photo_url": photo_url,
+        "photo_attribution": str(photo.get("attribution") or ""),
+        "photo_license_code": str(photo.get("license_code") or ""),
+        "positional_accuracy_m": accuracy_m,
+        "obscured": obscured,
+    }

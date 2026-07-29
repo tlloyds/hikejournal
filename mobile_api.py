@@ -973,6 +973,25 @@ def get_species_quest(quest_id: str) -> dict[str, Any]:
     )
 
 
+@app.get("/v1/discovery/quests/{quest_id}/sightings", dependencies=[Depends(require_mobile_key)])
+def get_species_quest_sightings(
+    quest_id: str,
+    taxon_id: int = Query(gt=0),
+) -> dict[str, Any]:
+    _require_discovery_enabled()
+    svc = get_services()
+    quest = _get_visible_quest(svc, quest_id)
+    try:
+        return SpeciesDiscoveryService(svc.repository).quest_sightings_payload(
+            quest,
+            taxon_id=taxon_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (InatRequestError, InatRateLimitError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
 @app.patch("/v1/discovery/quests/{quest_id}", dependencies=[Depends(require_mobile_key)])
 def update_species_quest(quest_id: str, payload: SpeciesQuestPatchInput) -> dict[str, Any]:
     _require_discovery_enabled()

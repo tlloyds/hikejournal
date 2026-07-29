@@ -158,6 +158,39 @@ data class FieldQuest(
     val pendingFocusSync: Boolean = false,
 )
 
+data class QuestSighting(
+    val id: String,
+    val latitude: Double,
+    val longitude: Double,
+    val observedOn: String,
+    val placeGuess: String,
+    val observer: String,
+    val uri: String,
+    val photoUrl: String,
+    val photoAttribution: String,
+    val photoLicenseCode: String,
+    val positionalAccuracyMeters: Int?,
+    val obscured: Boolean,
+)
+
+data class QuestSightingsMap(
+    val questId: String,
+    val questTitle: String,
+    val areaName: String,
+    val latitude: Double,
+    val longitude: Double,
+    val radiusKm: Int,
+    val periodLabel: String,
+    val taxonId: Long,
+    val commonName: String,
+    val scientificName: String,
+    val totalResults: Int,
+    val mappedCount: Int,
+    val limited: Boolean,
+    val sourceGuidance: String,
+    val sightings: List<QuestSighting>,
+)
+
 data class Encounter(
     val photo: Photo,
     val hikeId: String?,
@@ -328,6 +361,50 @@ fun parseFieldQuest(json: String): FieldQuest = parseFieldQuest(JSONObject(json)
 fun parseFieldQuests(json: String): List<FieldQuest> {
     val array = JSONArray(json)
     return List(array.length()) { index -> parseFieldQuest(array.getJSONObject(index)) }
+}
+
+fun parseQuestSightingsMap(json: String): QuestSightingsMap {
+    val root = JSONObject(json)
+    val quest = root.optJSONObject("quest") ?: JSONObject()
+    val taxon = root.optJSONObject("taxon") ?: JSONObject()
+    val source = root.optJSONObject("source") ?: JSONObject()
+    val sightings = root.optJSONArray("sightings") ?: JSONArray()
+    return QuestSightingsMap(
+        questId = quest.optString("id"),
+        questTitle = quest.optString("title", "Field Quest"),
+        areaName = quest.optString("area_name", "Selected area"),
+        latitude = quest.optDouble("lat"),
+        longitude = quest.optDouble("lng"),
+        radiusKm = quest.optInt("radius_km", 10),
+        periodLabel = quest.optString("period_label"),
+        taxonId = taxon.optLong("taxon_id"),
+        commonName = taxon.optString("common_name", "Unknown species"),
+        scientificName = taxon.optString("scientific_name"),
+        totalResults = root.optInt("total_results"),
+        mappedCount = root.optInt("mapped_count"),
+        limited = root.optBoolean("limited"),
+        sourceGuidance = source.optString(
+            "guidance",
+            "Markers use locations iNaturalist makes public.",
+        ),
+        sightings = List(sightings.length()) { index ->
+            val item = sightings.getJSONObject(index)
+            QuestSighting(
+                id = item.optString("id"),
+                latitude = item.optDouble("lat"),
+                longitude = item.optDouble("lng"),
+                observedOn = item.optString("observed_on"),
+                placeGuess = item.optString("place_guess"),
+                observer = item.optString("observer"),
+                uri = item.optString("uri"),
+                photoUrl = item.optString("photo_url"),
+                photoAttribution = item.optString("photo_attribution"),
+                photoLicenseCode = item.optString("photo_license_code"),
+                positionalAccuracyMeters = item.optNullableInt("positional_accuracy_m"),
+                obscured = item.optBoolean("obscured"),
+            )
+        },
+    )
 }
 
 fun parseSightings(json: String): List<Sighting> {

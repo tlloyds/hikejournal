@@ -96,4 +96,49 @@ class SpeciesDiscoveryParserTest {
         assertEquals(1, quest.progress.totalCount)
         assertEquals(1, quest.taxa.single().focusOrder)
     }
+
+    @Test
+    fun `quest sightings response preserves coordinates and privacy`() {
+        val map = parseQuestSightingsMap(
+            """
+            {
+              "quest":{
+                "id":"quest-1",
+                "title":"Summer lilies",
+                "area_name":"Florida Trail, Tosohatchee",
+                "lat":28.4985,
+                "lng":-80.99675,
+                "radius_km":10,
+                "period_label":"Jun · Jul · Aug"
+              },
+              "taxon":{
+                "taxon_id":163916,
+                "common_name":"Alligator lily",
+                "scientific_name":"Hymenocallis palmeri"
+              },
+              "total_results":33,
+              "mapped_count":1,
+              "limited":false,
+              "source":{"guidance":"Public coordinates only."},
+              "sightings":[{
+                "id":"384453204",
+                "lat":28.5692990957,
+                "lng":-80.9994369018,
+                "observed_on":"2026-07-23",
+                "observer":"csoliz",
+                "uri":"https://www.inaturalist.org/observations/384453204",
+                "photo_url":"https://images.example/medium.jpg",
+                "positional_accuracy_m":14,
+                "obscured":true
+              }]
+            }
+            """.trimIndent(),
+        )
+
+        assertEquals(33, map.totalResults)
+        assertEquals("Alligator lily", map.commonName)
+        assertEquals(28.5692990957, map.sightings.single().latitude, 0.0000001)
+        assertEquals(14, map.sightings.single().positionalAccuracyMeters)
+        assertTrue(map.sightings.single().obscured)
+    }
 }

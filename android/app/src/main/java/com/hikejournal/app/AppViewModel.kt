@@ -8,6 +8,7 @@ import com.hikejournal.app.data.Hike
 import com.hikejournal.app.data.HikeDraft
 import com.hikejournal.app.data.HikeJournalRepository
 import com.hikejournal.app.data.DiscoveryArea
+import com.hikejournal.app.data.DiscoveryTaxon
 import com.hikejournal.app.data.FieldQuest
 import com.hikejournal.app.data.NearbySpecies
 import com.hikejournal.app.data.Photo
@@ -16,6 +17,7 @@ import com.hikejournal.app.data.PublishOptions
 import com.hikejournal.app.data.PublishQueue
 import com.hikejournal.app.data.ReviewCandidate
 import com.hikejournal.app.data.ReviewItem
+import com.hikejournal.app.data.QuestSightingsMap
 import com.hikejournal.app.data.Sighting
 import com.hikejournal.app.data.SpeciesRecord
 import com.hikejournal.app.data.SyncStatus
@@ -33,6 +35,9 @@ data class AppState(
     val discoveryAreas: List<DiscoveryArea> = emptyList(),
     val nearbySpecies: NearbySpecies? = null,
     val speciesQuests: List<FieldQuest> = emptyList(),
+    val questMapQuest: FieldQuest? = null,
+    val questMapTaxon: DiscoveryTaxon? = null,
+    val questSightingsMap: QuestSightingsMap? = null,
     val sightings: List<Sighting> = emptyList(),
     val reviewQueue: List<ReviewItem> = emptyList(),
     val publishQueue: PublishQueue = PublishQueue(false, 0, 0, 0, emptyList()),
@@ -49,6 +54,8 @@ data class AppState(
     val isDiscoveryLoading: Boolean = false,
     val isSavingQuest: Boolean = false,
     val discoveryNotice: String? = null,
+    val isQuestMapLoading: Boolean = false,
+    val questMapNotice: String? = null,
     val isMapLoading: Boolean = false,
     val isReviewLoading: Boolean = false,
     val decidingReviewId: String? = null,
@@ -291,6 +298,61 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     it.copy(isSavingQuest = false, discoveryNotice = error.userMessage())
                 }
             }
+        }
+    }
+
+    fun openQuestSightingsMap(quest: FieldQuest, taxon: DiscoveryTaxon) {
+        viewModelScope.launch {
+            _state.update {
+                it.copy(
+                    questMapQuest = quest,
+                    questMapTaxon = taxon,
+                    questSightingsMap = null,
+                    isQuestMapLoading = true,
+                    questMapNotice = null,
+                )
+            }
+            runCatching { repository.loadQuestSightings(quest.id, taxon.taxonId) }
+                .onSuccess { result ->
+                    _state.update {
+                        it.copy(
+                            questSightingsMap = result.value,
+                            isQuestMapLoading = false,
+                            questMapNotice = if (result.fromCache) {
+                                "Showing the last saved sighting map. Refresh when connected."
+                            } else {
+                                null
+                            },
+                            isOffline = result.fromCache,
+                        )
+                    }
+                }
+                .onFailure { error ->
+                    _state.update {
+                        it.copy(
+                            isQuestMapLoading = false,
+                            questMapNotice = error.userMessage(),
+                        )
+                    }
+                }
+        }
+    }
+
+    fun refreshQuestSightingsMap() {
+        val quest = _state.value.questMapQuest ?: return
+        val taxon = _state.value.questMapTaxon ?: return
+        openQuestSightingsMap(quest, taxon)
+    }
+
+    fun closeQuestSightingsMap() {
+        _state.update {
+            it.copy(
+                questMapQuest = null,
+                questMapTaxon = null,
+                questSightingsMap = null,
+                isQuestMapLoading = false,
+                questMapNotice = null,
+            )
         }
     }
 

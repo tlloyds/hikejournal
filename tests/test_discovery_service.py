@@ -222,3 +222,114 @@ def test_inat_discovery_client_can_request_the_expanded_field_list(monkeypatch) 
     )
 
     assert captured["params"]["per_page"] == 100
+
+
+def test_inat_discovery_client_builds_quest_sightings_query(monkeypatch) -> None:
+    captured = {}
+
+    class Response:
+        status_code = 200
+        text = ""
+        headers = {}
+
+        @staticmethod
+        def json():
+            return {"total_results": 0, "results": []}
+
+    def fake_get(url, **kwargs):
+        captured["url"] = url
+        captured.update(kwargs)
+        return Response()
+
+    monkeypatch.setattr("hike_journal.services.discovery.requests.get", fake_get)
+
+    InatDiscoveryClient("https://api.example/v2").fetch_species_observations(
+        taxon_id=163916,
+        lat=28.4985,
+        lng=-80.99675,
+        radius_km=10,
+        months=(6, 7, 8),
+        observed_after="2016-07-28",
+    )
+
+    assert captured["url"].endswith("/observations")
+    assert captured["params"]["taxon_id"] == 163916
+    assert captured["params"]["quality_grade"] == "research"
+    assert captured["params"]["geo"] == "true"
+    assert captured["params"]["month"] == "6,7,8"
+    assert captured["params"]["per_page"] == 200
+
+
+def test_quest_sightings_payload_maps_public_and_obscured_records() -> None:
+    class SightingsClient:
+        def fetch_species_observations(self, **kwargs):
+            assert kwargs["taxon_id"] == 163916
+            assert kwargs["months"] == (6, 7, 8)
+            return {
+                "total_results": 2,
+                "results": [
+                    {
+                        "id": 384453204,
+                        "observed_on": "2026-07-23",
+                        "uri": "https://www.inaturalist.org/observations/384453204",
+                        "geojson": {"type": "Point", "coordinates": [-80.9994, 28.5693]},
+                        "obscured": False,
+                        "positional_accuracy": 14,
+                        "place_guess": "Christmas, FL",
+                        "user": {"login": "csoliz"},
+                        "photos": [
+                            {
+                                "url": "https://images.example/703755607/square.jpg",
+                                "attribution": "© observer",
+                                "license_code": "cc-by-nc",
+                            }
+                        ],
+                    },
+                    {
+                        "id": 2,
+                        "observed_on": "2025-07-01",
+                        "geojson": {"type": "Point", "coordinates": [-80.97, 28.55]},
+                        "obscured": True,
+                        "photos": [],
+                    },
+                ],
+            }
+
+    quest = {
+        "id": "quest-1",
+        "title": "Summer lilies",
+        "area_name": "Florida Trail, Tosohatchee",
+        "lat": 28.4985,
+        "lng": -80.99675,
+        "radius_km": 10,
+        "months": [6, 7, 8],
+        "taxa": [
+            {
+                "taxon_id": 163916,
+                "common_name": "Alligator lily",
+                "scientific_name": "Hymenocallis palmeri",
+            }
+        ],
+    }
+
+    result = SpeciesDiscoveryService(
+        Repository(),
+        inat_client=SightingsClient(),
+        now=datetime(2026, 7, 28, tzinfo=UTC),
+    ).quest_sightings_payload(quest, taxon_id=163916)
+
+    assert result["mapped_count"] == 2
+    assert result["sightings"][0]["photo_url"].endswith("/medium.jpg")
+    assert result["sightings"][0]["positional_accuracy_m"] == 14
+    assert result["sightings"][1]["obscured"] is True
+    assert "private coordinates are never exposed" in result["source"]["guidance"]
+
+
+def test_quest_sightings_rejects_species_outside_the_quest() -> None:
+    service = SpeciesDiscoveryService(Repository(), inat_client=object())
+
+    try:
+        service.quest_sightings_payload({"taxa": []}, taxon_id=163916)
+        raise AssertionError("Expected a validation error")
+    except ValueError as exc:
+        assert "belongs to this Field Quest" in str(exc)

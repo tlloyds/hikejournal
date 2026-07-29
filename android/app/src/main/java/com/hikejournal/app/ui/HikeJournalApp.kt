@@ -182,7 +182,8 @@ fun HikeJournalApp(viewModel: AppViewModel) {
 
     BackHandler(
         enabled = selectedPhoto != null || syncAttentionOpen || settingsOpen || pendingUpload.isNotEmpty() ||
-            creatingHike || editingHike != null || badgesOpen || state.journal != null || state.speciesDetail != null,
+            creatingHike || editingHike != null || badgesOpen || state.journal != null ||
+            state.speciesDetail != null || state.questMapQuest != null,
     ) {
         when {
             selectedPhoto != null -> selectedPhoto = null
@@ -196,6 +197,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
             badgesOpen -> badgesOpen = false
             state.journal != null -> viewModel.closeJournal()
             state.speciesDetail != null -> viewModel.closeSpecies()
+            state.questMapQuest != null -> viewModel.closeQuestSightingsMap()
         }
     }
 
@@ -270,12 +272,17 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                     discoveryAreas = state.discoveryAreas,
                     nearbySpecies = state.nearbySpecies,
                     quests = state.speciesQuests,
+                    questMapQuest = state.questMapQuest,
+                    questMapTaxon = state.questMapTaxon,
+                    questSightingsMap = state.questSightingsMap,
                     initialNearbyAreaName = speciesEntryAreaName,
                     loading = state.isSpeciesLoading,
                     discoveryLoading = state.isDiscoveryLoading,
                     savingQuest = state.isSavingQuest,
                     offline = state.isOffline,
                     discoveryNotice = state.discoveryNotice,
+                    questMapLoading = state.isQuestMapLoading,
+                    questMapNotice = state.questMapNotice,
                     onRefresh = { viewModel.loadSpecies(force = true) },
                     onRefreshDiscovery = { viewModel.loadSpeciesDiscovery(force = true) },
                     onLoadNearby = viewModel::loadNearbySpecies,
@@ -283,6 +290,9 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                     onSaveQuestFocus = viewModel::saveQuestFocus,
                     onArchiveQuest = viewModel::archiveQuest,
                     onDeleteQuest = viewModel::deleteQuest,
+                    onOpenQuestMap = viewModel::openQuestSightingsMap,
+                    onRefreshQuestMap = viewModel::refreshQuestSightingsMap,
+                    onCloseQuestMap = viewModel::closeQuestSightingsMap,
                     onInitialAreaConsumed = { speciesEntryAreaName = null },
                     onOpenSpecies = viewModel::openSpecies,
                 )
@@ -331,7 +341,12 @@ fun HikeJournalApp(viewModel: AppViewModel) {
             }
         }
 
-        if (state.journal == null && state.speciesDetail == null && !badgesOpen) {
+        if (
+            state.journal == null &&
+            state.speciesDetail == null &&
+            state.questMapQuest == null &&
+            !badgesOpen
+        ) {
             TopNavigation(
                 selected = destination,
                 onSelect = { destination = it },

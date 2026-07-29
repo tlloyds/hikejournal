@@ -12,6 +12,7 @@ from mobile_api import (
     app,
     delete_species_quest,
     get_nearby_species,
+    get_species_quest_sightings,
     list_discovery_areas,
     decide_species_review,
     derive_mobile_api_token,
@@ -426,6 +427,45 @@ def test_delete_species_quest_checks_visibility_then_deletes(monkeypatch):
 
     assert result == {"deleted": True, "id": "quest-1"}
     assert repository.deleted == "quest-1"
+
+
+def test_quest_sightings_endpoint_checks_quest_visibility_and_species(monkeypatch):
+    captured = {}
+    repository = object()
+    service = type("Service", (), {"repository": repository})()
+    quest = {
+        "id": "quest-1",
+        "taxa": [{"taxon_id": 163916, "common_name": "Alligator lily"}],
+    }
+
+    class Discovery:
+        def __init__(self, received_repository):
+            assert received_repository is repository
+
+        def quest_sightings_payload(self, received_quest, *, taxon_id):
+            captured["quest"] = received_quest
+            captured["taxon_id"] = taxon_id
+            return {"mapped_count": 1, "sightings": [{"id": "obs-1"}]}
+
+    monkeypatch.setattr("mobile_api.get_services", lambda: service)
+    monkeypatch.setattr("mobile_api._get_visible_quest", lambda _service, _quest_id: quest)
+    monkeypatch.setattr("mobile_api.SpeciesDiscoveryService", Discovery)
+
+    result = get_species_quest_sightings("quest-1", taxon_id=163916)
+
+    assert result["mapped_count"] == 1
+    assert captured == {"quest": quest, "taxon_id": 163916}
+    app.dependency_overrides[require_mobile_key] = lambda: None
+    try:
+        response = TestClient(app).get(
+            "/v1/discovery/quests/quest-1/sightings",
+            params={"taxon_id": "163916"},
+        )
+    finally:
+        app.dependency_overrides.pop(require_mobile_key, None)
+
+    assert response.status_code == 200
+    assert response.json()["sightings"] == [{"id": "obs-1"}]
 
 
 def test_mobile_review_can_request_and_save_an_inaturalist_recommendation(monkeypatch):

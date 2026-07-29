@@ -86,6 +86,11 @@ class HikeJournalApi(private val context: Context) {
     suspend fun getSpeciesQuestJson(questId: String): String =
         request("/v1/discovery/quests/${questId.urlEncoded()}")
 
+    suspend fun getQuestSightingsJson(questId: String, taxonId: Long): String =
+        request(
+            "/v1/discovery/quests/${questId.urlEncoded()}/sightings?taxon_id=$taxonId",
+        )
+
     suspend fun createSpeciesQuest(
         areaId: String,
         targetDate: String,
