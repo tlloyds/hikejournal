@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
+import android.media.MediaMetadataRetriever
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
@@ -125,13 +126,9 @@ class FieldOperationQueue(private val context: Context) {
             else -> "jpg"
         }
         val destination = File(photoDirectory, "$photoId.$extension")
-        copySelectedMedia(context, uri, destination, requestOriginal = !contentType.startsWith("video/"))
+        copySelectedMedia(context, uri, destination, requestOriginal = true)
         val pickerTakenAt = readPickerTakenAt(context, uri)
-        val fileMetadata = if (contentType.startsWith("video/")) {
-            LocalPhotoMetadata(null, null, null, null, null)
-        } else {
-            readPhotoMetadata(destination)
-        }
+        val fileMetadata = readMediaMetadata(destination, contentType)
         val metadata = fileMetadata.copy(takenAt = fileMetadata.takenAt ?: pickerTakenAt)
         val payload = JSONObject()
             .put("caption", caption.trim())
@@ -167,6 +164,20 @@ class FieldOperationQueue(private val context: Context) {
             species = emptyList(),
         )
     }
+
+    suspend fun inspectMediaLocations(uris: List<Uri>): MediaLocationSummary =
+        withContext(Dispatchers.IO) {
+            val geotaggedCount = uris.count { uri ->
+                runCatching {
+                    val contentType = context.contentResolver.getType(uri).orEmpty()
+                    readSelectedMediaLocation(context, uri, contentType) != null
+                }.getOrDefault(false)
+            }
+            MediaLocationSummary(
+                totalCount = uris.size,
+                geotaggedCount = geotaggedCount,
+            )
+        }
 
     suspend fun queueCaption(photoId: String, hikeId: String?, caption: String) {
         val pendingUpload = dao.find(OperationKind.UploadPhoto, photoId)
@@ -445,14 +456,7 @@ private fun copySelectedMedia(
     destination: File,
     requestOriginal: Boolean,
 ) {
-    val canRequestOriginal = requestOriginal &&
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
-        ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_MEDIA_LOCATION) ==
-        PackageManager.PERMISSION_GRANTED
-    val candidates = buildList {
-        if (canRequestOriginal) add(MediaStore.setRequireOriginal(uri))
-        add(uri)
-    }.distinct()
+    val candidates = selectedMediaCandidates(context, uri, requestOriginal)
     var lastError: Exception? = null
     for (candidate in candidates) {
         destination.delete()
@@ -486,6 +490,21 @@ private fun copySelectedMedia(
     )
 }
 
+private fun selectedMediaCandidates(
+    context: Context,
+    uri: Uri,
+    requestOriginal: Boolean,
+): List<Uri> {
+    val canRequestOriginal = requestOriginal &&
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+        ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_MEDIA_LOCATION) ==
+        PackageManager.PERMISSION_GRANTED
+    return buildList {
+        if (canRequestOriginal) add(MediaStore.setRequireOriginal(uri))
+        add(uri)
+    }.distinct()
+}
+
 private fun readPickerTakenAt(context: Context, uri: Uri): String? = runCatching {
     context.contentResolver.query(uri, arrayOf("datetaken"), null, null, null)?.use { cursor ->
         if (!cursor.moveToFirst()) return@use null
@@ -497,6 +516,43 @@ private fun readPickerTakenAt(context: Context, uri: Uri): String? = runCatching
             ?.toString()
     }
 }.getOrNull()
+
+private fun readSelectedMediaLocation(
+    context: Context,
+    uri: Uri,
+    contentType: String,
+): Pair<Double, Double>? {
+    for (candidate in selectedMediaCandidates(context, uri, requestOriginal = true)) {
+        val coordinates = if (contentType.startsWith("video/")) {
+            runCatching {
+                context.contentResolver.openFileDescriptor(candidate, "r")?.use { descriptor ->
+                    val retriever = MediaMetadataRetriever()
+                    try {
+                        retriever.setDataSource(descriptor.fileDescriptor)
+                        parseVideoLocation(
+                            retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_LOCATION),
+                        )
+                    } finally {
+                        retriever.release()
+                    }
+                }
+            }.getOrNull()
+        } else {
+            runCatching {
+                context.contentResolver.openInputStream(candidate)?.use { input ->
+                    ExifInterface(input).latLong?.let { coordinates ->
+                        coordinates[0] to coordinates[1]
+                    }
+                }
+            }.getOrNull()
+        }
+        if (coordinates != null) return coordinates
+    }
+    return null
+}
+
+private fun readMediaMetadata(file: File, contentType: String): LocalPhotoMetadata =
+    if (contentType.startsWith("video/")) readVideoMetadata(file) else readPhotoMetadata(file)
 
 private fun readPhotoMetadata(file: File): LocalPhotoMetadata {
     val exif = runCatching { ExifInterface(file.absolutePath) }.getOrNull()
@@ -518,6 +574,38 @@ private fun readPhotoMetadata(file: File): LocalPhotoMetadata {
         width = bounds.outWidth.takeIf { it > 0 },
         height = bounds.outHeight.takeIf { it > 0 },
     )
+}
+
+private fun readVideoMetadata(file: File): LocalPhotoMetadata = runCatching {
+    val retriever = MediaMetadataRetriever()
+    try {
+        retriever.setDataSource(file.absolutePath)
+        val coordinates = parseVideoLocation(
+            retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_LOCATION),
+        )
+        LocalPhotoMetadata(
+            takenAt = null,
+            latitude = coordinates?.first,
+            longitude = coordinates?.second,
+            width = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull(),
+            height = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull(),
+        )
+    } finally {
+        retriever.release()
+    }
+}.getOrElse {
+    LocalPhotoMetadata(null, null, null, null, null)
+}
+
+private val VIDEO_LOCATION_PATTERN =
+    Regex("""^([+-]\d+(?:\.\d+)?)([+-]\d+(?:\.\d+)?).*$""")
+
+internal fun parseVideoLocation(value: String?): Pair<Double, Double>? {
+    val match = value?.let(VIDEO_LOCATION_PATTERN::matchEntire) ?: return null
+    val latitude = match.groupValues[1].toDoubleOrNull() ?: return null
+    val longitude = match.groupValues[2].toDoubleOrNull() ?: return null
+    if (latitude !in -90.0..90.0 || longitude !in -180.0..180.0) return null
+    return latitude to longitude
 }
 
 private fun PendingOperationEntity.toLocalPhoto(): Photo {

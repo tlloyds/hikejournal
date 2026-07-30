@@ -15,8 +15,11 @@ the current Supabase database and Cloudflare R2 photo library through the small
 If the Mac receives a different local IP address, open the gear in HikeJournal
 and replace the server address. The API always uses port `8506`.
 
-## Included in v0.5.26
+## Included in v0.5.27
 
+- Pre-upload GPS verification for every selected file, with missing-location warnings before anything is saved
+- A GPS-safe original-file route for photos downloaded to DCIM or Downloads when Google Photos redacts location
+- Embedded video location extraction for map-ready clips when the source file provides coordinates
 - Hike-scoped native maps with imported route lines and just that outing's
   geotagged photos
 - "View on map" from any geotagged photo, focused directly on its trail location

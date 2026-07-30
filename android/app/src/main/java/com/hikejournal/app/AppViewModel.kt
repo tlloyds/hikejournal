@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.hikejournal.app.data.Hike
 import com.hikejournal.app.data.HikeDraft
 import com.hikejournal.app.data.HikeJournalRepository
+import com.hikejournal.app.data.MediaLocationSummary
 import com.hikejournal.app.data.DiscoveryArea
 import com.hikejournal.app.data.DiscoveryTaxon
 import com.hikejournal.app.data.FieldQuest
@@ -759,6 +760,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             openHike(hikeId)
         }
     }
+
+    suspend fun inspectMediaLocations(uris: List<Uri>): MediaLocationSummary =
+        repository.inspectMediaLocations(uris)
 
     fun updateCaption(photoId: String, caption: String) {
         val hikeId = _state.value.journal?.id ?: return

@@ -16,9 +16,7 @@ internal class OriginalMetadataMultipleMediaPicker(
     override fun createIntent(context: Context, input: PickVisualMediaRequest): Intent =
         super.createIntent(context, input).apply {
             putExtra(MediaStore.EXTRA_ACCEPT_ORIGINAL_MEDIA_FORMAT, true)
-            if (action == MediaStore.ACTION_PICK_IMAGES) {
-                putExtra(REQUEST_LOCATION_METADATA_ACCESS, true)
-            }
+            putExtra(REQUEST_LOCATION_METADATA_ACCESS, true)
         }
 }
 

@@ -17,6 +17,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments
 import androidx.activity.result.contract.ActivityResultContracts.RequestPermission
 import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
 import androidx.compose.animation.AnimatedContent
@@ -145,6 +146,7 @@ import com.hikejournal.app.AppViewModel
 import com.hikejournal.app.BuildConfig
 import com.hikejournal.app.data.Hike
 import com.hikejournal.app.data.HikeDraft
+import com.hikejournal.app.data.MediaLocationSummary
 import com.hikejournal.app.data.Photo
 import com.hikejournal.app.data.SyncAttention
 import com.hikejournal.app.ui.theme.Fern
@@ -168,6 +170,11 @@ private data class HikeMapRequest(
     val returnToPhoto: Boolean = false,
 )
 
+private enum class PhotoSelectionSource {
+    GooglePhotos,
+    OriginalFiles,
+}
+
 @Composable
 fun HikeJournalApp(viewModel: AppViewModel) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -180,7 +187,11 @@ fun HikeJournalApp(viewModel: AppViewModel) {
     var selectedPhoto by remember { mutableStateOf<Photo?>(null) }
     var photoSourceOpen by remember { mutableStateOf(false) }
     var pendingUpload by remember { mutableStateOf<List<Uri>>(emptyList()) }
+    var pendingUploadSource by remember { mutableStateOf(PhotoSelectionSource.GooglePhotos) }
+    var mediaLocationSummary by remember { mutableStateOf<MediaLocationSummary?>(null) }
+    var checkingMediaLocations by remember { mutableStateOf(false) }
     var pendingPickerRequest by remember { mutableStateOf<PickVisualMediaRequest?>(null) }
+    var pendingOriginalFileRequest by remember { mutableStateOf(false) }
     var syncAttentionOpen by remember { mutableStateOf(false) }
     var speciesEntryAreaName by remember { mutableStateOf<String?>(null) }
     var hikeMapRequest by remember { mutableStateOf<HikeMapRequest?>(null) }
@@ -201,11 +212,20 @@ fun HikeJournalApp(viewModel: AppViewModel) {
     }
 
     val photoPicker = rememberLauncherForActivityResult(OriginalMetadataMultipleMediaPicker()) { uris ->
+        pendingUploadSource = PhotoSelectionSource.GooglePhotos
+        pendingUpload = uris
+    }
+    val originalFilePicker = rememberLauncherForActivityResult(OpenMultipleDocuments()) { uris ->
+        pendingUploadSource = PhotoSelectionSource.OriginalFiles
         pendingUpload = uris
     }
     val mediaLocationPermission = rememberLauncherForActivityResult(RequestPermission()) {
         pendingPickerRequest?.let(photoPicker::launch)
+        if (pendingOriginalFileRequest) {
+            originalFilePicker.launch(arrayOf("image/*", "video/*"))
+        }
         pendingPickerRequest = null
+        pendingOriginalFileRequest = false
     }
     val launchPhotoPicker: (PickVisualMediaRequest) -> Unit = { request ->
         val needsPermission = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
@@ -216,6 +236,33 @@ fun HikeJournalApp(viewModel: AppViewModel) {
             mediaLocationPermission.launch(Manifest.permission.ACCESS_MEDIA_LOCATION)
         } else {
             photoPicker.launch(request)
+        }
+    }
+    val launchOriginalFilePicker: () -> Unit = {
+        val needsPermission = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_MEDIA_LOCATION) !=
+            PackageManager.PERMISSION_GRANTED
+        if (needsPermission) {
+            pendingOriginalFileRequest = true
+            mediaLocationPermission.launch(Manifest.permission.ACCESS_MEDIA_LOCATION)
+        } else {
+            originalFilePicker.launch(arrayOf("image/*", "video/*"))
+        }
+    }
+
+    LaunchedEffect(pendingUpload) {
+        if (pendingUpload.isEmpty()) {
+            mediaLocationSummary = null
+            checkingMediaLocations = false
+        } else {
+            mediaLocationSummary = null
+            checkingMediaLocations = true
+            mediaLocationSummary = runCatching {
+                viewModel.inspectMediaLocations(pendingUpload)
+            }.getOrElse {
+                MediaLocationSummary(pendingUpload.size, 0)
+            }
+            checkingMediaLocations = false
         }
     }
 
@@ -442,7 +489,14 @@ fun HikeJournalApp(viewModel: AppViewModel) {
     if (pendingUpload.isNotEmpty() && state.journal != null) {
         UploadSheet(
             photoCount = pendingUpload.size,
+            source = pendingUploadSource,
+            locationSummary = mediaLocationSummary,
+            checkingLocations = checkingMediaLocations,
             onDismiss = { pendingUpload = emptyList() },
+            onChooseOriginalFiles = {
+                pendingUpload = emptyList()
+                launchOriginalFilePicker()
+            },
             onUpload = { caption, queue ->
                 viewModel.uploadPhotos(state.journal!!.id, pendingUpload, caption, queue)
                 pendingUpload = emptyList()
@@ -464,6 +518,10 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                 launchPhotoPicker(
                     hikeMediaPickerRequest(PickVisualMedia.DefaultTab.PhotosTab),
                 )
+            },
+            onOriginalFiles = {
+                photoSourceOpen = false
+                launchOriginalFilePicker()
             },
             onManageCloudMedia = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 {
@@ -1224,6 +1282,7 @@ private fun PhotoSourceSheet(
     onDismiss: () -> Unit,
     onAlbums: () -> Unit,
     onRecent: () -> Unit,
+    onOriginalFiles: () -> Unit,
     onManageCloudMedia: (() -> Unit)?,
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Paper) {
@@ -1259,6 +1318,20 @@ private fun PhotoSourceSheet(
                 Spacer(Modifier.width(8.dp))
                 Text("Choose from recent photos")
             }
+            OutlinedButton(
+                onClick = onOriginalFiles,
+                modifier = Modifier.fillMaxWidth().padding(top = 10.dp).height(54.dp),
+            ) {
+                Icon(Icons.Rounded.LocationOn, null)
+                Spacer(Modifier.width(8.dp))
+                Text("Choose original files · preserve GPS")
+            }
+            Text(
+                "For exact map coordinates, download the originals from Google Photos first, then choose them from Downloads or DCIM.",
+                style = MaterialTheme.typography.bodySmall,
+                color = InkMuted,
+                modifier = Modifier.padding(top = 8.dp),
+            )
             onManageCloudMedia?.let { manage ->
                 TextButton(
                     onClick = manage,
@@ -1280,19 +1353,65 @@ private fun PhotoSourceSheet(
 }
 
 @Composable
-private fun UploadSheet(photoCount: Int, onDismiss: () -> Unit, onUpload: (String, Boolean) -> Unit) {
+private fun UploadSheet(
+    photoCount: Int,
+    source: PhotoSelectionSource,
+    locationSummary: MediaLocationSummary?,
+    checkingLocations: Boolean,
+    onDismiss: () -> Unit,
+    onChooseOriginalFiles: () -> Unit,
+    onUpload: (String, Boolean) -> Unit,
+) {
     var caption by remember { mutableStateOf("") }
     var queueForReview by remember { mutableStateOf(false) }
+    val missingLocations = locationSummary?.missingCount ?: 0
+    val locationsReady = locationSummary?.allGeotagged == true
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Paper) {
         Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 20.dp).padding(bottom = 28.dp)) {
             Text("$photoCount FILE${if (photoCount == 1) "" else "S"} SELECTED", style = MaterialTheme.typography.labelSmall, color = TrailText)
             Text("Add to this journal", style = MaterialTheme.typography.headlineLarge, color = Ink)
             Text(
-                "Original-format media and available capture details are secured on this phone now. Sync resumes automatically on any connection.",
+                "HikeJournal checks embedded coordinates before saving so map and species tools do not silently lose their location context.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = InkMuted,
                 modifier = Modifier.padding(top = 6.dp),
             )
+            Row(
+                Modifier.fillMaxWidth().padding(top = 18.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (checkingLocations || locationSummary == null) {
+                    CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp, color = Trail)
+                    Column(Modifier.padding(start = 12.dp)) {
+                        Text("Checking embedded GPS", style = MaterialTheme.typography.titleMedium, color = Ink)
+                        Text("Reading $photoCount selected file${if (photoCount == 1) "" else "s"}", style = MaterialTheme.typography.bodySmall, color = InkMuted)
+                    }
+                } else if (locationsReady) {
+                    Icon(Icons.Rounded.LocationOn, null, tint = Moss)
+                    Column(Modifier.padding(start = 10.dp)) {
+                        Text("GPS ready on every file", style = MaterialTheme.typography.titleMedium, color = Moss)
+                        Text("Exact coordinates will be saved with the journal.", style = MaterialTheme.typography.bodySmall, color = InkMuted)
+                    }
+                } else {
+                    Icon(Icons.Rounded.LocationOn, null, tint = TrailText)
+                    Column(Modifier.padding(start = 10.dp)) {
+                        Text(
+                            "GPS missing from $missingLocations file${if (missingLocations == 1) "" else "s"}",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = TrailText,
+                        )
+                        Text(
+                            if (source == PhotoSelectionSource.GooglePhotos) {
+                                "Google Photos did not share the location metadata. Its Info screen can still show a private or estimated place."
+                            } else {
+                                "These files do not contain readable embedded coordinates."
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = InkMuted,
+                        )
+                    }
+                }
+            }
             OutlinedTextField(caption, { caption = it }, Modifier.fillMaxWidth().padding(top = 18.dp), label = { Text("Shared caption · optional") })
             Row(Modifier.fillMaxWidth().padding(vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
@@ -1301,10 +1420,38 @@ private fun UploadSheet(photoCount: Int, onDismiss: () -> Unit, onUpload: (Strin
                 }
                 Switch(queueForReview, { queueForReview = it })
             }
-            Button(onClick = { onUpload(caption, queueForReview) }, Modifier.fillMaxWidth().height(54.dp)) {
-                Icon(Icons.Rounded.CameraAlt, null)
-                Spacer(Modifier.width(8.dp))
-                Text("Save $photoCount file${if (photoCount == 1) "" else "s"}")
+            if (locationSummary != null && !locationsReady) {
+                Button(
+                    onClick = onChooseOriginalFiles,
+                    modifier = Modifier.fillMaxWidth().height(54.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Moss),
+                ) {
+                    Icon(Icons.Rounded.LocationOn, null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Choose original files")
+                }
+                TextButton(
+                    onClick = { onUpload(caption, queueForReview) },
+                    modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 4.dp),
+                ) {
+                    Text("Save without GPS")
+                }
+            } else {
+                Button(
+                    onClick = { onUpload(caption, queueForReview) },
+                    enabled = locationsReady && !checkingLocations,
+                    modifier = Modifier.fillMaxWidth().height(54.dp),
+                ) {
+                    if (checkingLocations || locationSummary == null) {
+                        CircularProgressIndicator(Modifier.size(19.dp), strokeWidth = 2.dp, color = Paper)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Checking GPS…")
+                    } else {
+                        Icon(Icons.Rounded.CameraAlt, null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Save $photoCount file${if (photoCount == 1) "" else "s"}")
+                    }
+                }
             }
         }
     }

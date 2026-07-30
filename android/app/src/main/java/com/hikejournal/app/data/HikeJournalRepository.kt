@@ -314,6 +314,9 @@ class HikeJournalRepository(context: Context) {
         queueForReview: Boolean,
     ): Photo = fieldQueue.queuePhoto(hikeId, uri, caption, queueForReview)
 
+    suspend fun inspectMediaLocations(uris: List<Uri>): MediaLocationSummary =
+        fieldQueue.inspectMediaLocations(uris)
+
     suspend fun updateCaption(photoId: String, hikeId: String?, caption: String) =
         fieldQueue.queueCaption(photoId, hikeId, caption)
 

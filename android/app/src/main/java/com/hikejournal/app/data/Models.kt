@@ -42,6 +42,14 @@ data class Photo(
     val species: List<SpeciesLabel>,
 )
 
+data class MediaLocationSummary(
+    val totalCount: Int,
+    val geotaggedCount: Int,
+) {
+    val missingCount: Int get() = (totalCount - geotaggedCount).coerceAtLeast(0)
+    val allGeotagged: Boolean get() = totalCount > 0 && missingCount == 0
+}
+
 data class SpeciesLabel(
     val commonName: String,
     val scientificName: String,
