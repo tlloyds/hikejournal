@@ -22,6 +22,6 @@ showWidgetBorder = true
 toolbarMode = "minimal"
 
 [server]
-maxUploadSize = 64
+maxUploadSize = 2048
 runOnSave = false
 fileWatcherType = "none"

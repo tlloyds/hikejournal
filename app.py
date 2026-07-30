@@ -83,6 +83,7 @@ from hike_journal.services.encounters import (
     split_review_photo_encounter_plan,
 )
 from hike_journal.services.image_processing import optimize_image
+from hike_journal.services.media_uploads import MediaUploadError, prepare_media_uploads
 from hike_journal.media import is_supported_video_upload, is_video, video_content_type
 from hike_journal.services.inat import (
     InatAuthError,
@@ -1075,11 +1076,12 @@ def render_quick_upload_dialog(
     upload_widget_key = f"quick_upload_files_{st.session_state.quick_upload_nonce}"
     with st.form("quick_upload_dialog_form", clear_on_submit=True):
         uploaded_files = st.file_uploader(
-            "Drop in one or many photos",
-            type=["jpg", "jpeg", "png", "webp", "heic"],
+            "Drop in photos or a Google Photos ZIP",
+            type=["jpg", "jpeg", "png", "webp", "heic", "heif", "zip"],
             accept_multiple_files=True,
             label_visibility="collapsed",
             key=upload_widget_key,
+            help="ZIP albums can contain nested folders and up to 500 original photos.",
         )
         shared_note = st.text_area(
             "Shared photo note",
@@ -1092,14 +1094,28 @@ def render_quick_upload_dialog(
             if not uploaded_files:
                 st.warning("Choose at least one photo to upload.")
                 return
+            upload_status = st.empty()
+            upload_status.caption("Checking selected files...")
+            try:
+                upload_batch = prepare_media_uploads(uploaded_files, allow_direct_videos=False)
+            except MediaUploadError as exc:
+                upload_status.empty()
+                st.warning(str(exc))
+                return
+            prepared_uploads = upload_batch.uploads
             owner_subject = user_context.get("subject") if user_context.get("mode") in {"google", "local-dev"} else None
             owner_email = user_context.get("email") if user_context.get("mode") in {"google", "local-dev"} else None
             geotagged_uploads = 0
-            total_uploads = len(uploaded_files)
-            upload_status = st.empty()
+            total_uploads = len(prepared_uploads)
+            if upload_batch.archive_count:
+                upload_status.caption(
+                    f"Found {upload_batch.archived_photo_count} original "
+                    f"photo{'s' if upload_batch.archived_photo_count != 1 else ''} in "
+                    f"{upload_batch.archive_count} ZIP file{'s' if upload_batch.archive_count != 1 else ''}."
+                )
             upload_progress = st.progress(0, text="Preparing photos for upload...")
             with st.spinner("Optimizing and uploading photos..."):
-                for index, uploaded_file in enumerate(uploaded_files, start=1):
+                for index, uploaded_file in enumerate(prepared_uploads, start=1):
                     upload_status.caption(f"Uploading photo {index} of {total_uploads}")
                     original_bytes = uploaded_file.getvalue()
                     metadata = extract_metadata(original_bytes)
@@ -1125,6 +1141,11 @@ def render_quick_upload_dialog(
             st.session_state.pop(upload_widget_key, None)
             st.session_state.quick_upload_nonce += 1
             st.session_state.quick_upload_notice = f"Saved {total_uploads} photo{'s' if total_uploads != 1 else ''} outside any specific hike."
+            if upload_batch.ignored_archive_entry_count:
+                st.session_state.quick_upload_notice += (
+                    f" Ignored {upload_batch.ignored_archive_entry_count} non-photo "
+                    f"ZIP entr{'ies' if upload_batch.ignored_archive_entry_count != 1 else 'y'}."
+                )
             if geotagged_uploads == 0:
                 st.warning("These photos uploaded cleanly, but none of them carried GPS coordinates for the map.")
             navigate_to(view="Species Review")

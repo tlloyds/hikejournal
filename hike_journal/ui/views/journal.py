@@ -13,6 +13,7 @@ from hike_journal.domain.library import photo_owner_email, photo_owner_subject
 from hike_journal.queries import invalidate_data_cache
 from hike_journal.services.exif import extract_metadata
 from hike_journal.services.image_processing import optimize_image
+from hike_journal.services.media_uploads import MediaUploadError, prepare_media_uploads
 from hike_journal.media import is_supported_video_upload, is_video, video_content_type
 from hike_journal.services.inat import InatClient
 from hike_journal.services.repositories import HikeJournalRepository
@@ -398,33 +399,55 @@ def render_journal_view(
         help="Open the seasonal Nearby field list with this outing's location preselected.",
     )
     with st.container(key="journal_upload"):
-        st.markdown("<div class='journal-upload-label'>Add trail photos and videos</div>", unsafe_allow_html=True)
-        st.caption("Photos are optimized for fast browsing. Videos are stored in their original phone format.")
+        st.markdown("<div class='journal-upload-label'>Add trail photos, videos, or an album ZIP</div>", unsafe_allow_html=True)
+        st.caption(
+            "Upload original files or a Google Photos ZIP to preserve embedded GPS and capture times. "
+            "Photos are optimized after their EXIF data is read."
+        )
         if st.session_state.journal_upload_notice:
             st.success(str(st.session_state.journal_upload_notice))
             st.session_state.journal_upload_notice = None
         upload_widget_key = f"journal_upload_files_{selected_hike['id']}_{st.session_state.journal_upload_nonce}"
         with st.form("upload_photos_form", clear_on_submit=True):
             uploaded_files = st.file_uploader(
-                "Drop in trail photos or videos",
-                type=["jpg", "jpeg", "png", "webp", "heic", "mp4", "mov", "m4v", "3gp", "webm"],
+                "Drop in trail photos, videos, or a Google Photos ZIP",
+                type=["jpg", "jpeg", "png", "webp", "heic", "heif", "zip", "mp4", "mov", "m4v", "3gp", "webm"],
                 accept_multiple_files=True,
                 label_visibility="collapsed",
                 key=upload_widget_key,
+                help="ZIP albums can contain nested folders and up to 500 original photos.",
             )
             submitted = st.form_submit_button("Upload selected photos")
             if submitted:
                 if not uploaded_files:
                     st.warning("Choose at least one photo to upload.")
                 else:
+                    upload_status = st.empty()
+                    upload_status.caption("Checking selected files...")
+                    try:
+                        upload_batch = prepare_media_uploads(uploaded_files, allow_direct_videos=True)
+                    except MediaUploadError as exc:
+                        upload_status.empty()
+                        st.warning(str(exc))
+                        return
+                    prepared_uploads = upload_batch.uploads
                     geotagged_uploads = 0
                     timestamped_uploads = 0
                     video_uploads = 0
-                    total_uploads = len(uploaded_files)
-                    upload_status = st.empty()
+                    total_uploads = len(prepared_uploads)
+                    photo_uploads = sum(
+                        not is_supported_video_upload(uploaded_file.name, uploaded_file.type)
+                        for uploaded_file in prepared_uploads
+                    )
+                    if upload_batch.archive_count:
+                        upload_status.caption(
+                            f"Found {upload_batch.archived_photo_count} original "
+                            f"photo{'s' if upload_batch.archived_photo_count != 1 else ''} in "
+                            f"{upload_batch.archive_count} ZIP file{'s' if upload_batch.archive_count != 1 else ''}."
+                        )
                     upload_progress = st.progress(0, text="Preparing photos for upload...")
                     with st.spinner("Preparing and uploading media..."):
-                        for index, uploaded_file in enumerate(uploaded_files, start=1):
+                        for index, uploaded_file in enumerate(prepared_uploads, start=1):
                             upload_status.caption(f"Uploading file {index} of {total_uploads}")
                             original_bytes = uploaded_file.getvalue()
                             if is_supported_video_upload(uploaded_file.name, uploaded_file.type):
@@ -466,16 +489,21 @@ def render_journal_view(
                     st.session_state.pop(upload_widget_key, None)
                     st.session_state.journal_upload_nonce += 1
                     st.session_state.journal_upload_notice = f"Uploaded {total_uploads} file{'s' if total_uploads != 1 else ''}."
+                    if upload_batch.ignored_archive_entry_count:
+                        st.session_state.journal_upload_notice += (
+                            f" Ignored {upload_batch.ignored_archive_entry_count} non-photo "
+                            f"ZIP entr{'ies' if upload_batch.ignored_archive_entry_count != 1 else 'y'}."
+                        )
                     if video_uploads:
                         st.caption(f"{video_uploads} video{'s were' if video_uploads != 1 else ' was'} saved for playback in the journal.")
-                    if geotagged_uploads == 0:
+                    if photo_uploads and geotagged_uploads == 0:
                         st.warning(
                             "These photos were added successfully, but none of them included embedded GPS coordinates. "
                             "If you want them to appear on the map, upload original files that still carry location data."
                         )
-                    elif geotagged_uploads < len(uploaded_files):
+                    elif geotagged_uploads < photo_uploads:
                         st.caption(
-                            f"{geotagged_uploads} of {len(uploaded_files)} photos included map coordinates. "
+                            f"{geotagged_uploads} of {photo_uploads} photos included map coordinates. "
                             f"{timestamped_uploads} included capture times."
                         )
                     st.rerun()
