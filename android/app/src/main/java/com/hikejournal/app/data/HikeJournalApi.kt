@@ -296,15 +296,27 @@ class HikeJournalApi(private val context: Context) {
         fileName: String,
         caption: String,
         queueForReview: Boolean,
+        takenAt: String?,
+        latitude: Double?,
+        longitude: Double?,
     ): String = withContext(Dispatchers.IO) {
         if (!file.exists()) throw IOException("The queued field photo is missing from this phone.")
-        val multipart = MultipartBody.Builder()
+        val multipartBuilder = MultipartBody.Builder()
             .setType(MultipartBody.FORM)
             .addFormDataPart("caption", caption)
             .addFormDataPart("queue_for_review", queueForReview.toString())
             .addFormDataPart("photo_id", photoId)
             .addFormDataPart("file", fileName, file.asRequestBody(contentType.toMediaTypeOrNull()))
-            .build()
+        takenAt?.takeIf { it.isNotBlank() }?.let {
+            multipartBuilder.addFormDataPart("taken_at", it)
+        }
+        latitude?.let {
+            multipartBuilder.addFormDataPart("lat", it.toString())
+        }
+        longitude?.let {
+            multipartBuilder.addFormDataPart("lng", it.toString())
+        }
+        val multipart = multipartBuilder.build()
         execute(
             Request.Builder()
                 .url("${serverUrl}/v1/hikes/$hikeId/photos")

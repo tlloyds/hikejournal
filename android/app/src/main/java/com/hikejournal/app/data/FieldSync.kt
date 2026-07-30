@@ -1,12 +1,17 @@
 package com.hikejournal.app.data
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.net.Uri
+import android.os.Build
+import android.provider.MediaStore
+import androidx.core.content.ContextCompat
 import androidx.exifinterface.media.ExifInterface
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
@@ -32,6 +37,7 @@ import org.json.JSONObject
 import java.io.File
 import java.io.IOException
 import java.text.SimpleDateFormat
+import java.time.Instant
 import java.util.Date
 import java.util.Locale
 import java.util.UUID
@@ -119,22 +125,14 @@ class FieldOperationQueue(private val context: Context) {
             else -> "jpg"
         }
         val destination = File(photoDirectory, "$photoId.$extension")
-        var copied = 0L
-        context.contentResolver.openInputStream(uri)?.use { input ->
-            destination.outputStream().use { output ->
-                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                while (true) {
-                    val count = input.read(buffer)
-                    if (count < 0) break
-                    copied += count
-                    if (copied > MAX_LOCAL_MEDIA_BYTES) {
-                        throw IOException("Photos and videos must be 30 MB or smaller.")
-                    }
-                    output.write(buffer, 0, count)
-                }
-            }
-        } ?: throw IOException("The selected photo could not be copied into field storage.")
-        val metadata = if (contentType.startsWith("video/")) LocalPhotoMetadata(null, null, null, null, null) else readPhotoMetadata(destination)
+        copySelectedMedia(context, uri, destination, requestOriginal = !contentType.startsWith("video/"))
+        val pickerTakenAt = readPickerTakenAt(context, uri)
+        val fileMetadata = if (contentType.startsWith("video/")) {
+            LocalPhotoMetadata(null, null, null, null, null)
+        } else {
+            readPhotoMetadata(destination)
+        }
+        val metadata = fileMetadata.copy(takenAt = fileMetadata.takenAt ?: pickerTakenAt)
         val payload = JSONObject()
             .put("caption", caption.trim())
             .put("queue_for_review", queueForReview)
@@ -441,6 +439,65 @@ private data class LocalPhotoMetadata(
     val height: Int?,
 )
 
+private fun copySelectedMedia(
+    context: Context,
+    uri: Uri,
+    destination: File,
+    requestOriginal: Boolean,
+) {
+    val canRequestOriginal = requestOriginal &&
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+        ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_MEDIA_LOCATION) ==
+        PackageManager.PERMISSION_GRANTED
+    val candidates = buildList {
+        if (canRequestOriginal) add(MediaStore.setRequireOriginal(uri))
+        add(uri)
+    }.distinct()
+    var lastError: Exception? = null
+    for (candidate in candidates) {
+        destination.delete()
+        try {
+            val input = context.contentResolver.openInputStream(candidate)
+                ?: throw IOException("The selected photo could not be opened.")
+            input.use {
+                destination.outputStream().use { output ->
+                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                    var copied = 0L
+                    while (true) {
+                        val count = it.read(buffer)
+                        if (count < 0) break
+                        copied += count
+                        if (copied > MAX_LOCAL_MEDIA_BYTES) {
+                            throw IOException("Photos and videos must be 30 MB or smaller.")
+                        }
+                        output.write(buffer, 0, count)
+                    }
+                }
+            }
+            return
+        } catch (error: Exception) {
+            lastError = error
+        }
+    }
+    destination.delete()
+    throw IOException(
+        lastError?.message ?: "The selected photo could not be copied into field storage.",
+        lastError,
+    )
+}
+
+private fun readPickerTakenAt(context: Context, uri: Uri): String? = runCatching {
+    context.contentResolver.query(uri, arrayOf("datetaken"), null, null, null)?.use { cursor ->
+        if (!cursor.moveToFirst()) return@use null
+        val column = cursor.getColumnIndex("datetaken")
+        if (column < 0 || cursor.isNull(column)) return@use null
+        cursor.getLong(column)
+            .takeIf { it > 0L }
+            ?.let(Instant::ofEpochMilli)
+            ?.toString()
+    }
+}.getOrNull()
+
 private fun readPhotoMetadata(file: File): LocalPhotoMetadata {
     val exif = runCatching { ExifInterface(file.absolutePath) }.getOrNull()
     val coordinates = exif?.latLong
@@ -546,6 +603,9 @@ class FieldSyncEngine(private val context: Context) {
                 fileName = operation.fileName ?: "hike-photo.jpg",
                 caption = payload.optString("caption"),
                 queueForReview = payload.optBoolean("queue_for_review"),
+                takenAt = payload.optString("taken_at").takeIf { it.isNotBlank() },
+                latitude = payload.optDouble("lat").takeUnless { it.isNaN() || payload.isNull("lat") },
+                longitude = payload.optDouble("lng").takeUnless { it.isNaN() || payload.isNull("lng") },
             )
             OperationKind.UpdateCaption -> api.updateCaption(operation.entityId, payload.optString("caption"))
             OperationKind.DeletePhoto -> api.deletePhoto(operation.entityId)

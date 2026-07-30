@@ -2,13 +2,16 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
+from hike_journal.models import PhotoMetadata, ProcessedImage, SpeciesCandidate
 from mobile_api import (
     ReviewCandidateInput,
     ReviewDecisionInput,
     _build_species_payloads,
     _photo_payload,
+    _parse_picker_taken_at,
     _review_candidates,
     _species_key,
+    _validate_picker_coordinate,
     app,
     delete_species_quest,
     get_nearby_species,
@@ -21,7 +24,6 @@ from mobile_api import (
     require_mobile_key,
     request_species_recommendation,
 )
-from hike_journal.models import SpeciesCandidate
 
 
 def test_mobile_token_is_deterministic_without_exposing_source(monkeypatch):
@@ -61,6 +63,78 @@ def test_photo_payload_uses_mobile_contract_names():
     assert payload["url"] == "https://images.example/photo.jpg"
     assert payload["caption"] == "Boardwalk at dusk"
     assert payload["species"] == []
+
+
+def test_picker_metadata_fallback_parses_capture_time_and_coordinates():
+    taken_at = _parse_picker_taken_at("2026-07-19T14:32:10Z")
+
+    assert taken_at is not None
+    assert taken_at.isoformat() == "2026-07-19T14:32:10+00:00"
+    assert _validate_picker_coordinate(28.5, minimum=-90, maximum=90, label="latitude") == 28.5
+    assert _validate_picker_coordinate(-81.25, minimum=-180, maximum=180, label="longitude") == -81.25
+
+
+def test_photo_upload_uses_picker_metadata_when_file_exif_is_redacted(monkeypatch):
+    class Repository:
+        created = None
+
+        def create_photo(self, payload):
+            self.created = payload
+            return {"id": "photo-1", **payload}
+
+    class Storage:
+        def upload_hike_photo(self, *_args, **_kwargs):
+            return "hikes/hike-1/photo-1.jpg", "https://images.example/photo-1.jpg"
+
+        def delete_file(self, _path):
+            raise AssertionError("Successful uploads must not be deleted.")
+
+    repository = Repository()
+    service = type("Service", (), {"repository": repository, "storage": Storage()})()
+    monkeypatch.setattr("mobile_api.get_services", lambda: service)
+    monkeypatch.setattr("mobile_api._get_visible_hike", lambda _repository, _hike_id: {"id": "hike-1"})
+    monkeypatch.setattr(
+        "mobile_api.extract_metadata",
+        lambda _bytes: PhotoMetadata(
+            lat=None,
+            lng=None,
+            taken_at=None,
+            exif_json={
+                "datetime_original": None,
+                "gps_latitude": None,
+                "gps_longitude": None,
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        "mobile_api.optimize_image",
+        lambda _bytes: ProcessedImage(
+            bytes_data=b"optimized",
+            width=1600,
+            height=1200,
+            format="JPEG",
+            content_type="image/jpeg",
+        ),
+    )
+    app.dependency_overrides[require_mobile_key] = lambda: None
+    try:
+        response = TestClient(app).post(
+            "/v1/hikes/hike-1/photos",
+            files={"file": ("trail.jpg", b"redacted-image", "image/jpeg")},
+            data={
+                "taken_at": "2026-07-19T14:32:10Z",
+                "lat": "28.5",
+                "lng": "-81.25",
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(require_mobile_key, None)
+
+    assert response.status_code == 201
+    assert repository.created["taken_at"] == "2026-07-19T14:32:10+00:00"
+    assert repository.created["lat"] == 28.5
+    assert repository.created["lng"] == -81.25
+    assert repository.created["exif_json"]["picker_taken_at"] == "2026-07-19T14:32:10+00:00"
 
 
 def test_species_key_prefers_stable_taxon_id():

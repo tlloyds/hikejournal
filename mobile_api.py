@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from datetime import date, datetime
 import hashlib
 import hmac
+import math
 import os
 import time
 from typing import Any, Annotated, Literal
@@ -53,6 +54,33 @@ from hike_journal.services.taxonomy import ensure_observation_taxonomy
 
 
 MAX_UPLOAD_BYTES = 30 * 1024 * 1024
+
+
+def _parse_picker_taken_at(value: str) -> datetime | None:
+    raw = value.strip()
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Photo capture time must use ISO 8601 format.") from exc
+
+
+def _validate_picker_coordinate(
+    value: float | None,
+    *,
+    minimum: float,
+    maximum: float,
+    label: str,
+) -> float | None:
+    if value is None:
+        return None
+    if not math.isfinite(value) or value < minimum or value > maximum:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Photo {label} must be between {minimum:g} and {maximum:g}.",
+        )
+    return value
 
 
 def derive_mobile_api_token(supabase_key: str | None = None) -> str:
@@ -1441,6 +1469,9 @@ async def upload_photo(
     caption: Annotated[str, Form()] = "",
     queue_for_review: Annotated[bool, Form()] = False,
     photo_id: Annotated[str, Form()] = "",
+    taken_at: Annotated[str, Form()] = "",
+    lat: Annotated[float | None, Form()] = None,
+    lng: Annotated[float | None, Form()] = None,
 ) -> dict[str, Any]:
     svc = get_services()
     _get_visible_hike(svc.repository, hike_id)
@@ -1462,6 +1493,9 @@ async def upload_photo(
         raise HTTPException(status_code=400, detail="The selected photo was empty.")
     if len(original) > MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail="Photos and videos must be 30 MB or smaller.")
+    picker_taken_at = _parse_picker_taken_at(taken_at)
+    picker_lat = _validate_picker_coordinate(lat, minimum=-90, maximum=90, label="latitude")
+    picker_lng = _validate_picker_coordinate(lng, minimum=-180, maximum=180, label="longitude")
     is_video = is_supported_video_upload(file.filename or "", file.content_type)
     if is_video:
         content_type = video_content_type(file.filename or "", file.content_type)
@@ -1485,6 +1519,16 @@ async def upload_photo(
                 hike_id, processed.bytes_data, processed.content_type, object_id=normalized_photo_id or None
             )
         owner = _user_context()
+        effective_taken_at = metadata.taken_at if metadata and metadata.taken_at else picker_taken_at
+        effective_lat = metadata.lat if metadata and metadata.lat is not None else picker_lat
+        effective_lng = metadata.lng if metadata and metadata.lng is not None else picker_lng
+        exif_json = dict(metadata.exif_json) if metadata else {}
+        if picker_taken_at and not exif_json.get("datetime_original"):
+            exif_json["picker_taken_at"] = picker_taken_at.isoformat()
+        if picker_lat is not None and exif_json.get("gps_latitude") is None:
+            exif_json["gps_latitude"] = picker_lat
+        if picker_lng is not None and exif_json.get("gps_longitude") is None:
+            exif_json["gps_longitude"] = picker_lng
         created = svc.repository.create_photo(
             {
                 **({"id": normalized_photo_id} if normalized_photo_id else {}),
@@ -1494,15 +1538,15 @@ async def upload_photo(
                 "storage_path": storage_path,
                 "public_url": public_url,
                 "caption": caption.strip() or None,
-                "taken_at": metadata.taken_at.isoformat() if metadata and metadata.taken_at else None,
-                "lat": metadata.lat if metadata else None,
-                "lng": metadata.lng if metadata else None,
+                "taken_at": effective_taken_at.isoformat() if effective_taken_at else None,
+                "lat": effective_lat,
+                "lng": effective_lng,
                 "width": processed.width if processed else None,
                 "height": processed.height if processed else None,
                 "file_size": len(processed.bytes_data) if processed else len(original),
                 "content_type": processed.content_type if processed else content_type,
                 "processing_status": "in_review" if queue_for_review and not is_video else "ready",
-                "exif_json": metadata.exif_json if metadata else {},
+                "exif_json": exif_json,
             }
         )
     except Exception:

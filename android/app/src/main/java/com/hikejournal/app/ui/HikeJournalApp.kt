@@ -6,14 +6,18 @@
 
 package com.hikejournal.app.ui
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
+import android.provider.MediaStore
 import androidx.compose.runtime.DisposableEffect
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
-import androidx.activity.result.contract.ActivityResultContracts.PickMultipleVisualMedia
+import androidx.activity.result.contract.ActivityResultContracts.RequestPermission
 import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -69,6 +73,7 @@ import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Fullscreen
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.LocationOn
+import androidx.compose.material.icons.rounded.PhotoAlbum
 import androidx.compose.material.icons.rounded.PlayCircle
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
@@ -124,6 +129,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import coil.ImageLoader
@@ -165,7 +171,9 @@ fun HikeJournalApp(viewModel: AppViewModel) {
     var settingsOpen by remember { mutableStateOf(false) }
     var badgesOpen by remember { mutableStateOf(false) }
     var selectedPhoto by remember { mutableStateOf<Photo?>(null) }
+    var photoSourceOpen by remember { mutableStateOf(false) }
     var pendingUpload by remember { mutableStateOf<List<Uri>>(emptyList()) }
+    var pendingPickerRequest by remember { mutableStateOf<PickVisualMediaRequest?>(null) }
     var syncAttentionOpen by remember { mutableStateOf(false) }
     var speciesEntryAreaName by remember { mutableStateOf<String?>(null) }
 
@@ -176,12 +184,28 @@ fun HikeJournalApp(viewModel: AppViewModel) {
         }
     }
 
-    val photoPicker = rememberLauncherForActivityResult(PickMultipleVisualMedia(maxItems = 20)) { uris ->
+    val photoPicker = rememberLauncherForActivityResult(OriginalMetadataMultipleMediaPicker(maxItems = 20)) { uris ->
         pendingUpload = uris
+    }
+    val mediaLocationPermission = rememberLauncherForActivityResult(RequestPermission()) {
+        pendingPickerRequest?.let(photoPicker::launch)
+        pendingPickerRequest = null
+    }
+    val launchPhotoPicker: (PickVisualMediaRequest) -> Unit = { request ->
+        val needsPermission = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_MEDIA_LOCATION) !=
+            PackageManager.PERMISSION_GRANTED
+        if (needsPermission) {
+            pendingPickerRequest = request
+            mediaLocationPermission.launch(Manifest.permission.ACCESS_MEDIA_LOCATION)
+        } else {
+            photoPicker.launch(request)
+        }
     }
 
     BackHandler(
-        enabled = selectedPhoto != null || syncAttentionOpen || settingsOpen || pendingUpload.isNotEmpty() ||
+        enabled = selectedPhoto != null || syncAttentionOpen || settingsOpen || photoSourceOpen ||
+            pendingUpload.isNotEmpty() ||
             creatingHike || editingHike != null || badgesOpen || state.journal != null ||
             state.speciesDetail != null || state.questMapQuest != null,
     ) {
@@ -189,6 +213,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
             selectedPhoto != null -> selectedPhoto = null
             syncAttentionOpen -> syncAttentionOpen = false
             settingsOpen -> settingsOpen = false
+            photoSourceOpen -> photoSourceOpen = false
             pendingUpload.isNotEmpty() -> pendingUpload = emptyList()
             creatingHike || editingHike != null -> {
                 creatingHike = false
@@ -244,9 +269,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                             viewModel.closeJournal()
                             destination = TopDestination.Species
                         },
-                        onAddPhotos = {
-                            photoPicker.launch(PickVisualMediaRequest(PickVisualMedia.ImageAndVideo))
-                        },
+                        onAddPhotos = { photoSourceOpen = true },
                         onPhoto = { selectedPhoto = it },
                     )
                 }
@@ -389,6 +412,34 @@ fun HikeJournalApp(viewModel: AppViewModel) {
             onUpload = { caption, queue ->
                 viewModel.uploadPhotos(state.journal!!.id, pendingUpload, caption, queue)
                 pendingUpload = emptyList()
+            },
+        )
+    }
+
+    if (photoSourceOpen && state.journal != null) {
+        PhotoSourceSheet(
+            onDismiss = { photoSourceOpen = false },
+            onAlbums = {
+                photoSourceOpen = false
+                launchPhotoPicker(
+                    hikeMediaPickerRequest(PickVisualMedia.DefaultTab.AlbumsTab),
+                )
+            },
+            onRecent = {
+                photoSourceOpen = false
+                launchPhotoPicker(
+                    hikeMediaPickerRequest(PickVisualMedia.DefaultTab.PhotosTab),
+                )
+            },
+            onManageCloudMedia = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                {
+                    photoSourceOpen = false
+                    runCatching {
+                        context.startActivity(Intent(MediaStore.ACTION_PICK_IMAGES_SETTINGS))
+                    }
+                }
+            } else {
+                null
             },
         )
     }
@@ -1034,6 +1085,66 @@ private fun HikeEditorSheet(hike: Hike?, saving: Boolean, onDismiss: () -> Unit,
 }
 
 @Composable
+private fun PhotoSourceSheet(
+    onDismiss: () -> Unit,
+    onAlbums: () -> Unit,
+    onRecent: () -> Unit,
+    onManageCloudMedia: (() -> Unit)?,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Paper) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 28.dp),
+        ) {
+            Text("ADD TRAIL MEDIA", style = MaterialTheme.typography.labelSmall, color = TrailText)
+            Text("Choose where to browse", style = MaterialTheme.typography.headlineLarge, color = Ink)
+            Text(
+                "Open an album from Google Photos, or choose from your recent photos and videos.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = InkMuted,
+                modifier = Modifier.padding(top = 6.dp, bottom = 20.dp),
+            )
+            Button(
+                onClick = onAlbums,
+                modifier = Modifier.fillMaxWidth().height(54.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Moss),
+            ) {
+                Icon(Icons.Rounded.PhotoAlbum, null)
+                Spacer(Modifier.width(8.dp))
+                Text("Browse Google Photos albums")
+            }
+            OutlinedButton(
+                onClick = onRecent,
+                modifier = Modifier.fillMaxWidth().padding(top = 10.dp).height(54.dp),
+            ) {
+                Icon(Icons.Rounded.Image, null)
+                Spacer(Modifier.width(8.dp))
+                Text("Choose from recent photos")
+            }
+            onManageCloudMedia?.let { manage ->
+                TextButton(
+                    onClick = manage,
+                    modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 8.dp),
+                ) {
+                    Icon(Icons.Rounded.Settings, null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(7.dp))
+                    Text("Manage Google Photos access")
+                }
+            }
+            Text(
+                "If an album is missing, enable Google Photos as the cloud media provider in Android’s photo picker settings.",
+                style = MaterialTheme.typography.bodySmall,
+                color = InkMuted,
+                modifier = Modifier.padding(top = 6.dp),
+            )
+        }
+    }
+}
+
+@Composable
 private fun UploadSheet(photoCount: Int, onDismiss: () -> Unit, onUpload: (String, Boolean) -> Unit) {
     var caption by remember { mutableStateOf("") }
     var queueForReview by remember { mutableStateOf(false) }
@@ -1041,7 +1152,12 @@ private fun UploadSheet(photoCount: Int, onDismiss: () -> Unit, onUpload: (Strin
         Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 20.dp).padding(bottom = 28.dp)) {
             Text("$photoCount FILE${if (photoCount == 1) "" else "S"} SELECTED", style = MaterialTheme.typography.labelSmall, color = TrailText)
             Text("Add to this journal", style = MaterialTheme.typography.headlineLarge, color = Ink)
-            Text("Photos and videos are secured on this phone now. Photo dates and GPS are preserved; sync resumes automatically on any connection.", style = MaterialTheme.typography.bodyMedium, color = InkMuted, modifier = Modifier.padding(top = 6.dp))
+            Text(
+                "Original-format media and available capture details are secured on this phone now. Sync resumes automatically on any connection.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = InkMuted,
+                modifier = Modifier.padding(top = 6.dp),
+            )
             OutlinedTextField(caption, { caption = it }, Modifier.fillMaxWidth().padding(top = 18.dp), label = { Text("Shared caption · optional") })
             Row(Modifier.fillMaxWidth().padding(vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
