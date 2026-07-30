@@ -114,7 +114,7 @@ class FieldOperationQueue(private val context: Context) {
         queueForReview: Boolean,
     ): Photo = withContext(Dispatchers.IO) {
         val photoId = UUID.randomUUID().toString()
-        val contentType = context.contentResolver.getType(uri) ?: "image/jpeg"
+        val contentType = selectedMediaContentType(context, uri)
         val extension = when (contentType.lowercase(Locale.US)) {
             "image/png" -> "png"
             "image/heic", "image/heif" -> "heic"
@@ -169,7 +169,7 @@ class FieldOperationQueue(private val context: Context) {
         withContext(Dispatchers.IO) {
             val geotaggedCount = uris.count { uri ->
                 runCatching {
-                    val contentType = context.contentResolver.getType(uri).orEmpty()
+                    val contentType = selectedMediaContentType(context, uri)
                     readSelectedMediaLocation(context, uri, contentType) != null
                 }.getOrDefault(false)
             }
@@ -456,6 +456,10 @@ private fun copySelectedMedia(
     destination: File,
     requestOriginal: Boolean,
 ) {
+    appOwnedZipFile(context, uri)?.let { source ->
+        destination.delete()
+        if (source.renameTo(destination)) return
+    }
     val candidates = selectedMediaCandidates(context, uri, requestOriginal)
     var lastError: Exception? = null
     for (candidate in candidates) {
@@ -488,6 +492,20 @@ private fun copySelectedMedia(
         lastError?.message ?: "The selected photo could not be copied into field storage.",
         lastError,
     )
+}
+
+private fun selectedMediaContentType(context: Context, uri: Uri): String =
+    runCatching { context.contentResolver.getType(uri) }.getOrNull()
+        ?: uri.lastPathSegment?.let(::mediaContentType)
+        ?: "image/jpeg"
+
+private fun appOwnedZipFile(context: Context, uri: Uri): File? {
+    if (uri.scheme != "file") return null
+    val source = uri.path?.let(::File) ?: return null
+    val importRoot = File(context.cacheDir, "google-photos-zips")
+    val rootPath = runCatching { importRoot.canonicalPath + File.separator }.getOrNull() ?: return null
+    val sourcePath = runCatching { source.canonicalPath }.getOrNull() ?: return null
+    return source.takeIf { it.isFile && sourcePath.startsWith(rootPath) }
 }
 
 private fun selectedMediaCandidates(

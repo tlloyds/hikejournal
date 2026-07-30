@@ -12,6 +12,7 @@ class HikeJournalRepository(context: Context) {
     private val appContext = context.applicationContext
     private val api = HikeJournalApi(appContext)
     private val fieldQueue = FieldOperationQueue(appContext)
+    private val zipImporter = GooglePhotosZipImporter(appContext)
     private val cacheDirectory = File(context.filesDir, "journal-cache").apply { mkdirs() }
 
     val syncStatus = fieldQueue.status
@@ -316,6 +317,12 @@ class HikeJournalRepository(context: Context) {
 
     suspend fun inspectMediaLocations(uris: List<Uri>): MediaLocationSummary =
         fieldQueue.inspectMediaLocations(uris)
+
+    suspend fun importGooglePhotosZip(uri: Uri): GooglePhotosZipImport =
+        zipImporter.extract(uri)
+
+    suspend fun discardGooglePhotosZip(sessionId: String) =
+        zipImporter.discard(sessionId)
 
     suspend fun updateCaption(photoId: String, hikeId: String?, caption: String) =
         fieldQueue.queueCaption(photoId, hikeId, caption)
