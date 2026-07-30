@@ -20,6 +20,7 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts.OpenDocument
 import androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments
 import androidx.activity.result.contract.ActivityResultContracts.RequestPermission
+import androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions
 import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -147,9 +148,12 @@ import com.hikejournal.app.AppViewModel
 import com.hikejournal.app.BuildConfig
 import com.hikejournal.app.data.Hike
 import com.hikejournal.app.data.HikeDraft
+import com.hikejournal.app.data.LocalMediaAccess
 import com.hikejournal.app.data.MediaLocationSummary
 import com.hikejournal.app.data.Photo
 import com.hikejournal.app.data.SyncAttention
+import com.hikejournal.app.data.localMediaAccess
+import com.hikejournal.app.data.requiredLocalMediaPermissions
 import com.hikejournal.app.ui.theme.Fern
 import com.hikejournal.app.ui.theme.Ink
 import com.hikejournal.app.ui.theme.InkMuted
@@ -172,6 +176,7 @@ private data class HikeMapRequest(
 )
 
 private enum class PhotoSelectionSource {
+    PhoneOriginals,
     GooglePhotos,
     OriginalFiles,
     GooglePhotosZip,
@@ -188,6 +193,9 @@ fun HikeJournalApp(viewModel: AppViewModel) {
     var badgesOpen by remember { mutableStateOf(false) }
     var selectedPhoto by remember { mutableStateOf<Photo?>(null) }
     var photoSourceOpen by remember { mutableStateOf(false) }
+    var localMediaPickerOpen by remember { mutableStateOf(false) }
+    var localMediaPermissionError by remember { mutableStateOf<String?>(null) }
+    var grantedLocalMediaAccess by remember { mutableStateOf<LocalMediaAccess?>(null) }
     var pendingUpload by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var pendingUploadSource by remember { mutableStateOf(PhotoSelectionSource.GooglePhotos) }
     var pendingZipImportSessionId by remember { mutableStateOf<String?>(null) }
@@ -248,6 +256,30 @@ fun HikeJournalApp(viewModel: AppViewModel) {
         }
         pendingPickerRequest = null
         pendingOriginalFileRequest = false
+    }
+    val localMediaPermissions = rememberLauncherForActivityResult(RequestMultiplePermissions()) {
+        val access = localMediaAccess(context)
+        grantedLocalMediaAccess = access
+        when {
+            !access.canReadMedia -> {
+                localMediaPermissionError =
+                    "Allow HikeJournal to read photos and videos so it can browse originals stored on this phone."
+            }
+            !access.canReadLocations -> {
+                localMediaPermissionError =
+                    "Photo access was granted, but photo-location access is still off. Enable it so HikeJournal can read embedded GPS coordinates."
+            }
+            else -> localMediaPickerOpen = true
+        }
+    }
+    val launchLocalMediaPicker: () -> Unit = {
+        val access = localMediaAccess(context)
+        grantedLocalMediaAccess = access
+        if (access.readyForOriginals && access.hasFullLibraryAccess) {
+            localMediaPickerOpen = true
+        } else {
+            localMediaPermissions.launch(requiredLocalMediaPermissions())
+        }
     }
     val launchPhotoPicker: (PickVisualMediaRequest) -> Unit = { request ->
         val needsPermission = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
@@ -569,6 +601,10 @@ fun HikeJournalApp(viewModel: AppViewModel) {
     if (photoSourceOpen && state.journal != null) {
         PhotoSourceSheet(
             onDismiss = { photoSourceOpen = false },
+            onPhoneOriginals = {
+                photoSourceOpen = false
+                launchLocalMediaPicker()
+            },
             onAlbums = {
                 photoSourceOpen = false
                 launchPhotoPicker(
@@ -602,6 +638,19 @@ fun HikeJournalApp(viewModel: AppViewModel) {
         )
     }
 
+    if (localMediaPickerOpen && state.journal != null) {
+        LocalMediaPickerDialog(
+            access = grantedLocalMediaAccess ?: localMediaAccess(context),
+            onDismiss = { localMediaPickerOpen = false },
+            onConfirm = { uris ->
+                discardPendingZipImport()
+                pendingUploadSource = PhotoSelectionSource.PhoneOriginals
+                pendingUpload = uris
+                localMediaPickerOpen = false
+            },
+        )
+    }
+
     if (extractingZip) {
         ZipImportProgressSheet(
             onCancel = {
@@ -619,6 +668,34 @@ fun HikeJournalApp(viewModel: AppViewModel) {
             confirmButton = {
                 TextButton(onClick = { zipImportError = null }) {
                     Text("Close")
+                }
+            },
+        )
+    }
+
+    localMediaPermissionError?.let { message ->
+        AlertDialog(
+            onDismissRequest = { localMediaPermissionError = null },
+            title = { Text("Phone originals need permission") },
+            text = { Text(message) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        localMediaPermissionError = null
+                        context.startActivity(
+                            Intent(
+                                android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                Uri.parse("package:${context.packageName}"),
+                            )
+                        )
+                    },
+                ) {
+                    Text("Open app settings")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { localMediaPermissionError = null }) {
+                    Text("Not now")
                 }
             },
         )
@@ -1368,6 +1445,7 @@ private fun HikeEditorSheet(hike: Hike?, saving: Boolean, onDismiss: () -> Unit,
 @Composable
 private fun PhotoSourceSheet(
     onDismiss: () -> Unit,
+    onPhoneOriginals: () -> Unit,
     onAlbums: () -> Unit,
     onRecent: () -> Unit,
     onOriginalFiles: () -> Unit,
@@ -1379,21 +1457,36 @@ private fun PhotoSourceSheet(
             Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp)
                 .padding(bottom = 28.dp),
         ) {
             Text("ADD TRAIL MEDIA", style = MaterialTheme.typography.labelSmall, color = TrailText)
             Text("Choose where to browse", style = MaterialTheme.typography.headlineLarge, color = Ink)
             Text(
-                "Open an album in Google Photos, then select the photos and videos to add.",
+                "Use originals still stored on this phone for the most reliable GPS and capture metadata.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = InkMuted,
                 modifier = Modifier.padding(top = 6.dp, bottom = 20.dp),
             )
             Button(
-                onClick = onAlbums,
+                onClick = onPhoneOriginals,
                 modifier = Modifier.fillMaxWidth().height(54.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = Moss),
+            ) {
+                Icon(Icons.Rounded.LocationOn, null)
+                Spacer(Modifier.width(8.dp))
+                Text("Browse phone originals · preserve GPS")
+            }
+            Text(
+                "Browse local albums, select up to 500 files, and verify embedded coordinates before saving.",
+                style = MaterialTheme.typography.bodySmall,
+                color = InkMuted,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+            OutlinedButton(
+                onClick = onAlbums,
+                modifier = Modifier.fillMaxWidth().padding(top = 14.dp).height(54.dp),
             ) {
                 Icon(Icons.Rounded.PhotoAlbum, null)
                 Spacer(Modifier.width(8.dp))
@@ -1405,22 +1498,22 @@ private fun PhotoSourceSheet(
             ) {
                 Icon(Icons.Rounded.Image, null)
                 Spacer(Modifier.width(8.dp))
-                Text("Choose from recent photos")
-            }
-            OutlinedButton(
-                onClick = onOriginalFiles,
-                modifier = Modifier.fillMaxWidth().padding(top = 10.dp).height(54.dp),
-            ) {
-                Icon(Icons.Rounded.LocationOn, null)
-                Spacer(Modifier.width(8.dp))
-                Text("Choose original files · preserve GPS")
+                Text("Choose from Google Photos recent")
             }
             Text(
-                "For exact map coordinates, download the originals from Google Photos first, then choose them from Downloads or DCIM.",
+                "Google Photos may hide location metadata for cloud items even when its Info screen shows a place.",
                 style = MaterialTheme.typography.bodySmall,
                 color = InkMuted,
                 modifier = Modifier.padding(top = 8.dp),
             )
+            OutlinedButton(
+                onClick = onOriginalFiles,
+                modifier = Modifier.fillMaxWidth().padding(top = 12.dp).height(54.dp),
+            ) {
+                Icon(Icons.Rounded.Image, null)
+                Spacer(Modifier.width(8.dp))
+                Text("Browse Downloads or other files")
+            }
             OutlinedButton(
                 onClick = onZipFile,
                 modifier = Modifier.fillMaxWidth().padding(top = 12.dp).height(54.dp),
@@ -1506,6 +1599,8 @@ private fun UploadSheet(
                         )
                         Text(
                             when (source) {
+                                PhotoSelectionSource.PhoneOriginals ->
+                                    "These local originals do not contain readable embedded coordinates. Check that location tagging was enabled in the Camera app."
                                 PhotoSelectionSource.GooglePhotos ->
                                     "Google Photos did not share the location metadata. Its Info screen can still show a private or estimated place."
                                 PhotoSelectionSource.GooglePhotosZip ->

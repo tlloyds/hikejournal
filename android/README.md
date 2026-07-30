@@ -15,8 +15,12 @@ the current Supabase database and Cloudflare R2 photo library through the small
 If the Mac receives a different local IP address, open the gear in HikeJournal
 and replace the server address. The API always uses port `8506`.
 
-## Included in v0.5.28
+## Included in v0.5.29
 
+- Direct local-album browsing for originals still stored on the phone, with
+  unredacted MediaStore access and album-wide selection for up to 500 files
+- Android photo/video, selected-media, legacy storage, and media-location
+  permissions requested together before HikeJournal reads embedded GPS
 - Google Photos ZIP album import with safe on-device extraction for up to 500 supported media files
 - ZIP traversal, oversized-entry, expanded-size, and low-storage protections
 - Pre-upload GPS verification for every selected file, with missing-location warnings before anything is saved
