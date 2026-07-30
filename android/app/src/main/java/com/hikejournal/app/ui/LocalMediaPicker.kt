@@ -3,6 +3,16 @@
 package com.hikejournal.app.ui
 
 import android.net.Uri
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -159,7 +169,11 @@ internal fun LocalMediaPickerDialog(
                 }
             },
             bottomBar = {
-                if (selectedUris.isNotEmpty()) {
+                AnimatedVisibility(
+                    visible = selectedUris.isNotEmpty(),
+                    enter = slideInVertically(tween(180)) { it } + fadeIn(tween(140)),
+                    exit = slideOutVertically(tween(150)) { it } + fadeOut(tween(120)),
+                ) {
                     Column(
                         Modifier
                             .fillMaxWidth()
@@ -213,47 +227,67 @@ internal fun LocalMediaPickerDialog(
                             "Android granted access to a limited selection, but no supported local files were available. Close this screen and choose Phone originals again to expand access."
                         },
                     )
-                    openAlbum == null -> LocalAlbumGrid(
-                        albums = albums.orEmpty(),
-                        imageLoader = imageLoader,
-                        limitedAccess = !access.hasFullLibraryAccess,
-                        onOpenAlbum = { openAlbumId = it.id },
-                    )
-                    else -> LocalMediaGrid(
-                        album = openAlbum,
-                        imageLoader = imageLoader,
-                        selectedUris = selectedUris,
-                        onToggle = { uri ->
-                            selectionNotice = null
-                            selectedUris = if (uri in selectedUris) {
-                                selectedUris.filterNot { it == uri }
+                    else -> AnimatedContent(
+                        targetState = openAlbumId,
+                        transitionSpec = {
+                            if (targetState == null) {
+                                (slideInHorizontally(tween(190)) { -it / 4 } + fadeIn(tween(150))) togetherWith
+                                    (slideOutHorizontally(tween(170)) { it / 4 } + fadeOut(tween(130)))
                             } else {
-                                val next = addLocalMediaSelection(selectedUris, listOf(uri))
-                                if (next.size == selectedUris.size) {
-                                    selectionNotice = "You can upload up to $MAX_LOCAL_MEDIA_SELECTION files at a time."
-                                }
-                                next
+                                (slideInHorizontally(tween(190)) { it / 4 } + fadeIn(tween(150))) togetherWith
+                                    (slideOutHorizontally(tween(170)) { -it / 4 } + fadeOut(tween(130)))
                             }
                         },
-                        onSelectAlbum = {
-                            val next = addLocalMediaSelection(
-                                selectedUris,
-                                openAlbum.items.map(LocalMediaItem::uri),
+                        label = "local-album-navigation",
+                    ) { visibleAlbumId ->
+                        val visibleAlbum = albums.orEmpty().firstOrNull { it.id == visibleAlbumId }
+                        if (visibleAlbum == null) {
+                            LocalAlbumGrid(
+                                albums = albums.orEmpty(),
+                                imageLoader = imageLoader,
+                                limitedAccess = !access.hasFullLibraryAccess,
+                                onOpenAlbum = { openAlbumId = it.id },
                             )
-                            val requestedCount = (selectedUris + openAlbum.items.map(LocalMediaItem::uri)).distinct().size
-                            selectionNotice = if (next.size < requestedCount) {
-                                "Selected the first $MAX_LOCAL_MEDIA_SELECTION files. Upload this batch before adding more."
-                            } else {
-                                null
-                            }
-                            selectedUris = next
-                        },
-                        onClearAlbum = {
-                            val albumUris = openAlbum.items.mapTo(hashSetOf(), LocalMediaItem::uri)
-                            selectedUris = selectedUris.filterNot(albumUris::contains)
-                            selectionNotice = null
-                        },
-                    )
+                        } else {
+                            LocalMediaGrid(
+                                album = visibleAlbum,
+                                imageLoader = imageLoader,
+                                selectedUris = selectedUris,
+                                onToggle = { uri ->
+                                    selectionNotice = null
+                                    selectedUris = if (uri in selectedUris) {
+                                        selectedUris.filterNot { it == uri }
+                                    } else {
+                                        val next = addLocalMediaSelection(selectedUris, listOf(uri))
+                                        if (next.size == selectedUris.size) {
+                                            selectionNotice =
+                                                "You can upload up to $MAX_LOCAL_MEDIA_SELECTION files at a time."
+                                        }
+                                        next
+                                    }
+                                },
+                                onSelectAlbum = {
+                                    val next = addLocalMediaSelection(
+                                        selectedUris,
+                                        visibleAlbum.items.map(LocalMediaItem::uri),
+                                    )
+                                    val requestedCount =
+                                        (selectedUris + visibleAlbum.items.map(LocalMediaItem::uri)).distinct().size
+                                    selectionNotice = if (next.size < requestedCount) {
+                                        "Selected the first $MAX_LOCAL_MEDIA_SELECTION files. Upload this batch before adding more."
+                                    } else {
+                                        null
+                                    }
+                                    selectedUris = next
+                                },
+                                onClearAlbum = {
+                                    val albumUris = visibleAlbum.items.mapTo(hashSetOf(), LocalMediaItem::uri)
+                                    selectedUris = selectedUris.filterNot(albumUris::contains)
+                                    selectionNotice = null
+                                },
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -403,28 +437,38 @@ private fun LocalMediaGrid(
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop,
                 )
-                if (selectedIndex >= 0) {
-                    Box(Modifier.fillMaxSize().background(Color(0x52183A2D)))
-                    Box(
-                        Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(7.dp)
-                            .size(27.dp)
-                            .clip(MaterialTheme.shapes.extraLarge)
-                            .background(Trail),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            "${selectedIndex + 1}",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = Paper,
-                        )
+                AnimatedVisibility(
+                    visible = selectedIndex >= 0,
+                    enter = fadeIn(tween(120)),
+                    exit = fadeOut(tween(100)),
+                ) {
+                    Box(Modifier.fillMaxSize().background(Color(0x52183A2D))) {
+                        Box(
+                            Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(7.dp)
+                                .size(27.dp)
+                                .clip(MaterialTheme.shapes.extraLarge)
+                                .background(Trail),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                "${selectedIndex + 1}",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = Paper,
+                            )
+                        }
                     }
-                } else {
+                }
+                AnimatedVisibility(
+                    visible = selectedIndex < 0,
+                    enter = fadeIn(tween(120)),
+                    exit = fadeOut(tween(100)),
+                    modifier = Modifier.align(Alignment.TopEnd),
+                ) {
                     Box(
                         Modifier
-                            .align(Alignment.TopEnd)
                             .padding(8.dp)
                             .size(23.dp)
                             .clip(MaterialTheme.shapes.extraLarge)
