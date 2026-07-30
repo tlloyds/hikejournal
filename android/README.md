@@ -15,24 +15,20 @@ the current Supabase database and Cloudflare R2 photo library through the small
 If the Mac receives a different local IP address, open the gear in HikeJournal
 and replace the server address. The API always uses port `8506`.
 
-## Included in v0.5.29
+## Included in v0.5.30
 
-- Direct local-album browsing for originals still stored on the phone, with
-  unredacted MediaStore access and album-wide selection for up to 500 files
+- One clear `Browse Photos` action that opens local phone albums directly,
+  preserving unredacted MediaStore access and album-wide selection for up to 500 files
+- A fixed, high-contrast photo confirmation action that remains fully above
+  Android gesture and navigation insets
 - Android photo/video, selected-media, legacy storage, and media-location
   permissions requested together before HikeJournal reads embedded GPS
-- Google Photos ZIP album import with safe on-device extraction for up to 500 supported media files
-- ZIP traversal, oversized-entry, expanded-size, and low-storage protections
 - Pre-upload GPS verification for every selected file, with missing-location warnings before anything is saved
-- A GPS-safe original-file route for photos downloaded to DCIM or Downloads when Google Photos redacts location
 - Embedded video location extraction for map-ready clips when the source file provides coordinates
 - Hike-scoped native maps with imported route lines and just that outing's
   geotagged photos
 - "View on map" from any geotagged photo, focused directly on its trail location
-- Platform-maximum batch selection from Google Photos instead of the previous 20-file cap
 - Immediate journal-opening feedback plus cache-first hike details for faster archive navigation
-- Google Photos album browsing from the journal photo source chooser
-- Original-format picker requests plus capture-time and location metadata preservation when Android shares them
 - Observation-type filters across the native field guide, including plants,
   animals, birds, mammals, insects, and other major taxonomic groups
 - Native Trail Medals nested in the Library, with 36 polished lifetime

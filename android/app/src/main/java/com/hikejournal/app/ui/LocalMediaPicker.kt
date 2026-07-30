@@ -9,9 +9,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -20,14 +18,18 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -37,12 +39,14 @@ import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -169,17 +173,17 @@ internal fun LocalMediaPickerDialog(
                 }
             },
             bottomBar = {
-                AnimatedVisibility(
-                    visible = selectedUris.isNotEmpty(),
-                    enter = slideInVertically(tween(180)) { it } + fadeIn(tween(140)),
-                    exit = slideOutVertically(tween(150)) { it } + fadeOut(tween(120)),
+                Surface(
+                    color = Paper,
+                    shadowElevation = 10.dp,
                 ) {
                     Column(
                         Modifier
                             .fillMaxWidth()
-                            .background(Paper)
-                            .navigationBarsPadding()
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                            .windowInsetsPadding(
+                                WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom),
+                            )
+                            .padding(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 16.dp),
                     ) {
                         selectionNotice?.let {
                             Text(
@@ -191,11 +195,28 @@ internal fun LocalMediaPickerDialog(
                         }
                         Button(
                             onClick = { onConfirm(selectedUris.map(Uri::parse)) },
-                            modifier = Modifier.fillMaxWidth().height(52.dp),
+                            enabled = selectedUris.isNotEmpty(),
+                            modifier = Modifier.fillMaxWidth().height(58.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Moss,
+                                contentColor = Paper,
+                                disabledContainerColor = Moss.copy(alpha = 0.36f),
+                                disabledContentColor = Paper.copy(alpha = 0.78f),
+                            ),
                         ) {
-                            Icon(Icons.Rounded.Check, null)
-                            Spacer(Modifier.size(8.dp))
-                            Text("Use ${selectedUris.size} original file${if (selectedUris.size == 1) "" else "s"}")
+                            if (selectedUris.isNotEmpty()) {
+                                Icon(Icons.Rounded.Check, null)
+                                Spacer(Modifier.size(8.dp))
+                            }
+                            Text(
+                                if (selectedUris.isEmpty()) {
+                                    "Select Photos"
+                                } else {
+                                    "Add ${selectedUris.size} Photo${if (selectedUris.size == 1) "" else "s"}"
+                                },
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                            )
                         }
                     }
                 }
@@ -224,7 +245,7 @@ internal fun LocalMediaPickerDialog(
                         detail = if (access.hasFullLibraryAccess) {
                             "No supported photos or videos under 30 MB are stored on this phone."
                         } else {
-                            "Android granted access to a limited selection, but no supported local files were available. Close this screen and choose Phone originals again to expand access."
+                            "Android granted access to a limited selection, but no supported local files were available. Close this screen and choose Browse Photos again to expand access."
                         },
                     )
                     else -> AnimatedContent(

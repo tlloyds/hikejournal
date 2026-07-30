@@ -6,22 +6,13 @@
 
 package com.hikejournal.app.ui
 
-import android.Manifest
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.net.Uri
-import android.os.Build
-import android.provider.MediaStore
 import androidx.compose.runtime.DisposableEffect
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
-import androidx.activity.result.contract.ActivityResultContracts.OpenDocument
-import androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments
-import androidx.activity.result.contract.ActivityResultContracts.RequestPermission
 import androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions
-import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
@@ -77,7 +68,6 @@ import androidx.compose.material.icons.rounded.Fullscreen
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.Map
-import androidx.compose.material.icons.rounded.PhotoAlbum
 import androidx.compose.material.icons.rounded.PlayCircle
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
@@ -133,7 +123,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import coil.ImageLoader
@@ -175,13 +164,6 @@ private data class HikeMapRequest(
     val returnToPhoto: Boolean = false,
 )
 
-private enum class PhotoSelectionSource {
-    PhoneOriginals,
-    GooglePhotos,
-    OriginalFiles,
-    GooglePhotosZip,
-}
-
 @Composable
 fun HikeJournalApp(viewModel: AppViewModel) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -192,21 +174,12 @@ fun HikeJournalApp(viewModel: AppViewModel) {
     var settingsOpen by remember { mutableStateOf(false) }
     var badgesOpen by remember { mutableStateOf(false) }
     var selectedPhoto by remember { mutableStateOf<Photo?>(null) }
-    var photoSourceOpen by remember { mutableStateOf(false) }
     var localMediaPickerOpen by remember { mutableStateOf(false) }
     var localMediaPermissionError by remember { mutableStateOf<String?>(null) }
     var grantedLocalMediaAccess by remember { mutableStateOf<LocalMediaAccess?>(null) }
     var pendingUpload by remember { mutableStateOf<List<Uri>>(emptyList()) }
-    var pendingUploadSource by remember { mutableStateOf(PhotoSelectionSource.GooglePhotos) }
-    var pendingZipImportSessionId by remember { mutableStateOf<String?>(null) }
-    var pendingZipIgnoredEntryCount by remember { mutableStateOf(0) }
     var mediaLocationSummary by remember { mutableStateOf<MediaLocationSummary?>(null) }
     var checkingMediaLocations by remember { mutableStateOf(false) }
-    var zipImportUri by remember { mutableStateOf<Uri?>(null) }
-    var extractingZip by remember { mutableStateOf(false) }
-    var zipImportError by remember { mutableStateOf<String?>(null) }
-    var pendingPickerRequest by remember { mutableStateOf<PickVisualMediaRequest?>(null) }
-    var pendingOriginalFileRequest by remember { mutableStateOf(false) }
     var syncAttentionOpen by remember { mutableStateOf(false) }
     var speciesEntryAreaName by remember { mutableStateOf<String?>(null) }
     var hikeMapRequest by remember { mutableStateOf<HikeMapRequest?>(null) }
@@ -219,12 +192,6 @@ fun HikeJournalApp(viewModel: AppViewModel) {
         }
     }
 
-    fun discardPendingZipImport() {
-        pendingZipImportSessionId?.let(viewModel::discardGooglePhotosZip)
-        pendingZipImportSessionId = null
-        pendingZipIgnoredEntryCount = 0
-    }
-
     LaunchedEffect(state.inatAuthorizationUrl) {
         state.inatAuthorizationUrl?.let { url ->
             context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
@@ -232,31 +199,6 @@ fun HikeJournalApp(viewModel: AppViewModel) {
         }
     }
 
-    val photoPicker = rememberLauncherForActivityResult(OriginalMetadataMultipleMediaPicker()) { uris ->
-        discardPendingZipImport()
-        pendingUploadSource = PhotoSelectionSource.GooglePhotos
-        pendingUpload = uris
-    }
-    val originalFilePicker = rememberLauncherForActivityResult(OpenMultipleDocuments()) { uris ->
-        discardPendingZipImport()
-        pendingUploadSource = PhotoSelectionSource.OriginalFiles
-        pendingUpload = uris
-    }
-    val zipFilePicker = rememberLauncherForActivityResult(OpenDocument()) { uri ->
-        if (uri != null) {
-            discardPendingZipImport()
-            pendingUpload = emptyList()
-            zipImportUri = uri
-        }
-    }
-    val mediaLocationPermission = rememberLauncherForActivityResult(RequestPermission()) {
-        pendingPickerRequest?.let(photoPicker::launch)
-        if (pendingOriginalFileRequest) {
-            originalFilePicker.launch(arrayOf("image/*", "video/*"))
-        }
-        pendingPickerRequest = null
-        pendingOriginalFileRequest = false
-    }
     val localMediaPermissions = rememberLauncherForActivityResult(RequestMultiplePermissions()) {
         val access = localMediaAccess(context)
         grantedLocalMediaAccess = access
@@ -281,29 +223,6 @@ fun HikeJournalApp(viewModel: AppViewModel) {
             localMediaPermissions.launch(requiredLocalMediaPermissions())
         }
     }
-    val launchPhotoPicker: (PickVisualMediaRequest) -> Unit = { request ->
-        val needsPermission = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
-            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_MEDIA_LOCATION) !=
-            PackageManager.PERMISSION_GRANTED
-        if (needsPermission) {
-            pendingPickerRequest = request
-            mediaLocationPermission.launch(Manifest.permission.ACCESS_MEDIA_LOCATION)
-        } else {
-            photoPicker.launch(request)
-        }
-    }
-    val launchOriginalFilePicker: () -> Unit = {
-        val needsPermission = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
-            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_MEDIA_LOCATION) !=
-            PackageManager.PERMISSION_GRANTED
-        if (needsPermission) {
-            pendingOriginalFileRequest = true
-            mediaLocationPermission.launch(Manifest.permission.ACCESS_MEDIA_LOCATION)
-        } else {
-            originalFilePicker.launch(arrayOf("image/*", "video/*"))
-        }
-    }
-
     LaunchedEffect(pendingUpload) {
         if (pendingUpload.isEmpty()) {
             mediaLocationSummary = null
@@ -320,46 +239,18 @@ fun HikeJournalApp(viewModel: AppViewModel) {
         }
     }
 
-    LaunchedEffect(zipImportUri) {
-        val uri = zipImportUri ?: return@LaunchedEffect
-        extractingZip = true
-        zipImportError = null
-        try {
-            val imported = viewModel.importGooglePhotosZip(uri)
-            pendingZipImportSessionId = imported.sessionId
-            pendingZipIgnoredEntryCount = imported.ignoredEntryCount
-            pendingUploadSource = PhotoSelectionSource.GooglePhotosZip
-            pendingUpload = imported.mediaUris
-        } catch (cancelled: kotlinx.coroutines.CancellationException) {
-            throw cancelled
-        } catch (error: Exception) {
-            zipImportError = error.message ?: "The selected ZIP could not be unpacked."
-        } finally {
-            extractingZip = false
-            zipImportUri = null
-        }
-    }
-
     BackHandler(
-        enabled = extractingZip || hikeMapRequest != null || selectedPhoto != null || syncAttentionOpen || settingsOpen || photoSourceOpen ||
+        enabled = hikeMapRequest != null || selectedPhoto != null || syncAttentionOpen || settingsOpen ||
             pendingUpload.isNotEmpty() ||
             creatingHike || editingHike != null || badgesOpen || state.journal != null ||
             state.speciesDetail != null || state.questMapQuest != null,
     ) {
         when {
-            extractingZip -> {
-                zipImportUri = null
-                extractingZip = false
-            }
             hikeMapRequest != null -> closeHikeMap()
             selectedPhoto != null -> selectedPhoto = null
             syncAttentionOpen -> syncAttentionOpen = false
             settingsOpen -> settingsOpen = false
-            photoSourceOpen -> photoSourceOpen = false
-            pendingUpload.isNotEmpty() -> {
-                pendingUpload = emptyList()
-                discardPendingZipImport()
-            }
+            pendingUpload.isNotEmpty() -> pendingUpload = emptyList()
             creatingHike || editingHike != null -> {
                 creatingHike = false
                 editingHike = null
@@ -427,7 +318,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                             viewModel.closeJournal()
                             destination = TopDestination.Species
                         },
-                        onAddPhotos = { photoSourceOpen = true },
+                        onAddPhotos = launchLocalMediaPicker,
                         onViewMap = {
                             hikeMapRequest = HikeMapRequest(hike = journal)
                         },
@@ -570,18 +461,12 @@ fun HikeJournalApp(viewModel: AppViewModel) {
     if (pendingUpload.isNotEmpty() && state.journal != null) {
         UploadSheet(
             photoCount = pendingUpload.size,
-            source = pendingUploadSource,
             locationSummary = mediaLocationSummary,
             checkingLocations = checkingMediaLocations,
-            ignoredZipEntries = pendingZipIgnoredEntryCount,
-            onDismiss = {
+            onDismiss = { pendingUpload = emptyList() },
+            onChooseDifferentPhotos = {
                 pendingUpload = emptyList()
-                discardPendingZipImport()
-            },
-            onChooseOriginalFiles = {
-                pendingUpload = emptyList()
-                discardPendingZipImport()
-                launchOriginalFilePicker()
+                launchLocalMediaPicker()
             },
             onUpload = { caption, queue ->
                 viewModel.uploadPhotos(
@@ -589,51 +474,8 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                     pendingUpload,
                     caption,
                     queue,
-                    pendingZipImportSessionId,
                 )
                 pendingUpload = emptyList()
-                pendingZipImportSessionId = null
-                pendingZipIgnoredEntryCount = 0
-            },
-        )
-    }
-
-    if (photoSourceOpen && state.journal != null) {
-        PhotoSourceSheet(
-            onDismiss = { photoSourceOpen = false },
-            onPhoneOriginals = {
-                photoSourceOpen = false
-                launchLocalMediaPicker()
-            },
-            onAlbums = {
-                photoSourceOpen = false
-                launchPhotoPicker(
-                    hikeMediaPickerRequest(PickVisualMedia.DefaultTab.AlbumsTab),
-                )
-            },
-            onRecent = {
-                photoSourceOpen = false
-                launchPhotoPicker(
-                    hikeMediaPickerRequest(PickVisualMedia.DefaultTab.PhotosTab),
-                )
-            },
-            onOriginalFiles = {
-                photoSourceOpen = false
-                launchOriginalFilePicker()
-            },
-            onZipFile = {
-                photoSourceOpen = false
-                zipFilePicker.launch(arrayOf("application/zip", "application/x-zip-compressed"))
-            },
-            onManageCloudMedia = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                {
-                    photoSourceOpen = false
-                    runCatching {
-                        context.startActivity(Intent(MediaStore.ACTION_PICK_IMAGES_SETTINGS))
-                    }
-                }
-            } else {
-                null
             },
         )
     }
@@ -643,32 +485,8 @@ fun HikeJournalApp(viewModel: AppViewModel) {
             access = grantedLocalMediaAccess ?: localMediaAccess(context),
             onDismiss = { localMediaPickerOpen = false },
             onConfirm = { uris ->
-                discardPendingZipImport()
-                pendingUploadSource = PhotoSelectionSource.PhoneOriginals
                 pendingUpload = uris
                 localMediaPickerOpen = false
-            },
-        )
-    }
-
-    if (extractingZip) {
-        ZipImportProgressSheet(
-            onCancel = {
-                zipImportUri = null
-                extractingZip = false
-            },
-        )
-    }
-
-    zipImportError?.let { message ->
-        AlertDialog(
-            onDismissRequest = { zipImportError = null },
-            title = { Text("Couldn’t import this ZIP") },
-            text = { Text(message) },
-            confirmButton = {
-                TextButton(onClick = { zipImportError = null }) {
-                    Text("Close")
-                }
             },
         )
     }
@@ -1226,7 +1044,7 @@ private fun JournalScreen(
                     ) {
                         Icon(Icons.Rounded.CameraAlt, null, Modifier.size(19.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text("Add photos")
+                        Text("Browse Photos")
                     }
                     OutlinedButton(onClick = onEdit) {
                         Icon(Icons.Rounded.Edit, null, Modifier.size(18.dp))
@@ -1443,120 +1261,12 @@ private fun HikeEditorSheet(hike: Hike?, saving: Boolean, onDismiss: () -> Unit,
 }
 
 @Composable
-private fun PhotoSourceSheet(
-    onDismiss: () -> Unit,
-    onPhoneOriginals: () -> Unit,
-    onAlbums: () -> Unit,
-    onRecent: () -> Unit,
-    onOriginalFiles: () -> Unit,
-    onZipFile: () -> Unit,
-    onManageCloudMedia: (() -> Unit)?,
-) {
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Paper) {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .navigationBarsPadding()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp)
-                .padding(bottom = 28.dp),
-        ) {
-            Text("ADD TRAIL MEDIA", style = MaterialTheme.typography.labelSmall, color = TrailText)
-            Text("Choose where to browse", style = MaterialTheme.typography.headlineLarge, color = Ink)
-            Text(
-                "Use originals still stored on this phone for the most reliable GPS and capture metadata.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = InkMuted,
-                modifier = Modifier.padding(top = 6.dp, bottom = 20.dp),
-            )
-            Button(
-                onClick = onPhoneOriginals,
-                modifier = Modifier.fillMaxWidth().height(54.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Moss),
-            ) {
-                Icon(Icons.Rounded.LocationOn, null)
-                Spacer(Modifier.width(8.dp))
-                Text("Browse phone originals · preserve GPS")
-            }
-            Text(
-                "Browse local albums, select up to 500 files, and verify embedded coordinates before saving.",
-                style = MaterialTheme.typography.bodySmall,
-                color = InkMuted,
-                modifier = Modifier.padding(top = 8.dp),
-            )
-            OutlinedButton(
-                onClick = onAlbums,
-                modifier = Modifier.fillMaxWidth().padding(top = 14.dp).height(54.dp),
-            ) {
-                Icon(Icons.Rounded.PhotoAlbum, null)
-                Spacer(Modifier.width(8.dp))
-                Text("Open Google Photos albums")
-            }
-            OutlinedButton(
-                onClick = onRecent,
-                modifier = Modifier.fillMaxWidth().padding(top = 10.dp).height(54.dp),
-            ) {
-                Icon(Icons.Rounded.Image, null)
-                Spacer(Modifier.width(8.dp))
-                Text("Choose from Google Photos recent")
-            }
-            Text(
-                "Google Photos may hide location metadata for cloud items even when its Info screen shows a place.",
-                style = MaterialTheme.typography.bodySmall,
-                color = InkMuted,
-                modifier = Modifier.padding(top = 8.dp),
-            )
-            OutlinedButton(
-                onClick = onOriginalFiles,
-                modifier = Modifier.fillMaxWidth().padding(top = 12.dp).height(54.dp),
-            ) {
-                Icon(Icons.Rounded.Image, null)
-                Spacer(Modifier.width(8.dp))
-                Text("Browse Downloads or other files")
-            }
-            OutlinedButton(
-                onClick = onZipFile,
-                modifier = Modifier.fillMaxWidth().padding(top = 12.dp).height(54.dp),
-            ) {
-                Icon(Icons.Rounded.Archive, null)
-                Spacer(Modifier.width(8.dp))
-                Text("Import a Google Photos ZIP")
-            }
-            Text(
-                "ZIP albums are unpacked locally, and supported media continues through the same GPS check before saving.",
-                style = MaterialTheme.typography.bodySmall,
-                color = InkMuted,
-                modifier = Modifier.padding(top = 8.dp),
-            )
-            onManageCloudMedia?.let { manage ->
-                TextButton(
-                    onClick = manage,
-                    modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 8.dp),
-                ) {
-                    Icon(Icons.Rounded.Settings, null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(7.dp))
-                    Text("Manage Google Photos access")
-                }
-            }
-            Text(
-                "If an album is missing, enable Google Photos as the cloud media provider in Android’s photo picker settings.",
-                style = MaterialTheme.typography.bodySmall,
-                color = InkMuted,
-                modifier = Modifier.padding(top = 6.dp),
-            )
-        }
-    }
-}
-
-@Composable
 private fun UploadSheet(
     photoCount: Int,
-    source: PhotoSelectionSource,
     locationSummary: MediaLocationSummary?,
     checkingLocations: Boolean,
-    ignoredZipEntries: Int,
     onDismiss: () -> Unit,
-    onChooseOriginalFiles: () -> Unit,
+    onChooseDifferentPhotos: () -> Unit,
     onUpload: (String, Boolean) -> Unit,
 ) {
     var caption by remember { mutableStateOf("") }
@@ -1598,29 +1308,12 @@ private fun UploadSheet(
                             color = TrailText,
                         )
                         Text(
-                            when (source) {
-                                PhotoSelectionSource.PhoneOriginals ->
-                                    "These local originals do not contain readable embedded coordinates. Check that location tagging was enabled in the Camera app."
-                                PhotoSelectionSource.GooglePhotos ->
-                                    "Google Photos did not share the location metadata. Its Info screen can still show a private or estimated place."
-                                PhotoSelectionSource.GooglePhotosZip ->
-                                    "The downloaded originals do not contain readable embedded coordinates."
-                                PhotoSelectionSource.OriginalFiles ->
-                                    "These files do not contain readable embedded coordinates."
-                            },
+                            "These local originals do not contain readable embedded coordinates. Check that location tagging was enabled in the Camera app.",
                             style = MaterialTheme.typography.bodySmall,
                             color = InkMuted,
                         )
                     }
                 }
-            }
-            if (source == PhotoSelectionSource.GooglePhotosZip && ignoredZipEntries > 0) {
-                Text(
-                    "$ignoredZipEntries non-media ${if (ignoredZipEntries == 1) "file was" else "files were"} ignored while unpacking.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = InkMuted,
-                    modifier = Modifier.padding(top = 8.dp),
-                )
             }
             OutlinedTextField(caption, { caption = it }, Modifier.fillMaxWidth().padding(top = 18.dp), label = { Text("Shared caption · optional") })
             Row(Modifier.fillMaxWidth().padding(vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -1632,13 +1325,13 @@ private fun UploadSheet(
             }
             if (locationSummary != null && !locationsReady) {
                 Button(
-                    onClick = onChooseOriginalFiles,
+                    onClick = onChooseDifferentPhotos,
                     modifier = Modifier.fillMaxWidth().height(54.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Moss),
                 ) {
                     Icon(Icons.Rounded.LocationOn, null)
                     Spacer(Modifier.width(8.dp))
-                    Text("Choose original files")
+                    Text("Browse Photos")
                 }
                 TextButton(
                     onClick = { onUpload(caption, queueForReview) },
@@ -1662,35 +1355,6 @@ private fun UploadSheet(
                         Text("Save $photoCount file${if (photoCount == 1) "" else "s"}")
                     }
                 }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ZipImportProgressSheet(onCancel: () -> Unit) {
-    ModalBottomSheet(onDismissRequest = onCancel, containerColor = Paper) {
-        Column(
-            Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 20.dp).padding(bottom = 28.dp),
-        ) {
-            Text("GOOGLE PHOTOS ZIP", style = MaterialTheme.typography.labelSmall, color = TrailText)
-            Text("Unpacking the album", style = MaterialTheme.typography.headlineLarge, color = Ink)
-            Text(
-                "Supported photos and videos are being staged on this phone. GPS verification starts as soon as extraction finishes.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = InkMuted,
-                modifier = Modifier.padding(top = 6.dp, bottom = 18.dp),
-            )
-            LinearProgressIndicator(
-                modifier = Modifier.fillMaxWidth(),
-                color = Trail,
-                trackColor = Line,
-            )
-            TextButton(
-                onClick = onCancel,
-                modifier = Modifier.align(Alignment.End).padding(top = 8.dp),
-            ) {
-                Text("Cancel")
             }
         }
     }
@@ -1937,7 +1601,7 @@ private fun EmptyPhotos(onAdd: () -> Unit) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 42.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Icon(Icons.Rounded.Image, null, tint = Fern, modifier = Modifier.size(48.dp))
         Text("The first frame is waiting", style = MaterialTheme.typography.headlineSmall, color = Ink, modifier = Modifier.padding(top = 12.dp))
-        TextButton(onClick = onAdd) { Text("Choose photos") }
+        TextButton(onClick = onAdd) { Text("Browse Photos") }
     }
 }
 

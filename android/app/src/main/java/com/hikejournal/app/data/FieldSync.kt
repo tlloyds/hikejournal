@@ -456,10 +456,6 @@ private fun copySelectedMedia(
     destination: File,
     requestOriginal: Boolean,
 ) {
-    appOwnedZipFile(context, uri)?.let { source ->
-        destination.delete()
-        if (source.renameTo(destination)) return
-    }
     val candidates = selectedMediaCandidates(context, uri, requestOriginal)
     var lastError: Exception? = null
     for (candidate in candidates) {
@@ -499,14 +495,21 @@ private fun selectedMediaContentType(context: Context, uri: Uri): String =
         ?: uri.lastPathSegment?.let(::mediaContentType)
         ?: "image/jpeg"
 
-private fun appOwnedZipFile(context: Context, uri: Uri): File? {
-    if (uri.scheme != "file") return null
-    val source = uri.path?.let(::File) ?: return null
-    val importRoot = File(context.cacheDir, "google-photos-zips")
-    val rootPath = runCatching { importRoot.canonicalPath + File.separator }.getOrNull() ?: return null
-    val sourcePath = runCatching { source.canonicalPath }.getOrNull() ?: return null
-    return source.takeIf { it.isFile && sourcePath.startsWith(rootPath) }
-}
+private fun mediaContentType(fileName: String): String? =
+    when (fileName.substringAfterLast('.', "").lowercase()) {
+        "jpg", "jpeg" -> "image/jpeg"
+        "png" -> "image/png"
+        "heic" -> "image/heic"
+        "heif" -> "image/heif"
+        "webp" -> "image/webp"
+        "gif" -> "image/gif"
+        "mp4" -> "video/mp4"
+        "mov" -> "video/quicktime"
+        "m4v" -> "video/x-m4v"
+        "3gp" -> "video/3gpp"
+        "webm" -> "video/webm"
+        else -> null
+    }
 
 private fun selectedMediaCandidates(
     context: Context,
