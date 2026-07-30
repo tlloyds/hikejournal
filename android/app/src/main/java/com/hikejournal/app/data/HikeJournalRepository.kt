@@ -43,15 +43,29 @@ class HikeJournalRepository(context: Context) {
         return try {
             val json = api.getHikeJson(hikeId)
             withContext(Dispatchers.IO) { cacheFile.writeText(json) }
-            val overlay = fieldQueue.overlayHike(parseHike(json), hikeId)
+            val parsed = withContext(Dispatchers.Default) { parseHike(json) }
+            val overlay = fieldQueue.overlayHike(parsed, hikeId)
                 ?: throw IllegalStateException("Hike not found.")
             LoadResult(overlay, fromCache = false)
         } catch (networkError: Exception) {
             val cached = withContext(Dispatchers.IO) { cacheFile.takeIf { it.exists() }?.readText() }
-            val overlay = fieldQueue.overlayHike(cached?.let(::parseHike), hikeId)
+            val parsed = withContext(Dispatchers.Default) { cached?.let(::parseHike) }
+            val overlay = fieldQueue.overlayHike(parsed, hikeId)
             if (overlay == null) throw networkError
             LoadResult(overlay, fromCache = true)
         }
+    }
+
+    suspend fun loadCachedHike(hikeId: String): Hike? {
+        val cacheFile = File(cacheDirectory, "hike-$hikeId.json")
+        val parsed = withContext(Dispatchers.IO) {
+            cacheFile
+                .takeIf { it.exists() }
+                ?.readText()
+                ?.takeIf { it.isNotBlank() }
+                ?.let(::parseHike)
+        }
+        return fieldQueue.overlayHike(parsed, hikeId)
     }
 
     suspend fun loadSpecies(): LoadResult<List<SpeciesRecord>> = loadWithCache(

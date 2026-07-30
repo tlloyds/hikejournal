@@ -43,6 +43,7 @@ data class AppState(
     val reviewQueue: List<ReviewItem> = emptyList(),
     val publishQueue: PublishQueue = PublishQueue(false, 0, 0, 0, emptyList()),
     val isLoading: Boolean = true,
+    val openingHikeId: String? = null,
     val isRefreshing: Boolean = false,
     val isOffline: Boolean = false,
     val error: String? = null,
@@ -125,26 +126,59 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun openHike(hikeId: String) {
+        val current = _state.value
+        if (current.openingHikeId == hikeId) return
+        val summary = current.hikes.firstOrNull { it.id == hikeId }
+        _state.update {
+            it.copy(
+                journal = summary ?: it.journal,
+                openingHikeId = hikeId,
+                error = null,
+            )
+        }
         viewModelScope.launch {
-            _state.update { it.copy(isLoading = true, error = null) }
+            val cached = repository.loadCachedHike(hikeId)
+            if (cached != null) {
+                _state.update {
+                    if (it.openingHikeId == hikeId || it.journal?.id == hikeId) {
+                        it.copy(journal = cached, openingHikeId = null)
+                    } else {
+                        it
+                    }
+                }
+            }
             runCatching { repository.loadHike(hikeId) }
                 .onSuccess { result ->
                     _state.update {
-                        it.copy(
-                            journal = result.value,
-                            isLoading = false,
-                            isOffline = result.fromCache,
-                        )
+                        if (it.openingHikeId == hikeId || it.journal?.id == hikeId) {
+                            it.copy(
+                                journal = result.value,
+                                openingHikeId = null,
+                                isOffline = result.fromCache,
+                            )
+                        } else {
+                            it
+                        }
                     }
                 }
                 .onFailure { error ->
-                    _state.update { it.copy(isLoading = false, error = error.userMessage()) }
+                    _state.update {
+                        if (it.openingHikeId == hikeId) {
+                            it.copy(
+                                journal = null,
+                                openingHikeId = null,
+                                error = error.userMessage(),
+                            )
+                        } else {
+                            it
+                        }
+                    }
                 }
         }
     }
 
     fun closeJournal() {
-        _state.update { it.copy(journal = null, error = null) }
+        _state.update { it.copy(journal = null, openingHikeId = null, error = null) }
         refreshLibrary()
     }
 

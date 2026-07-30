@@ -184,7 +184,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
         }
     }
 
-    val photoPicker = rememberLauncherForActivityResult(OriginalMetadataMultipleMediaPicker(maxItems = 20)) { uris ->
+    val photoPicker = rememberLauncherForActivityResult(OriginalMetadataMultipleMediaPicker()) { uris ->
         pendingUpload = uris
     }
     val mediaLocationPermission = rememberLauncherForActivityResult(RequestPermission()) {
@@ -568,9 +568,19 @@ private fun LibraryScreen(
             } else if (featured == null) {
                 item { EmptyLibrary(onCreate) }
             } else {
-                item { FeaturedHike(featured, onOpenHike) }
+                item {
+                    FeaturedHike(
+                        hike = featured,
+                        opening = state.openingHikeId == featured.id,
+                        onOpen = onOpenHike,
+                    )
+                }
                 items(remaining, key = { it.id }) { hike ->
-                    HikeRow(hike, onOpenHike)
+                    HikeRow(
+                        hike = hike,
+                        opening = state.openingHikeId == hike.id,
+                        onOpen = onOpenHike,
+                    )
                 }
             }
         }
@@ -768,12 +778,12 @@ private fun SearchLine(query: String, onQueryChange: (String) -> Unit) {
 }
 
 @Composable
-private fun FeaturedHike(hike: Hike, onOpen: (String) -> Unit) {
+private fun FeaturedHike(hike: Hike, opening: Boolean, onOpen: (String) -> Unit) {
     Box(
         Modifier
             .fillMaxWidth()
             .height(390.dp)
-            .clickable { onOpen(hike.id) }
+            .clickable(enabled = !opening) { onOpen(hike.id) }
             .background(MossSoftFallback),
     ) {
         if (hike.coverUrl.isNotBlank()) {
@@ -808,18 +818,36 @@ private fun FeaturedHike(hike: Hike, onOpen: (String) -> Unit) {
                 overflow = TextOverflow.Ellipsis,
             )
             Spacer(Modifier.height(5.dp))
-            Text(
-                hikeMeta(hike),
-                style = MaterialTheme.typography.bodyMedium,
-                color = Color(0xFFE4E9DF),
-            )
+            AnimatedContent(targetState = opening, label = "featured-hike-opening") { isOpening ->
+                if (isOpening) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(17.dp),
+                            color = Trail,
+                            strokeWidth = 2.dp,
+                        )
+                        Text(
+                            "Opening journal…",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Color(0xFFE4E9DF),
+                            modifier = Modifier.padding(start = 8.dp),
+                        )
+                    }
+                } else {
+                    Text(
+                        hikeMeta(hike),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color(0xFFE4E9DF),
+                    )
+                }
+            }
         }
     }
 }
 
 @Composable
-private fun HikeRow(hike: Hike, onOpen: (String) -> Unit) {
-    Column(Modifier.clickable { onOpen(hike.id) }) {
+private fun HikeRow(hike: Hike, opening: Boolean, onOpen: (String) -> Unit) {
+    Column(Modifier.clickable(enabled = !opening) { onOpen(hike.id) }) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 15.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -839,7 +867,21 @@ private fun HikeRow(hike: Hike, onOpen: (String) -> Unit) {
                 Text(hike.title, style = MaterialTheme.typography.titleLarge, color = Ink, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Text(hikeMeta(hike), style = MaterialTheme.typography.bodyMedium, color = InkMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            Text(hike.photoCount.toString().padStart(2, '0'), style = MaterialTheme.typography.headlineSmall, color = Fern)
+            AnimatedContent(targetState = opening, label = "hike-row-opening") { isOpening ->
+                if (isOpening) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(22.dp),
+                        color = Trail,
+                        strokeWidth = 2.dp,
+                    )
+                } else {
+                    Text(
+                        hike.photoCount.toString().padStart(2, '0'),
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = Fern,
+                    )
+                }
+            }
         }
         HorizontalDivider(color = Line, modifier = Modifier.padding(start = 124.dp))
     }
@@ -856,6 +898,7 @@ private fun JournalScreen(
     onAddPhotos: () -> Unit,
     onPhoto: (Photo) -> Unit,
 ) {
+    val opening = state.openingHikeId == hike.id
     LazyColumn(
         Modifier.fillMaxSize().background(Parchment),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 64.dp),
@@ -879,8 +922,36 @@ private fun JournalScreen(
                         modifier = Modifier.padding(top = 22.dp),
                     )
                 }
+                AnimatedVisibility(visible = opening) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(top = 20.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(22.dp),
+                            color = Trail,
+                            strokeWidth = 2.dp,
+                        )
+                        Column(Modifier.padding(start = 12.dp)) {
+                            Text(
+                                "Opening journal",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = Ink,
+                            )
+                            Text(
+                                "Loading ${hike.photoCount} photo${if (hike.photoCount == 1) "" else "s"}…",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = InkMuted,
+                            )
+                        }
+                    }
+                }
                 Row(Modifier.fillMaxWidth().padding(top = 24.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Button(onClick = onAddPhotos, colors = ButtonDefaults.buttonColors(containerColor = Moss)) {
+                    Button(
+                        onClick = onAddPhotos,
+                        enabled = !opening,
+                        colors = ButtonDefaults.buttonColors(containerColor = Moss),
+                    ) {
                         Icon(Icons.Rounded.CameraAlt, null, Modifier.size(19.dp))
                         Spacer(Modifier.width(8.dp))
                         Text("Add photos")
@@ -918,10 +989,16 @@ private fun JournalScreen(
                     Text("FIELD NOTES", style = MaterialTheme.typography.labelSmall, color = TrailText)
                     Text("Photo journal", style = MaterialTheme.typography.headlineMedium, color = Ink)
                 }
-                Text("${hike.photos.size} frames", style = MaterialTheme.typography.bodyMedium, color = InkMuted)
+                Text(
+                    "${if (opening) hike.photoCount else hike.photos.size} frames",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = InkMuted,
+                )
             }
         }
-        if (hike.photos.isEmpty()) {
+        if (opening) {
+            item { Spacer(Modifier.height(12.dp)) }
+        } else if (hike.photos.isEmpty()) {
             item { EmptyPhotos(onAddPhotos) }
         } else {
             items(hike.photos.chunked(2), key = { row -> row.joinToString { it.id } }) { rowPhotos ->
@@ -1102,7 +1179,7 @@ private fun PhotoSourceSheet(
             Text("ADD TRAIL MEDIA", style = MaterialTheme.typography.labelSmall, color = TrailText)
             Text("Choose where to browse", style = MaterialTheme.typography.headlineLarge, color = Ink)
             Text(
-                "Open an album from Google Photos, or choose from your recent photos and videos.",
+                "Open an album in Google Photos, then select the photos and videos to add.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = InkMuted,
                 modifier = Modifier.padding(top = 6.dp, bottom = 20.dp),
@@ -1114,7 +1191,7 @@ private fun PhotoSourceSheet(
             ) {
                 Icon(Icons.Rounded.PhotoAlbum, null)
                 Spacer(Modifier.width(8.dp))
-                Text("Browse Google Photos albums")
+                Text("Open Google Photos albums")
             }
             OutlinedButton(
                 onClick = onRecent,

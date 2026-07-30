@@ -15,8 +15,10 @@ the current Supabase database and Cloudflare R2 photo library through the small
 If the Mac receives a different local IP address, open the gear in HikeJournal
 and replace the server address. The API always uses port `8506`.
 
-## Included in v0.5.24
+## Included in v0.5.25
 
+- Platform-maximum batch selection from Google Photos instead of the previous 20-file cap
+- Immediate journal-opening feedback plus cache-first hike details for faster archive navigation
 - Google Photos album browsing from the journal photo source chooser
 - Original-format picker requests plus capture-time and location metadata preservation when Android shares them
 - Observation-type filters across the native field guide, including plants,

@@ -11,7 +11,7 @@ private const val REQUEST_LOCATION_METADATA_ACCESS =
     "android.provider.extra.REQUEST_LOCATION_METADATA_ACCESS"
 
 internal class OriginalMetadataMultipleMediaPicker(
-    maxItems: Int,
+    maxItems: Int = Int.MAX_VALUE,
 ) : PickMultipleVisualMedia(maxItems) {
     override fun createIntent(context: Context, input: PickVisualMediaRequest): Intent =
         super.createIntent(context, input).apply {
