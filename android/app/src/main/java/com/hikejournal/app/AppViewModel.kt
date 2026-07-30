@@ -534,6 +534,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         openHike(hikeId)
     }
 
+    fun loadHikeForMap(hikeId: String, onLoaded: (Hike) -> Unit) {
+        viewModelScope.launch {
+            runCatching { repository.loadHike(hikeId).value }
+                .onSuccess(onLoaded)
+                .onFailure { error ->
+                    _state.update { it.copy(error = error.userMessage()) }
+                }
+        }
+    }
+
     fun loadSightings(force: Boolean = false) {
         if (_state.value.sightings.isNotEmpty() && !force) return
         viewModelScope.launch {

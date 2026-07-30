@@ -183,6 +183,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
     var syncAttentionOpen by remember { mutableStateOf(false) }
     var speciesEntryAreaName by remember { mutableStateOf<String?>(null) }
     var hikeMapRequest by remember { mutableStateOf<HikeMapRequest?>(null) }
+    var openingPhotoMapId by remember { mutableStateOf<String?>(null) }
 
     fun closeHikeMap() {
         val request = hikeMapRequest
@@ -196,6 +197,11 @@ fun HikeJournalApp(viewModel: AppViewModel) {
         state.inatAuthorizationUrl?.let { url ->
             context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
             viewModel.consumeInatAuthorizationUrl()
+        }
+    }
+    LaunchedEffect(state.error) {
+        if (state.error != null) {
+            openingPhotoMapId = null
         }
     }
 
@@ -528,7 +534,13 @@ fun HikeJournalApp(viewModel: AppViewModel) {
             position = photoIndex.takeIf { it >= 0 }?.plus(1) ?: 1,
             total = photos.size.coerceAtLeast(1),
             queuingReview = state.queuingReviewId == photo.id,
-            onDismiss = { selectedPhoto = null },
+            openingMap = openingPhotoMapId == photo.id,
+            onDismiss = {
+                if (openingPhotoMapId == photo.id) {
+                    openingPhotoMapId = null
+                }
+                selectedPhoto = null
+            },
             onPrevious = photoIndex.takeIf { it > 0 }?.let { index -> { selectedPhoto = photos[index - 1] } },
             onNext = photoIndex.takeIf { it >= 0 && it < photos.lastIndex }?.let { index -> { selectedPhoto = photos[index + 1] } },
             onSaveCaption = { caption ->
@@ -542,14 +554,28 @@ fun HikeJournalApp(viewModel: AppViewModel) {
             onQueueReview = { viewModel.queueSpeciesReview(photo) },
             onViewMap = if (photo.latitude != null && photo.longitude != null) {
                 {
-                    val mapHike = state.journal?.takeIf { it.id == photo.hikeId }
-                        ?: state.hikes.firstOrNull { it.id == photo.hikeId }
-                    hikeMapRequest = HikeMapRequest(
-                        hike = mapHike,
-                        focusedPhoto = photo,
-                        returnToPhoto = true,
-                    )
-                    selectedPhoto = null
+                    val currentJournal = state.journal?.takeIf { it.id == photo.hikeId }
+                    if (currentJournal != null || photo.hikeId == null) {
+                        openingPhotoMapId = null
+                        hikeMapRequest = HikeMapRequest(
+                            hike = currentJournal,
+                            focusedPhoto = photo,
+                            returnToPhoto = true,
+                        )
+                    } else {
+                        openingPhotoMapId = photo.id
+                        viewModel.loadHikeForMap(photo.hikeId) { loadedHike ->
+                            if (openingPhotoMapId != photo.id) {
+                                return@loadHikeForMap
+                            }
+                            openingPhotoMapId = null
+                            hikeMapRequest = HikeMapRequest(
+                                hike = loadedHike,
+                                focusedPhoto = photo,
+                                returnToPhoto = true,
+                            )
+                        }
+                    }
                 }
             } else {
                 null
@@ -1366,6 +1392,7 @@ private fun PhotoViewer(
     position: Int,
     total: Int,
     queuingReview: Boolean,
+    openingMap: Boolean,
     onDismiss: () -> Unit,
     onPrevious: (() -> Unit)?,
     onNext: (() -> Unit)?,
@@ -1426,13 +1453,18 @@ private fun PhotoViewer(
                 if (onViewMap != null) {
                     OutlinedButton(
                         onClick = onViewMap,
+                        enabled = !openingMap,
                         modifier = Modifier.fillMaxWidth().padding(top = 10.dp).height(48.dp),
                         border = BorderStroke(1.dp, Color(0xFF91AA8C)),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = Paper),
                     ) {
-                        Icon(Icons.Rounded.Map, null)
+                        if (openingMap) {
+                            CircularProgressIndicator(Modifier.size(18.dp), color = Paper, strokeWidth = 2.dp)
+                        } else {
+                            Icon(Icons.Rounded.Map, null)
+                        }
                         Spacer(Modifier.width(8.dp))
-                        Text("View on map")
+                        Text(if (openingMap) "Opening map..." else "View on map")
                     }
                 }
                 if (photo.isVideo) {
