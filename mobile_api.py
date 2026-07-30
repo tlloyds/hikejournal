@@ -24,6 +24,7 @@ from hike_journal.domain.discovery import (
     normalize_radius,
 )
 from hike_journal.domain.library import filter_hikes_for_user, record_visible_for_user
+from hike_journal.domain.routes import route_import_to_route_groups
 from hike_journal.models import HikeDraft, SpeciesCandidate
 from hike_journal.services.exif import extract_metadata
 from hike_journal.services.image_processing import optimize_image
@@ -774,7 +775,7 @@ def _publish_queue_payload(svc: Services) -> dict[str, Any]:
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok", "service": "hikejournal-mobile", "version": "0.6.0"}
+    return {"status": "ok", "service": "hikejournal-mobile", "version": "0.6.1"}
 
 
 @app.get("/v1/config", dependencies=[Depends(require_mobile_key)])
@@ -1409,6 +1410,9 @@ def get_hike(hike_id: str) -> dict[str, Any]:
         _photo_payload(photo, observations_by_photo.get(str(photo.get("id")), []))
         for photo in photos
     ]
+    payload["route_segments"] = route_import_to_route_groups(
+        svc.repository.get_hike_route_import(hike_id)
+    )
     return payload
 
 

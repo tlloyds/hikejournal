@@ -17,6 +17,7 @@ from mobile_api import (
     get_nearby_species,
     get_nearby_species_sightings,
     get_species_quest_sightings,
+    get_hike,
     list_discovery_areas,
     decide_species_review,
     derive_mobile_api_token,
@@ -63,6 +64,38 @@ def test_photo_payload_uses_mobile_contract_names():
     assert payload["url"] == "https://images.example/photo.jpg"
     assert payload["caption"] == "Boardwalk at dusk"
     assert payload["species"] == []
+
+
+def test_hike_detail_includes_route_segments_for_native_map(monkeypatch):
+    class Repository:
+        def list_photos(self, _hike_id):
+            return []
+
+        def list_observations(self, _hike_id):
+            return []
+
+        def get_hike_route_import(self, hike_id):
+            assert hike_id == "hike-1"
+            return {
+                "track_geojson": {
+                    "type": "LineString",
+                    "coordinates": [[-82.1, 28.1], [-82.2, 28.2]],
+                }
+            }
+
+    repository = Repository()
+    service = type("Service", (), {"repository": repository})()
+    monkeypatch.setattr("mobile_api.get_services", lambda: service)
+    monkeypatch.setattr(
+        "mobile_api._get_visible_hike",
+        lambda _repository, _hike_id: {"id": "hike-1", "title": "Pine Loop"},
+    )
+
+    payload = get_hike("hike-1")
+
+    assert payload["route_segments"] == [
+        [{"lat": 28.1, "lng": -82.1}, {"lat": 28.2, "lng": -82.2}]
+    ]
 
 
 def test_picker_metadata_fallback_parses_capture_time_and_coordinates():

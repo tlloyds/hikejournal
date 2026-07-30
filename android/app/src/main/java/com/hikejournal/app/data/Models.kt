@@ -17,6 +17,12 @@ data class Hike(
     val speciesCount: Int,
     val syncState: String = "synced",
     val photos: List<Photo> = emptyList(),
+    val routeSegments: List<List<RoutePoint>> = emptyList(),
+)
+
+data class RoutePoint(
+    val latitude: Double,
+    val longitude: Double,
 )
 
 data class Photo(
@@ -497,6 +503,7 @@ private fun parsePublishItem(item: JSONObject): PublishItem = PublishItem(
 
 private fun parseHike(json: JSONObject): Hike {
     val photosJson = json.optJSONArray("photos") ?: JSONArray()
+    val routeSegmentsJson = json.optJSONArray("route_segments") ?: JSONArray()
     return Hike(
         id = json.optString("id"),
         title = json.optString("title", "Untitled hike"),
@@ -510,6 +517,16 @@ private fun parseHike(json: JSONObject): Hike {
         speciesCount = json.optInt("species_count"),
         syncState = json.optString("sync_state", "synced"),
         photos = List(photosJson.length()) { index -> parsePhoto(photosJson.getJSONObject(index)) },
+        routeSegments = List(routeSegmentsJson.length()) { segmentIndex ->
+            val segment = routeSegmentsJson.optJSONArray(segmentIndex) ?: JSONArray()
+            List(segment.length()) { pointIndex ->
+                val point = segment.getJSONObject(pointIndex)
+                RoutePoint(
+                    latitude = point.optDouble("lat"),
+                    longitude = point.optDouble("lng"),
+                )
+            }
+        }.filter { it.size >= 2 },
     )
 }
 

@@ -73,6 +73,7 @@ import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Fullscreen
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.LocationOn
+import androidx.compose.material.icons.rounded.Map
 import androidx.compose.material.icons.rounded.PhotoAlbum
 import androidx.compose.material.icons.rounded.PlayCircle
 import androidx.compose.material.icons.rounded.Refresh
@@ -161,6 +162,12 @@ import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
 import java.util.Locale
 
+private data class HikeMapRequest(
+    val hike: Hike?,
+    val focusedPhoto: Photo? = null,
+    val returnToPhoto: Boolean = false,
+)
+
 @Composable
 fun HikeJournalApp(viewModel: AppViewModel) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -176,6 +183,15 @@ fun HikeJournalApp(viewModel: AppViewModel) {
     var pendingPickerRequest by remember { mutableStateOf<PickVisualMediaRequest?>(null) }
     var syncAttentionOpen by remember { mutableStateOf(false) }
     var speciesEntryAreaName by remember { mutableStateOf<String?>(null) }
+    var hikeMapRequest by remember { mutableStateOf<HikeMapRequest?>(null) }
+
+    fun closeHikeMap() {
+        val request = hikeMapRequest
+        hikeMapRequest = null
+        if (request?.returnToPhoto == true) {
+            selectedPhoto = request.focusedPhoto
+        }
+    }
 
     LaunchedEffect(state.inatAuthorizationUrl) {
         state.inatAuthorizationUrl?.let { url ->
@@ -204,12 +220,13 @@ fun HikeJournalApp(viewModel: AppViewModel) {
     }
 
     BackHandler(
-        enabled = selectedPhoto != null || syncAttentionOpen || settingsOpen || photoSourceOpen ||
+        enabled = hikeMapRequest != null || selectedPhoto != null || syncAttentionOpen || settingsOpen || photoSourceOpen ||
             pendingUpload.isNotEmpty() ||
             creatingHike || editingHike != null || badgesOpen || state.journal != null ||
             state.speciesDetail != null || state.questMapQuest != null,
     ) {
         when {
+            hikeMapRequest != null -> closeHikeMap()
             selectedPhoto != null -> selectedPhoto = null
             syncAttentionOpen -> syncAttentionOpen = false
             settingsOpen -> settingsOpen = false
@@ -240,6 +257,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
     }
 
     val screenKey = when {
+        hikeMapRequest != null -> "hike-map:${hikeMapRequest?.hike?.id}:${hikeMapRequest?.focusedPhoto?.id}"
         state.journal != null -> "journal:${state.journal?.id}"
         state.speciesDetail != null -> "species:${state.speciesDetail?.key}"
         badgesOpen -> "badges"
@@ -256,6 +274,18 @@ fun HikeJournalApp(viewModel: AppViewModel) {
             label = "journal-navigation",
         ) { key ->
             when {
+                key.startsWith("hike-map:") && hikeMapRequest != null -> {
+                    val request = hikeMapRequest!!
+                    HikeMapScreen(
+                        hike = request.hike,
+                        focusedPhoto = request.focusedPhoto,
+                        onBack = ::closeHikeMap,
+                        onOpenPhoto = { photo ->
+                            hikeMapRequest = null
+                            selectedPhoto = photo
+                        },
+                    )
+                }
                 key.startsWith("journal:") && state.journal != null -> {
                     val journal = state.journal!!
                     JournalScreen(
@@ -270,6 +300,9 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                             destination = TopDestination.Species
                         },
                         onAddPhotos = { photoSourceOpen = true },
+                        onViewMap = {
+                            hikeMapRequest = HikeMapRequest(hike = journal)
+                        },
                         onPhoto = { selectedPhoto = it },
                     )
                 }
@@ -369,6 +402,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
             state.journal == null &&
             state.speciesDetail == null &&
             state.questMapQuest == null &&
+            hikeMapRequest == null &&
             !badgesOpen
         ) {
             TopNavigation(
@@ -465,6 +499,20 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                 selectedPhoto = null
             },
             onQueueReview = { viewModel.queueSpeciesReview(photo) },
+            onViewMap = if (photo.latitude != null && photo.longitude != null) {
+                {
+                    val mapHike = state.journal?.takeIf { it.id == photo.hikeId }
+                        ?: state.hikes.firstOrNull { it.id == photo.hikeId }
+                    hikeMapRequest = HikeMapRequest(
+                        hike = mapHike,
+                        focusedPhoto = photo,
+                        returnToPhoto = true,
+                    )
+                    selectedPhoto = null
+                }
+            } else {
+                null
+            },
         )
     }
 
@@ -896,6 +944,7 @@ private fun JournalScreen(
     onArchive: () -> Unit,
     onExploreSpecies: () -> Unit,
     onAddPhotos: () -> Unit,
+    onViewMap: () -> Unit,
     onPhoto: (Photo) -> Unit,
 ) {
     val opening = state.openingHikeId == hike.id
@@ -961,6 +1010,15 @@ private fun JournalScreen(
                         Spacer(Modifier.width(7.dp))
                         Text("Edit notes")
                     }
+                }
+                OutlinedButton(
+                    onClick = onViewMap,
+                    enabled = !opening,
+                    modifier = Modifier.fillMaxWidth().padding(top = 10.dp).height(48.dp),
+                ) {
+                    Icon(Icons.Rounded.Map, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(7.dp))
+                    Text("View map")
                 }
                 TextButton(onClick = onExploreSpecies, modifier = Modifier.padding(top = 6.dp)) {
                     Icon(Icons.AutoMirrored.Rounded.FactCheck, null, Modifier.size(18.dp))
@@ -1264,6 +1322,7 @@ private fun PhotoViewer(
     onSaveCaption: (String) -> Unit,
     onDelete: () -> Unit,
     onQueueReview: () -> Unit,
+    onViewMap: (() -> Unit)?,
 ) {
     var caption by remember(photo.id) { mutableStateOf(photo.caption) }
     var confirmDelete by remember { mutableStateOf(false) }
@@ -1313,6 +1372,18 @@ private fun PhotoViewer(
             ) {
                 photo.species.firstOrNull()?.let { species ->
                     Text(species.commonName.ifBlank { species.scientificName }, style = MaterialTheme.typography.titleMedium, color = Color(0xFFBFD2B9))
+                }
+                if (onViewMap != null) {
+                    OutlinedButton(
+                        onClick = onViewMap,
+                        modifier = Modifier.fillMaxWidth().padding(top = 10.dp).height(48.dp),
+                        border = BorderStroke(1.dp, Color(0xFF91AA8C)),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Paper),
+                    ) {
+                        Icon(Icons.Rounded.Map, null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("View on map")
+                    }
                 }
                 if (photo.isVideo) {
                     Text("Field Video", style = MaterialTheme.typography.titleMedium, color = Paper, modifier = Modifier.padding(top = 10.dp))
