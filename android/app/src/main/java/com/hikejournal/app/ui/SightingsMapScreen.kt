@@ -134,7 +134,7 @@ fun SightingsMapScreen(
 ) {
     var speciesOnly by remember { mutableStateOf(true) }
     var selected by remember { mutableStateOf<Sighting?>(null) }
-    var layerMode by remember { mutableStateOf(MapLayerMode.Trail) }
+    var layerMode by remember { mutableStateOf(MapLayerMode.Satellite) }
     var viewport by remember { mutableStateOf<MapViewport?>(null) }
     var packsOpen by remember { mutableStateOf(false) }
     val visibleSightings = remember(sightings, speciesOnly) {
@@ -432,7 +432,7 @@ private class NativeMapController {
     var focusedSightingId: String? = null
     private var map: MapLibreMap? = null
     private var fitted = false
-    private var layerMode = MapLayerMode.Trail
+    private var layerMode = MapLayerMode.Satellite
     private var clickListenerAttached = false
 
     fun attach(

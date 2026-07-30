@@ -153,7 +153,7 @@ fun QuestSightingsMapScreen(
     onRefresh: () -> Unit,
 ) {
     var selected by remember { mutableStateOf<QuestSighting?>(null) }
-    var layerMode by remember { mutableStateOf(QuestMapLayerMode.Trail) }
+    var layerMode by remember { mutableStateOf(QuestMapLayerMode.Satellite) }
     var userLocation by remember { mutableStateOf<QuestUserLocation?>(null) }
     var locationNotice by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
@@ -508,7 +508,7 @@ private class QuestNativeMapController {
     var userLocation: QuestUserLocation? = null
     private var map: MapLibreMap? = null
     private var fitted = false
-    private var layerMode = QuestMapLayerMode.Trail
+    private var layerMode = QuestMapLayerMode.Satellite
     private var clickListenerAttached = false
 
     fun attach(

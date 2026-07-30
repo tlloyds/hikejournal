@@ -68,7 +68,7 @@ fun HikeMapScreen(
     var selected by remember(focusedPhoto?.id, sightings) {
         mutableStateOf(sightings.firstOrNull { it.id == focusedPhoto?.id })
     }
-    var layerMode by remember { mutableStateOf(MapLayerMode.Trail) }
+    var layerMode by remember { mutableStateOf(MapLayerMode.Satellite) }
     val routeSegments = hike?.routeSegments.orEmpty()
 
     Box(Modifier.fillMaxSize().background(Moss)) {
