@@ -8,6 +8,7 @@ import com.hikejournal.app.data.Hike
 import com.hikejournal.app.data.HikeDraft
 import com.hikejournal.app.data.HikeDeletionResult
 import com.hikejournal.app.data.HikeJournalRepository
+import com.hikejournal.app.data.HikeLocation
 import com.hikejournal.app.data.MediaLocationSummary
 import com.hikejournal.app.data.DiscoveryArea
 import com.hikejournal.app.data.DiscoveryTaxon
@@ -25,6 +26,7 @@ import com.hikejournal.app.data.SpeciesLabel
 import com.hikejournal.app.data.SpeciesRecord
 import com.hikejournal.app.data.SyncStatus
 import com.hikejournal.app.data.withoutHikes
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -33,6 +35,7 @@ import kotlinx.coroutines.launch
 
 data class AppState(
     val hikes: List<Hike> = emptyList(),
+    val hikeLocations: List<HikeLocation> = emptyList(),
     val journal: Hike? = null,
     val species: List<SpeciesRecord> = emptyList(),
     val speciesDetail: SpeciesRecord? = null,
@@ -90,11 +93,20 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     init {
         viewModelScope.launch {
             repository.syncStatus.collect { syncStatus ->
+                val journalNeedsRemoteUrls = syncStatus.connected &&
+                    syncStatus.pendingCount == 0 &&
+                    syncStatus.syncingCount == 0 &&
+                    _state.value.journal?.photos.orEmpty().any { photo ->
+                        photo.syncState != "synced" || photo.url.startsWith("file:")
+                    }
                 _state.update {
                     it.copy(
                         syncStatus = syncStatus,
                         isOffline = !syncStatus.connected || it.isOffline && syncStatus.pendingCount > 0,
                     )
+                }
+                if (journalNeedsRemoteUrls) {
+                    refreshJournalAfterSync(_state.value.journal?.id ?: return@collect)
                 }
             }
         }
@@ -131,6 +143,37 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
         }
+    }
+
+    fun loadHikeLocations() {
+        if (_state.value.hikeLocations.isNotEmpty()) return
+        viewModelScope.launch {
+            runCatching { repository.loadHikeLocations() }
+                .onSuccess { result ->
+                    _state.update {
+                        it.copy(
+                            hikeLocations = result.value,
+                            isOffline = result.fromCache,
+                        )
+                    }
+                }
+                .onFailure { error ->
+                    _state.update { it.copy(error = error.userMessage()) }
+                }
+        }
+    }
+
+    private suspend fun refreshJournalAfterSync(hikeId: String) {
+        runCatching { repository.loadHike(hikeId) }
+            .onSuccess { result ->
+                _state.update { state ->
+                    if (state.journal?.id == hikeId) {
+                        state.copy(journal = result.value, isOffline = result.fromCache)
+                    } else {
+                        state
+                    }
+                }
+            }
     }
 
     fun openHike(hikeId: String) {
@@ -724,18 +767,28 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             _state.update { it.copy(isRefreshing = true, error = null) }
             runCatching {
                 if (editingId == null) {
-                    repository.createHike(draft).id.also { hikeId ->
-                        routeUri?.let { repository.uploadRoute(hikeId, it) }
+                    repository.createHike(draft).also { created ->
+                        routeUri?.let { repository.uploadRoute(created.id, it) }
                     }
                 }
                 else {
                     repository.updateHike(editingId, draft)
-                    editingId
+                    null
                 }
-            }.onSuccess { savedId ->
+            }.onSuccess { created ->
+                val savedId = created?.id ?: editingId.orEmpty()
+                _state.update { state ->
+                    state.copy(
+                        hikes = created?.let { newHike ->
+                            listOf(newHike) + state.hikes.filterNot { it.id == newHike.id }
+                        } ?: state.hikes,
+                        isRefreshing = false,
+                    )
+                }
                 onSaved()
-                refreshLibrary()
                 if (editingId != null) openHike(savedId)
+                delay(1_000)
+                refreshLibrary()
             }.onFailure { error ->
                 _state.update { it.copy(isRefreshing = false, error = error.userMessage()) }
             }
@@ -808,14 +861,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         hikeId: String,
         uris: List<Uri>,
         caption: String,
-        queueForReview: Boolean,
     ) {
         if (uris.isEmpty()) return
         viewModelScope.launch {
             _state.update { it.copy(uploadCurrent = 0, uploadTotal = uris.size, error = null) }
             for ((index, uri) in uris.withIndex()) {
                 val result = runCatching {
-                    repository.uploadPhoto(hikeId, uri, caption, queueForReview)
+                    repository.uploadPhoto(hikeId, uri, caption, queueForReview = false)
                 }
                 if (result.isFailure) {
                     _state.update {
@@ -827,10 +879,70 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     }
                     return@launch
                 }
-                _state.update { it.copy(uploadCurrent = index + 1) }
+                val savedPhoto = result.getOrThrow()
+                _state.update { state ->
+                    val journal = state.journal?.takeIf { it.id == hikeId }
+                    state.copy(
+                        journal = journal?.copy(
+                            photos = journal.photos.filterNot { it.id == savedPhoto.id } + savedPhoto,
+                            photoCount = journal.photos.count { it.id != savedPhoto.id } + 1,
+                            coverUrl = journal.coverUrl.ifBlank { savedPhoto.url },
+                        ) ?: state.journal,
+                        hikes = state.hikes.map { hike ->
+                            if (hike.id == hikeId) {
+                                hike.copy(
+                                    photoCount = hike.photoCount + 1,
+                                    coverUrl = hike.coverUrl.ifBlank { savedPhoto.url },
+                                )
+                            } else {
+                                hike
+                            }
+                        },
+                        uploadCurrent = index + 1,
+                    )
+                }
             }
             _state.update { it.copy(uploadCurrent = 0, uploadTotal = 0) }
             openHike(hikeId)
+        }
+    }
+
+    fun queuePhotosForSpeciesReview(photos: List<Photo>) {
+        val eligible = photos
+            .filterNot { it.contentType.startsWith("video/", ignoreCase = true) }
+            .distinctBy { it.id }
+        if (eligible.isEmpty()) return
+        viewModelScope.launch {
+            _state.update { it.copy(reviewUpdateId = "batch", error = null, notice = null) }
+            runCatching {
+                eligible.forEach { photo ->
+                    val hikeId = photo.hikeId ?: _state.value.journal?.id ?: "everyday"
+                    repository.setSpeciesReview(photo.id, hikeId, queued = true)
+                }
+            }.onSuccess {
+                val selectedIds = eligible.mapTo(hashSetOf()) { it.id }
+                _state.update { state ->
+                    state.copy(
+                        journal = state.journal?.copy(
+                            photos = state.journal.photos.map { photo ->
+                                if (photo.id in selectedIds) {
+                                    photo.copy(
+                                        processingStatus = "in_review",
+                                        syncState = if (photo.syncState == "synced") "queued" else photo.syncState,
+                                    )
+                                } else {
+                                    photo
+                                }
+                            },
+                        ),
+                        reviewQueue = emptyList(),
+                        reviewUpdateId = null,
+                        notice = "Added ${eligible.size} photo${if (eligible.size == 1) "" else "s"} to species review.",
+                    )
+                }
+            }.onFailure { error ->
+                _state.update { it.copy(reviewUpdateId = null, error = error.userMessage()) }
+            }
         }
     }
 

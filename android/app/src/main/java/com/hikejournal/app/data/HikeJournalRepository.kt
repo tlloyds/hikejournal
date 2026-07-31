@@ -44,6 +44,12 @@ class HikeJournalRepository(context: Context) {
         return result.copy(value = fieldQueue.overlayHikes(result.value))
     }
 
+    suspend fun loadHikeLocations(): LoadResult<List<HikeLocation>> = loadWithCache(
+        cacheFile = File(cacheDirectory, "hike-locations.json"),
+        fetch = api::getHikeLocationsJson,
+        parse = ::parseHikeLocations,
+    )
+
     suspend fun loadHike(hikeId: String): LoadResult<Hike> = journalCacheMutex.withLock {
         val cacheFile = File(cacheDirectory, "hike-$hikeId.json")
         try {

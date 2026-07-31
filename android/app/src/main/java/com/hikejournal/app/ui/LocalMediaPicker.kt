@@ -183,7 +183,7 @@ internal fun LocalMediaPickerDialog(
                             .windowInsetsPadding(
                                 WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom),
                             )
-                            .padding(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 16.dp),
+                            .padding(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 30.dp),
                     ) {
                         selectionNotice?.let {
                             Text(

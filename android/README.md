@@ -15,9 +15,15 @@ the current Supabase database and Cloudflare R2 photo library through the small
 If the Mac receives a different local IP address, open the gear in HikeJournal
 and replace the server address. The API always uses port `8506`.
 
-## Included in v0.5.30
+## Included in v0.5.36
 
-- One clear `Browse Photos` action that opens local phone albums directly,
+- The Library `+` action now starts either a full hike or an everyday sighting
+- Hike creation searches and links entries to the imported location library
+- Newly created hikes appear immediately, followed by a delayed companion refresh
+- Photo uploads use clear `Upload photos` language and keep picker confirmation above system navigation
+- Journal photos can be multi-selected and sent to Species Review after upload
+- Synced photos automatically swap local file previews for durable remote URLs without reopening the hike
+- One clear `Upload photos` action that opens local phone albums directly,
   preserving unredacted MediaStore access and album-wide selection for up to 500 files
 - A fixed, high-contrast photo confirmation action that remains fully above
   Android gesture and navigation insets

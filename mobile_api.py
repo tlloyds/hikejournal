@@ -25,6 +25,7 @@ from hike_journal.domain.discovery import (
     normalize_radius,
 )
 from hike_journal.domain.library import filter_hikes_for_user, record_visible_for_user, user_owns_record
+from hike_journal.domain.locations import suggest_location_ids_for_hike
 from hike_journal.domain.routes import delete_hike_and_assets, route_import_to_route_groups, sync_hike_route_import
 from hike_journal.models import HikeDraft, SpeciesCandidate
 from hike_journal.services.exif import extract_metadata
@@ -114,6 +115,7 @@ class HikeInput(BaseModel):
     distance_miles: float | None = Field(default=None, ge=0, le=1000)
     location_name: str = Field(default="", max_length=240)
     notes: str = Field(default="", max_length=20_000)
+    location_id: str | None = Field(default=None, max_length=36)
 
 
 class CaptionInput(BaseModel):
@@ -972,6 +974,19 @@ def list_hikes() -> list[dict[str, Any]]:
     return outing_payloads + [_standalone_hike_payload(svc)]
 
 
+@app.get("/v1/hike-locations", dependencies=[Depends(require_mobile_key)])
+def list_hike_locations() -> list[dict[str, Any]]:
+    """Return the imported location library for native hike creation."""
+    return [
+        {
+            "id": str(location.get("id") or ""),
+            "name": str(location.get("name") or ""),
+        }
+        for location in get_services().repository.list_hike_locations()
+        if location.get("id") and str(location.get("name") or "").strip()
+    ]
+
+
 @app.get("/v1/species", dependencies=[Depends(require_mobile_key)])
 def list_species() -> list[dict[str, Any]]:
     svc = get_services()
@@ -1530,6 +1545,21 @@ def get_hike(hike_id: str) -> dict[str, Any]:
     return payload
 
 
+def _sync_hike_location_tags(
+    repository: HikeJournalRepository,
+    hike: dict[str, Any],
+    payload: HikeInput,
+) -> None:
+    locations = repository.list_hike_locations()
+    known_location_ids = {str(location.get("id") or "") for location in locations}
+    location_ids = (
+        [payload.location_id]
+        if payload.location_id and payload.location_id in known_location_ids
+        else suggest_location_ids_for_hike(hike, locations)
+    )
+    repository.set_hike_location_tags(str(hike["id"]), location_ids)
+
+
 @app.post("/v1/hikes", dependencies=[Depends(require_mobile_key)], status_code=201)
 def create_hike(payload: HikeInput) -> dict[str, Any]:
     svc = get_services()
@@ -1540,6 +1570,7 @@ def create_hike(payload: HikeInput) -> dict[str, Any]:
             None,
         )
         if existing:
+            _sync_hike_location_tags(svc.repository, existing, payload)
             return _hike_payload(existing, photos=svc.repository.list_photos(client_hike_id))
     owner = _user_context()
     created = svc.repository.create_hike(
@@ -1554,6 +1585,7 @@ def create_hike(payload: HikeInput) -> dict[str, Any]:
         ),
         hike_id=client_hike_id,
     )
+    _sync_hike_location_tags(svc.repository, created, payload)
     _invalidate_species_data_cache()
     return _hike_payload(created, photos=[])
 
@@ -1570,6 +1602,7 @@ def update_hike(hike_id: str, payload: HikeInput) -> dict[str, Any]:
         location_name=payload.location_name,
         notes=payload.notes,
     )
+    _sync_hike_location_tags(svc.repository, updated, payload)
     _invalidate_species_data_cache()
     return _hike_payload(updated, photos=svc.repository.list_photos(hike_id))
 

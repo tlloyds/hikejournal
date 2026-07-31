@@ -47,6 +47,8 @@ class HikeJournalApi(private val context: Context) {
 
     suspend fun getHikeJson(hikeId: String): String = request("/v1/hikes/$hikeId")
 
+    suspend fun getHikeLocationsJson(): String = request("/v1/hike-locations")
+
     suspend fun getSpeciesJson(): String = request("/v1/species")
 
     suspend fun getSpeciesDetailJson(key: String): String = request(
@@ -413,6 +415,7 @@ private fun HikeDraft.toJson(): JSONObject = JSONObject()
     .put("distance_miles", distanceMiles ?: JSONObject.NULL)
     .put("location_name", locationName)
     .put("notes", notes)
+    .put("location_id", locationId ?: JSONObject.NULL)
 
 private fun ContentResolver.displayName(uri: Uri): String? {
     return query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->

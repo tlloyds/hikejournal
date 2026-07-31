@@ -65,6 +65,12 @@ data class HikeDraft(
     val distanceMiles: Double?,
     val locationName: String,
     val notes: String,
+    val locationId: String? = null,
+)
+
+data class HikeLocation(
+    val id: String,
+    val name: String,
 )
 
 data class SpeciesRecord(
@@ -319,6 +325,17 @@ fun roundedDiscoveryCoordinate(value: Double): Double = round(value * 100.0) / 1
 fun parseHikes(json: String): List<Hike> {
     val array = JSONArray(json)
     return List(array.length()) { index -> parseHike(array.getJSONObject(index)) }
+}
+
+fun parseHikeLocations(json: String): List<HikeLocation> {
+    val array = JSONArray(json)
+    return List(array.length()) { index ->
+        val item = array.getJSONObject(index)
+        HikeLocation(
+            id = item.optString("id"),
+            name = item.optString("name"),
+        )
+    }.filter { it.id.isNotBlank() && it.name.isNotBlank() }
 }
 
 fun parseHike(json: String): Hike = parseHike(JSONObject(json))

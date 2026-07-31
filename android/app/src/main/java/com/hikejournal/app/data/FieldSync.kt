@@ -892,6 +892,7 @@ private fun HikeDraft.toQueueJson(): JSONObject = JSONObject()
     .put("distance_miles", distanceMiles ?: JSONObject.NULL)
     .put("location_name", locationName)
     .put("notes", notes)
+    .put("location_id", locationId ?: JSONObject.NULL)
 
 class FieldSyncEngine(private val context: Context) {
     private val dao = OfflineDatabase.get(context).operations()
@@ -1143,6 +1144,7 @@ private fun JSONObject.toHikeDraft() = HikeDraft(
     distanceMiles = optDouble("distance_miles").takeUnless { it.isNaN() || isNull("distance_miles") },
     locationName = optString("location_name"),
     notes = optString("notes"),
+    locationId = optString("location_id").takeUnless { isNull("location_id") || it.isBlank() },
 )
 
 private fun selectedFileName(context: Context, uri: Uri): String? =

@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 from hike_journal.models import PhotoMetadata, ProcessedImage, SpeciesCandidate
 from mobile_api import (
     CoverPhotoInput,
+    HikeInput,
     KnownSpeciesInput,
     ReviewCandidateInput,
     ReviewDecisionInput,
@@ -18,12 +19,14 @@ from mobile_api import (
     _validate_picker_coordinate,
     app,
     assign_known_species_to_photo,
+    create_hike,
     delete_species_quest,
     get_nearby_species,
     get_nearby_species_sightings,
     get_species_quest_sightings,
     get_hike,
     list_discovery_areas,
+    list_hike_locations,
     decide_species_review,
     derive_mobile_api_token,
     queue_photo_for_species_review,
@@ -682,6 +685,74 @@ def test_discovery_area_endpoint_returns_coordinate_backed_locations(monkeypatch
     result = list_discovery_areas("alafia")
 
     assert result[0]["id"] == "area-1"
+
+
+def test_native_hike_locations_returns_imported_library(monkeypatch):
+    repository = type(
+        "Repository",
+        (),
+        {
+            "list_hike_locations": lambda _self: [
+                {"id": "location-1", "name": "Alafia Scrub Preserve"},
+                {"id": "", "name": "Ignored"},
+            ]
+        },
+    )()
+    monkeypatch.setattr(
+        "mobile_api.get_services",
+        lambda: type("Service", (), {"repository": repository})(),
+    )
+
+    assert list_hike_locations() == [
+        {"id": "location-1", "name": "Alafia Scrub Preserve"},
+    ]
+
+
+def test_create_hike_correlates_selected_imported_location(monkeypatch):
+    location_id = "22222222-2222-4222-8222-222222222222"
+
+    class Repository:
+        location_tags = None
+
+        def create_hike(self, draft, hike_id=None):
+            assert draft.location_name == "Alafia Scrub Preserve"
+            return {
+                "id": "11111111-1111-4111-8111-111111111111",
+                "title": draft.title,
+                "hike_date": draft.hike_date,
+                "distance_miles": draft.distance_miles,
+                "location_name": draft.location_name,
+                "notes": draft.notes,
+            }
+
+        def list_hike_locations(self):
+            return [{"id": location_id, "name": "Alafia Scrub Preserve"}]
+
+        def set_hike_location_tags(self, hike_id, location_ids):
+            self.location_tags = (hike_id, location_ids)
+
+    repository = Repository()
+    monkeypatch.setattr(
+        "mobile_api.get_services",
+        lambda: type("Service", (), {"repository": repository})(),
+    )
+    monkeypatch.setattr(
+        "mobile_api._user_context",
+        lambda: {"subject": None, "email": None},
+    )
+    monkeypatch.setattr("mobile_api._invalidate_species_data_cache", lambda: None)
+
+    result = create_hike(
+        HikeInput(
+            title="Scrub loop",
+            hike_date="2026-07-31",
+            location_name="Alafia Scrub Preserve",
+            location_id=location_id,
+        )
+    )
+
+    assert result["location_name"] == "Alafia Scrub Preserve"
+    assert repository.location_tags == (result["id"], [location_id])
 
 
 def test_current_location_discovery_rounds_coordinates_before_query(monkeypatch):
