@@ -15,7 +15,10 @@ the current Supabase database and Cloudflare R2 photo library through the small
 If the Mac receives a different local IP address, open the gear in HikeJournal
 and replace the server address. The API always uses port `8506`.
 
-## Included in v0.5.37
+## Included in v0.5.38
+
+- iNaturalist can now be connected from Settings and an empty Species Review queue
+- Publishing now starts iNaturalist authorization before attempting an unconnected post
 
 - Everyday sightings default to Species Review during upload, with a clear opt-out
 - The Library `+` action now starts either a full hike or an everyday sighting
