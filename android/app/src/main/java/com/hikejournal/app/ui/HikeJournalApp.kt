@@ -12,6 +12,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts.OpenDocument
 import androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -184,6 +185,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
     var speciesEntryAreaName by remember { mutableStateOf<String?>(null) }
     var hikeMapRequest by remember { mutableStateOf<HikeMapRequest?>(null) }
     var openingPhotoMapId by remember { mutableStateOf<String?>(null) }
+    var selectedRouteUri by remember { mutableStateOf<Uri?>(null) }
 
     fun closeHikeMap() {
         val request = hikeMapRequest
@@ -219,6 +221,9 @@ fun HikeJournalApp(viewModel: AppViewModel) {
             }
             else -> localMediaPickerOpen = true
         }
+    }
+    val routePicker = rememberLauncherForActivityResult(OpenDocument()) { uri ->
+        selectedRouteUri = uri
     }
     val launchLocalMediaPicker: () -> Unit = {
         val access = localMediaAccess(context)
@@ -260,6 +265,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
             creatingHike || editingHike != null -> {
                 creatingHike = false
                 editingHike = null
+                selectedRouteUri = null
             }
             badgesOpen -> badgesOpen = false
             state.journal != null -> viewModel.closeJournal()
@@ -451,14 +457,18 @@ fun HikeJournalApp(viewModel: AppViewModel) {
         HikeEditorSheet(
             hike = editingHike,
             saving = state.isRefreshing,
+            routeUri = selectedRouteUri,
+            onChooseRoute = { routePicker.launch(arrayOf("application/vnd.garmin.tcx+xml", "application/xml", "text/xml")) },
             onDismiss = {
                 creatingHike = false
                 editingHike = null
+                selectedRouteUri = null
             },
             onSave = { draft ->
-                viewModel.saveHike(draft, editingHike?.id) {
+                viewModel.saveHike(draft, selectedRouteUri.takeIf { editingHike == null }, editingHike?.id) {
                     creatingHike = false
                     editingHike = null
+                    selectedRouteUri = null
                 }
             },
         )
@@ -1235,7 +1245,14 @@ private fun VideoThumbnail(photo: Photo) {
 }
 
 @Composable
-private fun HikeEditorSheet(hike: Hike?, saving: Boolean, onDismiss: () -> Unit, onSave: (HikeDraft) -> Unit) {
+private fun HikeEditorSheet(
+    hike: Hike?,
+    saving: Boolean,
+    routeUri: Uri?,
+    onChooseRoute: () -> Unit,
+    onDismiss: () -> Unit,
+    onSave: (HikeDraft) -> Unit,
+) {
     var title by remember(hike?.id) { mutableStateOf(hike?.title.orEmpty()) }
     var date by remember(hike?.id) { mutableStateOf(hike?.hikeDate ?: LocalDate.now().toString()) }
     var location by remember(hike?.id) { mutableStateOf(hike?.locationName.orEmpty()) }
@@ -1267,6 +1284,20 @@ private fun HikeEditorSheet(hike: Hike?, saving: Boolean, onDismiss: () -> Unit,
             )
             Spacer(Modifier.height(12.dp))
             OutlinedTextField(notes, { notes = it }, Modifier.fillMaxWidth().height(150.dp), label = { Text("Opening notes") })
+            if (hike == null) {
+                Spacer(Modifier.height(12.dp))
+                OutlinedButton(onClick = onChooseRoute, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Rounded.Map, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(if (routeUri == null) "Add TCX route (optional)" else "TCX route selected")
+                }
+                Text(
+                    if (routeUri == null) "Import a .tcx file to draw this hike on the map." else "The route will upload with this hike and appear on its map after sync.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = InkMuted,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
+            }
             validation?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 10.dp)) }
             Button(
                 onClick = {

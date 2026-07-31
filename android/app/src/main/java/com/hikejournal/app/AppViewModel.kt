@@ -711,11 +711,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         _state.update { it.copy(publishNotice = null) }
     }
 
-    fun saveHike(draft: HikeDraft, editingId: String?, onSaved: () -> Unit) {
+    fun saveHike(draft: HikeDraft, routeUri: Uri?, editingId: String?, onSaved: () -> Unit) {
         viewModelScope.launch {
             _state.update { it.copy(isRefreshing = true, error = null) }
             runCatching {
-                if (editingId == null) repository.createHike(draft).id
+                if (editingId == null) {
+                    repository.createHike(draft).id.also { hikeId ->
+                        routeUri?.let { repository.uploadRoute(hikeId, it) }
+                    }
+                }
                 else {
                     repository.updateHike(editingId, draft)
                     editingId

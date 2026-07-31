@@ -12,6 +12,7 @@ import android.net.NetworkRequest
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
+import android.provider.OpenableColumns
 import androidx.core.content.ContextCompat
 import androidx.exifinterface.media.ExifInterface
 import androidx.work.BackoffPolicy
@@ -49,6 +50,7 @@ object OperationKind {
     const val UpdateHike = "update_hike"
     const val ArchiveHike = "archive_hike"
     const val UploadPhoto = "upload_photo"
+    const val UploadRoute = "upload_route"
     const val UpdateCaption = "update_caption"
     const val DeletePhoto = "delete_photo"
     const val QueueSpeciesReview = "queue_species_review"
@@ -62,6 +64,7 @@ class FieldOperationQueue(private val context: Context) {
     private val dao = OfflineDatabase.get(context).operations()
     private val preferences = context.getSharedPreferences("hikejournal_sync", Context.MODE_PRIVATE)
     private val photoDirectory = File(context.filesDir, "field-photos").apply { mkdirs() }
+    private val routeDirectory = File(context.filesDir, "field-routes").apply { mkdirs() }
     private val networkMonitor = NetworkMonitor(context)
 
     val status: Flow<SyncStatus> = combine(
@@ -162,6 +165,28 @@ class FieldOperationQueue(private val context: Context) {
             processingStatus = if (queueForReview) "in_review" else "ready",
             syncState = "queued",
             species = emptyList(),
+        )
+    }
+
+    suspend fun queueRoute(hikeId: String, uri: Uri) = withContext(Dispatchers.IO) {
+        val filename = selectedFileName(context, uri) ?: "route.tcx"
+        if (!filename.lowercase(Locale.US).endsWith(".tcx")) {
+            throw IOException("Choose a .tcx route file.")
+        }
+        val destination = File(routeDirectory, "${UUID.randomUUID()}.tcx")
+        copySelectedMedia(context, uri, destination, requestOriginal = true)
+        if (destination.length() > MAX_LOCAL_MEDIA_BYTES) {
+            destination.delete()
+            throw IOException("TCX files must be 30 MB or smaller.")
+        }
+        enqueue(
+            kind = OperationKind.UploadRoute,
+            entityId = UUID.randomUUID().toString(),
+            parentId = hikeId,
+            payload = JSONObject(),
+            localFilePath = destination.absolutePath,
+            contentType = "application/vnd.garmin.tcx+xml",
+            fileName = filename,
         )
     }
 
@@ -673,7 +698,9 @@ class FieldSyncEngine(private val context: Context) {
             )
             try {
                 execute(operation)
-                operation.localFilePath?.takeIf { operation.kind == OperationKind.UploadPhoto }?.let { File(it).delete() }
+                operation.localFilePath?.takeIf {
+                    operation.kind == OperationKind.UploadPhoto || operation.kind == OperationKind.UploadRoute
+                }?.let { File(it).delete() }
                 dao.delete(operation.id)
             } catch (error: Exception) {
                 val attempts = operation.attemptCount + 1
@@ -715,6 +742,11 @@ class FieldSyncEngine(private val context: Context) {
                 takenAt = payload.optString("taken_at").takeIf { it.isNotBlank() },
                 latitude = payload.optDouble("lat").takeUnless { it.isNaN() || payload.isNull("lat") },
                 longitude = payload.optDouble("lng").takeUnless { it.isNaN() || payload.isNull("lng") },
+            )
+            OperationKind.UploadRoute -> api.uploadRouteFile(
+                hikeId = requireNotNull(operation.parentId),
+                file = File(requireNotNull(operation.localFilePath)),
+                fileName = operation.fileName ?: "route.tcx",
             )
             OperationKind.UpdateCaption -> api.updateCaption(operation.entityId, payload.optString("caption"))
             OperationKind.DeletePhoto -> api.deletePhoto(operation.entityId)
@@ -760,6 +792,11 @@ private fun JSONObject.toHikeDraft() = HikeDraft(
     locationName = optString("location_name"),
     notes = optString("notes"),
 )
+
+private fun selectedFileName(context: Context, uri: Uri): String? =
+    context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+        if (cursor.moveToFirst()) cursor.getString(0) else null
+    }
 
 class FieldSyncWorker(context: Context, parameters: WorkerParameters) : CoroutineWorker(context, parameters) {
     override suspend fun doWork(): Result = if (FieldSyncEngine(applicationContext).drain()) Result.retry() else Result.success()

@@ -98,6 +98,47 @@ def test_hike_detail_includes_route_segments_for_native_map(monkeypatch):
     ]
 
 
+def test_mobile_route_upload_saves_tcx_and_returns_map_segments(monkeypatch):
+    class Repository:
+        def get_hike_route_import(self, hike_id):
+            assert hike_id == "hike-1"
+            return None
+
+    route_import = {
+        "track_point_count": 2,
+        "track_geojson": {
+            "type": "LineString",
+            "coordinates": [[-82.1, 28.1], [-82.2, 28.2]],
+        },
+    }
+    service = type("Service", (), {"repository": Repository(), "storage": object()})()
+    monkeypatch.setattr("mobile_api.get_services", lambda: service)
+    monkeypatch.setattr("mobile_api._get_visible_hike", lambda *_args: {"id": "hike-1"})
+    captured = {}
+
+    def sync(**kwargs):
+        captured["name"] = kwargs["uploaded_file"].name
+        captured["contents"] = kwargs["uploaded_file"].getvalue()
+        return route_import, None
+
+    monkeypatch.setattr("mobile_api.sync_hike_route_import", sync)
+    app.dependency_overrides[require_mobile_key] = lambda: None
+    try:
+        response = TestClient(app).post(
+            "/v1/hikes/hike-1/route",
+            files={"file": ("pine-loop.tcx", b"<TrainingCenterDatabase/>", "application/vnd.garmin.tcx+xml")},
+        )
+    finally:
+        app.dependency_overrides.pop(require_mobile_key, None)
+
+    assert response.status_code == 201
+    assert captured == {"name": "pine-loop.tcx", "contents": b"<TrainingCenterDatabase/>"}
+    assert response.json() == {
+        "route_segments": [[{"lat": 28.1, "lng": -82.1}, {"lat": 28.2, "lng": -82.2}]],
+        "track_point_count": 2,
+    }
+
+
 def test_picker_metadata_fallback_parses_capture_time_and_coordinates():
     taken_at = _parse_picker_taken_at("2026-07-19T14:32:10Z")
 

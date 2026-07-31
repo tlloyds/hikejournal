@@ -241,6 +241,21 @@ class HikeJournalApi(private val context: Context) {
         body = JSONObject().put("is_archived", archived).toString().toRequestBody(jsonMediaType),
     )
 
+    suspend fun uploadRouteFile(hikeId: String, file: java.io.File, fileName: String): String = withContext(Dispatchers.IO) {
+        if (!file.exists()) throw IOException("The selected TCX file is no longer available on this phone.")
+        val multipart = MultipartBody.Builder()
+            .setType(MultipartBody.FORM)
+            .addFormDataPart("file", fileName, file.asRequestBody("application/vnd.garmin.tcx+xml".toMediaType()))
+            .build()
+        execute(
+            Request.Builder()
+                .url("${serverUrl}/v1/hikes/$hikeId/route")
+                .header("X-HikeJournal-Key", pairingKey)
+                .post(multipart)
+                .build(),
+        )
+    }
+
     suspend fun updateCaption(photoId: String, caption: String): String = request(
         path = "/v1/photos/$photoId/caption",
         method = "PUT",
