@@ -42,13 +42,13 @@ class OfflineMapPacks(context: Context) {
                         }
 
                         override fun onError(error: String?) {
-                            onError(error ?: "Could not read an offline map pack.")
+                            onError("Couldn't read this saved map.")
                         }
                     })
                 }
             }
 
-            override fun onError(error: String) = onError(error)
+            override fun onError(error: String) = onError("Couldn't load saved maps.")
         })
     }
 
@@ -65,7 +65,7 @@ class OfflineMapPacks(context: Context) {
         onError: (String) -> Unit,
     ) {
         if (styleUrl.isBlank()) {
-            onError("This map layer does not have an offline-enabled provider configured.")
+            onError("This map layer can't be saved for offline use yet.")
             return
         }
         val definition = OfflineTilePyramidRegionDefinition(
@@ -94,17 +94,17 @@ class OfflineMapPacks(context: Context) {
                     }
 
                     override fun onError(error: OfflineRegionError) {
-                        onError(error.message ?: "Map download failed.")
+                        onError("Map download stopped. Check your connection and try again.")
                     }
 
                     override fun mapboxTileCountLimitExceeded(limit: Long) {
-                        onError("This map pack exceeded the provider's $limit-tile limit.")
+                        onError("This area is too large to save at once. Zoom in and try a smaller map pack.")
                     }
                 })
                 offlineRegion.setDownloadState(OfflineRegion.STATE_ACTIVE)
             }
 
-            override fun onError(error: String) = onError(error)
+            override fun onError(error: String) = onError("Couldn't start this map download.")
         })
     }
 
@@ -118,11 +118,11 @@ class OfflineMapPacks(context: Context) {
                 }
                 region.delete(object : OfflineRegion.OfflineRegionDeleteCallback {
                     override fun onDelete() = onComplete()
-                    override fun onError(error: String) = onError(error)
+                    override fun onError(error: String) = onError("Couldn't delete this saved map.")
                 })
             }
 
-            override fun onError(error: String) = onError(error)
+            override fun onError(error: String) = onError("Couldn't load saved maps.")
         })
     }
 }

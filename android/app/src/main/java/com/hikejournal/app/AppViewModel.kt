@@ -64,7 +64,8 @@ data class AppState(
     val decidingReviewId: String? = null,
     val identifyingReviewId: String? = null,
     val inatAuthorizationUrl: String? = null,
-    val queuingReviewId: String? = null,
+    val reviewUpdateId: String? = null,
+    val coverUpdateId: String? = null,
     val isPublishLoading: Boolean = false,
     val publishingId: String? = null,
     val publishNotice: String? = null,
@@ -651,6 +652,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         if (connected) {
             _state.update { it.copy(error = null, publishQueue = it.publishQueue.copy(connected = true)) }
             loadReviewQueue(force = true)
+            loadPublishQueue(force = true)
         } else {
             _state.update { it.copy(error = "iNaturalist authorization did not complete. Please try again.") }
         }
@@ -778,51 +780,99 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     suspend fun inspectMediaLocations(uris: List<Uri>): MediaLocationSummary =
         repository.inspectMediaLocations(uris)
 
-    fun updateCaption(photoId: String, caption: String) {
-        val hikeId = _state.value.journal?.id ?: return
+    fun updateCaption(photo: Photo, caption: String) {
+        val hikeId = _state.value.journal
+            ?.takeIf { journal -> journal.photos.any { it.id == photo.id } }
+            ?.id
+            ?: photo.hikeId
+            ?: "everyday"
         viewModelScope.launch {
-            runCatching { repository.updateCaption(photoId, hikeId, caption) }
-                .onSuccess { openHike(hikeId) }
+            runCatching { repository.updateCaption(photo.id, hikeId, caption) }
+                .onSuccess {
+                    updatePhotoState(photo.id) { existing ->
+                        existing.copy(
+                            caption = caption.trim(),
+                            syncState = if (existing.syncState == "synced") "queued" else existing.syncState,
+                        )
+                    }
+                }
                 .onFailure { error -> _state.update { it.copy(error = error.userMessage()) } }
         }
     }
 
-    fun queueSpeciesReview(photo: Photo) {
-        val hikeId = _state.value.journal?.id ?: photo.hikeId ?: return
+    fun setSpeciesReview(photo: Photo, queued: Boolean) {
+        val hikeId = _state.value.journal
+            ?.takeIf { journal -> journal.photos.any { it.id == photo.id } }
+            ?.id
+            ?: photo.hikeId
+            ?: "everyday"
         viewModelScope.launch {
-            _state.update { it.copy(queuingReviewId = photo.id, error = null) }
-            runCatching { repository.queueSpeciesReview(photo.id, hikeId) }
+            _state.update { it.copy(reviewUpdateId = photo.id, error = null) }
+            runCatching { repository.setSpeciesReview(photo.id, hikeId, queued) }
                 .onSuccess {
-                    _state.update { state ->
-                        state.copy(
-                            journal = state.journal?.copy(
-                                photos = state.journal.photos.map { existing ->
-                                    if (existing.id == photo.id) {
-                                        existing.copy(
-                                            processingStatus = "in_review",
-                                            syncState = if (existing.syncState == "synced") "queued" else existing.syncState,
-                                        )
-                                    } else {
-                                        existing
-                                    }
-                                },
-                            ),
-                            reviewQueue = emptyList(),
-                            queuingReviewId = null,
+                    updatePhotoState(photo.id) { existing ->
+                        existing.copy(
+                            processingStatus = if (queued) "in_review" else "ready",
+                            syncState = if (existing.syncState == "synced") "queued" else existing.syncState,
                         )
                     }
+                    _state.update { it.copy(reviewQueue = emptyList(), reviewUpdateId = null) }
                 }
                 .onFailure { error ->
-                    _state.update { it.copy(queuingReviewId = null, error = error.userMessage()) }
+                    _state.update { it.copy(reviewUpdateId = null, error = error.userMessage()) }
                 }
         }
     }
 
-    fun deletePhoto(photoId: String) {
-        val hikeId = _state.value.journal?.id ?: return
+    fun setHikeCover(photo: Photo, selected: Boolean) {
+        val journal = _state.value.journal ?: return
+        if (journal.isStandalone || journal.photos.none { it.id == photo.id }) return
+        val coverPhotoId = photo.id.takeIf { selected }
+        val fallbackCover = journal.photos.maxByOrNull {
+            "${it.takenAt.orEmpty()}|${it.createdAt.orEmpty()}"
+        }?.url.orEmpty()
+        val coverUrl = if (selected) photo.url else fallbackCover
         viewModelScope.launch {
-            runCatching { repository.deletePhoto(photoId, hikeId) }
-                .onSuccess { openHike(hikeId) }
+            _state.update { it.copy(coverUpdateId = photo.id, error = null) }
+            runCatching { repository.setHikeCover(journal.id, coverPhotoId, coverUrl) }
+                .onSuccess {
+                    _state.update { state ->
+                        state.copy(
+                            journal = state.journal?.takeIf { it.id == journal.id }?.copy(
+                                coverPhotoId = coverPhotoId,
+                                coverUrl = coverUrl,
+                                syncState = if (journal.syncState == "synced") "queued" else journal.syncState,
+                            ) ?: state.journal,
+                            hikes = state.hikes.map { hike ->
+                                if (hike.id == journal.id) {
+                                    hike.copy(
+                                        coverPhotoId = coverPhotoId,
+                                        coverUrl = coverUrl,
+                                        syncState = if (hike.syncState == "synced") "queued" else hike.syncState,
+                                    )
+                                } else {
+                                    hike
+                                }
+                            },
+                            coverUpdateId = null,
+                        )
+                    }
+                }
+                .onFailure { error ->
+                    _state.update { it.copy(coverUpdateId = null, error = error.userMessage()) }
+                }
+        }
+    }
+
+    fun deletePhoto(photo: Photo) {
+        val hikeId = _state.value.journal
+            ?.takeIf { journal -> journal.photos.any { it.id == photo.id } }
+            ?.id
+            ?: photo.hikeId
+            ?: "everyday"
+        viewModelScope.launch {
+            runCatching { repository.deletePhoto(photo.id, hikeId) }
+                .onSuccess { removePhotoState(photo.id) }
                 .onFailure { error -> _state.update { it.copy(error = error.userMessage()) } }
         }
     }
@@ -855,14 +905,71 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun clearSyncAttention() {
+    fun discardSyncAttention() {
         viewModelScope.launch {
-            repository.clearSyncAttention()
+            runCatching { repository.discardSyncAttention() }
+                .onFailure { error -> _state.update { it.copy(error = error.userMessage()) } }
         }
     }
 
     fun clearError() {
         _state.update { it.copy(error = null) }
+    }
+
+    private fun updatePhotoState(photoId: String, update: (Photo) -> Photo) {
+        _state.update { state ->
+            fun updateSpecies(record: SpeciesRecord): SpeciesRecord = record.copy(
+                encounters = record.encounters.map { encounter ->
+                    if (encounter.photo.id == photoId) encounter.copy(photo = update(encounter.photo)) else encounter
+                },
+            )
+            state.copy(
+                journal = state.journal?.copy(
+                    photos = state.journal.photos.map { photo ->
+                        if (photo.id == photoId) update(photo) else photo
+                    },
+                ),
+                species = state.species.map(::updateSpecies),
+                speciesDetail = state.speciesDetail?.let(::updateSpecies),
+                reviewQueue = state.reviewQueue.map { item ->
+                    if (item.photo.id == photoId) item.copy(photo = update(item.photo)) else item
+                },
+                publishQueue = state.publishQueue.copy(
+                    items = state.publishQueue.items.map { item ->
+                        if (item.photo.id == photoId) item.copy(photo = update(item.photo)) else item
+                    },
+                ),
+            )
+        }
+    }
+
+    private fun removePhotoState(photoId: String) {
+        _state.update { state ->
+            fun updateSpecies(record: SpeciesRecord): SpeciesRecord = record.copy(
+                encounters = record.encounters.filterNot { it.photo.id == photoId },
+            )
+            state.copy(
+                journal = state.journal?.let { journal ->
+                    val photos = journal.photos.filterNot { it.id == photoId }
+                    journal.copy(
+                        photos = photos,
+                        photoCount = photos.size,
+                        coverPhotoId = journal.coverPhotoId.takeUnless { it == photoId },
+                        coverUrl = if (journal.coverPhotoId == photoId) {
+                            photos.maxByOrNull { "${it.takenAt.orEmpty()}|${it.createdAt.orEmpty()}" }?.url.orEmpty()
+                        } else {
+                            journal.coverUrl
+                        },
+                    )
+                },
+                species = state.species.map(::updateSpecies),
+                speciesDetail = state.speciesDetail?.let(::updateSpecies),
+                reviewQueue = state.reviewQueue.filterNot { it.photo.id == photoId },
+                publishQueue = state.publishQueue.copy(
+                    items = state.publishQueue.items.filterNot { it.photo.id == photoId },
+                ),
+            )
+        }
     }
 }
 

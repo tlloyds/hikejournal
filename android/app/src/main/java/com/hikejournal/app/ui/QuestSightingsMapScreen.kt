@@ -4,6 +4,7 @@ package com.hikejournal.app.ui
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.graphics.RectF
 import android.os.Bundle
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -175,7 +176,7 @@ fun QuestSightingsMapScreen(
         if (result.values.any { it }) {
             requestLocationFix()
         } else {
-            locationNotice = "Location permission is off. Sightings still map normally."
+            locationNotice = "Location is off. Sightings still map normally."
         }
     }
     fun refreshUserLocation() {
@@ -463,6 +464,7 @@ private fun QuestNativeMap(
 ) {
     val context = LocalContext.current
     val controller = remember { QuestNativeMapController() }
+    controller.tapRadiusPx = 24f * context.resources.displayMetrics.density
     controller.onSelect = onSelect
     controller.sightingsById = sightings.associateBy { it.id }
     controller.selectedSighting = selectedSighting
@@ -506,6 +508,7 @@ private class QuestNativeMapController {
     var selectedSighting: QuestSighting? = null
     var area: QuestMapArea? = null
     var userLocation: QuestUserLocation? = null
+    var tapRadiusPx: Float = 24f
     private var map: MapLibreMap? = null
     private var fitted = false
     private var layerMode = QuestMapLayerMode.Satellite
@@ -523,7 +526,12 @@ private class QuestNativeMapController {
             map.addOnMapClickListener { latLng ->
                 val point = map.projection.toScreenLocation(latLng)
                 val features = map.queryRenderedFeatures(
-                    point,
+                    RectF(
+                        point.x - tapRadiusPx,
+                        point.y - tapRadiusPx,
+                        point.x + tapRadiusPx,
+                        point.y + tapRadiusPx,
+                    ),
                     QUEST_SELECTED_LAYER,
                     QUEST_PUBLIC_LAYER,
                     QUEST_OBSCURED_LAYER,

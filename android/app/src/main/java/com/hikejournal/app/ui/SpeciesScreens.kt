@@ -219,7 +219,7 @@ fun SpeciesIndexScreen(
                 onUnavailable = { locationNotice = "A current location was not available. Choose a saved trail instead." },
             )
         } else {
-            locationNotice = "Location permission was declined. You can still choose any saved trail."
+            locationNotice = "Location access was declined. You can still choose any saved trail."
         }
     }
     val scopedSpecies = species.mapNotNull { record ->
@@ -1043,7 +1043,7 @@ private fun NearbyControls(
             }
         }
         Text(
-            "Current location is requested once, rounded to roughly 1 km by the server, and used only for this iNaturalist search.",
+            "Your location is used once for this iNaturalist search and rounded to about 1 km for privacy.",
             style = MaterialTheme.typography.labelSmall,
             color = InkMuted,
             modifier = Modifier.padding(top = 6.dp),

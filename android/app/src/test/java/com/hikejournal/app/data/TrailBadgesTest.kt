@@ -35,6 +35,16 @@ class TrailBadgesTest {
     }
 
     @Test
+    fun `everyday sightings do not count as a hike milestone`() {
+        val everyday = hike(id = "everyday", miles = 0.0).copy(isStandalone = true)
+
+        val badges = calculateTrailBadges(listOf(everyday), emptyList(), emptyList())
+
+        assertEquals(0.0, badges.named("First Footfall").current, 0.0)
+        assertFalse(badges.named("First Footfall").earned)
+    }
+
+    @Test
     fun `quest requires every selected focus target and deduplicates rare finds`() {
         val completeQuest = parseFieldQuest(questJson("one", firstCollected = true, secondCollected = true))
         val incompleteQuest = parseFieldQuest(questJson("two", firstCollected = true, secondCollected = false))

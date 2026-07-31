@@ -4,11 +4,14 @@ from fastapi.testclient import TestClient
 
 from hike_journal.models import PhotoMetadata, ProcessedImage, SpeciesCandidate
 from mobile_api import (
+    CoverPhotoInput,
     ReviewCandidateInput,
     ReviewDecisionInput,
+    ReviewQueueInput,
     _build_species_payloads,
     _photo_payload,
     _parse_picker_taken_at,
+    _standalone_hike_payload,
     _review_candidates,
     _species_key,
     _validate_picker_coordinate,
@@ -24,6 +27,8 @@ from mobile_api import (
     queue_photo_for_species_review,
     require_mobile_key,
     request_species_recommendation,
+    set_photo_species_review,
+    update_hike_cover,
 )
 
 
@@ -425,6 +430,94 @@ def test_existing_photo_can_be_queued_for_species_review(monkeypatch):
 
     assert result == {"queued": True}
     assert repository.photo_status == ("photo-1", "in_review")
+
+
+def test_existing_photo_can_be_removed_from_species_review(monkeypatch):
+    class Repository:
+        photo_status = None
+
+        def update_photo_processing_status(self, photo_id, status):
+            self.photo_status = (photo_id, status)
+
+    repository = Repository()
+    service = type("Service", (), {"repository": repository})()
+    monkeypatch.setattr(
+        "mobile_api._get_visible_photo",
+        lambda photo_id: (service, {"id": photo_id, "content_type": "image/jpeg"}),
+    )
+
+    result = set_photo_species_review("photo-1", ReviewQueueInput(queued=False))
+
+    assert result == {"queued": False}
+    assert repository.photo_status == ("photo-1", "ready")
+
+
+def test_hike_cover_can_be_selected_from_the_same_hike(monkeypatch):
+    hike_id = "11111111-1111-4111-8111-111111111111"
+    photo_id = "22222222-2222-4222-8222-222222222222"
+
+    class Repository:
+        selected_cover = None
+
+        def update_hike_cover_photo(self, updated_hike_id, updated_photo_id):
+            self.selected_cover = (updated_hike_id, updated_photo_id)
+            return {"id": updated_hike_id, "title": "Pine Loop", "cover_photo_id": updated_photo_id}
+
+        def list_photos(self, _hike_id):
+            return [{"id": photo_id, "hike_id": hike_id, "public_url": "https://img/cover.jpg"}]
+
+    repository = Repository()
+    service = type("Service", (), {"repository": repository})()
+    monkeypatch.setattr("mobile_api.get_services", lambda: service)
+    monkeypatch.setattr("mobile_api._get_visible_hike", lambda _repository, _hike_id: {"id": hike_id})
+    monkeypatch.setattr(
+        "mobile_api._get_visible_photo",
+        lambda _photo_id: (service, {"id": photo_id, "hike_id": hike_id}),
+    )
+
+    result = update_hike_cover(hike_id, CoverPhotoInput(photo_id=photo_id))
+
+    assert repository.selected_cover == (hike_id, photo_id)
+    assert result["cover_photo_id"] == photo_id
+    assert result["cover_url"] == "https://img/cover.jpg"
+
+
+def test_everyday_journal_includes_standalone_photos_and_species(monkeypatch):
+    photo = {
+        "id": "photo-1",
+        "hike_id": None,
+        "public_url": "https://img/everyday.jpg",
+        "taken_at": "2026-07-30T14:00:00Z",
+        "created_at": "2026-07-30T14:05:00Z",
+    }
+
+    class Repository:
+        def list_observations_for_photo_ids(self, photo_ids):
+            assert photo_ids == ["photo-1"]
+            return [
+                {
+                    "photo_id": "photo-1",
+                    "status": "confirmed",
+                    "taxon_id": 123,
+                    "common_name": "Gopher tortoise",
+                }
+            ]
+
+    service = type("Service", (), {"repository": Repository()})()
+    monkeypatch.setattr("mobile_api._visible_standalone_photos", lambda _service: [photo])
+    monkeypatch.setattr(
+        "mobile_api._user_context",
+        lambda: {"mode": "local-dev", "email": None, "subject": None, "auth_configured": False},
+    )
+
+    payload = _standalone_hike_payload(service, include_details=True)
+
+    assert payload["id"] == "everyday"
+    assert payload["is_standalone"] is True
+    assert payload["photo_count"] == 1
+    assert payload["species_count"] == 1
+    assert payload["cover_url"] == "https://img/everyday.jpg"
+    assert payload["photos"][0]["species"][0]["common_name"] == "Gopher tortoise"
 
 
 def test_discovery_area_endpoint_returns_coordinate_backed_locations(monkeypatch):

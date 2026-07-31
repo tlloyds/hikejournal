@@ -109,8 +109,16 @@ class StorageService:
         path = f"hikes/{hike_id}/imports/{uuid4().hex}.tcx"
         return self._upload_bytes(path, file_bytes, content_type)
 
-    def upload_standalone_photo(self, image_bytes: bytes, content_type: str) -> tuple[str, str]:
-        path = f"standalone/{uuid4().hex}.jpg"
+    def upload_standalone_photo(
+        self,
+        image_bytes: bytes,
+        content_type: str,
+        *,
+        object_id: str | None = None,
+    ) -> tuple[str, str]:
+        path = f"standalone/{object_id or uuid4().hex}.jpg"
+        if object_id:
+            return self.replace_file(path, image_bytes, content_type)
         return self._upload_bytes(path, image_bytes, content_type)
 
     def delete_file(self, storage_path: str) -> None:

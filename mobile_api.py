@@ -56,6 +56,8 @@ from hike_journal.services.taxonomy import ensure_observation_taxonomy
 
 
 MAX_UPLOAD_BYTES = 30 * 1024 * 1024
+EVERYDAY_JOURNAL_ID = "everyday"
+MOBILE_API_VERSION = "0.6.2"
 
 
 def _parse_picker_taken_at(value: str) -> datetime | None:
@@ -122,6 +124,14 @@ class ArchiveInput(BaseModel):
     is_archived: bool
 
 
+class CoverPhotoInput(BaseModel):
+    photo_id: str | None = Field(default=None, max_length=36)
+
+
+class ReviewQueueInput(BaseModel):
+    queued: bool
+
+
 class ReviewCandidateInput(BaseModel):
     taxon_id: int | None = None
     common_name: str = Field(default="", max_length=240)
@@ -178,6 +188,11 @@ _species_data_cache: tuple[
 ] | None = None
 
 
+def _invalidate_species_data_cache() -> None:
+    global _species_data_cache
+    _species_data_cache = None
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     global services
@@ -188,7 +203,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title="HikeJournal Mobile Companion API",
-    version="0.6.0",
+    version=MOBILE_API_VERSION,
     docs_url=None,
     redoc_url=None,
     lifespan=lifespan,
@@ -223,6 +238,62 @@ def _user_context() -> dict[str, Any]:
 
 def _visible_hikes(repository: HikeJournalRepository) -> list[dict[str, Any]]:
     return filter_hikes_for_user(repository.list_hikes(), _user_context())
+
+
+def _visible_standalone_photos(svc: Services) -> list[dict[str, Any]]:
+    context = _user_context()
+    return [
+        photo
+        for photo in svc.repository.list_standalone_photos()
+        if record_visible_for_user(photo, set(), context)
+    ]
+
+
+def _standalone_hike_payload(svc: Services, *, include_details: bool = False) -> dict[str, Any]:
+    photos = _visible_standalone_photos(svc)
+    photo_ids = [str(photo["id"]) for photo in photos if photo.get("id")]
+    context = _user_context()
+    observations = [
+        observation
+        for observation in svc.repository.list_observations_for_photo_ids(photo_ids)
+        if record_visible_for_user(observation, set(), context)
+    ] if photo_ids else []
+    observations_by_photo: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    confirmed_species: set[str] = set()
+    for observation in observations:
+        photo_id = str(observation.get("photo_id") or "")
+        if photo_id:
+            observations_by_photo[photo_id].append(observation)
+        if observation.get("status") == "confirmed":
+            confirmed_species.add(_species_key(observation))
+    latest_date = next(
+        (
+            str(photo.get("taken_at") or photo.get("created_at") or "")[:10]
+            for photo in photos
+            if photo.get("taken_at") or photo.get("created_at")
+        ),
+        date.today().isoformat(),
+    )
+    payload = _hike_payload(
+        {
+            "id": EVERYDAY_JOURNAL_ID,
+            "title": "Everyday sightings",
+            "hike_date": latest_date,
+            "location_name": "",
+            "notes": "Quick observations that are not tied to a hike.",
+            "is_archived": False,
+            "is_standalone": True,
+        },
+        photos=photos,
+        species_count=len(confirmed_species),
+    )
+    if include_details:
+        payload["photos"] = [
+            _photo_payload(photo, observations_by_photo.get(str(photo.get("id")), []))
+            for photo in photos
+        ]
+        payload["route_segments"] = []
+    return payload
 
 
 def _require_discovery_enabled() -> None:
@@ -321,6 +392,8 @@ def _hike_payload(
         "location_name": str(hike.get("location_name") or ""),
         "notes": str(hike.get("notes") or ""),
         "is_archived": bool(hike.get("is_archived")),
+        "is_standalone": bool(hike.get("is_standalone")),
+        "cover_photo_id": cover_id or None,
         "cover_url": str((cover or {}).get("public_url") or ""),
         "photo_count": len(photos),
         "species_count": species_count,
@@ -776,14 +849,14 @@ def _publish_queue_payload(svc: Services) -> dict[str, Any]:
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok", "service": "hikejournal-mobile", "version": "0.6.1"}
+    return {"status": "ok", "service": "hikejournal-mobile", "version": MOBILE_API_VERSION}
 
 
 @app.get("/v1/config", dependencies=[Depends(require_mobile_key)])
 def app_config() -> dict[str, Any]:
     return {
         "web_url": os.getenv("MOBILE_WEB_URL", "http://192.168.0.157:8505").rstrip("/"),
-        "api_version": "0.6.0",
+        "api_version": MOBILE_API_VERSION,
         "capabilities": [
             "offline_sync",
             "grouped_inat_publish",
@@ -791,6 +864,9 @@ def app_config() -> dict[str, Any]:
             "live_inat_cv",
             "mobile_inat_oauth",
             "species_discovery",
+            "everyday_sightings",
+            "hike_covers",
+            "reversible_species_review",
         ],
     }
 
@@ -834,24 +910,38 @@ def finish_mobile_inat_oauth(code: str | None = None, state: str | None = None, 
 def list_hikes() -> list[dict[str, Any]]:
     svc = get_services()
     hikes = _visible_hikes(svc.repository)
-    if not hikes:
-        return []
     hike_ids = [str(hike["id"]) for hike in hikes]
-    photo_rows = svc.repository._select_all_rows(
-        lambda: (
-            svc.client.table("photos")
-            .select("id,hike_id,public_url,taken_at,created_at")
-            .in_("hike_id", hike_ids)
+    photo_rows = (
+        svc.repository._select_all_rows(
+            lambda: (
+                svc.client.table("photos")
+                .select("id,hike_id,public_url,taken_at,created_at")
+                .in_("hike_id", hike_ids)
+            )
         )
+        if hike_ids
+        else []
     )
     photos_by_hike: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for photo in photo_rows:
         if photo.get("hike_id"):
             photos_by_hike[str(photo["hike_id"])].append(photo)
-    return [
-        _hike_payload(hike, photos=photos_by_hike.get(str(hike["id"]), []))
+    confirmed_observations, species_photos_by_id, _ = _visible_species_data(svc)
+    species_by_hike: dict[str, set[str]] = defaultdict(set)
+    for observation in confirmed_observations:
+        photo = species_photos_by_id.get(str(observation.get("photo_id") or ""))
+        hike_id = str((photo or {}).get("hike_id") or observation.get("hike_id") or "")
+        if hike_id:
+            species_by_hike[hike_id].add(_species_key(observation))
+    outing_payloads = [
+        _hike_payload(
+            hike,
+            photos=photos_by_hike.get(str(hike["id"]), []),
+            species_count=len(species_by_hike.get(str(hike["id"]), set())),
+        )
         for hike in hikes
     ]
+    return outing_payloads + [_standalone_hike_payload(svc)]
 
 
 @app.get("/v1/species", dependencies=[Depends(require_mobile_key)])
@@ -1146,7 +1236,7 @@ def request_species_recommendation(photo_id: str) -> dict[str, Any]:
         if isinstance(observation, dict):
             ensure_observation_taxonomy(svc.repository, inat_client, observation)
     except InatConfigurationError as exc:
-        raise HTTPException(status_code=409, detail="Connect iNaturalist in Streamlit before requesting recommendations on Android.") from exc
+        raise HTTPException(status_code=409, detail="Connect iNaturalist in HikeJournal before requesting a recommendation.") from exc
     except InatAuthError as exc:
         raise HTTPException(status_code=401, detail=str(exc)) from exc
     except InatRateLimitError as exc:
@@ -1259,7 +1349,7 @@ def publish_species_observation(observation_id: str, payload: PublishInput) -> d
     if not inat_client.is_configured:
         raise HTTPException(
             status_code=409,
-            detail="Connect iNaturalist from the Streamlit workspace before publishing on Android.",
+            detail="Connect iNaturalist in HikeJournal before publishing.",
         )
     owner = _user_context()
     observation, photo = records[0]
@@ -1389,6 +1479,8 @@ def list_sightings() -> list[dict[str, Any]]:
 @app.get("/v1/hikes/{hike_id}", dependencies=[Depends(require_mobile_key)])
 def get_hike(hike_id: str) -> dict[str, Any]:
     svc = get_services()
+    if hike_id == EVERYDAY_JOURNAL_ID:
+        return _standalone_hike_payload(svc, include_details=True)
     hike = _get_visible_hike(svc.repository, hike_id)
     photos = svc.repository.list_photos(hike_id)
     observations = svc.repository.list_observations(hike_id)
@@ -1398,14 +1490,7 @@ def get_hike(hike_id: str) -> dict[str, Any]:
         if observation.get("photo_id"):
             observations_by_photo[str(observation["photo_id"])].append(observation)
         if observation.get("status") == "confirmed":
-            identity = str(
-                observation.get("taxon_id")
-                or observation.get("scientific_name")
-                or observation.get("common_name")
-                or ""
-            )
-            if identity:
-                confirmed_species.add(identity)
+            confirmed_species.add(_species_key(observation))
     payload = _hike_payload(hike, photos=photos, species_count=len(confirmed_species))
     payload["photos"] = [
         _photo_payload(photo, observations_by_photo.get(str(photo.get("id")), []))
@@ -1441,6 +1526,7 @@ def create_hike(payload: HikeInput) -> dict[str, Any]:
         ),
         hike_id=client_hike_id,
     )
+    _invalidate_species_data_cache()
     return _hike_payload(created, photos=[])
 
 
@@ -1456,6 +1542,7 @@ def update_hike(hike_id: str, payload: HikeInput) -> dict[str, Any]:
         location_name=payload.location_name,
         notes=payload.notes,
     )
+    _invalidate_species_data_cache()
     return _hike_payload(updated, photos=svc.repository.list_photos(hike_id))
 
 
@@ -1495,6 +1582,23 @@ def update_archive(hike_id: str, payload: ArchiveInput) -> dict[str, Any]:
     svc = get_services()
     _get_visible_hike(svc.repository, hike_id)
     updated = svc.repository.update_hike_archive(hike_id, payload.is_archived)
+    _invalidate_species_data_cache()
+    return _hike_payload(updated, photos=svc.repository.list_photos(hike_id))
+
+
+@app.put("/v1/hikes/{hike_id}/cover", dependencies=[Depends(require_mobile_key)])
+def update_hike_cover(hike_id: str, payload: CoverPhotoInput) -> dict[str, Any]:
+    svc = get_services()
+    _get_visible_hike(svc.repository, hike_id)
+    photo_id = _normalize_client_uuid(payload.photo_id, field_name="Cover photo ID")
+    if photo_id:
+        _, photo = _get_visible_photo(photo_id)
+        if str(photo.get("hike_id") or "") != hike_id:
+            raise HTTPException(status_code=409, detail="Choose a cover photo from this hike.")
+        if str(photo.get("content_type") or "").lower().startswith("video/"):
+            raise HTTPException(status_code=409, detail="Choose a photo for the hike cover.")
+    updated = svc.repository.update_hike_cover_photo(hike_id, photo_id)
+    _invalidate_species_data_cache()
     return _hike_payload(updated, photos=svc.repository.list_photos(hike_id))
 
 
@@ -1510,7 +1614,9 @@ async def upload_photo(
     lng: Annotated[float | None, Form()] = None,
 ) -> dict[str, Any]:
     svc = get_services()
-    _get_visible_hike(svc.repository, hike_id)
+    is_standalone = hike_id == EVERYDAY_JOURNAL_ID
+    if not is_standalone:
+        _get_visible_hike(svc.repository, hike_id)
     normalized_photo_id = _normalize_client_uuid(photo_id.strip() or None, field_name="Photo ID") or ""
     if normalized_photo_id:
         existing = (
@@ -1521,7 +1627,8 @@ async def upload_photo(
             .execute()
         ).data or []
         if existing:
-            if str(existing[0].get("hike_id") or "") != hike_id:
+            existing_scope = str(existing[0].get("hike_id") or EVERYDAY_JOURNAL_ID)
+            if existing_scope != hike_id:
                 raise HTTPException(status_code=409, detail="This photo ID belongs to another hike.")
             return _photo_payload(existing[0])
     original = await file.read(MAX_UPLOAD_BYTES + 1)
@@ -1548,7 +1655,17 @@ async def upload_photo(
     try:
         if is_video:
             storage_path, public_url = svc.storage.upload_hike_video(
-                hike_id, original, content_type, filename=file.filename or "hike-video.mp4", object_id=normalized_photo_id or None
+                hike_id,
+                original,
+                content_type,
+                filename=file.filename or "hike-video.mp4",
+                object_id=normalized_photo_id or None,
+            )
+        elif is_standalone:
+            storage_path, public_url = svc.storage.upload_standalone_photo(
+                processed.bytes_data,
+                processed.content_type,
+                object_id=normalized_photo_id or None,
             )
         else:
             storage_path, public_url = svc.storage.upload_hike_photo(
@@ -1568,7 +1685,7 @@ async def upload_photo(
         created = svc.repository.create_photo(
             {
                 **({"id": normalized_photo_id} if normalized_photo_id else {}),
-                "hike_id": hike_id,
+                "hike_id": None if is_standalone else hike_id,
                 "owner_subject": owner.get("subject"),
                 "owner_email": owner.get("email"),
                 "storage_path": storage_path,
@@ -1592,6 +1709,7 @@ async def upload_photo(
             except Exception:
                 pass
         raise
+    _invalidate_species_data_cache()
     return _photo_payload(created)
 
 
@@ -1609,17 +1727,28 @@ def _get_visible_photo(photo_id: str) -> tuple[Services, dict[str, Any]]:
     return svc, photo
 
 
+@app.put("/v1/photos/{photo_id}/review", dependencies=[Depends(require_mobile_key)])
+def set_photo_species_review(photo_id: str, payload: ReviewQueueInput) -> dict[str, bool]:
+    svc, photo = _get_visible_photo(photo_id)
+    if payload.queued and str(photo.get("content_type") or "").lower().startswith("video/"):
+        raise HTTPException(status_code=409, detail="Videos cannot be added to species review.")
+    svc.repository.update_photo_processing_status(photo_id, "in_review" if payload.queued else "ready")
+    _invalidate_species_data_cache()
+    return {"queued": payload.queued}
+
+
 @app.post("/v1/photos/{photo_id}/review", dependencies=[Depends(require_mobile_key)])
 def queue_photo_for_species_review(photo_id: str) -> dict[str, bool]:
-    svc, _ = _get_visible_photo(photo_id)
-    svc.repository.update_photo_processing_status(photo_id, "in_review")
-    return {"queued": True}
+    """Keep older Android builds compatible with the original queue-only action."""
+    return set_photo_species_review(photo_id, ReviewQueueInput(queued=True))
 
 
 @app.put("/v1/photos/{photo_id}/caption", dependencies=[Depends(require_mobile_key)])
 def update_photo_caption(photo_id: str, payload: CaptionInput) -> dict[str, Any]:
     svc, _ = _get_visible_photo(photo_id)
-    return _photo_payload(svc.repository.update_photo_caption(photo_id, payload.caption))
+    updated = svc.repository.update_photo_caption(photo_id, payload.caption)
+    _invalidate_species_data_cache()
+    return _photo_payload(updated)
 
 
 @app.delete("/v1/photos/{photo_id}", dependencies=[Depends(require_mobile_key)])
@@ -1632,4 +1761,5 @@ def delete_photo(photo_id: str) -> dict[str, bool]:
             svc.storage.delete_file(storage_path)
         except Exception:
             pass
+    _invalidate_species_data_cache()
     return {"deleted": True}

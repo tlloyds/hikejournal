@@ -51,6 +51,7 @@ object OperationKind {
     const val ArchiveHike = "archive_hike"
     const val UploadPhoto = "upload_photo"
     const val UploadRoute = "upload_route"
+    const val SetHikeCover = "set_hike_cover"
     const val UpdateCaption = "update_caption"
     const val DeletePhoto = "delete_photo"
     const val QueueSpeciesReview = "queue_species_review"
@@ -107,6 +108,18 @@ class FieldOperationQueue(private val context: Context) {
             hikeId,
             null,
             JSONObject().put("is_archived", archived),
+        )
+    }
+
+    suspend fun queueHikeCover(hikeId: String, photoId: String?, coverUrl: String) {
+        coalesce(OperationKind.SetHikeCover, hikeId)
+        enqueue(
+            OperationKind.SetHikeCover,
+            hikeId,
+            null,
+            JSONObject()
+                .put("photo_id", photoId ?: JSONObject.NULL)
+                .put("cover_url", coverUrl),
         )
     }
 
@@ -206,9 +219,18 @@ class FieldOperationQueue(private val context: Context) {
 
     suspend fun queueCaption(photoId: String, hikeId: String?, caption: String) {
         val pendingUpload = dao.find(OperationKind.UploadPhoto, photoId)
-        if (pendingUpload != null) {
+        if (pendingUpload != null && pendingUpload.state != "syncing") {
             val payload = JSONObject(pendingUpload.payloadJson).put("caption", caption.trim())
-            dao.upsert(pendingUpload.copy(payloadJson = payload.toString(), updatedAt = System.currentTimeMillis()))
+            dao.upsert(
+                pendingUpload.copy(
+                    payloadJson = payload.toString(),
+                    state = "queued",
+                    attemptCount = 0,
+                    updatedAt = System.currentTimeMillis(),
+                    lastError = null,
+                ),
+            )
+            SyncScheduler.schedule(context)
             return
         }
         coalesce(OperationKind.UpdateCaption, photoId)
@@ -222,8 +244,13 @@ class FieldOperationQueue(private val context: Context) {
 
     suspend fun queueDeletePhoto(photoId: String, hikeId: String?) {
         val pendingUpload = dao.find(OperationKind.UploadPhoto, photoId)
-        if (pendingUpload != null) {
-            pendingUpload.localFilePath?.let { File(it).delete() }
+        if (pendingUpload != null && pendingUpload.state != "syncing") {
+            pendingUpload.localFilePath?.let { path ->
+                val localFile = File(path)
+                if (localFile.exists() && !localFile.delete()) {
+                    throw IOException("Could not remove this unsynced photo from the phone.")
+                }
+            }
             dao.delete(pendingUpload.id)
             return
         }
@@ -232,16 +259,29 @@ class FieldOperationQueue(private val context: Context) {
         enqueue(OperationKind.DeletePhoto, photoId, hikeId, JSONObject())
     }
 
-    suspend fun queueSpeciesReview(photoId: String, hikeId: String?) {
+    suspend fun queueSpeciesReview(photoId: String, hikeId: String?, queued: Boolean) {
         val pendingUpload = dao.find(OperationKind.UploadPhoto, photoId)
-        if (pendingUpload != null) {
-            val payload = JSONObject(pendingUpload.payloadJson).put("queue_for_review", true)
-            dao.upsert(pendingUpload.copy(payloadJson = payload.toString(), updatedAt = System.currentTimeMillis()))
+        if (pendingUpload != null && pendingUpload.state != "syncing") {
+            val payload = JSONObject(pendingUpload.payloadJson).put("queue_for_review", queued)
+            dao.upsert(
+                pendingUpload.copy(
+                    payloadJson = payload.toString(),
+                    state = "queued",
+                    attemptCount = 0,
+                    updatedAt = System.currentTimeMillis(),
+                    lastError = null,
+                ),
+            )
             SyncScheduler.schedule(context)
             return
         }
         coalesce(OperationKind.QueueSpeciesReview, photoId)
-        enqueue(OperationKind.QueueSpeciesReview, photoId, hikeId, JSONObject())
+        enqueue(
+            OperationKind.QueueSpeciesReview,
+            photoId,
+            hikeId,
+            JSONObject().put("queued", queued),
+        )
     }
 
     suspend fun queueReview(item: ReviewItem, action: String, candidate: ReviewCandidate?) {
@@ -277,8 +317,16 @@ class FieldOperationQueue(private val context: Context) {
         SyncScheduler.schedule(context)
     }
 
-    suspend fun clearAttention() {
-        dao.clearAttention()
+    suspend fun discardAttention() = withContext(Dispatchers.IO) {
+        dao.listAttention().forEach { operation ->
+            operation.localFilePath?.let { path ->
+                val localFile = File(path)
+                if (localFile.exists() && !localFile.delete()) {
+                    throw IOException("Could not remove the local file for this unsynced change.")
+                }
+            }
+            dao.discardAttention(operation.id)
+        }
     }
 
     suspend fun overlayHikes(serverHikes: List<Hike>): List<Hike> {
@@ -303,6 +351,14 @@ class FieldOperationQueue(private val context: Context) {
                 OperationKind.ArchiveHike -> hikes[operation.entityId]?.let {
                     hikes[operation.entityId] = it.copy(
                         isArchived = JSONObject(operation.payloadJson).optBoolean("is_archived"),
+                        syncState = operation.state,
+                    )
+                }
+                OperationKind.SetHikeCover -> hikes[operation.entityId]?.let {
+                    val payload = JSONObject(operation.payloadJson)
+                    hikes[operation.entityId] = it.copy(
+                        coverPhotoId = payload.optString("photo_id").takeUnless { payload.isNull("photo_id") },
+                        coverUrl = payload.optString("cover_url", it.coverUrl),
                         syncState = operation.state,
                     )
                 }
@@ -348,6 +404,14 @@ class FieldOperationQueue(private val context: Context) {
                         syncState = operation.state,
                     )
                 }
+                operation.kind == OperationKind.SetHikeCover && operation.entityId == hikeId -> {
+                    val payload = JSONObject(operation.payloadJson)
+                    hike = hike?.copy(
+                        coverPhotoId = payload.optString("photo_id").takeUnless { payload.isNull("photo_id") },
+                        coverUrl = payload.optString("cover_url", hike!!.coverUrl),
+                        syncState = operation.state,
+                    )
+                }
                 operation.kind == OperationKind.UploadPhoto && operation.parentId == hikeId -> {
                     val photo = operation.toLocalPhoto()
                     hike = hike?.copy(
@@ -368,10 +432,14 @@ class FieldOperationQueue(private val context: Context) {
                     hike = hike?.copy(photos = hike!!.photos.filterNot { it.id == operation.entityId })
                 }
                 operation.kind == OperationKind.QueueSpeciesReview && operation.parentId == hikeId -> {
+                    val queued = JSONObject(operation.payloadJson).optBoolean("queued", true)
                     hike = hike?.copy(
                         photos = hike!!.photos.map { photo ->
                             if (photo.id == operation.entityId) {
-                                photo.copy(processingStatus = "in_review", syncState = operation.state)
+                                photo.copy(
+                                    processingStatus = if (queued) "in_review" else "ready",
+                                    syncState = operation.state,
+                                )
                             } else {
                                 photo
                             }
@@ -408,7 +476,7 @@ class FieldOperationQueue(private val context: Context) {
         }
 
     private suspend fun coalesce(kind: String, entityId: String) {
-        dao.deleteQueued(kind, entityId)
+        dao.deleteReplaceable(kind, entityId)
     }
 
     private suspend fun enqueue(
@@ -731,6 +799,10 @@ class FieldSyncEngine(private val context: Context) {
             OperationKind.CreateHike -> api.createHike(payload.toHikeDraft(), operation.entityId)
             OperationKind.UpdateHike -> api.updateHike(operation.entityId, payload.toHikeDraft())
             OperationKind.ArchiveHike -> api.setArchived(operation.entityId, payload.optBoolean("is_archived"))
+            OperationKind.SetHikeCover -> api.setHikeCover(
+                operation.entityId,
+                payload.optString("photo_id").takeUnless { payload.isNull("photo_id") },
+            )
             OperationKind.UploadPhoto -> api.uploadPhotoFile(
                 hikeId = requireNotNull(operation.parentId),
                 photoId = operation.entityId,
@@ -750,7 +822,10 @@ class FieldSyncEngine(private val context: Context) {
             )
             OperationKind.UpdateCaption -> api.updateCaption(operation.entityId, payload.optString("caption"))
             OperationKind.DeletePhoto -> api.deletePhoto(operation.entityId)
-            OperationKind.QueueSpeciesReview -> api.queueSpeciesReview(operation.entityId)
+            OperationKind.QueueSpeciesReview -> api.setSpeciesReview(
+                operation.entityId,
+                payload.optBoolean("queued", true),
+            )
             OperationKind.ReviewDecision -> {
                 val candidateJson = payload.optJSONObject("candidate")
                 api.decideReview(

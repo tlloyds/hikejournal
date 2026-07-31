@@ -131,6 +131,7 @@ fun calculateTrailBadges(
     species: List<SpeciesRecord>,
     quests: List<FieldQuest>,
 ): List<TrailBadge> {
+    val outings = hikes.filterNot { it.isStandalone }
     val distinctSpecies = species.distinctBy { it.taxonId?.toString() ?: it.key }
     val completedQuests = quests.count { quest ->
         val focusTaxa = quest.taxa.filter { it.focusOrder != null }
@@ -149,9 +150,9 @@ fun calculateTrailBadges(
     }
 
     val metrics = mapOf(
-        BadgeMetric.HikeCount to hikes.size.toDouble(),
-        BadgeMetric.TotalMiles to hikes.sumOf { (it.distanceMiles ?: 0.0).coerceAtLeast(0.0) },
-        BadgeMetric.LongestHike to (hikes.maxOfOrNull { (it.distanceMiles ?: 0.0).coerceAtLeast(0.0) } ?: 0.0),
+        BadgeMetric.HikeCount to outings.size.toDouble(),
+        BadgeMetric.TotalMiles to outings.sumOf { (it.distanceMiles ?: 0.0).coerceAtLeast(0.0) },
+        BadgeMetric.LongestHike to (outings.maxOfOrNull { (it.distanceMiles ?: 0.0).coerceAtLeast(0.0) } ?: 0.0),
         BadgeMetric.CompletedQuests to completedQuests.toDouble(),
         BadgeMetric.RareFinds to rareFinds.toDouble(),
         BadgeMetric.SpeciesCount to distinctSpecies.size.toDouble(),

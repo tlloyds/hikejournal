@@ -174,7 +174,7 @@ class HikeJournalApi(private val context: Context) {
     } catch (error: ApiException) {
         if (error.statusCode == 404) {
             throw ApiException(
-                "This phone's companion service needs the latest HikeJournal update. Restart or redeploy it, then try again.",
+                "This action isn’t available with the current connection yet.",
                 error.statusCode,
             )
         }
@@ -241,6 +241,12 @@ class HikeJournalApi(private val context: Context) {
         body = JSONObject().put("is_archived", archived).toString().toRequestBody(jsonMediaType),
     )
 
+    suspend fun setHikeCover(hikeId: String, photoId: String?): String = request(
+        path = "/v1/hikes/$hikeId/cover",
+        method = "PUT",
+        body = JSONObject().put("photo_id", photoId ?: JSONObject.NULL).toString().toRequestBody(jsonMediaType),
+    )
+
     suspend fun uploadRouteFile(hikeId: String, file: java.io.File, fileName: String): String = withContext(Dispatchers.IO) {
         if (!file.exists()) throw IOException("The selected TCX file is no longer available on this phone.")
         val multipart = MultipartBody.Builder()
@@ -267,10 +273,10 @@ class HikeJournalApi(private val context: Context) {
         method = "DELETE",
     )
 
-    suspend fun queueSpeciesReview(photoId: String): String = request(
+    suspend fun setSpeciesReview(photoId: String, queued: Boolean): String = request(
         path = "/v1/photos/$photoId/review",
-        method = "POST",
-        body = JSONObject().toString().toRequestBody(jsonMediaType),
+        method = "PUT",
+        body = JSONObject().put("queued", queued).toString().toRequestBody(jsonMediaType),
     )
 
     suspend fun uploadPhoto(

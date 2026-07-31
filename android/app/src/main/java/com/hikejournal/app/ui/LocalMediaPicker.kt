@@ -113,7 +113,7 @@ internal fun LocalMediaPickerDialog(
         runCatching { loadLocalMediaLibrary(context, access) }
             .onSuccess { albums = it }
             .onFailure {
-                loadError = "HikeJournal could not read the phone library. Check photo permissions and try again."
+                loadError = "HikeJournal couldn't open your photo library. Check access in Settings and try again."
             }
     }
 
@@ -210,9 +210,9 @@ internal fun LocalMediaPickerDialog(
                             }
                             Text(
                                 if (selectedUris.isEmpty()) {
-                                    "Select Photos"
+                                    "Select media"
                                 } else {
-                                    "Add ${selectedUris.size} Photo${if (selectedUris.size == 1) "" else "s"}"
+                                    "Add ${selectedUris.size} file${if (selectedUris.size == 1) "" else "s"}"
                                 },
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
@@ -245,7 +245,7 @@ internal fun LocalMediaPickerDialog(
                         detail = if (access.hasFullLibraryAccess) {
                             "No supported photos or videos under 30 MB are stored on this phone."
                         } else {
-                            "Android granted access to a limited selection, but no supported local files were available. Close this screen and choose Browse Photos again to expand access."
+                            "No supported photos or videos are available in your current selection. Close this screen and choose Browse media to pick more."
                         },
                     )
                     else -> AnimatedContent(
@@ -337,9 +337,9 @@ private fun LocalAlbumGrid(
                 )
                 Text(
                     if (limitedAccess) {
-                        "Showing the photos Android currently allows HikeJournal to read. These files stay on your phone until you confirm the upload."
+                        "Only your selected photos are shown. They stay on this phone until you add them to HikeJournal."
                     } else {
-                        "These are files still stored on this phone, so HikeJournal can read their original GPS and capture metadata."
+                        "Choose original photos or videos from this phone. Location and capture details are preserved when available."
                     },
                     style = MaterialTheme.typography.bodyMedium,
                     color = InkMuted,

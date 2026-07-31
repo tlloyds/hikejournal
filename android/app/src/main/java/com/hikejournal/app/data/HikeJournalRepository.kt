@@ -307,6 +307,14 @@ class HikeJournalRepository(context: Context) {
         fieldQueue.queueArchive(hikeId, archived)
     }
 
+    suspend fun setHikeCover(hikeId: String, photoId: String?, coverUrl: String) {
+        fieldQueue.queueHikeCover(hikeId, photoId, coverUrl)
+        withContext(Dispatchers.IO) {
+            File(cacheDirectory, "hikes.json").delete()
+            File(cacheDirectory, "hike-$hikeId.json").delete()
+        }
+    }
+
     suspend fun uploadPhoto(
         hikeId: String,
         uri: Uri,
@@ -326,8 +334,8 @@ class HikeJournalRepository(context: Context) {
 
     suspend fun deletePhoto(photoId: String, hikeId: String?) = fieldQueue.queueDeletePhoto(photoId, hikeId)
 
-    suspend fun queueSpeciesReview(photoId: String, hikeId: String?) {
-        fieldQueue.queueSpeciesReview(photoId, hikeId)
+    suspend fun setSpeciesReview(photoId: String, hikeId: String?, queued: Boolean) {
+        fieldQueue.queueSpeciesReview(photoId, hikeId, queued)
         withContext(Dispatchers.IO) { File(cacheDirectory, "species-review.json").delete() }
     }
 
@@ -335,7 +343,7 @@ class HikeJournalRepository(context: Context) {
 
     suspend fun retryAttention() = fieldQueue.retryAttention()
 
-    suspend fun clearSyncAttention() = fieldQueue.clearAttention()
+    suspend fun discardSyncAttention() = fieldQueue.discardAttention()
 
     private suspend fun overlayPendingCredit(nearby: NearbySpecies): NearbySpecies {
         val pendingTaxonIds = fieldQueue.pendingCreditTaxonIds()

@@ -76,7 +76,7 @@ fun localMediaAccess(context: Context): LocalMediaAccess {
         canReadImages = legacyRead || fullImages || partial,
         canReadVideos = legacyRead || fullVideos || partial,
         canReadLocations = location,
-        hasFullLibraryAccess = legacyRead || fullImages,
+        hasFullLibraryAccess = legacyRead || (fullImages && fullVideos),
     )
 }
 

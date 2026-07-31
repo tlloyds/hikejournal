@@ -103,6 +103,7 @@ fun PublishingScreen(
     offline: Boolean,
     onRefresh: () -> Unit,
     onPublish: (PublishItem, PublishOptions) -> Unit,
+    onConnectInat: () -> Unit,
     onClearNotice: () -> Unit,
 ) {
     var filter by remember { mutableStateOf(PublishFilter.Ready) }
@@ -180,7 +181,14 @@ fun PublishingScreen(
 
             when {
                 loading && queue.items.isEmpty() -> PublishLoading()
-                current == null -> PublishEmpty(filter, selectedHike?.title, queue.connected, onRefresh)
+                current == null -> PublishEmpty(
+                    filter = filter,
+                    hikeTitle = selectedHike?.title,
+                    connected = queue.connected,
+                    offline = offline,
+                    onConnectInat = onConnectInat,
+                    onRefresh = onRefresh,
+                )
                 else -> Box(
                     Modifier.weight(1f).pointerInput(signature, index) {
                         detectHorizontalDragGestures(
@@ -205,15 +213,21 @@ fun PublishingScreen(
                         label = "publish-record",
                     ) { targetId ->
                         val target = filtered.firstOrNull { it.id == targetId } ?: current
+                        val targetPosition = filtered.indexOfFirst { it.id == targetId }
+                            .takeIf { it >= 0 }
+                            ?.plus(1)
+                            ?: index + 1
                         PublishItemContent(
                             item = target,
-                            position = filtered.indexOfFirst { it.id == targetId }.takeIf { it >= 0 }?.plus(1) ?: index + 1,
+                            position = targetPosition,
                             total = filtered.size,
+                            hasNext = targetPosition < filtered.size,
                             connected = queue.connected,
                             offline = offline,
                             publishing = publishingId == target.id,
                             onNext = { if (index < filtered.lastIndex) index += 1 },
                             onPublish = { options -> onPublish(target, options) },
+                            onConnectInat = onConnectInat,
                         )
                     }
                 }
@@ -257,11 +271,13 @@ private fun PublishItemContent(
     item: PublishItem,
     position: Int,
     total: Int,
+    hasNext: Boolean,
     connected: Boolean,
     offline: Boolean,
     publishing: Boolean,
     onNext: () -> Unit,
     onPublish: (PublishOptions) -> Unit,
+    onConnectInat: () -> Unit,
 ) {
     var confirmOpen by remember(item.id) { mutableStateOf(false) }
     var includeRelated by remember(item.id) { mutableStateOf(true) }
@@ -307,21 +323,23 @@ private fun PublishItemContent(
                             } else if (connected) {
                                 "Ready to create a public iNaturalist observation with this photo, date, and location."
                             } else {
-                                "Connect iNaturalist in the Streamlit workspace before publishing here."
+                                "Connect iNaturalist to publish this observation."
                             },
                             style = MaterialTheme.typography.bodyMedium,
                             color = InkMuted,
                             modifier = Modifier.padding(top = 18.dp),
                         )
-                        Button(
-                            onClick = { confirmOpen = true },
-                            enabled = connected && !offline && !publishing,
-                            modifier = Modifier.fillMaxWidth().padding(top = 14.dp).height(52.dp),
-                        ) {
-                            if (publishing) CircularProgressIndicator(Modifier.size(19.dp), color = Paper, strokeWidth = 2.dp)
-                            else Icon(Icons.Rounded.CloudUpload, null)
-                            Spacer(Modifier.width(8.dp))
-                            Text(if (publishing) "Publishing…" else "Post to iNaturalist")
+                        if (connected) {
+                            Button(
+                                onClick = { confirmOpen = true },
+                                enabled = !offline && !publishing,
+                                modifier = Modifier.fillMaxWidth().padding(top = 14.dp).height(52.dp),
+                            ) {
+                                if (publishing) CircularProgressIndicator(Modifier.size(19.dp), color = Paper, strokeWidth = 2.dp)
+                                else Icon(Icons.Rounded.CloudUpload, null)
+                                Spacer(Modifier.width(8.dp))
+                                Text(if (publishing) "Publishing…" else "Post to iNaturalist")
+                            }
                         }
                     }
                     "needs_attention" -> {
@@ -363,7 +381,21 @@ private fun PublishItemContent(
                     }
                 }
 
-                OutlinedButton(onClick = onNext, enabled = !publishing, modifier = Modifier.fillMaxWidth().padding(top = 10.dp)) {
+                if (!connected) {
+                    Button(
+                        onClick = onConnectInat,
+                        enabled = !offline && !publishing,
+                        modifier = Modifier.fillMaxWidth().padding(top = 14.dp).height(52.dp),
+                    ) {
+                        Text("Connect iNaturalist")
+                    }
+                }
+
+                OutlinedButton(
+                    onClick = onNext,
+                    enabled = hasNext && !publishing,
+                    modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+                ) {
                     Icon(Icons.Rounded.SkipNext, null, Modifier.size(18.dp))
                     Spacer(Modifier.width(7.dp))
                     Text("Next record")
@@ -459,7 +491,14 @@ private fun PublishLoading() {
 }
 
 @Composable
-private fun PublishEmpty(filter: PublishFilter, hikeTitle: String?, connected: Boolean, onRefresh: () -> Unit) {
+private fun PublishEmpty(
+    filter: PublishFilter,
+    hikeTitle: String?,
+    connected: Boolean,
+    offline: Boolean,
+    onConnectInat: () -> Unit,
+    onRefresh: () -> Unit,
+) {
     Column(
         Modifier.fillMaxSize().padding(horizontal = 34.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -481,8 +520,27 @@ private fun PublishEmpty(filter: PublishFilter, hikeTitle: String?, connected: B
         hikeTitle?.let {
             Text(it, style = MaterialTheme.typography.bodyLarge, color = InkMuted, modifier = Modifier.padding(top = 7.dp))
         }
-        if (!connected) Text("Connect iNaturalist in Streamlit to enable publishing.", style = MaterialTheme.typography.bodyLarge, color = InkMuted, modifier = Modifier.padding(top = 7.dp))
-        OutlinedButton(onClick = onRefresh, modifier = Modifier.padding(top = 18.dp)) { Text("Check again") }
+        if (!connected) {
+            Text(
+                "Connect iNaturalist to publish confirmed sightings.",
+                style = MaterialTheme.typography.bodyLarge,
+                color = InkMuted,
+                modifier = Modifier.padding(top = 7.dp),
+            )
+            Button(
+                onClick = onConnectInat,
+                enabled = !offline,
+                modifier = Modifier.fillMaxWidth().padding(top = 18.dp).height(52.dp),
+            ) {
+                Text("Connect iNaturalist")
+            }
+        }
+        OutlinedButton(
+            onClick = onRefresh,
+            modifier = Modifier.padding(top = if (connected) 18.dp else 10.dp),
+        ) {
+            Text("Check again")
+        }
     }
 }
 

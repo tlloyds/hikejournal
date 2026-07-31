@@ -26,6 +26,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -78,6 +79,7 @@ import androidx.compose.material.icons.rounded.WorkspacePremium
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Divider
 import androidx.compose.material3.FilledIconButton
@@ -115,6 +117,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -217,7 +220,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
             }
             !access.canReadLocations -> {
                 localMediaPermissionError =
-                    "Photo access was granted, but photo-location access is still off. Enable it so HikeJournal can read embedded GPS coordinates."
+                    "Media access is on, but location details are still off. Enable them to preserve each photo or video’s GPS coordinates."
             }
             else -> localMediaPickerOpen = true
         }
@@ -323,13 +326,13 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                         hike = journal,
                         state = state,
                         onBack = viewModel::closeJournal,
-                        onEdit = { editingHike = journal },
-                        onArchive = { viewModel.setArchived(journal) },
-                        onExploreSpecies = {
+                        onEdit = if (journal.isStandalone) null else ({ editingHike = journal }),
+                        onArchive = if (journal.isStandalone) null else ({ viewModel.setArchived(journal) }),
+                        onExploreSpecies = if (journal.isStandalone) null else ({
                             speciesEntryAreaName = journal.locationName
                             viewModel.closeJournal()
                             destination = TopDestination.Species
-                        },
+                        }),
                         onAddPhotos = launchLocalMediaPicker,
                         onViewMap = {
                             hikeMapRequest = HikeMapRequest(hike = journal)
@@ -404,6 +407,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                     offline = state.isOffline,
                     onRefresh = { viewModel.loadPublishQueue(force = true) },
                     onPublish = viewModel::publishObservation,
+                    onConnectInat = viewModel::connectInat,
                     onClearNotice = viewModel::clearPublishNotice,
                 )
                 destination == TopDestination.Map -> SightingsMapScreen(
@@ -543,7 +547,9 @@ fun HikeJournalApp(viewModel: AppViewModel) {
             photo = photo,
             position = photoIndex.takeIf { it >= 0 }?.plus(1) ?: 1,
             total = photos.size.coerceAtLeast(1),
-            queuingReview = state.queuingReviewId == photo.id,
+            updatingReview = state.reviewUpdateId == photo.id,
+            isCoverPhoto = state.journal?.coverPhotoId == photo.id,
+            updatingCover = state.coverUpdateId == photo.id,
             openingMap = openingPhotoMapId == photo.id,
             onDismiss = {
                 if (openingPhotoMapId == photo.id) {
@@ -554,17 +560,26 @@ fun HikeJournalApp(viewModel: AppViewModel) {
             onPrevious = photoIndex.takeIf { it > 0 }?.let { index -> { selectedPhoto = photos[index - 1] } },
             onNext = photoIndex.takeIf { it >= 0 && it < photos.lastIndex }?.let { index -> { selectedPhoto = photos[index + 1] } },
             onSaveCaption = { caption ->
-                viewModel.updateCaption(photo.id, caption)
+                viewModel.updateCaption(photo, caption)
                 selectedPhoto = null
             },
             onDelete = {
-                viewModel.deletePhoto(photo.id)
+                viewModel.deletePhoto(photo)
                 selectedPhoto = null
             },
-            onQueueReview = { viewModel.queueSpeciesReview(photo) },
+            onSetReview = { queued ->
+                selectedPhoto = photo.copy(
+                    processingStatus = if (queued) "in_review" else "ready",
+                    syncState = if (photo.syncState == "synced") "queued" else photo.syncState,
+                )
+                viewModel.setSpeciesReview(photo, queued)
+            },
+            onSetCover = state.journal?.takeUnless { it.isStandalone || photo.isVideo }?.let {
+                { selected: Boolean -> viewModel.setHikeCover(photo, selected) }
+            },
             onViewMap = if (photo.latitude != null && photo.longitude != null) {
                 {
-                    val currentJournal = state.journal?.takeIf { it.id == photo.hikeId }
+                    val currentJournal = state.journal?.takeIf { it.isStandalone || it.id == photo.hikeId }
                     if (currentJournal != null || photo.hikeId == null) {
                         openingPhotoMapId = null
                         hikeMapRequest = HikeMapRequest(
@@ -609,7 +624,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
         SyncAttentionSheet(
             items = state.syncStatus.attentionItems,
             onRetry = viewModel::retrySyncAttention,
-            onClear = viewModel::clearSyncAttention,
+            onDiscard = viewModel::discardSyncAttention,
             onDismiss = { syncAttentionOpen = false },
         )
     }
@@ -629,7 +644,10 @@ private fun LibraryScreen(
 ) {
     var query by remember { mutableStateOf("") }
     var showArchived by remember { mutableStateOf(false) }
-    val visibleHikes = state.hikes.filter { hike ->
+    val everyday = state.hikes.firstOrNull { it.isStandalone }?.takeIf { hike ->
+        query.isBlank() || listOf(hike.title, hike.notes).any { it.contains(query, ignoreCase = true) }
+    }
+    val visibleHikes = state.hikes.filterNot { it.isStandalone }.filter { hike ->
         (showArchived || !hike.isArchived) && listOf(hike.title, hike.locationName, hike.notes)
             .any { it.contains(query, ignoreCase = true) }
     }
@@ -654,7 +672,7 @@ private fun LibraryScreen(
         ) {
             item {
                 LibraryHeader(
-                    hikeCount = state.hikes.count { !it.isArchived },
+                    hikeCount = state.hikes.count { !it.isArchived && !it.isStandalone },
                     offline = state.isOffline,
                     refreshing = state.isRefreshing,
                     onRefresh = onRefresh,
@@ -688,6 +706,15 @@ private fun LibraryScreen(
                     }
                 }
             }
+            everyday?.let { journal ->
+                item {
+                    EverydayRow(
+                        journal = journal,
+                        opening = state.openingHikeId == journal.id,
+                        onOpen = onOpenHike,
+                    )
+                }
+            }
             if (state.isLoading && state.hikes.isEmpty()) {
                 item { LoadingFieldNotes() }
             } else if (featured == null) {
@@ -710,6 +737,45 @@ private fun LibraryScreen(
             }
         }
     }
+}
+
+@Composable
+private fun EverydayRow(journal: Hike, opening: Boolean, onOpen: (String) -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(enabled = !opening) { onOpen(journal.id) }
+            .background(Paper)
+            .padding(horizontal = 20.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(74.dp).background(Moss)) {
+            if (journal.coverUrl.isNotBlank()) {
+                AsyncImage(journal.coverUrl, "Latest everyday sighting", Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            } else {
+                MountainField(Modifier.fillMaxSize())
+            }
+        }
+        Column(Modifier.weight(1f).padding(start = 14.dp)) {
+            Text("EVERYDAY SIGHTINGS", style = MaterialTheme.typography.labelSmall, color = TrailText)
+            Text(
+                if (journal.photoCount == 0) "Add a quick observation" else "${journal.photoCount} field record${if (journal.photoCount == 1) "" else "s"}",
+                style = MaterialTheme.typography.titleMedium,
+                color = Ink,
+            )
+            Text(
+                "Photos and videos outside a hike",
+                style = MaterialTheme.typography.bodyMedium,
+                color = InkMuted,
+            )
+        }
+        if (opening) {
+            CircularProgressIndicator(Modifier.size(22.dp), color = Trail, strokeWidth = 2.dp)
+        } else {
+            Icon(Icons.Rounded.ChevronRight, "Open everyday sightings", tint = Fern)
+        }
+    }
+    HorizontalDivider(color = Line)
 }
 
 @Composable
@@ -836,9 +902,10 @@ private fun SyncStrip(
 private fun SyncAttentionSheet(
     items: List<SyncAttention>,
     onRetry: () -> Unit,
-    onClear: () -> Unit,
+    onDiscard: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    var confirmDiscard by remember(items.size) { mutableStateOf(false) }
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Paper) {
         Column(
             Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).navigationBarsPadding().padding(horizontal = 20.dp).padding(bottom = 28.dp),
@@ -846,7 +913,7 @@ private fun SyncAttentionSheet(
             Text("SYNC ATTENTION", style = MaterialTheme.typography.labelSmall, color = TrailText)
             Text("Changes that could not sync", style = MaterialTheme.typography.headlineLarge, color = Ink)
             Text(
-                "These changes remain safely on this phone. Review the server response below, then retry after correcting the cause.",
+                "These changes remain on this phone. Review the message below, then retry when you’re ready.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = InkMuted,
                 modifier = Modifier.padding(top = 5.dp),
@@ -861,13 +928,39 @@ private fun SyncAttentionSheet(
                 Text("Retry all changes")
             }
             OutlinedButton(
-                onClick = { onClear(); onDismiss() },
+                onClick = { confirmDiscard = true },
                 modifier = Modifier.fillMaxWidth().padding(top = 9.dp),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
             ) {
-                Text("Clear errors")
+                Text("Discard unsynced changes")
             }
             TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth().padding(top = 3.dp)) { Text("Close") }
         }
+    }
+    if (confirmDiscard) {
+        AlertDialog(
+            onDismissRequest = { confirmDiscard = false },
+            title = { Text("Discard these changes?") },
+            text = {
+                Text(
+                    "${items.size} unsynced change${if (items.size == 1) "" else "s"} will be permanently removed from this phone.",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onDiscard()
+                        confirmDiscard = false
+                        onDismiss()
+                    },
+                ) {
+                    Text("Discard", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDiscard = false }) { Text("Keep changes") }
+            },
+        )
     }
 }
 
@@ -876,9 +969,11 @@ private fun syncOperationLabel(kind: String): String = when (kind) {
     "update_hike" -> "Update outing"
     "archive_hike" -> "Archive outing"
     "upload_photo" -> "Upload photo"
+    "upload_route" -> "Upload route"
+    "set_hike_cover" -> "Set hike cover"
     "update_caption" -> "Save photo note"
     "delete_photo" -> "Delete photo"
-    "queue_species_review" -> "Queue species review"
+    "queue_species_review" -> "Update species review"
     "review_decision" -> "Save species decision"
     "update_species_quest" -> "Save Field Quest focus"
     else -> "Sync change"
@@ -1017,9 +1112,9 @@ private fun JournalScreen(
     hike: Hike,
     state: AppState,
     onBack: () -> Unit,
-    onEdit: () -> Unit,
-    onArchive: () -> Unit,
-    onExploreSpecies: () -> Unit,
+    onEdit: (() -> Unit)?,
+    onArchive: (() -> Unit)?,
+    onExploreSpecies: (() -> Unit)?,
     onAddPhotos: () -> Unit,
     onViewMap: () -> Unit,
     onPhoto: (Photo) -> Unit,
@@ -1065,7 +1160,7 @@ private fun JournalScreen(
                                 color = Ink,
                             )
                             Text(
-                                "Loading ${hike.photoCount} photo${if (hike.photoCount == 1) "" else "s"}…",
+                                "Loading ${hike.photoCount} capture${if (hike.photoCount == 1) "" else "s"}…",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = InkMuted,
                             )
@@ -1080,12 +1175,14 @@ private fun JournalScreen(
                     ) {
                         Icon(Icons.Rounded.CameraAlt, null, Modifier.size(19.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text("Browse Photos")
+                        Text("Browse media")
                     }
-                    OutlinedButton(onClick = onEdit) {
-                        Icon(Icons.Rounded.Edit, null, Modifier.size(18.dp))
-                        Spacer(Modifier.width(7.dp))
-                        Text("Edit notes")
+                    if (onEdit != null) {
+                        OutlinedButton(onClick = onEdit) {
+                            Icon(Icons.Rounded.Edit, null, Modifier.size(18.dp))
+                            Spacer(Modifier.width(7.dp))
+                            Text("Edit notes")
+                        }
                     }
                 }
                 OutlinedButton(
@@ -1097,10 +1194,12 @@ private fun JournalScreen(
                     Spacer(Modifier.width(7.dp))
                     Text("View map")
                 }
-                TextButton(onClick = onExploreSpecies, modifier = Modifier.padding(top = 6.dp)) {
-                    Icon(Icons.AutoMirrored.Rounded.FactCheck, null, Modifier.size(18.dp))
-                    Spacer(Modifier.width(7.dp))
-                    Text("Explore species near this outing")
+                if (onExploreSpecies != null) {
+                    TextButton(onClick = onExploreSpecies, modifier = Modifier.padding(top = 6.dp)) {
+                        Icon(Icons.AutoMirrored.Rounded.FactCheck, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(7.dp))
+                        Text("Explore species near this outing")
+                    }
                 }
                 if (state.uploadTotal > 0) {
                     Column(Modifier.fillMaxWidth().padding(top = 18.dp)) {
@@ -1122,7 +1221,7 @@ private fun JournalScreen(
             ) {
                 Column {
                     Text("FIELD NOTES", style = MaterialTheme.typography.labelSmall, color = TrailText)
-                    Text("Photo journal", style = MaterialTheme.typography.headlineMedium, color = Ink)
+                    Text("Field journal", style = MaterialTheme.typography.headlineMedium, color = Ink)
                 }
                 Text(
                     "${if (opening) hike.photoCount else hike.photos.size} frames",
@@ -1152,7 +1251,12 @@ private fun JournalScreen(
 }
 
 @Composable
-private fun JournalHero(hike: Hike, onBack: () -> Unit, onEdit: () -> Unit, onArchive: () -> Unit) {
+private fun JournalHero(
+    hike: Hike,
+    onBack: () -> Unit,
+    onEdit: (() -> Unit)?,
+    onArchive: (() -> Unit)?,
+) {
     Box(Modifier.fillMaxWidth().height(330.dp).background(Moss)) {
         if (hike.coverUrl.isNotBlank()) {
             AsyncImage(hike.coverUrl, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
@@ -1168,12 +1272,16 @@ private fun JournalHero(hike: Hike, onBack: () -> Unit, onEdit: () -> Unit, onAr
                 Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = Paper)
             }
             Spacer(Modifier.weight(1f))
-            FilledIconButton(onClick = onEdit, colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(containerColor = Color(0x99172820))) {
-                Icon(Icons.Rounded.Edit, "Edit hike", tint = Paper)
+            if (onEdit != null) {
+                FilledIconButton(onClick = onEdit, colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(containerColor = Color(0x99172820))) {
+                    Icon(Icons.Rounded.Edit, "Edit hike", tint = Paper)
+                }
             }
-            Spacer(Modifier.width(6.dp))
-            FilledIconButton(onClick = onArchive, colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(containerColor = Color(0x99172820))) {
-                Icon(if (hike.isArchived) Icons.Rounded.Unarchive else Icons.Rounded.Archive, "Archive hike", tint = Paper)
+            if (onArchive != null) {
+                Spacer(Modifier.width(6.dp))
+                FilledIconButton(onClick = onArchive, colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(containerColor = Color(0x99172820))) {
+                    Icon(if (hike.isArchived) Icons.Rounded.Unarchive else Icons.Rounded.Archive, "Archive hike", tint = Paper)
+                }
             }
         }
         Text("HikeJournal", style = MaterialTheme.typography.headlineSmall, color = Paper, modifier = Modifier.align(Alignment.BottomStart).padding(20.dp))
@@ -1304,6 +1412,8 @@ private fun HikeEditorSheet(
                     when {
                         title.isBlank() -> validation = "Give this outing a title."
                         !isValidDate(date) -> validation = "Use a date like 2026-07-12."
+                        distance.isNotBlank() && (distance.toDoubleOrNull()?.takeIf { it.isFinite() && it >= 0.0 } == null) ->
+                            validation = "Enter a distance like 3.5, or leave it blank."
                         else -> onSave(HikeDraft(title.trim(), date, distance.toDoubleOrNull(), location.trim(), notes.trim()))
                     }
                 },
@@ -1331,11 +1441,19 @@ private fun UploadSheet(
     val missingLocations = locationSummary?.missingCount ?: 0
     val locationsReady = locationSummary?.allGeotagged == true
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Paper) {
-        Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 20.dp).padding(bottom = 28.dp)) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .imePadding()
+                .navigationBarsPadding()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 28.dp),
+        ) {
             Text("$photoCount FILE${if (photoCount == 1) "" else "S"} SELECTED", style = MaterialTheme.typography.labelSmall, color = TrailText)
             Text("Add to this journal", style = MaterialTheme.typography.headlineLarge, color = Ink)
             Text(
-                "HikeJournal checks embedded coordinates before saving so map and species tools do not silently lose their location context.",
+                "HikeJournal checks for embedded coordinates so each entry can appear accurately on maps and in species tools.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = InkMuted,
                 modifier = Modifier.padding(top = 6.dp),
@@ -1372,11 +1490,11 @@ private fun UploadSheet(
                     }
                 }
             }
-            OutlinedTextField(caption, { caption = it }, Modifier.fillMaxWidth().padding(top = 18.dp), label = { Text("Shared caption · optional") })
+            OutlinedTextField(caption, { caption = it }, Modifier.fillMaxWidth().padding(top = 18.dp), label = { Text("Note · optional") })
             Row(Modifier.fillMaxWidth().padding(vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("Queue for species review", style = MaterialTheme.typography.titleMedium)
-                    Text("Review in Android or the web workspace", style = MaterialTheme.typography.bodyMedium, color = InkMuted)
+                    Text("Add to species review", style = MaterialTheme.typography.titleMedium)
+                    Text("Identify this entry later in Species review.", style = MaterialTheme.typography.bodyMedium, color = InkMuted)
                 }
                 Switch(queueForReview, { queueForReview = it })
             }
@@ -1388,7 +1506,7 @@ private fun UploadSheet(
                 ) {
                     Icon(Icons.Rounded.LocationOn, null)
                     Spacer(Modifier.width(8.dp))
-                    Text("Browse Photos")
+                    Text("Browse media")
                 }
                 TextButton(
                     onClick = { onUpload(caption, queueForReview) },
@@ -1422,14 +1540,17 @@ private fun PhotoViewer(
     photo: Photo,
     position: Int,
     total: Int,
-    queuingReview: Boolean,
+    updatingReview: Boolean,
+    isCoverPhoto: Boolean,
+    updatingCover: Boolean,
     openingMap: Boolean,
     onDismiss: () -> Unit,
     onPrevious: (() -> Unit)?,
     onNext: (() -> Unit)?,
     onSaveCaption: (String) -> Unit,
     onDelete: () -> Unit,
-    onQueueReview: () -> Unit,
+    onSetReview: (Boolean) -> Unit,
+    onSetCover: ((Boolean) -> Unit)?,
     onViewMap: (() -> Unit)?,
 ) {
     var caption by remember(photo.id) { mutableStateOf(photo.caption) }
@@ -1502,30 +1623,27 @@ private fun PhotoViewer(
                     Text("Field Video", style = MaterialTheme.typography.titleMedium, color = Paper, modifier = Modifier.padding(top = 10.dp))
                     Text("Tap the expand icon for player-only viewing. Videos are not eligible for species review.", style = MaterialTheme.typography.bodyMedium, color = Color(0xFFBFD2B9), modifier = Modifier.padding(top = 4.dp))
                 } else {
-                    AnimatedContent(
-                        targetState = photo.processingStatus == "in_review",
-                        modifier = Modifier.padding(top = 10.dp),
-                        label = "photo-review-state",
-                    ) { inReview ->
-                        if (inReview) {
-                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.AutoMirrored.Rounded.FactCheck, null, tint = Trail, modifier = Modifier.size(25.dp))
-                                Column(Modifier.padding(start = 10.dp)) {
-                                    Text("In species review", style = MaterialTheme.typography.titleMedium, color = Paper)
-                                    Text(if (photo.syncState == "synced") "Ready in the shared Review workspace." else "Saved on this phone and will sync automatically.", style = MaterialTheme.typography.bodyMedium, color = Color(0xFFBFD2B9))
-                                }
-                            }
+                    PhotoSettingRow(
+                        checked = photo.processingStatus == "in_review",
+                        updating = updatingReview,
+                        title = "Species review",
+                        detail = if (photo.processingStatus == "in_review") {
+                            if (photo.syncState == "synced") "Included in your identification queue." else "Saved and will update when connected."
                         } else {
-                            Column {
-                                OutlinedButton(onClick = onQueueReview, enabled = !queuingReview, modifier = Modifier.fillMaxWidth().height(50.dp), border = BorderStroke(1.dp, Color(0xFF91AA8C)), colors = ButtonDefaults.outlinedButtonColors(contentColor = Paper)) {
-                                    if (queuingReview) CircularProgressIndicator(Modifier.size(18.dp), color = Paper, strokeWidth = 2.dp)
-                                    else Icon(Icons.AutoMirrored.Rounded.FactCheck, null)
-                                    Spacer(Modifier.width(8.dp))
-                                    Text(if (queuingReview) "Adding to review…" else "Send to species review")
-                                }
-                                Text("Shared with Android and Streamlit; syncs automatically.", style = MaterialTheme.typography.bodyMedium, color = Color(0xFFBFD2B9), modifier = Modifier.padding(top = 7.dp))
-                            }
-                        }
+                            "Include this photo for identification."
+                        },
+                        onCheckedChange = onSetReview,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                    if (onSetCover != null) {
+                        PhotoSettingRow(
+                            checked = isCoverPhoto,
+                            updating = updatingCover,
+                            title = "Hike cover",
+                            detail = if (isCoverPhoto) "Shown in your archive and journal." else "Use this photo as the hike cover.",
+                            onCheckedChange = onSetCover,
+                            modifier = Modifier.padding(top = 2.dp),
+                        )
                     }
                 }
                 HorizontalDivider(color = Color(0xFF405148), modifier = Modifier.padding(vertical = 13.dp))
@@ -1560,13 +1678,50 @@ private fun PhotoViewer(
         }
     }
     if (confirmDelete) {
+        val mediaName = if (photo.isVideo) "video" else "photo"
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
             title = { Text(if (photo.isVideo) "Delete this video?" else "Delete this photo?") },
-            text = { Text("This removes the database record and stored media. This cannot be undone.") },
+            text = { Text("This permanently removes this $mediaName from HikeJournal.") },
             confirmButton = { TextButton(onClick = onDelete) { Text("Delete", color = MaterialTheme.colorScheme.error) } },
-            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Keep photo") } },
+            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Keep $mediaName") } },
         )
+    }
+}
+
+@Composable
+private fun PhotoSettingRow(
+    checked: Boolean,
+    updating: Boolean,
+    title: String,
+    detail: String,
+    onCheckedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier
+            .fillMaxWidth()
+            .toggleable(
+                value = checked,
+                enabled = !updating,
+                role = Role.Checkbox,
+                onValueChange = onCheckedChange,
+            )
+            .padding(vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Checkbox(checked = checked, onCheckedChange = null, enabled = !updating)
+        Column(Modifier.weight(1f).padding(start = 8.dp)) {
+            Text(title, style = MaterialTheme.typography.titleMedium, color = Paper)
+            Text(detail, style = MaterialTheme.typography.bodyMedium, color = Color(0xFFBFD2B9))
+        }
+        if (updating) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(18.dp),
+                color = Paper,
+                strokeWidth = 2.dp,
+            )
+        }
     }
 }
 
@@ -1599,6 +1754,7 @@ private fun SettingsDialog(
 ) {
     var url by remember(currentUrl) { mutableStateOf(currentUrl) }
     var key by remember(currentKey) { mutableStateOf(currentKey) }
+    var validation by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -1615,17 +1771,41 @@ private fun SettingsDialog(
                     singleLine = true,
                     visualTransformation = PasswordVisualTransformation(),
                 )
+                validation?.let {
+                    Text(
+                        it,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                }
                 TextButton(
                     onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(BuildConfig.DEFAULT_WEB_URL))) },
                     modifier = Modifier.padding(top = 8.dp),
                 ) {
                     Icon(Icons.AutoMirrored.Rounded.OpenInNew, null)
                     Spacer(Modifier.width(7.dp))
-                    Text("Open Streamlit workspace")
+                    Text("Open HikeJournal on the web")
                 }
             }
         },
-        confirmButton = { TextButton(onClick = { onSave(url, key) }) { Text("Reconnect") } },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val cleanUrl = url.trim()
+                    when {
+                        cleanUrl.isBlank() -> validation = "Enter the HikeJournal connection address."
+                        !cleanUrl.startsWith("https://", ignoreCase = true) &&
+                            !cleanUrl.startsWith("http://", ignoreCase = true) ->
+                            validation = "Start the address with https:// or http://."
+                        key.isBlank() -> validation = "Enter the pairing key."
+                        else -> onSave(cleanUrl, key.trim())
+                    }
+                },
+            ) {
+                Text("Reconnect")
+            }
+        },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
@@ -1654,7 +1834,7 @@ private fun EmptyLibrary(onCreate: () -> Unit) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 28.dp, vertical = 70.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         MountainField(Modifier.fillMaxWidth().height(180.dp))
         Text("No outings here yet", style = MaterialTheme.typography.headlineLarge, color = Ink)
-        Text("Create the first field note and it will appear in Streamlit too.", style = MaterialTheme.typography.bodyMedium, color = InkMuted)
+        Text("Create your first outing, or start with a quick everyday sighting.", style = MaterialTheme.typography.bodyMedium, color = InkMuted)
         Button(onClick = onCreate, modifier = Modifier.padding(top = 18.dp)) { Text("Create a hike") }
     }
 }
@@ -1664,7 +1844,7 @@ private fun EmptyPhotos(onAdd: () -> Unit) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 42.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Icon(Icons.Rounded.Image, null, tint = Fern, modifier = Modifier.size(48.dp))
         Text("The first frame is waiting", style = MaterialTheme.typography.headlineSmall, color = Ink, modifier = Modifier.padding(top = 12.dp))
-        TextButton(onClick = onAdd) { Text("Browse Photos") }
+        TextButton(onClick = onAdd) { Text("Browse media") }
     }
 }
 
@@ -1697,7 +1877,7 @@ private fun hikeMeta(hike: Hike): String {
     val parts = mutableListOf<String>()
     if (hike.locationName.isNotBlank()) parts += hike.locationName
     hike.distanceMiles?.let { parts += String.format(Locale.US, "%.1f mi", it) }
-    if (hike.photoCount > 0) parts += "${hike.photoCount} photos"
+    if (hike.photoCount > 0) parts += "${hike.photoCount} captures"
     return parts.joinToString(" · ").ifBlank { "Field journal" }
 }
 

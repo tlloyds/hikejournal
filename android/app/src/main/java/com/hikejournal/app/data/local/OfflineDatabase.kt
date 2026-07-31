@@ -43,8 +43,11 @@ interface PendingOperationDao {
     @Query("DELETE FROM pending_operations WHERE id = :id")
     suspend fun delete(id: String)
 
-    @Query("DELETE FROM pending_operations WHERE kind = :kind AND entityId = :entityId AND state = 'queued'")
-    suspend fun deleteQueued(kind: String, entityId: String)
+    @Query(
+        "DELETE FROM pending_operations WHERE kind = :kind AND entityId = :entityId " +
+            "AND state IN ('queued', 'needs_attention')",
+    )
+    suspend fun deleteReplaceable(kind: String, entityId: String)
 
     @Query("SELECT * FROM pending_operations WHERE kind = :kind AND entityId = :entityId LIMIT 1")
     suspend fun find(kind: String, entityId: String): PendingOperationEntity?
@@ -64,8 +67,11 @@ interface PendingOperationDao {
     @Query("UPDATE pending_operations SET state = 'queued', attemptCount = 0, lastError = NULL, updatedAt = :updatedAt WHERE state = 'needs_attention'")
     suspend fun retryAttention(updatedAt: Long)
 
-    @Query("DELETE FROM pending_operations WHERE state = 'needs_attention'")
-    suspend fun clearAttention()
+    @Query("SELECT * FROM pending_operations WHERE state = 'needs_attention' ORDER BY createdAt ASC")
+    suspend fun listAttention(): List<PendingOperationEntity>
+
+    @Query("DELETE FROM pending_operations WHERE id = :id AND state = 'needs_attention'")
+    suspend fun discardAttention(id: String)
 }
 
 @Database(entities = [PendingOperationEntity::class], version = 1, exportSchema = true)

@@ -143,10 +143,15 @@ fun SpeciesReviewScreen(
                     label = "review-photo",
                 ) { targetId ->
                     val targetItem = queue.firstOrNull { it.id == targetId } ?: item
+                    val targetPosition = queue.indexOfFirst { it.id == targetId }
+                        .takeIf { it >= 0 }
+                        ?.plus(1)
+                        ?: index + 1
                     ReviewItemContent(
                         item = targetItem,
-                        position = queue.indexOfFirst { it.id == targetId }.takeIf { it >= 0 }?.plus(1) ?: index + 1,
+                        position = targetPosition,
                         total = queue.size,
+                        hasNext = targetPosition < queue.size,
                         deciding = decidingId == targetItem.id,
                         identifying = identifyingId == targetItem.id,
                         enabled = !offline && decidingId == null && identifyingId == null,
@@ -166,6 +171,7 @@ private fun ReviewItemContent(
     item: ReviewItem,
     position: Int,
     total: Int,
+    hasNext: Boolean,
     deciding: Boolean,
     identifying: Boolean,
     enabled: Boolean,
@@ -221,12 +227,14 @@ private fun ReviewItemContent(
                         Spacer(Modifier.width(8.dp))
                         Text(if (identifying) "Asking iNaturalist…" else "Get iNaturalist recommendation")
                     }
-                    Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        OutlinedButton(onClick = onNext, enabled = !identifying, modifier = Modifier.fillMaxWidth()) {
-                            Icon(Icons.Rounded.SkipNext, null, Modifier.size(18.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text("Skip for now")
-                        }
+                    OutlinedButton(
+                        onClick = onNext,
+                        enabled = hasNext && !identifying,
+                        modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+                    ) {
+                        Icon(Icons.Rounded.SkipNext, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Skip for now")
                     }
                     TextButton(onClick = onConnectInat, enabled = !identifying, modifier = Modifier.fillMaxWidth().padding(top = 5.dp)) {
                         Text("Connect iNaturalist")
@@ -255,7 +263,7 @@ private fun ReviewItemContent(
                         Text(if (selectedIndex == 0) "Confirm ID" else "Use this ID")
                     }
                     Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        OutlinedButton(onClick = onNext, enabled = deciding.not(), modifier = Modifier.weight(1f)) {
+                        OutlinedButton(onClick = onNext, enabled = hasNext && deciding.not(), modifier = Modifier.weight(1f)) {
                             Icon(Icons.Rounded.SkipNext, null, Modifier.size(18.dp))
                             Spacer(Modifier.width(5.dp))
                             Text("Skip")

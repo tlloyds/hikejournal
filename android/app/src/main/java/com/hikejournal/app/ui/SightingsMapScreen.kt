@@ -2,6 +2,7 @@
 
 package com.hikejournal.app.ui
 
+import android.graphics.RectF
 import android.os.Bundle
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -257,14 +258,14 @@ private fun OfflineMapPacksSheet(
             Text("FIELD MAPS", style = MaterialTheme.typography.labelSmall, color = TrailText)
             Text("Keep this area offline", style = MaterialTheme.typography.headlineMedium, color = Ink)
             Text(
-                "Download the map currently on screen through zoom 15. Completed packs remain available without service.",
+                "Save the map area currently on screen for use without a connection.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = InkMuted,
                 modifier = Modifier.padding(top = 5.dp),
             )
             if (layerMode == MapLayerMode.Satellite && satelliteStyle.isBlank()) {
                 Text(
-                    "Satellite downloads are locked until an imagery provider with offline-storage rights is configured. Online satellite view still works.",
+                    "Satellite maps can be viewed online, but they aren't available to download yet.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = Color(0xFF8F3D32),
                     modifier = Modifier.padding(top = 14.dp),
@@ -388,6 +389,7 @@ internal fun HikeJournalMap(
 ) {
     val context = LocalContext.current
     val controller = remember { NativeMapController() }
+    controller.tapRadiusPx = 24f * context.resources.displayMetrics.density
     controller.onSelect = onSelect
     controller.onViewportChanged = onViewportChanged
     controller.sightingsById = sightings.associateBy { it.id }
@@ -430,6 +432,7 @@ private class NativeMapController {
     var onViewportChanged: (MapViewport) -> Unit = {}
     var selectedSighting: Sighting? = null
     var focusedSightingId: String? = null
+    var tapRadiusPx: Float = 24f
     private var map: MapLibreMap? = null
     private var fitted = false
     private var layerMode = MapLayerMode.Satellite
@@ -444,7 +447,16 @@ private class NativeMapController {
         if (!clickListenerAttached) {
             clickListenerAttached = true
             map.addOnMapClickListener { latLng ->
-                val features = map.queryRenderedFeatures(map.projection.toScreenLocation(latLng), LAYER_ID)
+                val point = map.projection.toScreenLocation(latLng)
+                val features = map.queryRenderedFeatures(
+                    RectF(
+                        point.x - tapRadiusPx,
+                        point.y - tapRadiusPx,
+                        point.x + tapRadiusPx,
+                        point.y + tapRadiusPx,
+                    ),
+                    LAYER_ID,
+                )
                 val id = features.firstOrNull()?.getStringProperty("sighting_id")
                 sightingsById[id]?.let(onSelect)
                 id != null

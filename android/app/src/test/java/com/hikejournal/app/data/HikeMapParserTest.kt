@@ -24,4 +24,23 @@ class HikeMapParserTest {
         assertEquals(28.1, hike.routeSegments.single().first().latitude, 0.000001)
         assertEquals(-82.2, hike.routeSegments.single().last().longitude, 0.000001)
     }
+
+    @Test
+    fun `hike parser preserves everyday and cover metadata`() {
+        val hike = parseHike(
+            """
+            {
+              "id":"everyday",
+              "title":"Everyday sightings",
+              "is_standalone":true,
+              "cover_photo_id":"photo-1",
+              "cover_url":"https://example.test/photo-1.jpg",
+              "photos":[]
+            }
+            """.trimIndent(),
+        )
+
+        assertEquals(true, hike.isStandalone)
+        assertEquals("photo-1", hike.coverPhotoId)
+    }
 }
