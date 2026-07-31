@@ -3,10 +3,16 @@ package com.hikejournal.app.data
 import android.content.Context
 import android.net.Uri
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+
+data class HikeDeletionResult(
+    val notice: String? = null,
+    val warning: String? = null,
+)
 
 class HikeJournalRepository(context: Context) {
     private val appContext = context.applicationContext
@@ -38,9 +44,9 @@ class HikeJournalRepository(context: Context) {
         return result.copy(value = fieldQueue.overlayHikes(result.value))
     }
 
-    suspend fun loadHike(hikeId: String): LoadResult<Hike> {
+    suspend fun loadHike(hikeId: String): LoadResult<Hike> = journalCacheMutex.withLock {
         val cacheFile = File(cacheDirectory, "hike-$hikeId.json")
-        return try {
+        try {
             val json = api.getHikeJson(hikeId)
             withContext(Dispatchers.IO) { cacheFile.writeText(json) }
             val parsed = withContext(Dispatchers.Default) { parseHike(json) }
@@ -56,7 +62,7 @@ class HikeJournalRepository(context: Context) {
         }
     }
 
-    suspend fun loadCachedHike(hikeId: String): Hike? {
+    suspend fun loadCachedHike(hikeId: String): Hike? = journalCacheMutex.withLock {
         val cacheFile = File(cacheDirectory, "hike-$hikeId.json")
         val parsed = withContext(Dispatchers.IO) {
             cacheFile
@@ -65,20 +71,31 @@ class HikeJournalRepository(context: Context) {
                 ?.takeIf { it.isNotBlank() }
                 ?.let(::parseHike)
         }
-        return fieldQueue.overlayHike(parsed, hikeId)
+        fieldQueue.overlayHike(parsed, hikeId)
     }
 
-    suspend fun loadSpecies(): LoadResult<List<SpeciesRecord>> = loadWithCache(
-        cacheFile = File(cacheDirectory, "species.json"),
-        fetch = api::getSpeciesJson,
-        parse = ::parseSpeciesList,
-    )
+    suspend fun loadSpecies(): LoadResult<List<SpeciesRecord>> {
+        val result = loadWithCache(
+            cacheFile = File(cacheDirectory, "species.json"),
+            fetch = api::getSpeciesJson,
+            parse = ::parseSpeciesList,
+        )
+        val deletedHikeIds = fieldQueue.deletedHikeIds()
+        return result.copy(
+            value = result.value.mapNotNull { it.withoutHikes(deletedHikeIds) },
+        )
+    }
 
-    suspend fun loadSpeciesDetail(key: String): LoadResult<SpeciesRecord> = loadWithCache(
-        cacheFile = File(cacheDirectory, "species-${key.hashCode()}.json"),
-        fetch = { api.getSpeciesDetailJson(key) },
-        parse = ::parseSpecies,
-    )
+    suspend fun loadSpeciesDetail(key: String): LoadResult<SpeciesRecord> {
+        val result = loadWithCache(
+            cacheFile = File(cacheDirectory, "species-${key.hashCode()}.json"),
+            fetch = { api.getSpeciesDetailJson(key) },
+            parse = ::parseSpecies,
+        )
+        val filtered = result.value.withoutHikes(fieldQueue.deletedHikeIds())
+            ?: throw IllegalStateException("This species record was removed with its hike.")
+        return result.copy(value = filtered)
+    }
 
     suspend fun loadDiscoveryAreas(query: String = ""): LoadResult<List<DiscoveryArea>> = loadWithCache(
         cacheFile = File(cacheDirectory, "discovery-areas.json"),
@@ -242,11 +259,15 @@ class HikeJournalRepository(context: Context) {
         }
     }
 
-    suspend fun loadSightings(): LoadResult<List<Sighting>> = loadWithCache(
-        cacheFile = File(cacheDirectory, "sightings.json"),
-        fetch = api::getSightingsJson,
-        parse = ::parseSightings,
-    )
+    suspend fun loadSightings(): LoadResult<List<Sighting>> {
+        val result = loadWithCache(
+            cacheFile = File(cacheDirectory, "sightings.json"),
+            fetch = api::getSightingsJson,
+            parse = ::parseSightings,
+        )
+        val deletedHikeIds = fieldQueue.deletedHikeIds()
+        return result.copy(value = result.value.filterNot { it.hikeId in deletedHikeIds })
+    }
 
     suspend fun loadReviewQueue(): LoadResult<List<ReviewItem>> {
         val result = loadWithCache(
@@ -255,7 +276,10 @@ class HikeJournalRepository(context: Context) {
             parse = ::parseReviewQueue,
         )
         val pending = fieldQueue.pendingReviewPhotoIds()
-        return result.copy(value = result.value.filterNot { it.id in pending })
+        val deletedHikeIds = fieldQueue.deletedHikeIds()
+        return result.copy(
+            value = result.value.filterNot { it.id in pending || it.hikeId in deletedHikeIds },
+        )
     }
 
     suspend fun requestReviewRecommendation(photoId: String): ReviewItem {
@@ -268,11 +292,23 @@ class HikeJournalRepository(context: Context) {
 
     suspend fun getInatAuthorizationUrl(): String = api.getInatAuthorizationUrl()
 
-    suspend fun loadPublishQueue(): LoadResult<PublishQueue> = loadWithCache(
-        cacheFile = File(cacheDirectory, "species-publish.json"),
-        fetch = api::getPublishQueueJson,
-        parse = ::parsePublishQueue,
-    )
+    suspend fun loadPublishQueue(): LoadResult<PublishQueue> {
+        val result = loadWithCache(
+            cacheFile = File(cacheDirectory, "species-publish.json"),
+            fetch = api::getPublishQueueJson,
+            parse = ::parsePublishQueue,
+        )
+        val deletedHikeIds = fieldQueue.deletedHikeIds()
+        val items = result.value.items.filterNot { it.hikeId in deletedHikeIds }
+        return result.copy(
+            value = result.value.copy(
+                readyCount = items.count { it.state == "ready" },
+                needsAttentionCount = items.count { it.state == "needs_attention" },
+                postedCount = items.count { it.state == "posted" },
+                items = items,
+            ),
+        )
+    }
 
     suspend fun publishObservation(item: PublishItem, options: PublishOptions): PublishItem {
         val published = parsePublishItem(api.publishObservation(item.id, options))
@@ -305,6 +341,23 @@ class HikeJournalRepository(context: Context) {
 
     suspend fun setArchived(hikeId: String, archived: Boolean) {
         fieldQueue.queueArchive(hikeId, archived)
+    }
+
+    suspend fun deleteHike(hikeId: String): HikeDeletionResult {
+        val result = FieldSyncEngine(appContext).deleteHike(hikeId)
+        return when {
+            result.needsAttention -> HikeDeletionResult(
+                warning = "Deletion needs sync attention: ${result.lastError ?: "check the companion service"}.",
+            )
+            result.cleanupFailures > 0 -> HikeDeletionResult(
+                notice = "Hike deleted. Android will finish removing ${result.cleanupFailures} temporary local " +
+                    "file${if (result.cleanupFailures == 1) "" else "s"} during sync.",
+            )
+            result.pending -> HikeDeletionResult(
+                notice = "Deletion queued. It will finish automatically when the companion service is reachable.",
+            )
+            else -> HikeDeletionResult(notice = "Hike deleted.")
+        }
     }
 
     suspend fun setHikeCover(hikeId: String, photoId: String?, coverUrl: String) {
@@ -362,9 +415,15 @@ class HikeJournalRepository(context: Context) {
     private suspend fun overlayPendingQuests(quests: List<FieldQuest>): List<FieldQuest> {
         val pendingFocus = fieldQueue.pendingQuestFocus()
         val pendingCredits = fieldQueue.pendingCreditTaxonIds()
+        val deletedHikeIds = fieldQueue.deletedHikeIds()
         return quests.map { quest ->
             val focus = pendingFocus[quest.id]
-            val focused = if (focus == null) quest else quest.withFocus(focus, pending = true)
+            val unlinked = if (quest.linkedHikeId in deletedHikeIds) {
+                quest.copy(linkedHikeId = null)
+            } else {
+                quest
+            }
+            val focused = if (focus == null) unlinked else unlinked.withFocus(focus, pending = true)
             focused.copy(
                 taxa = focused.taxa.map { taxon ->
                     if (!taxon.collected && taxon.taxonId in pendingCredits) {
@@ -381,8 +440,8 @@ class HikeJournalRepository(context: Context) {
         cacheFile: File,
         fetch: suspend () -> String,
         parse: (String) -> T,
-    ): LoadResult<T> {
-        return try {
+    ): LoadResult<T> = journalCacheMutex.withLock {
+        try {
             val json = fetch()
             withContext(Dispatchers.IO) { cacheFile.writeText(json) }
             LoadResult(parse(json), fromCache = false)
@@ -401,5 +460,40 @@ private fun FieldQuest.withFocus(focusTaxonIds: List<Long>, pending: Boolean): F
     return copy(
         taxa = taxa.map { it.copy(focusOrder = order[it.taxonId]) },
         pendingFocusSync = pending,
+    )
+}
+
+internal fun SpeciesRecord.withoutHikes(deletedHikeIds: Set<String>): SpeciesRecord? {
+    if (deletedHikeIds.isEmpty() || hikeIds.none { it in deletedHikeIds }) return this
+    val removedEncounterCount = deletedHikeIds.sumOf { hikeEncounterCounts[it] ?: 0 }
+    val remainingEncounterCount = (encounterCount - removedEncounterCount).coerceAtLeast(0)
+    val remainingHikeCounts = hikeEncounterCounts.filterKeys { it !in deletedHikeIds }
+    val removedCoverUrls = hikeCoverUrls.filterKeys { it in deletedHikeIds }.values.toSet()
+    val remainingCoverUrls = hikeCoverUrls.filterKeys { it !in deletedHikeIds }
+    val remainingLatestSeen = hikeLatestSeen.filterKeys { it !in deletedHikeIds }
+    val remainingEncounters = encounters.filterNot { it.hikeId in deletedHikeIds }
+    if (remainingEncounterCount == 0 && remainingEncounters.isEmpty()) return null
+    val nextCoverUrl = if (coverUrl in removedCoverUrls) {
+        remainingCoverUrls.values.firstOrNull()
+            ?: remainingEncounters.firstOrNull()?.photo?.url.orEmpty()
+    } else {
+        coverUrl
+    }
+    val removedLatestSeen = hikeLatestSeen.filterKeys { it in deletedHikeIds }.values.toSet()
+    val nextLatestSeen = if (latestSeen in removedLatestSeen) {
+        latestObservedValue(remainingLatestSeen.values + remainingEncounters.mapNotNull { it.observedOn })
+    } else {
+        latestSeen
+    }
+    return copy(
+        encounterCount = remainingEncounterCount,
+        hikeCount = remainingHikeCounts.size,
+        hikeIds = hikeIds.filterNot { it in deletedHikeIds },
+        hikeEncounterCounts = remainingHikeCounts,
+        hikeCoverUrls = remainingCoverUrls,
+        hikeLatestSeen = remainingLatestSeen,
+        latestSeen = nextLatestSeen,
+        coverUrl = nextCoverUrl,
+        encounters = remainingEncounters,
     )
 }

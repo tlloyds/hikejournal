@@ -1289,7 +1289,11 @@ def render_edit_hike_dialog(
         disabled=not confirm_delete or delete_text.strip() != "DELETE",
     ):
         with st.spinner("Deleting outing..."):
-            delete_hike_and_assets(repository, storage, str(hike["id"]))
+            try:
+                delete_hike_and_assets(repository, storage, str(hike["id"]))
+            except RuntimeError as exc:
+                st.error(str(exc))
+                return
         st.session_state.selected_hike_id = None
         st.session_state.active_view = "Library"
         st.session_state.pending_view = "Library"

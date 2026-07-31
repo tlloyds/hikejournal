@@ -86,6 +86,7 @@ class TrailBadgesTest {
         hikeIds = listOf("hike-1"),
         hikeEncounterCounts = mapOf("hike-1" to 1),
         hikeCoverUrls = emptyMap(),
+        hikeLatestSeen = emptyMap(),
         latestSeen = "2026-07-27",
         coverUrl = "",
     )

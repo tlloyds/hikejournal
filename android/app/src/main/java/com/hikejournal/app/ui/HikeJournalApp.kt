@@ -59,6 +59,7 @@ import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Archive
 import androidx.compose.material.icons.rounded.CameraAlt
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.CloudOff
@@ -70,6 +71,7 @@ import androidx.compose.material.icons.rounded.Fullscreen
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.Map
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PlayCircle
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
@@ -82,6 +84,8 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Divider
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
@@ -189,6 +193,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
     var hikeMapRequest by remember { mutableStateOf<HikeMapRequest?>(null) }
     var openingPhotoMapId by remember { mutableStateOf<String?>(null) }
     var selectedRouteUri by remember { mutableStateOf<Uri?>(null) }
+    var pendingHikeDelete by remember { mutableStateOf<Hike?>(null) }
 
     fun closeHikeMap() {
         val request = hikeMapRequest
@@ -256,10 +261,13 @@ fun HikeJournalApp(viewModel: AppViewModel) {
     BackHandler(
         enabled = hikeMapRequest != null || selectedPhoto != null || syncAttentionOpen || settingsOpen ||
             pendingUpload.isNotEmpty() ||
-            creatingHike || editingHike != null || badgesOpen || state.journal != null ||
+            pendingHikeDelete != null || creatingHike || editingHike != null || badgesOpen || state.journal != null ||
             state.speciesDetail != null || state.questMapQuest != null,
     ) {
         when {
+            pendingHikeDelete != null -> {
+                if (state.deletingHikeId == null) pendingHikeDelete = null
+            }
             hikeMapRequest != null -> closeHikeMap()
             selectedPhoto != null -> selectedPhoto = null
             syncAttentionOpen -> syncAttentionOpen = false
@@ -328,6 +336,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                         onBack = viewModel::closeJournal,
                         onEdit = if (journal.isStandalone) null else ({ editingHike = journal }),
                         onArchive = if (journal.isStandalone) null else ({ viewModel.setArchived(journal) }),
+                        onDelete = if (journal.isStandalone || state.uploadTotal > 0) null else ({ pendingHikeDelete = journal }),
                         onExploreSpecies = if (journal.isStandalone) null else ({
                             speciesEntryAreaName = journal.locationName
                             viewModel.closeJournal()
@@ -455,6 +464,14 @@ fun HikeJournalApp(viewModel: AppViewModel) {
         ) {
             ErrorBanner(message = state.error.orEmpty(), onDismiss = viewModel::clearError)
         }
+        AnimatedVisibility(
+            visible = state.notice != null && state.error == null,
+            modifier = Modifier.align(Alignment.BottomCenter),
+            enter = slideInVertically { it } + fadeIn(),
+            exit = fadeOut(),
+        ) {
+            NoticeBanner(message = state.notice.orEmpty(), onDismiss = viewModel::clearNotice)
+        }
     }
 
     if (creatingHike || editingHike != null) {
@@ -471,6 +488,22 @@ fun HikeJournalApp(viewModel: AppViewModel) {
             onSave = { draft ->
                 viewModel.saveHike(draft, selectedRouteUri.takeIf { editingHike == null }, editingHike?.id) {
                     creatingHike = false
+                    editingHike = null
+                    selectedRouteUri = null
+                }
+            },
+        )
+    }
+
+    pendingHikeDelete?.let { hike ->
+        DeleteHikeDialog(
+            hike = hike,
+            deleting = state.deletingHikeId == hike.id,
+            connected = state.syncStatus.connected,
+            onDismiss = { pendingHikeDelete = null },
+            onDelete = {
+                viewModel.deleteHike(hike) {
+                    pendingHikeDelete = null
                     editingHike = null
                     selectedRouteUri = null
                 }
@@ -968,6 +1001,7 @@ private fun syncOperationLabel(kind: String): String = when (kind) {
     "create_hike" -> "Create outing"
     "update_hike" -> "Update outing"
     "archive_hike" -> "Archive outing"
+    "delete_hike" -> "Delete outing"
     "upload_photo" -> "Upload photo"
     "upload_route" -> "Upload route"
     "set_hike_cover" -> "Set hike cover"
@@ -1114,6 +1148,7 @@ private fun JournalScreen(
     onBack: () -> Unit,
     onEdit: (() -> Unit)?,
     onArchive: (() -> Unit)?,
+    onDelete: (() -> Unit)?,
     onExploreSpecies: (() -> Unit)?,
     onAddPhotos: () -> Unit,
     onViewMap: () -> Unit,
@@ -1124,7 +1159,7 @@ private fun JournalScreen(
         Modifier.fillMaxSize().background(Parchment),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 64.dp),
     ) {
-        item { JournalHero(hike, onBack, onEdit, onArchive) }
+        item { JournalHero(hike, onBack, onEdit, onArchive, onDelete) }
         item {
             Column(Modifier.padding(horizontal = 20.dp, vertical = 24.dp)) {
                 Text(formatDate(hike.hikeDate).uppercase(Locale.US), style = MaterialTheme.typography.labelSmall, color = TrailText)
@@ -1256,7 +1291,9 @@ private fun JournalHero(
     onBack: () -> Unit,
     onEdit: (() -> Unit)?,
     onArchive: (() -> Unit)?,
+    onDelete: (() -> Unit)?,
 ) {
+    var actionsOpen by remember(hike.id) { mutableStateOf(false) }
     Box(Modifier.fillMaxWidth().height(330.dp).background(Moss)) {
         if (hike.coverUrl.isNotBlank()) {
             AsyncImage(hike.coverUrl, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
@@ -1277,15 +1314,152 @@ private fun JournalHero(
                     Icon(Icons.Rounded.Edit, "Edit hike", tint = Paper)
                 }
             }
-            if (onArchive != null) {
+            if (onArchive != null || onDelete != null) {
                 Spacer(Modifier.width(6.dp))
-                FilledIconButton(onClick = onArchive, colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(containerColor = Color(0x99172820))) {
-                    Icon(if (hike.isArchived) Icons.Rounded.Unarchive else Icons.Rounded.Archive, "Archive hike", tint = Paper)
+                Box {
+                    FilledIconButton(
+                        onClick = { actionsOpen = true },
+                        colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(containerColor = Color(0x99172820)),
+                    ) {
+                        Icon(Icons.Rounded.MoreVert, "Hike actions", tint = Paper)
+                    }
+                    DropdownMenu(
+                        expanded = actionsOpen,
+                        onDismissRequest = { actionsOpen = false },
+                        containerColor = Paper,
+                    ) {
+                        if (onArchive != null) {
+                            DropdownMenuItem(
+                                text = { Text(if (hike.isArchived) "Restore outing" else "Archive outing") },
+                                leadingIcon = {
+                                    Icon(if (hike.isArchived) Icons.Rounded.Unarchive else Icons.Rounded.Archive, null)
+                                },
+                                onClick = {
+                                    actionsOpen = false
+                                    onArchive()
+                                },
+                            )
+                        }
+                        if (onDelete != null) {
+                            DropdownMenuItem(
+                                text = { Text("Delete hike", color = MaterialTheme.colorScheme.error) },
+                                leadingIcon = {
+                                    Icon(Icons.Rounded.DeleteOutline, null, tint = MaterialTheme.colorScheme.error)
+                                },
+                                onClick = {
+                                    actionsOpen = false
+                                    onDelete()
+                                },
+                            )
+                        }
+                    }
                 }
             }
         }
         Text("HikeJournal", style = MaterialTheme.typography.headlineSmall, color = Paper, modifier = Modifier.align(Alignment.BottomStart).padding(20.dp))
     }
+}
+
+@Composable
+private fun DeleteHikeDialog(
+    hike: Hike,
+    deleting: Boolean,
+    connected: Boolean,
+    onDismiss: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    var understood by remember(hike.id) { mutableStateOf(false) }
+    val mediaLabel = when (hike.photoCount) {
+        0 -> "No photos or videos"
+        1 -> "1 photo or video"
+        else -> "${hike.photoCount} photos and videos"
+    }
+    val speciesLabel = when (hike.speciesCount) {
+        0 -> "No species"
+        1 -> "1 species represented"
+        else -> "${hike.speciesCount} species represented"
+    }
+    AlertDialog(
+        onDismissRequest = { if (!deleting) onDismiss() },
+        title = { Text("Delete this hike?") },
+        text = {
+            Column {
+                Text(
+                    "“${hike.title}” will be permanently removed from HikeJournal.",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = Ink,
+                )
+                Text(
+                    buildString {
+                        append(mediaLabel)
+                        append(" · ")
+                        append(speciesLabel)
+                        if (hike.routeSegments.isNotEmpty()) append(" · Saved route")
+                        append(" · Notes and associated data")
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = InkMuted,
+                    modifier = Modifier.padding(top = 10.dp),
+                )
+                Text(
+                    "Already-published observations remain on iNaturalist.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = InkMuted,
+                    modifier = Modifier.padding(top = 12.dp),
+                )
+                Text(
+                    if (connected) {
+                        "HikeJournal will verify the full deletion with the companion service."
+                    } else {
+                        "Connect HikeJournal to delete this hike and its stored files."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (connected) InkMuted else MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(top = 14.dp)
+                        .toggleable(
+                            value = understood,
+                            enabled = !deleting,
+                            role = Role.Checkbox,
+                            onValueChange = { understood = it },
+                        ),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Checkbox(
+                        checked = understood,
+                        onCheckedChange = null,
+                        enabled = !deleting,
+                    )
+                    Text(
+                        "I understand this cannot be undone.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Ink,
+                        modifier = Modifier.padding(start = 6.dp),
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDelete, enabled = understood && connected && !deleting) {
+                if (deleting) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                } else {
+                    Text("Delete hike", color = MaterialTheme.colorScheme.error)
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !deleting) { Text("Keep hike") }
+        },
+    )
 }
 
 @Composable
@@ -1817,6 +1991,23 @@ private fun ErrorBanner(message: String, onDismiss: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(message, color = Paper, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+        Icon(Icons.Rounded.Close, "Dismiss", tint = Paper)
+    }
+}
+
+@Composable
+private fun NoticeBanner(message: String, onDismiss: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().background(Moss).navigationBarsPadding().clickable(onClick = onDismiss).padding(horizontal = 18.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Rounded.Check, null, tint = Paper, modifier = Modifier.size(20.dp))
+        Text(
+            message,
+            color = Paper,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.weight(1f).padding(start = 10.dp),
+        )
         Icon(Icons.Rounded.Close, "Dismiss", tint = Paper)
     }
 }

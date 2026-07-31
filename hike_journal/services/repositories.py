@@ -88,7 +88,12 @@ class HikeJournalRepository:
         except Exception:
             return []
 
-    def get_hike_route_import(self, hike_id: str) -> dict[str, Any] | None:
+    def get_hike_route_import(
+        self,
+        hike_id: str,
+        *,
+        raise_errors: bool = False,
+    ) -> dict[str, Any] | None:
         try:
             response = (
                 self.client.table("hike_route_imports")
@@ -98,6 +103,8 @@ class HikeJournalRepository:
                 .execute()
             )
         except Exception:
+            if raise_errors:
+                raise
             return None
         records = response.data or []
         return records[0] if records else None

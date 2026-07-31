@@ -56,6 +56,7 @@ class SpeciesFiltersTest {
         hikeIds = emptyList(),
         hikeEncounterCounts = emptyMap(),
         hikeCoverUrls = emptyMap(),
+        hikeLatestSeen = emptyMap(),
         latestSeen = null,
         coverUrl = "",
     )

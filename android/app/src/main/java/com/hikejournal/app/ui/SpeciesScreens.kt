@@ -39,6 +39,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.CloudOff
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.CircularProgressIndicator
@@ -60,6 +61,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -87,8 +89,10 @@ import com.hikejournal.app.data.ObservationTypeFilter
 import com.hikejournal.app.data.Photo
 import com.hikejournal.app.data.QuestSightingsMap
 import com.hikejournal.app.data.SpeciesRecord
+import com.hikejournal.app.data.SpeciesSort
 import com.hikejournal.app.data.filterDiscoveryAreas
 import com.hikejournal.app.data.filterSpeciesByObservationType
+import com.hikejournal.app.data.sortSpeciesRecords
 import com.hikejournal.app.ui.theme.Ink
 import com.hikejournal.app.ui.theme.InkMuted
 import com.hikejournal.app.ui.theme.Line
@@ -146,7 +150,8 @@ fun SpeciesIndexScreen(
 ) {
     var mode by remember { mutableStateOf(SpeciesMode.Collection) }
     var query by remember { mutableStateOf("") }
-    var mostSeenFirst by remember { mutableStateOf(false) }
+    var speciesSort by rememberSaveable { mutableStateOf(SpeciesSort.Alphabetical) }
+    var speciesSortOpen by remember { mutableStateOf(false) }
     var selectedHikeId by remember { mutableStateOf<String?>(null) }
     var filterOpen by remember { mutableStateOf(false) }
     var observationType by remember { mutableStateOf(ObservationTypeFilter.All) }
@@ -231,6 +236,7 @@ fun SpeciesIndexScreen(
                     encounterCount = encounterCount,
                     hikeCount = 1,
                     coverUrl = record.hikeCoverUrls[selectedHikeId] ?: record.coverUrl,
+                    latestSeen = record.hikeLatestSeen[selectedHikeId] ?: record.latestSeen,
                 )
             }
         }
@@ -241,10 +247,7 @@ fun SpeciesIndexScreen(
             query.isBlank() || it.commonName.contains(query, ignoreCase = true) ||
                 it.scientificName.contains(query, ignoreCase = true)
         }
-        .let { items ->
-            if (mostSeenFirst) items.sortedByDescending { it.encounterCount }
-            else items.sortedBy { it.commonName.lowercase(Locale.US) }
-        }
+        .let { items -> sortSpeciesRecords(items, speciesSort) }
     val encounterCount = typeScopedSpecies.sumOf { it.encounterCount }
     val headerCount = when (mode) {
         SpeciesMode.Collection -> "${typeScopedSpecies.size} SPECIES · $encounterCount ENCOUNTERS"
@@ -353,8 +356,14 @@ fun SpeciesIndexScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text("SPECIES INDEX", style = MaterialTheme.typography.labelSmall, color = TrailText)
-                TextButton(onClick = { mostSeenFirst = !mostSeenFirst }) {
-                    Text(if (mostSeenFirst) "Alphabetical" else "Most encountered")
+                TextButton(onClick = { speciesSortOpen = true }) {
+                    Text(speciesSort.label)
+                    Spacer(Modifier.width(2.dp))
+                    Icon(
+                        Icons.Rounded.KeyboardArrowDown,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
                 }
             }
         }
@@ -779,6 +788,16 @@ fun SpeciesIndexScreen(
                 observationTypeFilterOpen = false
             },
             onDismiss = { observationTypeFilterOpen = false },
+        )
+    }
+    if (speciesSortOpen) {
+        SpeciesSortSheet(
+            selectedSort = speciesSort,
+            onSelect = {
+                speciesSort = it
+                speciesSortOpen = false
+            },
+            onDismiss = { speciesSortOpen = false },
         )
     }
     previewTaxon?.let { taxon ->

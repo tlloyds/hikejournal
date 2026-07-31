@@ -41,6 +41,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.hikejournal.app.data.Hike
 import com.hikejournal.app.data.ObservationTypeFilter
+import com.hikejournal.app.data.SpeciesSort
 import com.hikejournal.app.ui.theme.Ink
 import com.hikejournal.app.ui.theme.InkMuted
 import com.hikejournal.app.ui.theme.Line
@@ -225,6 +226,64 @@ fun ObservationTypeFilterSheet(
             }
         }
     }
+}
+
+@Composable
+fun SpeciesSortSheet(
+    selectedSort: SpeciesSort,
+    onSelect: (SpeciesSort) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Paper) {
+        Column(Modifier.fillMaxWidth().navigationBarsPadding()) {
+            Column(Modifier.padding(horizontal = 20.dp)) {
+                Text("SORT SPECIES", style = MaterialTheme.typography.labelSmall, color = TrailText)
+                Text("Order the field guide", style = MaterialTheme.typography.headlineLarge, color = Ink)
+                Text(
+                    "Choose how confirmed species are arranged.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = InkMuted,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
+            LazyColumn(Modifier.fillMaxWidth().padding(top = 10.dp)) {
+                items(SpeciesSort.entries, key = { it.name }) { sort ->
+                    SpeciesSortRow(
+                        sort = sort,
+                        selected = sort == selectedSort,
+                        onClick = { onSelect(sort) },
+                    )
+                }
+                item { Spacer(Modifier.height(14.dp)) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SpeciesSortRow(
+    sort: SpeciesSort,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val detail = when (sort) {
+        SpeciesSort.Alphabetical -> "Common name, A to Z"
+        SpeciesSort.MostEncountered -> "Highest encounter count first"
+        SpeciesSort.MostRecent -> "Most recently observed first"
+    }
+    Row(
+        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 20.dp, vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(sort.label, style = MaterialTheme.typography.titleMedium, color = Ink)
+            Text(detail, style = MaterialTheme.typography.bodyMedium, color = InkMuted)
+        }
+        AnimatedVisibility(visible = selected, enter = fadeIn(), exit = fadeOut()) {
+            Icon(Icons.Rounded.Check, "Selected", tint = Moss, modifier = Modifier.size(22.dp))
+        }
+    }
+    HorizontalDivider(color = Line, modifier = Modifier.padding(start = 20.dp))
 }
 
 @Composable

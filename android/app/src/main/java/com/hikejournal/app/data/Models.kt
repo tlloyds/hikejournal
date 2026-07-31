@@ -81,6 +81,7 @@ data class SpeciesRecord(
     val hikeIds: List<String>,
     val hikeEncounterCounts: Map<String, Int>,
     val hikeCoverUrls: Map<String, String>,
+    val hikeLatestSeen: Map<String, String>,
     val latestSeen: String?,
     val coverUrl: String,
     val encounters: List<Encounter> = emptyList(),
@@ -591,6 +592,9 @@ private fun parseSpecies(json: JSONObject): SpeciesRecord {
         }.orEmpty(),
         hikeCoverUrls = json.optJSONObject("hike_cover_urls")?.let { urls ->
             urls.keys().asSequence().associateWith { hikeId -> urls.optString(hikeId) }
+        }.orEmpty(),
+        hikeLatestSeen = json.optJSONObject("hike_latest_seen")?.let { dates ->
+            dates.keys().asSequence().associateWith { hikeId -> dates.optString(hikeId) }
         }.orEmpty(),
         latestSeen = json.optNullableString("latest_seen"),
         coverUrl = json.optString("cover_url"),

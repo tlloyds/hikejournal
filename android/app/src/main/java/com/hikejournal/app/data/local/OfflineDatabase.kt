@@ -34,6 +34,12 @@ interface PendingOperationDao {
     @Query("SELECT * FROM pending_operations ORDER BY createdAt ASC")
     suspend fun listAll(): List<PendingOperationEntity>
 
+    @Query(
+        "SELECT * FROM pending_operations WHERE entityId = :hikeId OR parentId = :hikeId " +
+            "ORDER BY createdAt ASC",
+    )
+    suspend fun listForHike(hikeId: String): List<PendingOperationEntity>
+
     @Query("SELECT * FROM pending_operations ORDER BY createdAt ASC")
     fun observeAll(): Flow<List<PendingOperationEntity>>
 

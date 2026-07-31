@@ -169,22 +169,34 @@ def sync_hike_route_import(
 
 
 def delete_hike_and_assets(repository: HikeJournalRepository, storage: StorageService, hike_id: str) -> None:
-    photos = repository.list_photos(hike_id)
-    route_import = repository.get_hike_route_import(hike_id)
-    storage_paths = [
+    try:
+        photos = repository.list_photos(hike_id)
+        route_import = repository.get_hike_route_import(hike_id, raise_errors=True)
+    except Exception as exc:
+        raise RuntimeError(
+            "Deletion could not verify every stored file. Nothing was removed; retry safely."
+        ) from exc
+    storage_paths = {
         str(photo.get("storage_path") or "").strip()
         for photo in photos
         if str(photo.get("storage_path") or "").strip()
-    ]
+    }
     route_storage_path = str((route_import or {}).get("source_storage_path") or "").strip()
     if route_storage_path:
-        storage_paths.append(route_storage_path)
-    repository.delete_hike(hike_id)
-    for storage_path in storage_paths:
+        storage_paths.add(route_storage_path)
+
+    delete_errors: list[Exception] = []
+    for storage_path in sorted(storage_paths):
         try:
             storage.delete_file(storage_path)
-        except Exception:
-            pass
+        except Exception as exc:
+            delete_errors.append(exc)
+    if delete_errors:
+        raise RuntimeError(
+            "Deletion is not complete. Some media may already be removed; retry to finish safely."
+        ) from delete_errors[0]
+
+    repository.delete_hike(hike_id)
 
 
 def _coordinates_to_route_points(coordinates: list[Any]) -> list[dict[str, float]]:

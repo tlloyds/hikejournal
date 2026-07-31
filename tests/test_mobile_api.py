@@ -282,8 +282,53 @@ def test_species_payload_counts_unique_photo_encounters_and_hikes():
         "hike-a": "https://img/a.jpg",
         "hike-b": "https://img/b.jpg",
     }
+    assert payload["hike_latest_seen"] == {
+        "hike-a": "2026-01-01",
+        "hike-b": "2026-02-01",
+    }
+    assert payload["latest_seen"] == "2026-02-01"
     assert payload["cover_url"] == "https://img/b.jpg"
     assert payload["iconic_taxon_name"] == "Plantae"
+
+
+def test_species_payload_compares_observation_instants_across_timezones():
+    observations = [
+        {
+            "taxon_id": 42,
+            "photo_id": "photo-local-next-day",
+            "hike_id": "hike-a",
+            "common_name": "Pinewoods milkweed",
+            "scientific_name": "Asclepias humistrata",
+        },
+        {
+            "taxon_id": 42,
+            "photo_id": "photo-later-utc",
+            "hike_id": "hike-a",
+            "common_name": "Pinewoods milkweed",
+            "scientific_name": "Asclepias humistrata",
+        },
+    ]
+    photos = {
+        "photo-local-next-day": {
+            "id": "photo-local-next-day",
+            "hike_id": "hike-a",
+            "public_url": "https://img/local-next-day.jpg",
+            "taken_at": "2026-07-30T00:30:00+02:00",
+        },
+        "photo-later-utc": {
+            "id": "photo-later-utc",
+            "hike_id": "hike-a",
+            "public_url": "https://img/later-utc.jpg",
+            "taken_at": "2026-07-29T23:00:00Z",
+        },
+    }
+    hikes = {"hike-a": {"id": "hike-a", "hike_date": "2026-07-29"}}
+
+    payload = _build_species_payloads(observations, photos, hikes)[0]
+
+    assert payload["latest_seen"] == "2026-07-29T23:00:00Z"
+    assert payload["hike_latest_seen"] == {"hike-a": "2026-07-29T23:00:00Z"}
+    assert payload["cover_url"] == "https://img/later-utc.jpg"
 
 
 def test_review_candidates_put_current_suggestion_first_and_deduplicate():

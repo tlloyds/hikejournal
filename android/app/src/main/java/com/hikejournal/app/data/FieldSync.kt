@@ -35,6 +35,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.IOException
@@ -49,6 +50,7 @@ object OperationKind {
     const val CreateHike = "create_hike"
     const val UpdateHike = "update_hike"
     const val ArchiveHike = "archive_hike"
+    const val DeleteHike = "delete_hike"
     const val UploadPhoto = "upload_photo"
     const val UploadRoute = "upload_route"
     const val SetHikeCover = "set_hike_cover"
@@ -60,6 +62,61 @@ object OperationKind {
 }
 
 private const val MAX_LOCAL_MEDIA_BYTES = 30L * 1024L * 1024L
+private val fieldSyncMutex = Mutex()
+internal val journalCacheMutex = Mutex()
+
+data class HikeDeletionStatus(
+    val pending: Boolean,
+    val needsAttention: Boolean,
+    val cleanupFailures: Int,
+    val lastError: String? = null,
+)
+
+private fun PendingOperationEntity.targetHikeId(): String? = parentId ?: entityId.takeIf {
+    kind in setOf(
+        OperationKind.CreateHike,
+        OperationKind.UpdateHike,
+        OperationKind.ArchiveHike,
+        OperationKind.DeleteHike,
+        OperationKind.SetHikeCover,
+    )
+}
+
+private suspend fun invalidateHikeDeletionCaches(context: Context, hikeId: String): List<String> =
+    journalCacheMutex.withLock {
+        withContext(Dispatchers.IO) {
+            val cacheDirectory = File(context.filesDir, "journal-cache")
+            val failures = mutableListOf<String>()
+            val hikesCache = File(cacheDirectory, "hikes.json")
+            if (hikesCache.exists()) {
+                runCatching {
+                    val cached = JSONArray(hikesCache.readText())
+                    val filtered = JSONArray()
+                    for (index in 0 until cached.length()) {
+                        cached.optJSONObject(index)
+                            ?.takeUnless { it.optString("id") == hikeId }
+                            ?.let(filtered::put)
+                    }
+                    hikesCache.writeText(filtered.toString())
+                }.onFailure {
+                    if (!hikesCache.delete()) failures += hikesCache.absolutePath
+                }
+            }
+            cacheDirectory.listFiles().orEmpty()
+                .filter { file ->
+                    file.name == "hike-$hikeId.json" ||
+                        file.name == "species.json" ||
+                        file.name.startsWith("species-") ||
+                        file.name == "sightings.json" ||
+                        file.name.startsWith("nearby-") ||
+                        file.name.startsWith("quest-sightings-")
+                }
+                .forEach { file ->
+                    if (!file.deleteRecursively() && file.exists()) failures += file.absolutePath
+                }
+            failures
+        }
+    }
 
 class FieldOperationQueue(private val context: Context) {
     private val dao = OfflineDatabase.get(context).operations()
@@ -218,18 +275,27 @@ class FieldOperationQueue(private val context: Context) {
         }
 
     suspend fun queueCaption(photoId: String, hikeId: String?, caption: String) {
-        val pendingUpload = dao.find(OperationKind.UploadPhoto, photoId)
-        if (pendingUpload != null && pendingUpload.state != "syncing") {
-            val payload = JSONObject(pendingUpload.payloadJson).put("caption", caption.trim())
+        val updatedPendingUpload = fieldSyncMutex.withLock {
+            val pendingUpload = dao.find(OperationKind.UploadPhoto, photoId)
+            if (pendingUpload == null || pendingUpload.state == "syncing") return@withLock false
+            val targetHikeId = pendingUpload.parentId
+            if (targetHikeId != null && dao.find(OperationKind.DeleteHike, targetHikeId) != null) {
+                throw IOException("This hike is already being deleted.")
+            }
             dao.upsert(
                 pendingUpload.copy(
-                    payloadJson = payload.toString(),
+                    payloadJson = JSONObject(pendingUpload.payloadJson)
+                        .put("caption", caption.trim())
+                        .toString(),
                     state = "queued",
                     attemptCount = 0,
                     updatedAt = System.currentTimeMillis(),
                     lastError = null,
                 ),
             )
+            true
+        }
+        if (updatedPendingUpload) {
             SyncScheduler.schedule(context)
             return
         }
@@ -260,18 +326,27 @@ class FieldOperationQueue(private val context: Context) {
     }
 
     suspend fun queueSpeciesReview(photoId: String, hikeId: String?, queued: Boolean) {
-        val pendingUpload = dao.find(OperationKind.UploadPhoto, photoId)
-        if (pendingUpload != null && pendingUpload.state != "syncing") {
-            val payload = JSONObject(pendingUpload.payloadJson).put("queue_for_review", queued)
+        val updatedPendingUpload = fieldSyncMutex.withLock {
+            val pendingUpload = dao.find(OperationKind.UploadPhoto, photoId)
+            if (pendingUpload == null || pendingUpload.state == "syncing") return@withLock false
+            val targetHikeId = pendingUpload.parentId
+            if (targetHikeId != null && dao.find(OperationKind.DeleteHike, targetHikeId) != null) {
+                throw IOException("This hike is already being deleted.")
+            }
             dao.upsert(
                 pendingUpload.copy(
-                    payloadJson = payload.toString(),
+                    payloadJson = JSONObject(pendingUpload.payloadJson)
+                        .put("queue_for_review", queued)
+                        .toString(),
                     state = "queued",
                     attemptCount = 0,
                     updatedAt = System.currentTimeMillis(),
                     lastError = null,
                 ),
             )
+            true
+        }
+        if (updatedPendingUpload) {
             SyncScheduler.schedule(context)
             return
         }
@@ -317,15 +392,27 @@ class FieldOperationQueue(private val context: Context) {
         SyncScheduler.schedule(context)
     }
 
-    suspend fun discardAttention() = withContext(Dispatchers.IO) {
+    suspend fun discardAttention() = fieldSyncMutex.withLock {
         dao.listAttention().forEach { operation ->
-            operation.localFilePath?.let { path ->
-                val localFile = File(path)
-                if (localFile.exists() && !localFile.delete()) {
-                    throw IOException("Could not remove the local file for this unsynced change.")
+            val discardedOperations = if (operation.kind == OperationKind.DeleteHike) {
+                dao.listForHike(operation.entityId)
+            } else {
+                listOf(operation)
+            }
+            withContext(Dispatchers.IO) {
+                discardedOperations.forEach { discarded ->
+                    discarded.localFilePath?.let { path ->
+                        val localFile = File(path)
+                        if (localFile.exists() && !localFile.delete()) {
+                            throw IOException("Could not remove the local file for this unsynced change.")
+                        }
+                    }
                 }
             }
-            dao.discardAttention(operation.id)
+            discardedOperations
+                .filterNot { discarded -> discarded.id == operation.id }
+                .forEach { discarded -> dao.delete(discarded.id) }
+            dao.delete(operation.id)
         }
     }
 
@@ -372,6 +459,7 @@ class FieldOperationQueue(private val context: Context) {
                         syncState = operation.state,
                     )
                 }
+                OperationKind.DeleteHike -> hikes.remove(operation.entityId)
             }
         }
         return hikes.values.sortedWith(
@@ -381,6 +469,7 @@ class FieldOperationQueue(private val context: Context) {
 
     suspend fun overlayHike(serverHike: Hike?, hikeId: String): Hike? {
         val operations = dao.listAll()
+        if (operations.any { it.kind == OperationKind.DeleteHike && it.entityId == hikeId }) return null
         var hike = serverHike ?: operations.firstOrNull {
             it.kind == OperationKind.CreateHike && it.entityId == hikeId
         }?.let { localHike(hikeId, draft(it)) }
@@ -455,6 +544,10 @@ class FieldOperationQueue(private val context: Context) {
         .filter { it.kind == OperationKind.ReviewDecision }
         .mapTo(mutableSetOf()) { it.entityId }
 
+    suspend fun deletedHikeIds(): Set<String> = dao.listAll()
+        .filter { it.kind == OperationKind.DeleteHike }
+        .mapTo(mutableSetOf()) { it.entityId }
+
     suspend fun pendingCreditTaxonIds(): Set<Long> = dao.listAll()
         .asSequence()
         .filter { it.kind == OperationKind.ReviewDecision }
@@ -487,7 +580,19 @@ class FieldOperationQueue(private val context: Context) {
         localFilePath: String? = null,
         contentType: String? = null,
         fileName: String? = null,
-    ) {
+    ) = fieldSyncMutex.withLock {
+        val targetHikeId = parentId ?: entityId.takeIf {
+            kind in setOf(
+                OperationKind.CreateHike,
+                OperationKind.UpdateHike,
+                OperationKind.ArchiveHike,
+                OperationKind.SetHikeCover,
+            )
+        }
+        if (targetHikeId != null && dao.find(OperationKind.DeleteHike, targetHikeId) != null) {
+            withContext(Dispatchers.IO) { localFilePath?.let { File(it).delete() } }
+            throw IOException("This hike is already being deleted.")
+        }
         val now = System.currentTimeMillis()
         dao.upsert(
             PendingOperationEntity(
@@ -754,9 +859,33 @@ class FieldSyncEngine(private val context: Context) {
     private val api = HikeJournalApi(context)
     private val preferences = context.getSharedPreferences("hikejournal_sync", Context.MODE_PRIVATE)
 
-    suspend fun drain(): Boolean = syncMutex.withLock {
+    private suspend fun discardHikeWork(hikeId: String, keepOperationId: String): List<String> {
+        val operations = dao.listForHike(hikeId).filterNot { it.id == keepOperationId }
+        val cleanupFailures = withContext(Dispatchers.IO) {
+            operations.mapNotNull { operation ->
+                operation.localFilePath?.let { path ->
+                    val file = File(path)
+                    file.absolutePath.takeIf { file.exists() && !file.delete() }
+                }
+            }
+        }.toSet()
+        operations
+            .filterNot { it.localFilePath in cleanupFailures }
+            .forEach { operation -> dao.delete(operation.id) }
+        return cleanupFailures.toList()
+    }
+
+    suspend fun drain(): Boolean = fieldSyncMutex.withLock {
         var shouldRetry = false
-        for (operation in dao.listAll().filter { it.state != "needs_attention" }) {
+        while (true) {
+            val operations = dao.listAll()
+            val deletingHikeIds = operations
+                .filter { it.kind == OperationKind.DeleteHike }
+                .mapTo(mutableSetOf()) { it.entityId }
+            val operation = operations.firstOrNull {
+                it.state in setOf("queued", "syncing") &&
+                    (it.kind == OperationKind.DeleteHike || it.targetHikeId() !in deletingHikeIds)
+            } ?: break
             dao.updateState(
                 operation.id,
                 "syncing",
@@ -769,7 +898,17 @@ class FieldSyncEngine(private val context: Context) {
                 operation.localFilePath?.takeIf {
                     operation.kind == OperationKind.UploadPhoto || operation.kind == OperationKind.UploadRoute
                 }?.let { File(it).delete() }
-                dao.delete(operation.id)
+                if (operation.kind == OperationKind.DeleteHike) {
+                    dao.updateState(
+                        operation.id,
+                        "completed",
+                        operation.attemptCount,
+                        System.currentTimeMillis(),
+                        null,
+                    )
+                } else {
+                    dao.delete(operation.id)
+                }
             } catch (error: Exception) {
                 val attempts = operation.attemptCount + 1
                 val permanent = error is ApiException && error.statusCode in 400..499 && error.statusCode !in setOf(408, 429)
@@ -793,12 +932,108 @@ class FieldSyncEngine(private val context: Context) {
         shouldRetry
     }
 
+    /** Persist the deletion intent before touching the network so a crash or lost
+     * connection cannot let queued uploads recreate the hike later. */
+    suspend fun deleteHike(hikeId: String): HikeDeletionStatus = fieldSyncMutex.withLock {
+        val existingDeletion = dao.find(OperationKind.DeleteHike, hikeId)
+        val operations = dao.listForHike(hikeId)
+        val now = System.currentTimeMillis()
+        val deletion = existingDeletion?.copy(
+            state = "queued",
+            attemptCount = 0,
+            updatedAt = now,
+            lastError = null,
+        ) ?: PendingOperationEntity(
+            id = UUID.randomUUID().toString(),
+            kind = OperationKind.DeleteHike,
+            entityId = hikeId,
+            parentId = null,
+            payloadJson = JSONObject().toString(),
+            localFilePath = null,
+            contentType = null,
+            fileName = null,
+            state = "queued",
+            attemptCount = 0,
+            createdAt = operations.minOfOrNull { it.createdAt }?.minus(1) ?: now,
+            updatedAt = now,
+            lastError = null,
+        )
+        dao.upsert(deletion)
+        SyncScheduler.schedule(context)
+        try {
+            api.deleteHike(hikeId)
+        } catch (error: Exception) {
+            val permanent = error is ApiException &&
+                error.statusCode in 400..499 && error.statusCode !in setOf(408, 429)
+            dao.updateState(
+                deletion.id,
+                if (permanent) "needs_attention" else "queued",
+                1,
+                System.currentTimeMillis(),
+                error.message ?: "Deletion has not synced yet.",
+            )
+            return@withLock HikeDeletionStatus(
+                pending = true,
+                needsAttention = permanent,
+                cleanupFailures = 0,
+                lastError = error.message,
+            )
+        }
+
+        val localCleanupFailures = discardHikeWork(hikeId, deletion.id)
+        val cacheFailures = invalidateHikeDeletionCaches(context, hikeId)
+        val cleanupFailureCount = localCleanupFailures.size + cacheFailures.size
+        if (cleanupFailureCount == 0) {
+            dao.updateState(
+                deletion.id,
+                "completed",
+                deletion.attemptCount,
+                System.currentTimeMillis(),
+                null,
+            )
+            HikeDeletionStatus(
+                pending = false,
+                needsAttention = false,
+                cleanupFailures = 0,
+            )
+        } else {
+            val detail = "Android still needs to remove $cleanupFailureCount local file" +
+                if (cleanupFailureCount == 1) "." else "s."
+            dao.updateState(
+                deletion.id,
+                "queued",
+                1,
+                System.currentTimeMillis(),
+                detail,
+            )
+            SyncScheduler.schedule(context)
+            HikeDeletionStatus(
+                pending = true,
+                needsAttention = false,
+                cleanupFailures = cleanupFailureCount,
+                lastError = detail,
+            )
+        }
+    }
+
     private suspend fun execute(operation: PendingOperationEntity) {
         val payload = JSONObject(operation.payloadJson)
         when (operation.kind) {
             OperationKind.CreateHike -> api.createHike(payload.toHikeDraft(), operation.entityId)
             OperationKind.UpdateHike -> api.updateHike(operation.entityId, payload.toHikeDraft())
             OperationKind.ArchiveHike -> api.setArchived(operation.entityId, payload.optBoolean("is_archived"))
+            OperationKind.DeleteHike -> {
+                api.deleteHike(operation.entityId)
+                val localFailures = discardHikeWork(operation.entityId, operation.id)
+                val cacheFailures = invalidateHikeDeletionCaches(context, operation.entityId)
+                val failureCount = localFailures.size + cacheFailures.size
+                if (failureCount > 0) {
+                    throw IOException(
+                        "The hike is deleted, but Android still needs to remove $failureCount local file" +
+                            if (failureCount == 1) "." else "s.",
+                    )
+                }
+            }
             OperationKind.SetHikeCover -> api.setHikeCover(
                 operation.entityId,
                 payload.optString("photo_id").takeUnless { payload.isNull("photo_id") },
@@ -855,9 +1090,6 @@ class FieldSyncEngine(private val context: Context) {
         }
     }
 
-    companion object {
-        private val syncMutex = Mutex()
-    }
 }
 
 private fun JSONObject.toHikeDraft() = HikeDraft(

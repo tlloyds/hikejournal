@@ -241,6 +241,11 @@ class HikeJournalApi(private val context: Context) {
         body = JSONObject().put("is_archived", archived).toString().toRequestBody(jsonMediaType),
     )
 
+    suspend fun deleteHike(hikeId: String): String = request(
+        path = "/v1/hikes/$hikeId",
+        method = "DELETE",
+    )
+
     suspend fun setHikeCover(hikeId: String, photoId: String?): String = request(
         path = "/v1/hikes/$hikeId/cover",
         method = "PUT",

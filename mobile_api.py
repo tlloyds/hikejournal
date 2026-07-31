@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import defaultdict
 import base64
 from contextlib import asynccontextmanager
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 import hashlib
 import hmac
 import math
@@ -24,8 +24,8 @@ from hike_journal.domain.discovery import (
     normalize_discovery_limit,
     normalize_radius,
 )
-from hike_journal.domain.library import filter_hikes_for_user, record_visible_for_user
-from hike_journal.domain.routes import route_import_to_route_groups, sync_hike_route_import
+from hike_journal.domain.library import filter_hikes_for_user, record_visible_for_user, user_owns_record
+from hike_journal.domain.routes import delete_hike_and_assets, route_import_to_route_groups, sync_hike_route_import
 from hike_journal.models import HikeDraft, SpeciesCandidate
 from hike_journal.services.exif import extract_metadata
 from hike_journal.services.image_processing import optimize_image
@@ -57,7 +57,7 @@ from hike_journal.services.taxonomy import ensure_observation_taxonomy
 
 MAX_UPLOAD_BYTES = 30 * 1024 * 1024
 EVERYDAY_JOURNAL_ID = "everyday"
-MOBILE_API_VERSION = "0.6.2"
+MOBILE_API_VERSION = "0.6.3"
 
 
 def _parse_picker_taken_at(value: str) -> datetime | None:
@@ -419,6 +419,19 @@ def _observed_on(photo: dict[str, Any], hike: dict[str, Any] | None) -> str | No
     )
 
 
+def _observed_sort_key(value: str | None) -> float:
+    raw = str(value or "").strip()
+    if not raw:
+        return float("-inf")
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return float("-inf")
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc).timestamp()
+
+
 def _visible_species_data(
     svc: Services,
 ) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
@@ -471,12 +484,11 @@ def _build_species_payloads(
     for key, grouped in groups.items():
         ordered = sorted(
             grouped,
-            key=lambda item: (
+            key=lambda item: _observed_sort_key(
                 _observed_on(
                     photos_by_id.get(str(item.get("photo_id") or ""), {}),
                     hikes_by_id.get(str(item.get("hike_id") or "")),
                 )
-                or ""
             ),
             reverse=True,
         )
@@ -495,14 +507,22 @@ def _build_species_payloads(
         }
         hike_encounter_counts: dict[str, set[str]] = defaultdict(set)
         hike_cover_urls: dict[str, str] = {}
+        hike_latest_seen: dict[str, str] = {}
+        hike_latest_seen_keys: dict[str, float] = {}
         for item in ordered:
             hike_id = str(item.get("hike_id") or "")
             photo_id = str(item.get("photo_id") or "")
             if hike_id in hikes_by_id and photo_id in photos_by_id:
                 hike_encounter_counts[hike_id].add(photo_id)
-                photo_url = str(photos_by_id[photo_id].get("public_url") or "")
+                photo = photos_by_id[photo_id]
+                photo_url = str(photo.get("public_url") or "")
                 if photo_url:
                     hike_cover_urls.setdefault(hike_id, photo_url)
+                observed_on = _observed_on(photo, hikes_by_id[hike_id])
+                observed_key = _observed_sort_key(observed_on)
+                if observed_on and observed_key > hike_latest_seen_keys.get(hike_id, float("-inf")):
+                    hike_latest_seen[hike_id] = observed_on
+                    hike_latest_seen_keys[hike_id] = observed_key
         cover_photo = photos_by_id.get(encounter_photo_ids[0], {}) if encounter_photo_ids else {}
         latest_seen = _observed_on(
             cover_photo,
@@ -535,6 +555,7 @@ def _build_species_payloads(
                     for hike_id, photo_ids in sorted(hike_encounter_counts.items())
                 },
                 "hike_cover_urls": dict(sorted(hike_cover_urls.items())),
+                "hike_latest_seen": dict(sorted(hike_latest_seen.items())),
                 "latest_seen": latest_seen,
                 "cover_url": str(cover_photo.get("public_url") or ""),
             }
@@ -866,6 +887,7 @@ def app_config() -> dict[str, Any]:
             "species_discovery",
             "everyday_sightings",
             "hike_covers",
+            "hike_deletion",
             "reversible_species_review",
         ],
     }
@@ -1584,6 +1606,30 @@ def update_archive(hike_id: str, payload: ArchiveInput) -> dict[str, Any]:
     updated = svc.repository.update_hike_archive(hike_id, payload.is_archived)
     _invalidate_species_data_cache()
     return _hike_payload(updated, photos=svc.repository.list_photos(hike_id))
+
+
+@app.delete("/v1/hikes/{hike_id}", dependencies=[Depends(require_mobile_key)])
+def delete_hike(hike_id: str) -> dict[str, Any]:
+    """Permanently remove an owned hike and every asset stored with it."""
+    if hike_id == EVERYDAY_JOURNAL_ID:
+        raise HTTPException(status_code=409, detail="Everyday sightings is a permanent journal and cannot be deleted.")
+
+    svc = get_services()
+    hike = next(
+        (row for row in svc.repository.list_hikes() if str(row.get("id") or "") == hike_id),
+        None,
+    )
+    # Treat missing and non-owned hikes alike. This prevents ownership disclosure and
+    # makes a retry after a successful deletion safe.
+    if not hike or not user_owns_record(hike, _user_context()):
+        return {"deleted": True, "id": hike_id}
+
+    try:
+        delete_hike_and_assets(svc.repository, svc.storage, hike_id)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    _invalidate_species_data_cache()
+    return {"deleted": True, "id": hike_id}
 
 
 @app.put("/v1/hikes/{hike_id}/cover", dependencies=[Depends(require_mobile_key)])

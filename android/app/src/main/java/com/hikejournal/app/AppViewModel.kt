@@ -6,6 +6,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.hikejournal.app.data.Hike
 import com.hikejournal.app.data.HikeDraft
+import com.hikejournal.app.data.HikeDeletionResult
 import com.hikejournal.app.data.HikeJournalRepository
 import com.hikejournal.app.data.MediaLocationSummary
 import com.hikejournal.app.data.DiscoveryArea
@@ -22,6 +23,7 @@ import com.hikejournal.app.data.QuestSightingsMap
 import com.hikejournal.app.data.Sighting
 import com.hikejournal.app.data.SpeciesRecord
 import com.hikejournal.app.data.SyncStatus
+import com.hikejournal.app.data.withoutHikes
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -48,6 +50,7 @@ data class AppState(
     val isRefreshing: Boolean = false,
     val isOffline: Boolean = false,
     val error: String? = null,
+    val notice: String? = null,
     val uploadCurrent: Int = 0,
     val uploadTotal: Int = 0,
     val isSpeciesLoading: Boolean = false,
@@ -66,6 +69,7 @@ data class AppState(
     val inatAuthorizationUrl: String? = null,
     val reviewUpdateId: String? = null,
     val coverUpdateId: String? = null,
+    val deletingHikeId: String? = null,
     val isPublishLoading: Boolean = false,
     val publishingId: String? = null,
     val publishNotice: String? = null,
@@ -747,6 +751,57 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun deleteHike(hike: Hike, onDeleted: () -> Unit) {
+        if (!_state.value.syncStatus.connected) {
+            _state.update {
+                it.copy(error = "Connect HikeJournal before deleting an outing and all of its stored files.")
+            }
+            return
+        }
+        viewModelScope.launch {
+            _state.update { it.copy(deletingHikeId = hike.id, error = null, notice = null) }
+            runCatching { repository.deleteHike(hike.id) }
+                .onSuccess { deletionResult: HikeDeletionResult ->
+                    _state.update { state ->
+                        val deletedHikeIds = setOf(hike.id)
+                        val publishItems = state.publishQueue.items.filterNot { it.hikeId == hike.id }
+                        state.copy(
+                            hikes = state.hikes.filterNot { it.id == hike.id },
+                            journal = state.journal?.takeUnless { it.id == hike.id },
+                            openingHikeId = state.openingHikeId?.takeUnless { it == hike.id },
+                            species = state.species.mapNotNull { it.withoutHikes(deletedHikeIds) },
+                            speciesDetail = null,
+                            nearbySpecies = null,
+                            speciesQuests = state.speciesQuests.map { quest ->
+                                if (quest.linkedHikeId == hike.id) quest.copy(linkedHikeId = null) else quest
+                            },
+                            questMapQuest = null,
+                            questMapNearby = null,
+                            questMapTaxon = null,
+                            questSightingsMap = null,
+                            sightings = state.sightings.filterNot { it.hikeId == hike.id },
+                            reviewQueue = state.reviewQueue.filterNot { it.hikeId == hike.id },
+                            publishQueue = PublishQueue(
+                                connected = state.publishQueue.connected,
+                                readyCount = publishItems.count { it.state == "ready" },
+                                needsAttentionCount = publishItems.count { it.state == "needs_attention" },
+                                postedCount = publishItems.count { it.state == "posted" },
+                                items = publishItems,
+                            ),
+                            badgesHydrated = false,
+                            deletingHikeId = null,
+                            error = deletionResult.warning,
+                            notice = deletionResult.notice,
+                        )
+                    }
+                    onDeleted()
+                }
+                .onFailure { error ->
+                    _state.update { it.copy(deletingHikeId = null, error = error.userMessage(), notice = null) }
+                }
+        }
+    }
+
     fun uploadPhotos(
         hikeId: String,
         uris: List<Uri>,
@@ -908,12 +963,23 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun discardSyncAttention() {
         viewModelScope.launch {
             runCatching { repository.discardSyncAttention() }
+                .onSuccess {
+                    refreshLibrary()
+                    loadBadgeProgress(force = true)
+                    loadSightings(force = true)
+                    loadReviewQueue(force = true)
+                    loadPublishQueue(force = true)
+                }
                 .onFailure { error -> _state.update { it.copy(error = error.userMessage()) } }
         }
     }
 
     fun clearError() {
         _state.update { it.copy(error = null) }
+    }
+
+    fun clearNotice() {
+        _state.update { it.copy(notice = null) }
     }
 
     private fun updatePhotoState(photoId: String, update: (Photo) -> Photo) {
