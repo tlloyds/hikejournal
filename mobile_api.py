@@ -1468,7 +1468,7 @@ async def upload_hike_route(
     svc = get_services()
     _get_visible_hike(svc.repository, hike_id)
     filename = (file.filename or "route.tcx").strip() or "route.tcx"
-    if not filename.lower().endswith((".tcx", ".xml")):
+    if not filename.lower().endswith((".tcx", ".tcx.txt", ".xml")):
         raise HTTPException(status_code=400, detail="Choose a TCX file.")
     contents = await file.read(MAX_UPLOAD_BYTES + 1)
     if len(contents) > MAX_UPLOAD_BYTES:

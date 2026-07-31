@@ -126,13 +126,13 @@ def test_mobile_route_upload_saves_tcx_and_returns_map_segments(monkeypatch):
     try:
         response = TestClient(app).post(
             "/v1/hikes/hike-1/route",
-            files={"file": ("pine-loop.tcx", b"<TrainingCenterDatabase/>", "application/vnd.garmin.tcx+xml")},
+            files={"file": ("pine-loop.tcx.txt", b"<TrainingCenterDatabase/>", "text/plain")},
         )
     finally:
         app.dependency_overrides.pop(require_mobile_key, None)
 
     assert response.status_code == 201
-    assert captured == {"name": "pine-loop.tcx", "contents": b"<TrainingCenterDatabase/>"}
+    assert captured == {"name": "pine-loop.tcx.txt", "contents": b"<TrainingCenterDatabase/>"}
     assert response.json() == {
         "route_segments": [[{"lat": 28.1, "lng": -82.1}, {"lat": 28.2, "lng": -82.2}]],
         "track_point_count": 2,

@@ -458,7 +458,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
             hike = editingHike,
             saving = state.isRefreshing,
             routeUri = selectedRouteUri,
-            onChooseRoute = { routePicker.launch(arrayOf("application/vnd.garmin.tcx+xml", "application/xml", "text/xml")) },
+            onChooseRoute = { routePicker.launch(arrayOf("application/vnd.garmin.tcx+xml", "application/xml", "text/xml", "text/plain")) },
             onDismiss = {
                 creatingHike = false
                 editingHike = null
@@ -1292,7 +1292,7 @@ private fun HikeEditorSheet(
                     Text(if (routeUri == null) "Add TCX route (optional)" else "TCX route selected")
                 }
                 Text(
-                    if (routeUri == null) "Import a .tcx file to draw this hike on the map." else "The route will upload with this hike and appear on its map after sync.",
+                    if (routeUri == null) "Import a .tcx or MapMyRun .tcx.txt file to draw this hike on the map." else "The route will upload with this hike and appear on its map after sync.",
                     style = MaterialTheme.typography.bodySmall,
                     color = InkMuted,
                     modifier = Modifier.padding(top = 6.dp),

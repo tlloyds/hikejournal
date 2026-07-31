@@ -170,8 +170,8 @@ class FieldOperationQueue(private val context: Context) {
 
     suspend fun queueRoute(hikeId: String, uri: Uri) = withContext(Dispatchers.IO) {
         val filename = selectedFileName(context, uri) ?: "route.tcx"
-        if (!filename.lowercase(Locale.US).endsWith(".tcx")) {
-            throw IOException("Choose a .tcx route file.")
+        if (!filename.lowercase(Locale.US).endsWith(".tcx") && !filename.lowercase(Locale.US).endsWith(".tcx.txt")) {
+            throw IOException("Choose a .tcx or .tcx.txt route file.")
         }
         val destination = File(routeDirectory, "${UUID.randomUUID()}.tcx")
         copySelectedMedia(context, uri, destination, requestOriginal = true)
