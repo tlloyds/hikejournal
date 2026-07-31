@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 from hike_journal.models import PhotoMetadata, ProcessedImage, SpeciesCandidate
 from mobile_api import (
     CoverPhotoInput,
+    KnownSpeciesInput,
     ReviewCandidateInput,
     ReviewDecisionInput,
     ReviewQueueInput,
@@ -16,6 +17,7 @@ from mobile_api import (
     _species_key,
     _validate_picker_coordinate,
     app,
+    assign_known_species_to_photo,
     delete_species_quest,
     get_nearby_species,
     get_nearby_species_sightings,
@@ -495,6 +497,105 @@ def test_existing_photo_can_be_removed_from_species_review(monkeypatch):
 
     assert result == {"queued": False}
     assert repository.photo_status == ("photo-1", "ready")
+
+
+def test_known_species_can_be_assigned_to_an_untagged_photo(monkeypatch):
+    class Repository:
+        created = None
+        photo_status = None
+
+        def list_observations_for_photo_ids(self, _photo_ids):
+            return []
+
+        def list_observations_by_ids(self, observation_ids):
+            assert observation_ids == ["observation-source"]
+            return [{"raw_response_json": {"taxon_enrichment": {"rank": "species"}}}]
+
+        def create_manual_observation(self, **kwargs):
+            self.created = kwargs
+            return {**kwargs, "id": "observation-new"}
+
+        def update_photo_processing_status(self, photo_id, status):
+            self.photo_status = (photo_id, status)
+
+    repository = Repository()
+    service = type("Service", (), {"repository": repository})()
+    photo = {
+        "id": "photo-1",
+        "hike_id": "hike-1",
+        "content_type": "image/jpeg",
+        "owner_email": "hiker@example.com",
+    }
+    monkeypatch.setattr("mobile_api._get_visible_photo", lambda _photo_id: (service, photo))
+    monkeypatch.setattr(
+        "mobile_api._visible_species_data",
+        lambda _service: (
+            [
+                {
+                    "id": "observation-source",
+                    "taxon_id": 123,
+                    "common_name": "Gopher tortoise",
+                    "scientific_name": "Gopherus polyphemus",
+                    "status": "confirmed",
+                }
+            ],
+            {},
+            {},
+        ),
+    )
+
+    result = assign_known_species_to_photo(
+        "photo-1",
+        KnownSpeciesInput(
+            taxon_id=123,
+            common_name="Gopher tortoise",
+            scientific_name="Gopherus polyphemus",
+        ),
+    )
+
+    assert repository.created["source"] == "known_species"
+    assert repository.created["status"] == "confirmed"
+    assert repository.created["is_primary"] is True
+    assert repository.created["raw_payload"]["known_species_assignment"]["source_observation_id"] == "observation-source"
+    assert repository.created["raw_payload"]["taxon_enrichment"] == {"rank": "species"}
+    assert repository.photo_status == ("photo-1", "ready")
+    assert result["species"][0]["common_name"] == "Gopher tortoise"
+
+
+def test_known_species_assignment_is_idempotent_after_sync_retry(monkeypatch):
+    existing = {
+        "id": "observation-existing",
+        "photo_id": "photo-1",
+        "taxon_id": 123,
+        "common_name": "Gopher tortoise",
+        "scientific_name": "Gopherus polyphemus",
+        "status": "confirmed",
+        "is_primary": True,
+    }
+
+    class Repository:
+        photo_status = None
+
+        def list_observations_for_photo_ids(self, _photo_ids):
+            return [existing]
+
+        def update_photo_processing_status(self, photo_id, status):
+            self.photo_status = (photo_id, status)
+
+    repository = Repository()
+    service = type("Service", (), {"repository": repository})()
+    monkeypatch.setattr(
+        "mobile_api._get_visible_photo",
+        lambda _photo_id: (service, {"id": "photo-1", "content_type": "image/jpeg"}),
+    )
+
+    result = assign_known_species_to_photo(
+        "photo-1",
+        KnownSpeciesInput(taxon_id=123, common_name="Gopher tortoise"),
+    )
+
+    assert repository.photo_status == ("photo-1", "ready")
+    assert result["species"][0]["common_name"] == "Gopher tortoise"
 
 
 def test_hike_cover_can_be_selected_from_the_same_hike(monkeypatch):

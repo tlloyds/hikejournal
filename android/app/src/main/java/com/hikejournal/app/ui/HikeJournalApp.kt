@@ -148,6 +148,7 @@ import com.hikejournal.app.data.HikeDraft
 import com.hikejournal.app.data.LocalMediaAccess
 import com.hikejournal.app.data.MediaLocationSummary
 import com.hikejournal.app.data.Photo
+import com.hikejournal.app.data.SpeciesRecord
 import com.hikejournal.app.data.SyncAttention
 import com.hikejournal.app.data.localMediaAccess
 import com.hikejournal.app.data.requiredLocalMediaPermissions
@@ -182,6 +183,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
     var settingsOpen by remember { mutableStateOf(false) }
     var badgesOpen by remember { mutableStateOf(false) }
     var selectedPhoto by remember { mutableStateOf<Photo?>(null) }
+    var speciesAssignmentPhoto by remember { mutableStateOf<Photo?>(null) }
     var localMediaPickerOpen by remember { mutableStateOf(false) }
     var localMediaPermissionError by remember { mutableStateOf<String?>(null) }
     var grantedLocalMediaAccess by remember { mutableStateOf<LocalMediaAccess?>(null) }
@@ -212,6 +214,12 @@ fun HikeJournalApp(viewModel: AppViewModel) {
     LaunchedEffect(state.error) {
         if (state.error != null) {
             openingPhotoMapId = null
+        }
+    }
+    LaunchedEffect(selectedPhoto?.id) {
+        val photo = selectedPhoto
+        if (photo != null && !photo.isVideo && photo.species.none { it.isPrimary }) {
+            viewModel.loadSpecies()
         }
     }
 
@@ -572,7 +580,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
         )
     }
 
-    selectedPhoto?.let { selected ->
+    if (photoViewerVisible(selectedPhoto, hikeMapRequest != null)) selectedPhoto?.let { selected ->
         val photo = state.journal?.photos?.firstOrNull { it.id == selected.id } ?: selected
         val photos = state.journal?.photos.orEmpty()
         val photoIndex = photos.indexOfFirst { it.id == photo.id }
@@ -583,6 +591,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
             updatingReview = state.reviewUpdateId == photo.id,
             isCoverPhoto = state.journal?.coverPhotoId == photo.id,
             updatingCover = state.coverUpdateId == photo.id,
+            assigningSpecies = state.speciesAssignmentId == photo.id,
             openingMap = openingPhotoMapId == photo.id,
             onDismiss = {
                 if (openingPhotoMapId == photo.id) {
@@ -610,11 +619,17 @@ fun HikeJournalApp(viewModel: AppViewModel) {
             onSetCover = state.journal?.takeUnless { it.isStandalone || photo.isVideo }?.let {
                 { selected: Boolean -> viewModel.setHikeCover(photo, selected) }
             },
+            onAssignSpecies = if (!photo.isVideo && photo.species.none { it.isPrimary }) {
+                { speciesAssignmentPhoto = photo }
+            } else {
+                null
+            },
             onViewMap = if (photo.latitude != null && photo.longitude != null) {
                 {
                     val currentJournal = state.journal?.takeIf { it.isStandalone || it.id == photo.hikeId }
                     if (currentJournal != null || photo.hikeId == null) {
                         openingPhotoMapId = null
+                        selectedPhoto = null
                         hikeMapRequest = HikeMapRequest(
                             hike = currentJournal,
                             focusedPhoto = photo,
@@ -627,6 +642,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                                 return@loadHikeForMap
                             }
                             openingPhotoMapId = null
+                            selectedPhoto = null
                             hikeMapRequest = HikeMapRequest(
                                 hike = loadedHike,
                                 focusedPhoto = photo,
@@ -637,6 +653,21 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                 }
             } else {
                 null
+            },
+        )
+    }
+
+    speciesAssignmentPhoto?.let { photo ->
+        KnownSpeciesAssignmentDialog(
+            species = state.species,
+            loading = state.isSpeciesLoading,
+            assigning = state.speciesAssignmentId == photo.id,
+            onDismiss = { speciesAssignmentPhoto = null },
+            onRefresh = { viewModel.loadSpecies(force = true) },
+            onAssign = { species ->
+                viewModel.assignKnownSpecies(photo, species) {
+                    speciesAssignmentPhoto = null
+                }
             },
         )
     }
@@ -1717,6 +1748,7 @@ private fun PhotoViewer(
     updatingReview: Boolean,
     isCoverPhoto: Boolean,
     updatingCover: Boolean,
+    assigningSpecies: Boolean,
     openingMap: Boolean,
     onDismiss: () -> Unit,
     onPrevious: (() -> Unit)?,
@@ -1725,6 +1757,7 @@ private fun PhotoViewer(
     onDelete: () -> Unit,
     onSetReview: (Boolean) -> Unit,
     onSetCover: ((Boolean) -> Unit)?,
+    onAssignSpecies: (() -> Unit)?,
     onViewMap: (() -> Unit)?,
 ) {
     var caption by remember(photo.id) { mutableStateOf(photo.caption) }
@@ -1797,6 +1830,23 @@ private fun PhotoViewer(
                     Text("Field Video", style = MaterialTheme.typography.titleMedium, color = Paper, modifier = Modifier.padding(top = 10.dp))
                     Text("Tap the expand icon for player-only viewing. Videos are not eligible for species review.", style = MaterialTheme.typography.bodyMedium, color = Color(0xFFBFD2B9), modifier = Modifier.padding(top = 4.dp))
                 } else {
+                    if (onAssignSpecies != null) {
+                        OutlinedButton(
+                            onClick = onAssignSpecies,
+                            enabled = !assigningSpecies,
+                            modifier = Modifier.fillMaxWidth().padding(top = 10.dp).height(48.dp),
+                            border = BorderStroke(1.dp, Color(0xFF91AA8C)),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Paper),
+                        ) {
+                            if (assigningSpecies) {
+                                CircularProgressIndicator(Modifier.size(18.dp), color = Paper, strokeWidth = 2.dp)
+                            } else {
+                                Icon(Icons.AutoMirrored.Rounded.FactCheck, null)
+                            }
+                            Spacer(Modifier.width(8.dp))
+                            Text(if (assigningSpecies) "Assigning species..." else "Assign known species")
+                        }
+                    }
                     PhotoSettingRow(
                         checked = photo.processingStatus == "in_review",
                         updating = updatingReview,
@@ -1862,6 +1912,131 @@ private fun PhotoViewer(
         )
     }
 }
+
+@Composable
+private fun KnownSpeciesAssignmentDialog(
+    species: List<SpeciesRecord>,
+    loading: Boolean,
+    assigning: Boolean,
+    onDismiss: () -> Unit,
+    onRefresh: () -> Unit,
+    onAssign: (SpeciesRecord) -> Unit,
+) {
+    var query by remember { mutableStateOf("") }
+    var selected by remember { mutableStateOf<SpeciesRecord?>(null) }
+    val filtered = filterKnownSpecies(species, query)
+    AlertDialog(
+        onDismissRequest = { if (!assigning) onDismiss() },
+        title = { Text("Assign known species") },
+        text = {
+            Column {
+                Text(
+                    "Choose a species already in your Field Guide. This confirms the photo and makes it ready to publish.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = InkMuted,
+                )
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
+                    label = { Text("Common or scientific name") },
+                    leadingIcon = { Icon(Icons.Rounded.Search, null) },
+                    singleLine = true,
+                )
+                when {
+                    loading && species.isEmpty() -> {
+                        Row(
+                            Modifier.fillMaxWidth().padding(vertical = 36.dp),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                            Text("Loading Field Guide…", modifier = Modifier.padding(start = 10.dp))
+                        }
+                    }
+                    filtered.isEmpty() -> {
+                        Column(
+                            Modifier.fillMaxWidth().padding(vertical = 24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Text(
+                                if (species.isEmpty()) "No saved species are available yet." else "No species match that search.",
+                                color = InkMuted,
+                            )
+                            if (species.isEmpty()) TextButton(onClick = onRefresh) { Text("Refresh Field Guide") }
+                        }
+                    }
+                    else -> LazyColumn(Modifier.fillMaxWidth().heightIn(max = 360.dp).padding(top = 8.dp)) {
+                        items(filtered, key = { it.key }) { item ->
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clickable(enabled = !assigning) { selected = item }
+                                    .padding(vertical = 11.dp, horizontal = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        item.commonName.ifBlank { item.scientificName },
+                                        style = MaterialTheme.typography.titleSmall,
+                                        color = Ink,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    Text(
+                                        buildString {
+                                            if (item.scientificName.isNotBlank() && item.scientificName != item.commonName) {
+                                                append(item.scientificName)
+                                                append(" · ")
+                                            }
+                                            append(item.encounterCount)
+                                            append(if (item.encounterCount == 1) " prior record" else " prior records")
+                                        },
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = InkMuted,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                                if (selected?.key == item.key) {
+                                    Icon(Icons.Rounded.Check, "Selected", tint = Moss)
+                                }
+                            }
+                            HorizontalDivider(color = Line)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { selected?.let(onAssign) },
+                enabled = selected != null && !assigning,
+            ) {
+                if (assigning) {
+                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(8.dp))
+                }
+                Text(if (assigning) "Assigning…" else "Assign species")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !assigning) { Text("Cancel") }
+        },
+    )
+}
+
+internal fun filterKnownSpecies(species: List<SpeciesRecord>, query: String): List<SpeciesRecord> {
+    val normalized = query.trim()
+    if (normalized.isEmpty()) return species
+    return species.filter { item ->
+        item.commonName.contains(normalized, ignoreCase = true) ||
+            item.scientificName.contains(normalized, ignoreCase = true)
+    }
+}
+
+internal fun photoViewerVisible(selectedPhoto: Photo?, mapRequestOpen: Boolean): Boolean =
+    selectedPhoto != null && !mapRequestOpen
 
 @Composable
 private fun PhotoSettingRow(

@@ -392,6 +392,15 @@ class HikeJournalRepository(context: Context) {
         withContext(Dispatchers.IO) { File(cacheDirectory, "species-review.json").delete() }
     }
 
+    suspend fun assignKnownSpecies(photoId: String, hikeId: String?, species: SpeciesRecord) {
+        fieldQueue.queueKnownSpecies(photoId, hikeId, species)
+        withContext(Dispatchers.IO) {
+            File(cacheDirectory, "species-review.json").delete()
+            File(cacheDirectory, "species-publish.json").delete()
+            File(cacheDirectory, "sightings.json").delete()
+        }
+    }
+
     suspend fun syncNow(): Boolean = FieldSyncEngine(appContext).drain()
 
     suspend fun retryAttention() = fieldQueue.retryAttention()

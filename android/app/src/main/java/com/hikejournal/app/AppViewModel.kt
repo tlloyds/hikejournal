@@ -21,6 +21,7 @@ import com.hikejournal.app.data.ReviewCandidate
 import com.hikejournal.app.data.ReviewItem
 import com.hikejournal.app.data.QuestSightingsMap
 import com.hikejournal.app.data.Sighting
+import com.hikejournal.app.data.SpeciesLabel
 import com.hikejournal.app.data.SpeciesRecord
 import com.hikejournal.app.data.SyncStatus
 import com.hikejournal.app.data.withoutHikes
@@ -68,6 +69,7 @@ data class AppState(
     val identifyingReviewId: String? = null,
     val inatAuthorizationUrl: String? = null,
     val reviewUpdateId: String? = null,
+    val speciesAssignmentId: String? = null,
     val coverUpdateId: String? = null,
     val deletingHikeId: String? = null,
     val isPublishLoading: Boolean = false,
@@ -875,6 +877,46 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 .onFailure { error ->
                     _state.update { it.copy(reviewUpdateId = null, error = error.userMessage()) }
+                }
+        }
+    }
+
+    fun assignKnownSpecies(photo: Photo, species: SpeciesRecord, onAssigned: () -> Unit) {
+        val hikeId = _state.value.journal
+            ?.takeIf { journal -> journal.photos.any { it.id == photo.id } }
+            ?.id
+            ?: photo.hikeId
+            ?: "everyday"
+        viewModelScope.launch {
+            _state.update { it.copy(speciesAssignmentId = photo.id, error = null, notice = null) }
+            runCatching { repository.assignKnownSpecies(photo.id, hikeId, species) }
+                .onSuccess {
+                    val label = SpeciesLabel(
+                        commonName = species.commonName,
+                        scientificName = species.scientificName,
+                        status = "confirmed",
+                        isPrimary = true,
+                    )
+                    updatePhotoState(photo.id) { existing ->
+                        existing.copy(
+                            processingStatus = "ready",
+                            syncState = if (existing.syncState == "synced") "queued" else existing.syncState,
+                            species = listOf(label) + existing.species.filterNot { it.isPrimary },
+                        )
+                    }
+                    _state.update { state ->
+                        state.copy(
+                            reviewQueue = state.reviewQueue.filterNot { it.photo.id == photo.id },
+                            speciesAssignmentId = null,
+                            badgesHydrated = false,
+                            notice = "Assigned ${species.commonName.ifBlank { species.scientificName }}. " +
+                                if (state.isOffline) "Saved for sync." else "Ready to publish.",
+                        )
+                    }
+                    onAssigned()
+                }
+                .onFailure { error ->
+                    _state.update { it.copy(speciesAssignmentId = null, error = error.userMessage()) }
                 }
         }
     }

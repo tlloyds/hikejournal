@@ -3,9 +3,19 @@ package com.hikejournal.app.ui
 import com.hikejournal.app.data.Hike
 import com.hikejournal.app.data.Photo
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class HikeMapScreenTest {
+    @Test
+    fun `photo viewer is hidden while its map is open`() {
+        val selected = photo("selected", 28.1, -82.1)
+
+        assertTrue(photoViewerVisible(selected, mapRequestOpen = false))
+        assertFalse(photoViewerVisible(selected, mapRequestOpen = true))
+    }
+
     @Test
     fun `map keeps only geotagged photos and includes an external focused photo`() {
         val mapped = photo("mapped", 28.1, -82.1)

@@ -57,6 +57,7 @@ object OperationKind {
     const val UpdateCaption = "update_caption"
     const val DeletePhoto = "delete_photo"
     const val QueueSpeciesReview = "queue_species_review"
+    const val AssignKnownSpecies = "assign_known_species"
     const val ReviewDecision = "review_decision"
     const val UpdateSpeciesQuest = "update_species_quest"
 }
@@ -318,10 +319,12 @@ class FieldOperationQueue(private val context: Context) {
                 }
             }
             dao.delete(pendingUpload.id)
+            coalesce(OperationKind.AssignKnownSpecies, photoId)
             return
         }
         coalesce(OperationKind.UpdateCaption, photoId)
         coalesce(OperationKind.QueueSpeciesReview, photoId)
+        coalesce(OperationKind.AssignKnownSpecies, photoId)
         enqueue(OperationKind.DeletePhoto, photoId, hikeId, JSONObject())
     }
 
@@ -356,6 +359,20 @@ class FieldOperationQueue(private val context: Context) {
             photoId,
             hikeId,
             JSONObject().put("queued", queued),
+        )
+    }
+
+    suspend fun queueKnownSpecies(photoId: String, hikeId: String?, species: SpeciesRecord) {
+        coalesce(OperationKind.AssignKnownSpecies, photoId)
+        coalesce(OperationKind.QueueSpeciesReview, photoId)
+        enqueue(
+            OperationKind.AssignKnownSpecies,
+            photoId,
+            hikeId,
+            JSONObject()
+                .put("taxon_id", species.taxonId ?: JSONObject.NULL)
+                .put("common_name", species.commonName)
+                .put("scientific_name", species.scientificName),
         )
     }
 
@@ -528,6 +545,28 @@ class FieldOperationQueue(private val context: Context) {
                                 photo.copy(
                                     processingStatus = if (queued) "in_review" else "ready",
                                     syncState = operation.state,
+                                )
+                            } else {
+                                photo
+                            }
+                        },
+                    )
+                }
+                operation.kind == OperationKind.AssignKnownSpecies && operation.parentId == hikeId -> {
+                    val payload = JSONObject(operation.payloadJson)
+                    val label = SpeciesLabel(
+                        commonName = payload.optString("common_name"),
+                        scientificName = payload.optString("scientific_name"),
+                        status = "confirmed",
+                        isPrimary = true,
+                    )
+                    hike = hike?.copy(
+                        photos = hike!!.photos.map { photo ->
+                            if (photo.id == operation.entityId) {
+                                photo.copy(
+                                    processingStatus = "ready",
+                                    syncState = operation.state,
+                                    species = listOf(label) + photo.species.filterNot { it.isPrimary },
                                 )
                             } else {
                                 photo
@@ -1060,6 +1099,12 @@ class FieldSyncEngine(private val context: Context) {
             OperationKind.QueueSpeciesReview -> api.setSpeciesReview(
                 operation.entityId,
                 payload.optBoolean("queued", true),
+            )
+            OperationKind.AssignKnownSpecies -> api.assignKnownSpecies(
+                operation.entityId,
+                payload.optLong("taxon_id").takeUnless { payload.isNull("taxon_id") },
+                payload.optString("common_name"),
+                payload.optString("scientific_name"),
             )
             OperationKind.ReviewDecision -> {
                 val candidateJson = payload.optJSONObject("candidate")

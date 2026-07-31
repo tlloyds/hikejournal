@@ -57,7 +57,7 @@ from hike_journal.services.taxonomy import ensure_observation_taxonomy
 
 MAX_UPLOAD_BYTES = 30 * 1024 * 1024
 EVERYDAY_JOURNAL_ID = "everyday"
-MOBILE_API_VERSION = "0.6.3"
+MOBILE_API_VERSION = "0.6.4"
 
 
 def _parse_picker_taken_at(value: str) -> datetime | None:
@@ -130,6 +130,12 @@ class CoverPhotoInput(BaseModel):
 
 class ReviewQueueInput(BaseModel):
     queued: bool
+
+
+class KnownSpeciesInput(BaseModel):
+    taxon_id: int | None = None
+    common_name: str = Field(default="", max_length=240)
+    scientific_name: str = Field(default="", max_length=240)
 
 
 class ReviewCandidateInput(BaseModel):
@@ -1771,6 +1777,70 @@ def _get_visible_photo(photo_id: str) -> tuple[Services, dict[str, Any]]:
     elif mobile_owner_email() and str(photo.get("owner_email") or "").lower() != mobile_owner_email():
         raise HTTPException(status_code=404, detail="Photo not found.")
     return svc, photo
+
+
+def _matches_known_species(observation: dict[str, Any], species: KnownSpeciesInput) -> bool:
+    if species.taxon_id is not None:
+        return observation.get("taxon_id") == species.taxon_id
+    scientific_name = species.scientific_name.strip().casefold()
+    common_name = species.common_name.strip().casefold()
+    return bool(
+        (scientific_name and str(observation.get("scientific_name") or "").strip().casefold() == scientific_name)
+        or (common_name and str(observation.get("common_name") or "").strip().casefold() == common_name)
+    )
+
+
+@app.put("/v1/photos/{photo_id}/species", dependencies=[Depends(require_mobile_key)])
+def assign_known_species_to_photo(photo_id: str, payload: KnownSpeciesInput) -> dict[str, Any]:
+    svc, photo = _get_visible_photo(photo_id)
+    if str(photo.get("content_type") or "").lower().startswith("video/"):
+        raise HTTPException(status_code=409, detail="Videos cannot be assigned a species.")
+    if payload.taxon_id is None and not payload.common_name.strip() and not payload.scientific_name.strip():
+        raise HTTPException(status_code=400, detail="Choose a known species.")
+
+    existing = svc.repository.list_observations_for_photo_ids([photo_id])
+    primary = next((observation for observation in existing if observation.get("is_primary")), None)
+    if primary is not None:
+        if primary.get("status") == "confirmed" and _matches_known_species(primary, payload):
+            svc.repository.update_photo_processing_status(photo_id, "ready")
+            return _photo_payload(photo, existing)
+        raise HTTPException(status_code=409, detail="This photo already has a primary species.")
+
+    confirmed_observations, _, _ = _visible_species_data(svc)
+    known_species = next(
+        (observation for observation in confirmed_observations if _matches_known_species(observation, payload)),
+        None,
+    )
+    if known_species is None:
+        raise HTTPException(status_code=404, detail="That species is no longer available in your Field Guide.")
+
+    source_observation_id = str(known_species.get("id") or "")
+    source_rows = svc.repository.list_observations_by_ids([source_observation_id]) if source_observation_id else []
+    source_raw_payload = dict(source_rows[0].get("raw_response_json") or {}) if source_rows else {}
+    taxon_enrichment = source_raw_payload.get("taxon_enrichment")
+    raw_payload = {
+        "known_species_assignment": {
+            "source_observation_id": source_observation_id or None,
+            "assigned_at": datetime.now(timezone.utc).isoformat(),
+        },
+        **({"taxon_enrichment": taxon_enrichment} if isinstance(taxon_enrichment, dict) else {}),
+    }
+    created = svc.repository.create_manual_observation(
+        hike_id=photo.get("hike_id"),
+        photo_id=photo_id,
+        taxon_id=known_species.get("taxon_id"),
+        common_name=str(known_species.get("common_name") or payload.common_name or ""),
+        scientific_name=str(known_species.get("scientific_name") or payload.scientific_name or ""),
+        source="known_species",
+        raw_payload=raw_payload,
+        is_primary=True,
+        status="confirmed",
+        owner_subject=photo.get("owner_subject"),
+        owner_email=photo.get("owner_email"),
+    )
+    svc.repository.update_photo_processing_status(photo_id, "ready")
+    _invalidate_species_data_cache()
+    return _photo_payload(photo, [created])
 
 
 @app.put("/v1/photos/{photo_id}/review", dependencies=[Depends(require_mobile_key)])
