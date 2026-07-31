@@ -101,6 +101,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -555,6 +556,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
     if (pendingUpload.isNotEmpty() && state.journal != null) {
         UploadSheet(
             photoCount = pendingUpload.size,
+            isEverydaySighting = state.journal!!.isStandalone,
             locationSummary = mediaLocationSummary,
             checkingLocations = checkingMediaLocations,
             onDismiss = { pendingUpload = emptyList() },
@@ -562,11 +564,12 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                 pendingUpload = emptyList()
                 launchLocalMediaPicker()
             },
-            onUpload = { caption ->
+            onUpload = { caption, queueForReview ->
                 viewModel.uploadPhotos(
                     state.journal!!.id,
                     pendingUpload,
                     caption,
+                    queueForReview,
                 )
                 pendingUpload = emptyList()
             },
@@ -1881,13 +1884,17 @@ private fun HikeEditorSheet(
 @Composable
 private fun UploadSheet(
     photoCount: Int,
+    isEverydaySighting: Boolean,
     locationSummary: MediaLocationSummary?,
     checkingLocations: Boolean,
     onDismiss: () -> Unit,
     onChooseDifferentPhotos: () -> Unit,
-    onUpload: (String) -> Unit,
+    onUpload: (String, Boolean) -> Unit,
 ) {
     var caption by remember { mutableStateOf("") }
+    var queueForReview by remember(isEverydaySighting) {
+        mutableStateOf(defaultQueueForReview(isEverydaySighting))
+    }
     val missingLocations = locationSummary?.missingCount ?: 0
     val locationsReady = locationSummary?.allGeotagged == true
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Paper) {
@@ -1941,12 +1948,32 @@ private fun UploadSheet(
                 }
             }
             OutlinedTextField(caption, { caption = it }, Modifier.fillMaxWidth().padding(top = 18.dp), label = { Text("Note · optional") })
-            Text(
-                "After upload, use Select for species review in the journal to choose one or more photos.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = InkMuted,
-                modifier = Modifier.padding(vertical = 16.dp),
-            )
+            if (isEverydaySighting) {
+                Row(
+                    Modifier.fillMaxWidth().padding(vertical = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Send to species review", style = MaterialTheme.typography.titleMedium, color = Ink)
+                        Text(
+                            "On by default for everyday sightings. Turn this off to save without review.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = InkMuted,
+                        )
+                    }
+                    Switch(
+                        checked = queueForReview,
+                        onCheckedChange = { queueForReview = it },
+                    )
+                }
+            } else {
+                Text(
+                    "After upload, use Select for species review in the journal to choose one or more photos.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = InkMuted,
+                    modifier = Modifier.padding(vertical = 16.dp),
+                )
+            }
             if (locationSummary != null && !locationsReady) {
                 Button(
                     onClick = onChooseDifferentPhotos,
@@ -1958,14 +1985,14 @@ private fun UploadSheet(
                     Text("Choose different photos")
                 }
                 TextButton(
-                    onClick = { onUpload(caption) },
+                    onClick = { onUpload(caption, queueForReview) },
                     modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 4.dp),
                 ) {
                     Text("Save without GPS")
                 }
             } else {
                 Button(
-                    onClick = { onUpload(caption) },
+                    onClick = { onUpload(caption, queueForReview) },
                     enabled = locationsReady && !checkingLocations,
                     modifier = Modifier.fillMaxWidth().height(54.dp),
                 ) {
@@ -2321,6 +2348,8 @@ private fun PhotoSettingRow(
 private val Photo.isVideo: Boolean
     get() = contentType.startsWith("video/", ignoreCase = true) ||
         url.substringBefore('?').substringAfterLast('.', "").lowercase() in setOf("mp4", "mov", "m4v", "3gp", "webm")
+
+internal fun defaultQueueForReview(isEverydaySighting: Boolean): Boolean = isEverydaySighting
 
 @Composable
 private fun VideoPlayer(url: String, contentDescription: String) {

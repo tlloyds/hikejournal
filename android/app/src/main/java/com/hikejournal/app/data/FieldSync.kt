@@ -233,7 +233,7 @@ class FieldOperationQueue(private val context: Context) {
             width = metadata.width,
             height = metadata.height,
             contentType = contentType,
-            processingStatus = if (queueForReview) "in_review" else "ready",
+            processingStatus = initialProcessingStatus(queueForReview, contentType),
             syncState = "queued",
             species = emptyList(),
         )
@@ -880,11 +880,17 @@ private fun PendingOperationEntity.toLocalPhoto(): Photo {
         width = payload.optInt("width").takeUnless { payload.isNull("width") },
         height = payload.optInt("height").takeUnless { payload.isNull("height") },
         contentType = contentType ?: "image/jpeg",
-        processingStatus = if (payload.optBoolean("queue_for_review")) "in_review" else "ready",
+        processingStatus = initialProcessingStatus(
+            payload.optBoolean("queue_for_review"),
+            contentType ?: "image/jpeg",
+        ),
         syncState = state,
         species = emptyList(),
     )
 }
+
+internal fun initialProcessingStatus(queueForReview: Boolean, contentType: String): String =
+    if (queueForReview && !contentType.startsWith("video/", ignoreCase = true)) "in_review" else "ready"
 
 private fun HikeDraft.toQueueJson(): JSONObject = JSONObject()
     .put("title", title)

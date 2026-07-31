@@ -861,13 +861,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         hikeId: String,
         uris: List<Uri>,
         caption: String,
+        queueForReview: Boolean,
     ) {
         if (uris.isEmpty()) return
         viewModelScope.launch {
             _state.update { it.copy(uploadCurrent = 0, uploadTotal = uris.size, error = null) }
             for ((index, uri) in uris.withIndex()) {
                 val result = runCatching {
-                    repository.uploadPhoto(hikeId, uri, caption, queueForReview = false)
+                    repository.uploadPhoto(hikeId, uri, caption, queueForReview)
                 }
                 if (result.isFailure) {
                     _state.update {

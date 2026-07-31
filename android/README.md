@@ -15,8 +15,9 @@ the current Supabase database and Cloudflare R2 photo library through the small
 If the Mac receives a different local IP address, open the gear in HikeJournal
 and replace the server address. The API always uses port `8506`.
 
-## Included in v0.5.36
+## Included in v0.5.37
 
+- Everyday sightings default to Species Review during upload, with a clear opt-out
 - The Library `+` action now starts either a full hike or an everyday sighting
 - Hike creation searches and links entries to the imported location library
 - Newly created hikes appear immediately, followed by a delayed companion refresh
