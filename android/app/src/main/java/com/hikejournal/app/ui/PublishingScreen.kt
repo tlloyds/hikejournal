@@ -329,17 +329,21 @@ private fun PublishItemContent(
                             color = InkMuted,
                             modifier = Modifier.padding(top = 18.dp),
                         )
-                        if (connected) {
-                            Button(
-                                onClick = { confirmOpen = true },
-                                enabled = !offline && !publishing,
-                                modifier = Modifier.fillMaxWidth().padding(top = 14.dp).height(52.dp),
-                            ) {
-                                if (publishing) CircularProgressIndicator(Modifier.size(19.dp), color = Paper, strokeWidth = 2.dp)
-                                else Icon(Icons.Rounded.CloudUpload, null)
-                                Spacer(Modifier.width(8.dp))
-                                Text(if (publishing) "Publishing…" else "Post to iNaturalist")
-                            }
+                        Button(
+                            onClick = { confirmOpen = true },
+                            enabled = !offline && !publishing,
+                            modifier = Modifier.fillMaxWidth().padding(top = 14.dp).height(52.dp),
+                        ) {
+                            if (publishing) CircularProgressIndicator(Modifier.size(19.dp), color = Paper, strokeWidth = 2.dp)
+                            else Icon(Icons.Rounded.CloudUpload, null)
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                when {
+                                    publishing -> "Publishing…"
+                                    connected -> "Post to iNaturalist"
+                                    else -> "Connect and publish"
+                                },
+                            )
                         }
                     }
                     "needs_attention" -> {

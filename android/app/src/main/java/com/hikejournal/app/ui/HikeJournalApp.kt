@@ -711,11 +711,13 @@ fun HikeJournalApp(viewModel: AppViewModel) {
         SettingsDialog(
             currentUrl = viewModel.serverUrl,
             currentKey = viewModel.pairingKey,
+            inatConnected = state.publishQueue.connected,
             onDismiss = { settingsOpen = false },
             onSave = { url, key ->
                 viewModel.updateConnection(url, key)
                 settingsOpen = false
             },
+            onConnectInat = viewModel::connectInat,
         )
     }
 
@@ -2371,8 +2373,10 @@ private fun VideoPlayer(url: String, contentDescription: String) {
 private fun SettingsDialog(
     currentUrl: String,
     currentKey: String,
+    inatConnected: Boolean,
     onDismiss: () -> Unit,
     onSave: (String, String) -> Unit,
+    onConnectInat: () -> Unit,
 ) {
     var url by remember(currentUrl) { mutableStateOf(currentUrl) }
     var key by remember(currentKey) { mutableStateOf(currentKey) }
@@ -2408,6 +2412,23 @@ private fun SettingsDialog(
                     Icon(Icons.AutoMirrored.Rounded.OpenInNew, null)
                     Spacer(Modifier.width(7.dp))
                     Text("Open HikeJournal on the web")
+                }
+                HorizontalDivider(Modifier.padding(top = 12.dp))
+                Text("iNaturalist", style = MaterialTheme.typography.titleMedium, color = Ink, modifier = Modifier.padding(top = 16.dp))
+                Text(
+                    if (inatConnected) "Connected for species recommendations and publishing."
+                    else "Connect to get species recommendations and publish sightings.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = InkMuted,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+                if (!inatConnected) {
+                    Button(
+                        onClick = onConnectInat,
+                        modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                    ) {
+                        Text("Connect iNaturalist")
+                    }
                 }
             }
         },

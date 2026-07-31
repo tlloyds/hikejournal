@@ -732,6 +732,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             _state.update { it.copy(error = "Publishing needs a connection to iNaturalist.") }
             return
         }
+        if (!_state.value.publishQueue.connected) {
+            connectInat()
+            return
+        }
         viewModelScope.launch {
             _state.update { it.copy(publishingId = item.id, publishNotice = null, error = null) }
             runCatching {

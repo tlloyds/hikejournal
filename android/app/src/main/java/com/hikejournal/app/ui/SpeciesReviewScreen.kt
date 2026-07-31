@@ -118,7 +118,11 @@ fun SpeciesReviewScreen(
 
         when {
             loading && queue.isEmpty() -> ReviewLoading()
-            item == null -> ReviewEmpty(onRefresh)
+            item == null -> ReviewEmpty(
+                offline = offline,
+                onRefresh = onRefresh,
+                onConnectInat = onConnectInat,
+            )
             else -> Box(
                 Modifier.fillMaxSize().pointerInput(queueSignature, index) {
                     detectHorizontalDragGestures(
@@ -328,7 +332,11 @@ private fun ReviewLoading() {
 }
 
 @Composable
-private fun ReviewEmpty(onRefresh: () -> Unit) {
+private fun ReviewEmpty(
+    offline: Boolean,
+    onRefresh: () -> Unit,
+    onConnectInat: () -> Unit,
+) {
     Column(
         Modifier.fillMaxSize().padding(horizontal = 34.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -339,6 +347,13 @@ private fun ReviewEmpty(onRefresh: () -> Unit) {
         }
         Text("Review queue clear", style = MaterialTheme.typography.headlineMedium, color = Ink, modifier = Modifier.padding(top = 18.dp))
         Text("New photos marked for species review will gather here.", style = MaterialTheme.typography.bodyLarge, color = InkMuted, modifier = Modifier.padding(top = 6.dp))
-        OutlinedButton(onClick = onRefresh, modifier = Modifier.padding(top = 18.dp)) { Text("Check again") }
+        Button(
+            onClick = onConnectInat,
+            enabled = !offline,
+            modifier = Modifier.fillMaxWidth().padding(top = 22.dp).height(52.dp),
+        ) {
+            Text("Connect iNaturalist")
+        }
+        OutlinedButton(onClick = onRefresh, modifier = Modifier.padding(top = 10.dp)) { Text("Check again") }
     }
 }
