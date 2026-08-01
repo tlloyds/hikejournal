@@ -5,6 +5,8 @@ def test_lightweight_observations_include_species_log_photo_preference() -> None
     assert "species_log_main_photo:raw_response_json->species_log_main_photo" in LIGHTWEIGHT_OBSERVATION_COLUMNS
     assert "species_taxon_id,rank," in LIGHTWEIGHT_OBSERVATION_COLUMNS
     assert "rank,iconic_taxon_name," in LIGHTWEIGHT_OBSERVATION_COLUMNS
+    assert "wikipedia_url:raw_response_json->taxon_enrichment->>wikipedia_url" in LIGHTWEIGHT_OBSERVATION_COLUMNS
+    assert "wikipedia_summary:raw_response_json->taxon_enrichment->>wikipedia_summary" in LIGHTWEIGHT_OBSERVATION_COLUMNS
 
 
 def test_species_log_preferences_use_large_query_batches() -> None:

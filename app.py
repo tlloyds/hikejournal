@@ -3274,7 +3274,18 @@ def confirm_observation(repository: HikeJournalRepository, inat_client: InatClie
 def get_taxon_enrichment(observation: dict[str, Any]) -> dict[str, Any]:
     raw_payload = observation.get("raw_response_json") or {}
     enrichment = raw_payload.get("taxon_enrichment")
-    return enrichment if isinstance(enrichment, dict) else {}
+    if isinstance(enrichment, dict):
+        return enrichment
+    # Field Guide and its viewer use lightweight records. Keep them on the
+    # same shared Wikipedia fields without loading every observation in full.
+    wikipedia_url = str(observation.get("wikipedia_url") or "").strip()
+    wikipedia_summary = str(observation.get("wikipedia_summary") or "").strip()
+    if wikipedia_url or wikipedia_summary:
+        return {
+            "wikipedia_url": wikipedia_url,
+            "wikipedia_summary": wikipedia_summary,
+        }
+    return {}
 
 
 def get_manual_species_override(observation: dict[str, Any]) -> dict[str, Any]:
@@ -3566,6 +3577,23 @@ def build_species_log_context(
             (entry for entry in entries_sorted if is_species_log_main_photo(entry["observation"])),
             entries_sorted[0],
         )
+        shared_enrichment = next(
+            (
+                get_taxon_enrichment(entry["observation"])
+                for entry in entries_sorted
+                if get_taxon_enrichment(entry["observation"]).get("wikipedia_summary")
+                or get_taxon_enrichment(entry["observation"]).get("wikipedia_url")
+            ),
+            {},
+        )
+        if shared_enrichment:
+            for entry in entries_sorted:
+                observation = entry["observation"]
+                current_enrichment = get_taxon_enrichment(observation)
+                if not current_enrichment.get("wikipedia_url"):
+                    observation["wikipedia_url"] = shared_enrichment.get("wikipedia_url")
+                if not current_enrichment.get("wikipedia_summary"):
+                    observation["wikipedia_summary"] = shared_enrichment.get("wikipedia_summary")
         representative_observation = preferred_entry["observation"]
         encounters_by_hike: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for entry in entries_sorted:

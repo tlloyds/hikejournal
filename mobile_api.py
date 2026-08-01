@@ -376,12 +376,14 @@ def _photo_payload(photo: dict[str, Any], species: list[dict[str, Any]] | None =
                     (observation.get("raw_response_json") or {})
                     .get("taxon_enrichment", {})
                     .get("wikipedia_url")
+                    or observation.get("wikipedia_url")
                     or ""
                 ),
                 "wikipedia_summary": plain_text(
                     (observation.get("raw_response_json") or {})
                     .get("taxon_enrichment", {})
                     .get("wikipedia_summary")
+                    or observation.get("wikipedia_summary")
                 ),
             }
             for observation in (species or [])
@@ -514,6 +516,15 @@ def _build_species_payloads(
             reverse=True,
         )
         lead = ordered[0]
+        enrichment_lead = next(
+            (
+                item
+                for item in ordered
+                if str(item.get("wikipedia_summary") or "").strip()
+                or str(item.get("wikipedia_url") or "").strip()
+            ),
+            lead,
+        )
         encounter_photo_ids = list(
             dict.fromkeys(
                 str(item.get("photo_id"))
@@ -566,8 +577,8 @@ def _build_species_payloads(
                 "scientific_name": str(lead.get("scientific_name") or ""),
                 "rank": str(lead.get("rank") or ""),
                 "iconic_taxon_name": iconic_taxon_name,
-                "wikipedia_url": str(lead.get("wikipedia_url") or ""),
-                "wikipedia_summary": str(lead.get("wikipedia_summary") or ""),
+                "wikipedia_url": str(enrichment_lead.get("wikipedia_url") or ""),
+                "wikipedia_summary": str(enrichment_lead.get("wikipedia_summary") or ""),
                 "encounter_count": len(encounter_photo_ids),
                 "hike_count": len(hike_ids),
                 "hike_ids": sorted(hike_ids),
@@ -1456,6 +1467,10 @@ def get_species_detail(key: str) -> dict[str, Any]:
     summaries = _build_species_payloads(matching, photos_by_id, hikes_by_id)
     if not summaries:
         raise HTTPException(status_code=404, detail="Species not found.")
+    summary_enrichment = {
+        "wikipedia_url": str(summaries[0].get("wikipedia_url") or ""),
+        "wikipedia_summary": str(summaries[0].get("wikipedia_summary") or ""),
+    }
 
     observations_by_photo: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for observation in matching:
@@ -1470,7 +1485,20 @@ def get_species_detail(key: str) -> dict[str, Any]:
         hike = hikes_by_id.get(str(photo.get("hike_id") or ""))
         encounters.append(
             {
-                "photo": _photo_payload(photo, photo_observations),
+                # The Field Guide is organized by species rather than a single
+                # observation.  Give every encounter the species' shared wiki
+                # context, even when this particular photo predates enrichment.
+                "photo": _photo_payload(
+                    photo,
+                    [
+                        {
+                            **observation,
+                            "wikipedia_url": observation.get("wikipedia_url") or summary_enrichment["wikipedia_url"],
+                            "wikipedia_summary": observation.get("wikipedia_summary") or summary_enrichment["wikipedia_summary"],
+                        }
+                        for observation in photo_observations
+                    ],
+                ),
                 "hike_id": str((hike or {}).get("id") or "") or None,
                 "hike_title": str((hike or {}).get("title") or "Everyday sighting"),
                 "hike_date": str((hike or {}).get("hike_date") or ""),

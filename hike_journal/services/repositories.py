@@ -22,7 +22,9 @@ LIGHTWEIGHT_OBSERVATION_COLUMNS = (
     "common_name,scientific_name,"
     "confidence,status,is_primary,identified_at,source,inat_observation_id,inat_observation_url,"
     "inat_posted_at,inat_photo_attached,"
-    "species_log_main_photo:raw_response_json->species_log_main_photo"
+    "species_log_main_photo:raw_response_json->species_log_main_photo,"
+    "wikipedia_url:raw_response_json->taxon_enrichment->>wikipedia_url,"
+    "wikipedia_summary:raw_response_json->taxon_enrichment->>wikipedia_summary"
 )
 LEGACY_LIGHTWEIGHT_OBSERVATION_COLUMNS = LIGHTWEIGHT_OBSERVATION_COLUMNS.replace(
     "species_taxon_id,rank,iconic_taxon_name,",

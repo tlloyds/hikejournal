@@ -118,6 +118,25 @@ def test_photo_payload_includes_stored_species_wikipedia_info():
     ]
 
 
+def test_photo_payload_includes_wikipedia_info_from_field_guide_records():
+    payload = _photo_payload(
+        {"id": "photo-1"},
+        species=[
+            {
+                "common_name": "Eastern gray squirrel",
+                "scientific_name": "Sciurus carolinensis",
+                "status": "confirmed",
+                "is_primary": True,
+                "wikipedia_url": "https://en.wikipedia.org/wiki/Eastern_gray_squirrel",
+                "wikipedia_summary": "The eastern gray squirrel is a tree squirrel.",
+            }
+        ],
+    )
+
+    assert payload["species"][0]["wikipedia_summary"] == "The eastern gray squirrel is a tree squirrel."
+    assert payload["species"][0]["wikipedia_url"] == "https://en.wikipedia.org/wiki/Eastern_gray_squirrel"
+
+
 def test_hike_detail_includes_route_segments_for_native_map(monkeypatch):
     class Repository:
         def list_photos(self, _hike_id):
@@ -360,6 +379,8 @@ def test_species_payload_counts_unique_photo_encounters_and_hikes():
             "common_name": "Pinewoods milkweed",
             "scientific_name": "Asclepias humistrata",
             "iconic_taxon_name": "Plantae",
+            "wikipedia_url": "https://en.wikipedia.org/wiki/Asclepias_humistrata",
+            "wikipedia_summary": "Pinewoods milkweed is a flowering plant.",
         },
         {
             "taxon_id": 42,
@@ -402,6 +423,7 @@ def test_species_payload_counts_unique_photo_encounters_and_hikes():
     assert payload["latest_seen"] == "2026-02-01"
     assert payload["cover_url"] == "https://img/b.jpg"
     assert payload["iconic_taxon_name"] == "Plantae"
+    assert payload["wikipedia_summary"] == "Pinewoods milkweed is a flowering plant."
 
 
 def test_species_payload_compares_observation_instants_across_timezones():
