@@ -52,6 +52,7 @@ def build_reconciliation_plan(
         return exact_name_cache[key]
 
     groups: dict[tuple[int, str | None, str | None, int | None], list[str]] = defaultdict(list)
+    enrichment_backfills: list[tuple[str, dict[str, Any]]] = []
     unresolved: list[dict[str, Any]] = []
     corrections: list[dict[str, Any]] = []
     already_current = 0
@@ -67,6 +68,14 @@ def build_reconciliation_plan(
         if not enrichment:
             unresolved.append(observation)
             continue
+        raw_payload = dict(observation.get("raw_response_json") or {})
+        stored_enrichment = raw_payload.get("taxon_enrichment")
+        if not isinstance(stored_enrichment, dict) or not {
+            "wikipedia_url",
+            "wikipedia_summary",
+        }.issubset(stored_enrichment):
+            raw_payload["taxon_enrichment"] = enrichment
+            enrichment_backfills.append((str(observation["id"]), raw_payload))
         fields = taxonomy_resolution_fields(enrichment)
         existing_fields = {
             "taxon_id": original_taxon_id,
@@ -100,6 +109,7 @@ def build_reconciliation_plan(
 
     return {
         "groups": groups,
+        "enrichment_backfills": enrichment_backfills,
         "requested_taxa": len(requested_ids),
         "resolved_taxa": len({key[0] for key in groups}),
         "changed": sum(len(ids) for ids in groups.values()),
@@ -114,6 +124,7 @@ def print_plan(plan: dict[str, Any]) -> None:
         {
             "requested_taxa": plan["requested_taxa"],
             "rows_to_update": plan["changed"],
+            "rows_missing_enrichment": len(plan["enrichment_backfills"]),
             "already_current": plan["already_current"],
             "identity_corrections": len(plan["corrections"]),
             "unresolved": len(plan["unresolved"]),
@@ -146,7 +157,12 @@ def main() -> None:
     parser.add_argument(
         "--apply",
         action="store_true",
-        help="Write the planned rank, iconic taxon, parent-species, and corrected taxon IDs.",
+        help="Write the planned taxonomy corrections and missing iNaturalist enrichment, including Wikipedia fields.",
+    )
+    parser.add_argument(
+        "--enrichment-only",
+        action="store_true",
+        help="With --apply, write only missing iNaturalist enrichment and leave existing taxonomy fields unchanged.",
     )
     args = parser.parse_args()
     if not settings.supabase_configured:
@@ -166,15 +182,20 @@ def main() -> None:
         return
 
     updated = 0
-    for (taxon_id, rank, iconic_taxon_name, species_taxon_id), observation_ids in plan["groups"].items():
-        updated += repository.update_observation_taxon_resolutions(
-            observation_ids,
-            taxon_id=taxon_id,
-            rank=rank,
-            iconic_taxon_name=iconic_taxon_name,
-            species_taxon_id=species_taxon_id,
-        )
-    print(f"Updated {updated} confirmed observations.")
+    if not args.enrichment_only:
+        for (taxon_id, rank, iconic_taxon_name, species_taxon_id), observation_ids in plan["groups"].items():
+            updated += repository.update_observation_taxon_resolutions(
+                observation_ids,
+                taxon_id=taxon_id,
+                rank=rank,
+                iconic_taxon_name=iconic_taxon_name,
+                species_taxon_id=species_taxon_id,
+            )
+    enriched = 0
+    for observation_id, raw_payload in plan["enrichment_backfills"]:
+        repository.update_observation_raw_payload(observation_id, raw_payload)
+        enriched += 1
+    print(f"Updated taxonomy on {updated} confirmed observations and enriched {enriched} observations.")
 
 
 if __name__ == "__main__":

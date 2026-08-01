@@ -1321,11 +1321,12 @@ class HikeJournalRepository:
                 self.client.table("species_observations")
                 .select(
                     "id,taxon_id,species_taxon_id,rank,iconic_taxon_name,"
-                    "common_name,scientific_name,status"
+                    "common_name,scientific_name,status,raw_response_json"
                 )
                 .eq("status", status)
                 .not_.is_("taxon_id", "null")
-            )
+            ),
+            page_size=200,
         )
 
     def update_observation_inat_posting(
