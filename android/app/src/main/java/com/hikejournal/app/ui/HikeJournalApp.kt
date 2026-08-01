@@ -606,6 +606,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                     pendingUpload,
                     caption,
                     queueForReview = false,
+                    prioritizeForIdentification = identify,
                     onUploaded = { photo ->
                         if (identifyAfterUpload && !photo.isVideo && selectedPhoto == null) {
                             selectedPhoto = photo
@@ -670,6 +671,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
             assigningSpecies = state.speciesAssignmentId == photo.id,
             openingMap = openingPhotoMapId == photo.id,
             identifying = state.identifyingReviewId == photo.id,
+            savingForRecommendation = state.prioritizingPhotoId == photo.id,
             onDismiss = {
                 if (openingPhotoMapId == photo.id) {
                     openingPhotoMapId = null
@@ -2075,6 +2077,7 @@ private fun PhotoViewer(
     assigningSpecies: Boolean,
     openingMap: Boolean,
     identifying: Boolean,
+    savingForRecommendation: Boolean,
     onDismiss: () -> Unit,
     onPrevious: (() -> Unit)?,
     onNext: (() -> Unit)?,
@@ -2183,15 +2186,21 @@ private fun PhotoViewer(
                     }
                     Button(
                         onClick = onRequestRecommendation,
-                        enabled = !identifying && photo.syncState == "synced" && !photo.url.startsWith("file:"),
+                        enabled = !identifying && !savingForRecommendation && photo.syncState == "synced" && !photo.url.startsWith("file:"),
                         modifier = Modifier.fillMaxWidth().padding(top = 10.dp).height(48.dp),
                     ) {
-                        if (identifying) CircularProgressIndicator(Modifier.size(18.dp), color = Paper, strokeWidth = 2.dp)
+                        if (identifying || savingForRecommendation) CircularProgressIndicator(Modifier.size(18.dp), color = Paper, strokeWidth = 2.dp)
                         else Icon(Icons.Rounded.Refresh, null)
                         Spacer(Modifier.width(8.dp))
-                        Text(if (identifying) "Asking iNaturalist..." else "Get iNaturalist recommendation")
+                        Text(
+                            when {
+                                savingForRecommendation -> "Saving photo for iNaturalist..."
+                                identifying -> "Asking iNaturalist..."
+                                else -> "Get iNaturalist recommendation"
+                            },
+                        )
                     }
-                    if (photo.syncState != "synced" || photo.url.startsWith("file:")) {
+                    if (!savingForRecommendation && (photo.syncState != "synced" || photo.url.startsWith("file:"))) {
                         Text(
                             "Available once this photo finishes saving.",
                             style = MaterialTheme.typography.bodySmall,

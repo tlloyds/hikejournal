@@ -921,17 +921,27 @@ class FieldSyncEngine(private val context: Context) {
         return cleanupFailures.toList()
     }
 
-    suspend fun drain(): Boolean = fieldSyncMutex.withLock {
+    suspend fun drain(prioritizedPhotoId: String? = null): Boolean = fieldSyncMutex.withLock {
         var shouldRetry = false
         while (true) {
             val operations = dao.listAll()
             val deletingHikeIds = operations
                 .filter { it.kind == OperationKind.DeleteHike }
                 .mapTo(mutableSetOf()) { it.entityId }
-            val operation = operations.firstOrNull {
+            val eligibleOperation: (PendingOperationEntity) -> Boolean = {
                 it.state in setOf("queued", "syncing") &&
                     (it.kind == OperationKind.DeleteHike || it.targetHikeId() !in deletingHikeIds)
-            } ?: break
+            }
+            val operation = operations.firstOrNull {
+                it.kind == OperationKind.UploadPhoto &&
+                    it.entityId == prioritizedPhotoId &&
+                    eligibleOperation(it) &&
+                    operations.none { dependency ->
+                        dependency.kind == OperationKind.CreateHike &&
+                            dependency.entityId == it.parentId &&
+                            eligibleOperation(dependency)
+                    }
+            } ?: operations.firstOrNull(eligibleOperation) ?: break
             dao.updateState(
                 operation.id,
                 "syncing",

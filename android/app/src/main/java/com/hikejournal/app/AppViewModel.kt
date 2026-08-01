@@ -71,6 +71,7 @@ data class AppState(
     val isReviewLoading: Boolean = false,
     val decidingReviewId: String? = null,
     val identifyingReviewId: String? = null,
+    val prioritizingPhotoId: String? = null,
     val inatAuthorizationUrl: String? = null,
     val reviewUpdateId: String? = null,
     val speciesAssignmentId: String? = null,
@@ -944,6 +945,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         uris: List<Uri>,
         caption: String,
         queueForReview: Boolean,
+        prioritizeForIdentification: Boolean = false,
         onUploaded: (Photo) -> Unit = {},
     ) {
         if (uris.isEmpty()) return
@@ -964,6 +966,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     return@launch
                 }
                 val savedPhoto = result.getOrThrow()
+                if (prioritizeForIdentification && index == 0 && !savedPhoto.contentType.startsWith("video/")) {
+                    _state.update { it.copy(prioritizingPhotoId = savedPhoto.id) }
+                }
                 _state.update { state ->
                     val journal = state.journal?.takeIf { it.id == hikeId }
                     state.copy(
@@ -988,7 +993,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 onUploaded(savedPhoto)
             }
             _state.update { it.copy(uploadCurrent = 0, uploadTotal = 0) }
-            openHike(hikeId)
+            if (prioritizeForIdentification && _state.value.prioritizingPhotoId != null) {
+                runCatching { repository.syncPhotoNow(_state.value.prioritizingPhotoId ?: return@launch) }
+                    .onSuccess { refreshJournalAfterSync(hikeId) }
+                    .onFailure { error -> _state.update { it.copy(error = error.userMessage()) } }
+                _state.update { it.copy(prioritizingPhotoId = null) }
+            } else {
+                openHike(hikeId)
+            }
         }
     }
 

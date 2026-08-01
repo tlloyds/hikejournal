@@ -443,6 +443,8 @@ class HikeJournalRepository(context: Context) {
 
     suspend fun syncNow(): Boolean = FieldSyncEngine(appContext).drain()
 
+    suspend fun syncPhotoNow(photoId: String): Boolean = FieldSyncEngine(appContext).drain(photoId)
+
     suspend fun retryAttention() = fieldQueue.retryAttention()
 
     suspend fun discardSyncAttention() = fieldQueue.discardAttention()
