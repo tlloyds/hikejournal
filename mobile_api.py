@@ -1252,11 +1252,15 @@ def list_species_review() -> list[dict[str, Any]]:
 
 @app.post("/v1/species/review/{photo_id}/recommendation", dependencies=[Depends(require_mobile_key)])
 def request_species_recommendation(photo_id: str) -> dict[str, Any]:
-    """Get fresh iNaturalist CV candidates for one queued photo and save them for review."""
+    """Get fresh iNaturalist CV candidates for one photo and save them for review."""
     global _species_data_cache
     svc, photo = _get_visible_photo(photo_id)
+    # A recommendation is itself a request for review.  Marking the photo here
+    # lets the mobile photo viewer begin identification directly, without a
+    # separate queueing step.
     if str(photo.get("processing_status") or "") != "in_review":
-        raise HTTPException(status_code=409, detail="Queue this photo for species review before requesting an ID.")
+        svc.repository.update_photo_processing_status(photo_id, "in_review")
+        photo["processing_status"] = "in_review"
 
     try:
         inat_client = _mobile_inat_client()

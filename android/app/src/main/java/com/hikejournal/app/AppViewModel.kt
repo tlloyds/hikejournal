@@ -676,6 +676,26 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 repository.decideReview(item, action, candidate)
                 repository.loadReviewQueue()
             }.onSuccess { result ->
+                updatePhotoState(item.id) { photo ->
+                    when (action) {
+                        "confirm" -> photo.copy(
+                            processingStatus = "ready",
+                            syncState = if (photo.syncState == "synced") "queued" else photo.syncState,
+                            species = candidate?.let {
+                                listOf(
+                                    SpeciesLabel(
+                                        commonName = it.commonName,
+                                        scientificName = it.scientificName,
+                                        status = "confirmed",
+                                        isPrimary = true,
+                                    ),
+                                )
+                            } ?: photo.species,
+                        )
+                        "reject" -> photo.copy(processingStatus = "in_review")
+                        else -> photo
+                    }
+                }
                 _state.update {
                     it.copy(
                         reviewQueue = result.value,
@@ -708,6 +728,29 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                             identifyingReviewId = null,
                         )
                     }
+                }
+                .onFailure { error ->
+                    _state.update { it.copy(identifyingReviewId = null, error = error.userMessage()) }
+                }
+        }
+    }
+
+    fun requestPhotoRecommendation(photo: Photo, onRecommended: (ReviewItem) -> Unit) {
+        if (_state.value.isOffline) {
+            _state.update { it.copy(error = "iNaturalist recommendations need a connection.") }
+            return
+        }
+        if (photo.syncState != "synced" || photo.url.startsWith("file:")) {
+            _state.update { it.copy(error = "This photo is still saving. Try iNaturalist once its upload finishes.") }
+            return
+        }
+        viewModelScope.launch {
+            _state.update { it.copy(identifyingReviewId = photo.id, error = null) }
+            runCatching { repository.requestReviewRecommendation(photo.id) }
+                .onSuccess { recommended ->
+                    updatePhotoState(photo.id) { recommended.photo }
+                    _state.update { it.copy(identifyingReviewId = null) }
+                    onRecommended(recommended)
                 }
                 .onFailure { error ->
                     _state.update { it.copy(identifyingReviewId = null, error = error.userMessage()) }
@@ -901,6 +944,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         uris: List<Uri>,
         caption: String,
         queueForReview: Boolean,
+        onUploaded: (Photo) -> Unit = {},
     ) {
         if (uris.isEmpty()) return
         viewModelScope.launch {
@@ -941,6 +985,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         uploadCurrent = index + 1,
                     )
                 }
+                onUploaded(savedPhoto)
             }
             _state.update { it.copy(uploadCurrent = 0, uploadTotal = 0) }
             openHike(hikeId)

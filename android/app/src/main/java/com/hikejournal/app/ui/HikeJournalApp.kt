@@ -99,9 +99,9 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -152,6 +152,8 @@ import com.hikejournal.app.data.HikeLocation
 import com.hikejournal.app.data.LocalMediaAccess
 import com.hikejournal.app.data.MediaLocationSummary
 import com.hikejournal.app.data.Photo
+import com.hikejournal.app.data.ReviewCandidate
+import com.hikejournal.app.data.ReviewItem
 import com.hikejournal.app.data.SpeciesRecord
 import com.hikejournal.app.data.SyncAttention
 import com.hikejournal.app.data.localMediaAccess
@@ -195,6 +197,8 @@ fun HikeJournalApp(viewModel: AppViewModel) {
     var settingsOpen by remember { mutableStateOf(false) }
     var badgesOpen by remember { mutableStateOf(false) }
     var selectedPhoto by remember { mutableStateOf<Photo?>(null) }
+    var directReviewItem by remember { mutableStateOf<ReviewItem?>(null) }
+    var identifyAfterUpload by remember { mutableStateOf(false) }
     var speciesAssignmentPhoto by remember { mutableStateOf<Photo?>(null) }
     var localMediaPickerOpen by remember { mutableStateOf(false) }
     var localMediaPermissionError by remember { mutableStateOf<String?>(null) }
@@ -562,6 +566,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
             onCreateEverydaySighting = {
                 createEntryOpen = false
                 pendingEverydayUpload = true
+                identifyAfterUpload = true
                 viewModel.openHike("everyday")
             },
         )
@@ -594,12 +599,18 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                 pendingUpload = emptyList()
                 launchLocalMediaPicker()
             },
-            onUpload = { caption, queueForReview ->
+            onUpload = { caption, identify ->
+                identifyAfterUpload = identify
                 viewModel.uploadPhotos(
                     state.journal!!.id,
                     pendingUpload,
                     caption,
-                    queueForReview,
+                    queueForReview = false,
+                    onUploaded = { photo ->
+                        if (identifyAfterUpload && !photo.isVideo && selectedPhoto == null) {
+                            selectedPhoto = photo
+                        }
+                    },
                 )
                 pendingUpload = emptyList()
             },
@@ -658,6 +669,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
             updatingCover = state.coverUpdateId == photo.id,
             assigningSpecies = state.speciesAssignmentId == photo.id,
             openingMap = openingPhotoMapId == photo.id,
+            identifying = state.identifyingReviewId == photo.id,
             onDismiss = {
                 if (openingPhotoMapId == photo.id) {
                     openingPhotoMapId = null
@@ -680,6 +692,11 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                     syncState = if (photo.syncState == "synced") "queued" else photo.syncState,
                 )
                 viewModel.setSpeciesReview(photo, queued)
+            },
+            onRequestRecommendation = {
+                viewModel.requestPhotoRecommendation(photo) { recommended ->
+                    directReviewItem = recommended
+                }
             },
             onSetCover = state.journal?.takeUnless { it.isStandalone || photo.isVideo }?.let {
                 { selected: Boolean -> viewModel.setHikeCover(photo, selected) }
@@ -718,6 +735,18 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                 }
             } else {
                 null
+            },
+        )
+    }
+
+    directReviewItem?.let { item ->
+        DirectPhotoReviewDialog(
+            item = item,
+            deciding = state.decidingReviewId == item.id,
+            onDismiss = { directReviewItem = null },
+            onDecision = { action, candidate ->
+                viewModel.decideReview(item, action, candidate)
+                directReviewItem = null
             },
         )
     }
@@ -1924,9 +1953,6 @@ private fun UploadSheet(
     onUpload: (String, Boolean) -> Unit,
 ) {
     var caption by remember { mutableStateOf("") }
-    var queueForReview by remember(isEverydaySighting) {
-        mutableStateOf(defaultQueueForReview(isEverydaySighting))
-    }
     val missingLocations = locationSummary?.missingCount ?: 0
     val locationsReady = locationSummary?.allGeotagged == true
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Paper) {
@@ -1981,23 +2007,12 @@ private fun UploadSheet(
             }
             OutlinedTextField(caption, { caption = it }, Modifier.fillMaxWidth().padding(top = 18.dp), label = { Text("Note · optional") })
             if (isEverydaySighting) {
-                Row(
-                    Modifier.fillMaxWidth().padding(vertical = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text("Send to species review", style = MaterialTheme.typography.titleMedium, color = Ink)
-                        Text(
-                            "On by default for everyday sightings. Turn this off to save without review.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = InkMuted,
-                        )
-                    }
-                    Switch(
-                        checked = queueForReview,
-                        onCheckedChange = { queueForReview = it },
-                    )
-                }
+                Text(
+                    "After saving, the first photo opens so you can ask iNaturalist for a recommendation and choose the best match.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = InkMuted,
+                    modifier = Modifier.padding(vertical = 16.dp),
+                )
             } else {
                 Text(
                     "After upload, use Select for species review in the journal to choose one or more photos.",
@@ -2017,14 +2032,14 @@ private fun UploadSheet(
                     Text("Choose different photos")
                 }
                 TextButton(
-                    onClick = { onUpload(caption, queueForReview) },
+                    onClick = { onUpload(caption, isEverydaySighting) },
                     modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 4.dp),
                 ) {
                     Text("Save without GPS")
                 }
             } else {
                 Button(
-                    onClick = { onUpload(caption, queueForReview) },
+                    onClick = { onUpload(caption, isEverydaySighting) },
                     enabled = locationsReady && !checkingLocations,
                     modifier = Modifier.fillMaxWidth().height(54.dp),
                 ) {
@@ -2035,8 +2050,14 @@ private fun UploadSheet(
                     } else {
                         Icon(Icons.Rounded.CameraAlt, null)
                         Spacer(Modifier.width(8.dp))
-                        Text("Save $photoCount file${if (photoCount == 1) "" else "s"}")
+                        Text(if (isEverydaySighting) "Save & identify" else "Save $photoCount file${if (photoCount == 1) "" else "s"}")
                     }
+                }
+                if (isEverydaySighting) {
+                    TextButton(
+                        onClick = { onUpload(caption, false) },
+                        modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 4.dp),
+                    ) { Text("Save without identifying") }
                 }
             }
         }
@@ -2053,12 +2074,14 @@ private fun PhotoViewer(
     updatingCover: Boolean,
     assigningSpecies: Boolean,
     openingMap: Boolean,
+    identifying: Boolean,
     onDismiss: () -> Unit,
     onPrevious: (() -> Unit)?,
     onNext: (() -> Unit)?,
     onSaveCaption: (String) -> Unit,
     onDelete: () -> Unit,
     onSetReview: (Boolean) -> Unit,
+    onRequestRecommendation: () -> Unit,
     onSetCover: ((Boolean) -> Unit)?,
     onAssignSpecies: (() -> Unit)?,
     onViewMap: (() -> Unit)?,
@@ -2158,6 +2181,24 @@ private fun PhotoViewer(
                             Text(if (assigningSpecies) "Assigning species..." else "Assign known species")
                         }
                     }
+                    Button(
+                        onClick = onRequestRecommendation,
+                        enabled = !identifying && photo.syncState == "synced" && !photo.url.startsWith("file:"),
+                        modifier = Modifier.fillMaxWidth().padding(top = 10.dp).height(48.dp),
+                    ) {
+                        if (identifying) CircularProgressIndicator(Modifier.size(18.dp), color = Paper, strokeWidth = 2.dp)
+                        else Icon(Icons.Rounded.Refresh, null)
+                        Spacer(Modifier.width(8.dp))
+                        Text(if (identifying) "Asking iNaturalist..." else "Get iNaturalist recommendation")
+                    }
+                    if (photo.syncState != "synced" || photo.url.startsWith("file:")) {
+                        Text(
+                            "Available once this photo finishes saving.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFFBFD2B9),
+                            modifier = Modifier.padding(top = 5.dp),
+                        )
+                    }
                     PhotoSettingRow(
                         checked = photo.processingStatus == "in_review",
                         updating = updatingReview,
@@ -2229,6 +2270,75 @@ private fun PhotoViewer(
             confirmButton = { TextButton(onClick = onDelete) { Text("Delete", color = MaterialTheme.colorScheme.error) } },
             dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Keep $mediaName") } },
         )
+    }
+}
+
+@Composable
+private fun DirectPhotoReviewDialog(
+    item: ReviewItem,
+    deciding: Boolean,
+    onDismiss: () -> Unit,
+    onDecision: (String, ReviewCandidate?) -> Unit,
+) {
+    var selectedIndex by remember(item.id) { mutableStateOf(0) }
+    val selected = item.candidates.getOrNull(selectedIndex)
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .background(Paper, RoundedCornerShape(24.dp))
+                .padding(20.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Choose the best match", style = MaterialTheme.typography.headlineSmall, color = Ink)
+                    Text("iNaturalist’s suggestion for this photo", style = MaterialTheme.typography.bodyMedium, color = InkMuted)
+                }
+                IconButton(onClick = onDismiss) { Icon(Icons.Rounded.Close, "Close", tint = Ink) }
+            }
+            item.candidates.forEachIndexed { index, candidate ->
+                Row(
+                    Modifier.fillMaxWidth().clickable { selectedIndex = index }.padding(vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    RadioButton(selected = selectedIndex == index, onClick = { selectedIndex = index })
+                    Column(Modifier.weight(1f).padding(start = 6.dp)) {
+                        Text(candidate.commonName, style = MaterialTheme.typography.titleMedium, color = Ink)
+                        if (candidate.scientificName.isNotBlank()) {
+                            Text(candidate.scientificName, style = MaterialTheme.typography.bodyMedium, color = InkMuted, fontStyle = FontStyle.Italic)
+                        }
+                    }
+                    candidate.confidence?.let { confidence ->
+                        Text("${(confidence * if (confidence <= 1) 100 else 1).toInt()}%", style = MaterialTheme.typography.labelMedium, color = Moss)
+                    }
+                }
+            }
+            Button(
+                onClick = { onDecision("confirm", selected) },
+                enabled = selected != null && !deciding,
+                modifier = Modifier.fillMaxWidth().padding(top = 12.dp).height(52.dp),
+            ) {
+                if (deciding) CircularProgressIndicator(Modifier.size(19.dp), color = Paper, strokeWidth = 2.dp)
+                else Icon(Icons.Rounded.Check, null)
+                Spacer(Modifier.width(8.dp))
+                Text(if (selectedIndex == 0) "Confirm ID" else "Use this ID")
+            }
+            Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedButton(onClick = onDismiss, enabled = !deciding, modifier = Modifier.weight(1f)) { Text("Skip") }
+                OutlinedButton(
+                    onClick = { onDecision("reject", null) },
+                    enabled = !deciding,
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Trail),
+                    modifier = Modifier.weight(1f),
+                ) { Text("Reject") }
+            }
+            Text(
+                "Reject removes this suggestion but keeps the photo ready for another recommendation.",
+                style = MaterialTheme.typography.bodySmall,
+                color = InkMuted,
+                modifier = Modifier.padding(top = 9.dp),
+            )
+        }
     }
 }
 
@@ -2430,8 +2540,6 @@ private fun PhotoSettingRow(
 private val Photo.isVideo: Boolean
     get() = contentType.startsWith("video/", ignoreCase = true) ||
         url.substringBefore('?').substringAfterLast('.', "").lowercase() in setOf("mp4", "mov", "m4v", "3gp", "webm")
-
-internal fun defaultQueueForReview(isEverydaySighting: Boolean): Boolean = isEverydaySighting
 
 @Composable
 private fun VideoPlayer(url: String, contentDescription: String) {
