@@ -1,0 +1,360 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 2,
+    "identityHash": "1efeb8f7b1ead435821076ee2e2a0ab5",
+    "entities": [
+      {
+        "tableName": "pending_operations",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `kind` TEXT NOT NULL, `entityId` TEXT NOT NULL, `parentId` TEXT, `payloadJson` TEXT NOT NULL, `localFilePath` TEXT, `contentType` TEXT, `fileName` TEXT, `state` TEXT NOT NULL, `attemptCount` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `lastError` TEXT, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "kind",
+            "columnName": "kind",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "entityId",
+            "columnName": "entityId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "parentId",
+            "columnName": "parentId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "payloadJson",
+            "columnName": "payloadJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "localFilePath",
+            "columnName": "localFilePath",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "contentType",
+            "columnName": "contentType",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "fileName",
+            "columnName": "fileName",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "state",
+            "columnName": "state",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "attemptCount",
+            "columnName": "attemptCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastError",
+            "columnName": "lastError",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "tracking_sessions",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`sessionId` TEXT NOT NULL, `hikeId` TEXT NOT NULL, `activeSlot` INTEGER, `status` TEXT NOT NULL, `startedAtEpochMs` INTEGER NOT NULL, `startedAtElapsedRealtimeMs` INTEGER NOT NULL, `hikeDate` TEXT NOT NULL, `bootCount` INTEGER NOT NULL, `activeElapsedMs` INTEGER NOT NULL, `activeSinceElapsedRealtimeMs` INTEGER, `distanceMeters` REAL NOT NULL, `currentSegment` INTEGER NOT NULL, `segmentStartPending` INTEGER NOT NULL, `nextPointSequence` INTEGER NOT NULL, `lastFixEpochMs` INTEGER, `lastFixElapsedRealtimeNanos` INTEGER, `lastAccuracyMeters` REAL, `finishedAtEpochMs` INTEGER, `generatedTcxPath` TEXT, `recoveryReason` TEXT, `error` TEXT, `updatedAtEpochMs` INTEGER NOT NULL, PRIMARY KEY(`sessionId`))",
+        "fields": [
+          {
+            "fieldPath": "sessionId",
+            "columnName": "sessionId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "hikeId",
+            "columnName": "hikeId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "activeSlot",
+            "columnName": "activeSlot",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "startedAtEpochMs",
+            "columnName": "startedAtEpochMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "startedAtElapsedRealtimeMs",
+            "columnName": "startedAtElapsedRealtimeMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "hikeDate",
+            "columnName": "hikeDate",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "bootCount",
+            "columnName": "bootCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "activeElapsedMs",
+            "columnName": "activeElapsedMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "activeSinceElapsedRealtimeMs",
+            "columnName": "activeSinceElapsedRealtimeMs",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "distanceMeters",
+            "columnName": "distanceMeters",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "currentSegment",
+            "columnName": "currentSegment",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "segmentStartPending",
+            "columnName": "segmentStartPending",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "nextPointSequence",
+            "columnName": "nextPointSequence",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastFixEpochMs",
+            "columnName": "lastFixEpochMs",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "lastFixElapsedRealtimeNanos",
+            "columnName": "lastFixElapsedRealtimeNanos",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "lastAccuracyMeters",
+            "columnName": "lastAccuracyMeters",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "finishedAtEpochMs",
+            "columnName": "finishedAtEpochMs",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "generatedTcxPath",
+            "columnName": "generatedTcxPath",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "recoveryReason",
+            "columnName": "recoveryReason",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "error",
+            "columnName": "error",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "updatedAtEpochMs",
+            "columnName": "updatedAtEpochMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "sessionId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_tracking_sessions_hikeId",
+            "unique": true,
+            "columnNames": [
+              "hikeId"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_tracking_sessions_hikeId` ON `${TABLE_NAME}` (`hikeId`)"
+          },
+          {
+            "name": "index_tracking_sessions_activeSlot",
+            "unique": true,
+            "columnNames": [
+              "activeSlot"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_tracking_sessions_activeSlot` ON `${TABLE_NAME}` (`activeSlot`)"
+          },
+          {
+            "name": "index_tracking_sessions_status",
+            "unique": false,
+            "columnNames": [
+              "status"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_tracking_sessions_status` ON `${TABLE_NAME}` (`status`)"
+          }
+        ]
+      },
+      {
+        "tableName": "tracking_points",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`sessionId` TEXT NOT NULL, `sequence` INTEGER NOT NULL, `segment` INTEGER NOT NULL, `latitude` REAL NOT NULL, `longitude` REAL NOT NULL, `altitudeMeters` REAL, `accuracyMeters` REAL NOT NULL, `fixEpochMs` INTEGER NOT NULL, `fixElapsedRealtimeNanos` INTEGER NOT NULL, `distanceFromPreviousMeters` REAL NOT NULL, PRIMARY KEY(`sessionId`, `sequence`), FOREIGN KEY(`sessionId`) REFERENCES `tracking_sessions`(`sessionId`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "sessionId",
+            "columnName": "sessionId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sequence",
+            "columnName": "sequence",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "segment",
+            "columnName": "segment",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "latitude",
+            "columnName": "latitude",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "longitude",
+            "columnName": "longitude",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "altitudeMeters",
+            "columnName": "altitudeMeters",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "accuracyMeters",
+            "columnName": "accuracyMeters",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fixEpochMs",
+            "columnName": "fixEpochMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fixElapsedRealtimeNanos",
+            "columnName": "fixElapsedRealtimeNanos",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "distanceFromPreviousMeters",
+            "columnName": "distanceFromPreviousMeters",
+            "affinity": "REAL",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "sessionId",
+            "sequence"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_tracking_points_sessionId_segment_sequence",
+            "unique": false,
+            "columnNames": [
+              "sessionId",
+              "segment",
+              "sequence"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_tracking_points_sessionId_segment_sequence` ON `${TABLE_NAME}` (`sessionId`, `segment`, `sequence`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "tracking_sessions",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "sessionId"
+            ],
+            "referencedColumns": [
+              "sessionId"
+            ]
+          }
+        ]
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '1efeb8f7b1ead435821076ee2e2a0ab5')"
+    ]
+  }
+}

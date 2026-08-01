@@ -104,6 +104,9 @@ private const val SELECTED_SOURCE_ID = "hikejournal-selected-sighting"
 private const val SELECTED_LAYER_ID = "hikejournal-selected-sighting-circle"
 private const val ROUTE_SOURCE_ID = "hikejournal-routes"
 private const val ROUTE_LAYER_ID = "hikejournal-route-lines"
+private const val CURRENT_POSITION_SOURCE_ID = "hikejournal-current-position"
+private const val CURRENT_POSITION_HALO_LAYER_ID = "hikejournal-current-position-halo"
+private const val CURRENT_POSITION_LAYER_ID = "hikejournal-current-position-dot"
 private val SATELLITE_STYLE = """
     {
       "version": 8,
@@ -392,6 +395,8 @@ internal fun HikeJournalMap(
     modifier: Modifier = Modifier,
     routeSegments: List<List<RoutePoint>> = emptyList(),
     focusedSightingId: String? = null,
+    currentPoint: RoutePoint? = null,
+    followCurrentPoint: Boolean = false,
 ) {
     val context = LocalContext.current
     val controller = remember { NativeMapController() }
@@ -420,13 +425,14 @@ internal fun HikeJournalMap(
     AndroidView(
         factory = {
             mapView.apply {
-                getMapAsync { map -> controller.attach(map, sightings, routeSegments) }
+                getMapAsync { map -> controller.attach(map, sightings, routeSegments, currentPoint) }
             }
         },
         update = {
-            controller.updateLayer(layerMode, sightings, routeSegments)
+            controller.updateLayer(layerMode, sightings, routeSegments, currentPoint)
             controller.updateMapData(sightings, routeSegments)
             controller.updateSelectedSighting(selectedSighting)
+            controller.updateCurrentPoint(currentPoint, followCurrentPoint)
         },
         modifier = modifier,
     )
@@ -438,16 +444,22 @@ private class NativeMapController {
     var onViewportChanged: (MapViewport) -> Unit = {}
     var selectedSighting: Sighting? = null
     var focusedSightingId: String? = null
+    var currentPoint: RoutePoint? = null
+    var followCurrentPoint: Boolean = false
     var tapRadiusPx: Float = 24f
     private var map: MapLibreMap? = null
     private var fitted = false
     private var layerMode = MapLayerMode.Satellite
     private var clickListenerAttached = false
+    private var lastFollowedPoint: RoutePoint? = null
+    private var renderedSightings: List<Sighting>? = null
+    private var renderedRouteSegments: List<List<RoutePoint>>? = null
 
     fun attach(
         map: MapLibreMap,
         sightings: List<Sighting>,
         routeSegments: List<List<RoutePoint>>,
+        currentPoint: RoutePoint?,
     ) {
         this.map = map
         if (!clickListenerAttached) {
@@ -471,17 +483,18 @@ private class NativeMapController {
                 onViewportChanged(MapViewport(map.projection.visibleRegion.latLngBounds, map.cameraPosition.zoom))
             }
         }
-        loadStyle(map, layerMode, sightings, routeSegments)
+        loadStyle(map, layerMode, sightings, routeSegments, currentPoint)
     }
 
     fun updateLayer(
         nextLayerMode: MapLayerMode,
         sightings: List<Sighting>,
         routeSegments: List<List<RoutePoint>>,
+        currentPoint: RoutePoint?,
     ) {
         if (nextLayerMode == layerMode) return
         layerMode = nextLayerMode
-        map?.let { loadStyle(it, nextLayerMode, sightings, routeSegments) }
+        map?.let { loadStyle(it, nextLayerMode, sightings, routeSegments, currentPoint) }
     }
 
     private fun loadStyle(
@@ -489,6 +502,7 @@ private class NativeMapController {
         nextLayerMode: MapLayerMode,
         sightings: List<Sighting>,
         routeSegments: List<List<RoutePoint>>,
+        currentPoint: RoutePoint?,
     ) {
         val builder = if (nextLayerMode == MapLayerMode.Satellite) {
             Style.Builder().fromJson(SATELLITE_STYLE)
@@ -497,6 +511,7 @@ private class NativeMapController {
         }
         map.setStyle(builder) { style ->
             style.addSource(GeoJsonSource(ROUTE_SOURCE_ID, routeFeatureCollection(routeSegments)))
+            style.addSource(GeoJsonSource(CURRENT_POSITION_SOURCE_ID, pointFeatureCollection(currentPoint)))
             val source = GeoJsonSource(SOURCE_ID, featureCollection(sightings))
             style.addSource(source)
             style.addSource(
@@ -510,6 +525,22 @@ private class NativeMapController {
                     lineColor("#D17D42"),
                     lineWidth(5f),
                     lineOpacity(0.92f),
+                ),
+            )
+            style.addLayer(
+                CircleLayer(CURRENT_POSITION_HALO_LAYER_ID, CURRENT_POSITION_SOURCE_ID).withProperties(
+                    circleColor("#FFFCF3"),
+                    circleRadius(12f),
+                    circleOpacity(0.74f),
+                ),
+            )
+            style.addLayer(
+                CircleLayer(CURRENT_POSITION_LAYER_ID, CURRENT_POSITION_SOURCE_ID).withProperties(
+                    circleColor("#2587D8"),
+                    circleRadius(7f),
+                    circleOpacity(1f),
+                    circleStrokeColor("#183A2D"),
+                    circleStrokeWidth(1.5f),
                 ),
             )
             style.addLayer(
@@ -530,8 +561,11 @@ private class NativeMapController {
                     circleStrokeWidth(2f),
                 ),
             )
+            renderedSightings = sightings
+            renderedRouteSegments = routeSegments
             updateMapData(sightings, routeSegments)
             updateSelectedSighting(selectedSighting)
+            updateCurrentPoint(currentPoint, followCurrentPoint, force = true)
         }
     }
 
@@ -541,15 +575,47 @@ private class NativeMapController {
     ) {
         val currentMap = map ?: return
         currentMap.getStyle { style ->
-            style.getSourceAs<GeoJsonSource>(SOURCE_ID)?.setGeoJson(featureCollection(sightings))
-            style.getSourceAs<GeoJsonSource>(ROUTE_SOURCE_ID)?.setGeoJson(
-                routeFeatureCollection(routeSegments),
-            )
-            if (!fitted && (sightings.isNotEmpty() || routeSegments.isNotEmpty())) {
+            if (sightings != renderedSightings) {
+                style.getSourceAs<GeoJsonSource>(SOURCE_ID)?.setGeoJson(featureCollection(sightings))
+                renderedSightings = sightings
+            }
+            if (routeSegments != renderedRouteSegments) {
+                style.getSourceAs<GeoJsonSource>(ROUTE_SOURCE_ID)?.setGeoJson(
+                    routeFeatureCollection(routeSegments),
+                )
+                renderedRouteSegments = routeSegments
+            }
+            if (!fitted && !followCurrentPoint && (sightings.isNotEmpty() || routeSegments.isNotEmpty())) {
                 fitted = true
                 fitMap(currentMap, sightings, routeSegments)
             }
         }
+    }
+
+    fun updateCurrentPoint(point: RoutePoint?, follow: Boolean, force: Boolean = false) {
+        val pointChanged = point != currentPoint
+        val followJustEnabled = follow && !followCurrentPoint
+        currentPoint = point
+        followCurrentPoint = follow
+        if (pointChanged || force) {
+            map?.getStyle { style ->
+                style.getSourceAs<GeoJsonSource>(CURRENT_POSITION_SOURCE_ID)?.setGeoJson(
+                    pointFeatureCollection(point),
+                )
+            }
+        }
+        val currentMap = map ?: return
+        if (!follow || point == null || (!force && !followJustEnabled && !pointChanged)) return
+        lastFollowedPoint = point
+        currentMap.animateCamera(
+            CameraUpdateFactory.newCameraPosition(
+                CameraPosition.Builder()
+                    .target(LatLng(point.latitude, point.longitude))
+                    .zoom(currentMap.cameraPosition.zoom.coerceAtLeast(15.0))
+                    .build(),
+            ),
+            if (force) 700 else 450,
+        )
     }
 
     fun updateSelectedSighting(sighting: Sighting?) {
@@ -624,6 +690,13 @@ private class NativeMapController {
             }
         return FeatureCollection.fromFeatures(features)
     }
+
+    private fun pointFeatureCollection(point: RoutePoint?): FeatureCollection =
+        FeatureCollection.fromFeatures(
+            point?.let {
+                listOf(Feature.fromGeometry(Point.fromLngLat(it.longitude, it.latitude)))
+            }.orEmpty(),
+        )
 }
 
 private fun formatBytes(bytes: Long): String = when {

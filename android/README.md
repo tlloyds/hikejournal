@@ -8,14 +8,44 @@ the current Supabase database and Cloudflare R2 photo library through the small
 
 1. For local use, keep the Mac and Android phone on the same Wi-Fi network.
 2. Double-click `start_hikejournal_mobile.command` in the repository root and leave its Terminal window open. For cellular/anywhere use, deploy `deploy/mobile/Dockerfile` and paste its HTTPS address plus pairing key into Android settings.
-3. Transfer `dist/HikeJournal.apk` to the phone and open it.
+3. Transfer `dist/HikeJournal-v0.6.0.apk` to the phone and open it.
 4. Allow installation from the app you used to open the APK if Android asks.
 5. HikeJournal should connect to `http://192.168.0.157:8506` automatically.
 
 If the Mac receives a different local IP address, open the gear in HikeJournal
 and replace the server address. The API always uses port `8506`.
 
-## Included in v0.5.38
+Native hike recording does not need the companion or a network connection.
+Pairing is needed when queued hikes, routes, and photos are ready to sync.
+
+## Included in v0.6.0
+
+- Start a hike directly from the Library `+` action instead of recording in
+  MapMyRun and importing a TCX file
+- Full-screen live route, active timer, distance, GPS accuracy, and current
+  position while recording
+- Persistent Android notification with a running chronometer, distance, and
+  Pause/Resume controls; End reopens HikeJournal for confirmation
+- Pause/resume segments that do not draw or measure a false straight line
+  across the break
+- Local-first GPS and timing checkpoints that survive screen-off, task swipes,
+  and normal process recreation
+- Finished recordings saved as `Untitled hike` with date, active duration,
+  measured distance, local route, and—when enough GPS points were accepted—an
+  automatically generated TCX upload
+- Immediate name/location editing and the existing Journal photo workflow after
+  ending a hike
+- Offline recording and finalization, followed by dependency-ordered route and
+  photo sync when connectivity returns
+
+On the first recording, grant **Precise location** and notification access and
+make sure phone Location is enabled. HikeJournal deliberately does not request
+background-location permission; the visible foreground notification keeps a
+started hike active while the screen is locked. Explicitly force-stopping the
+app or revoking permission stops collection and restores the saved session in a
+paused state the next time HikeJournal opens.
+
+## Also included from v0.5
 
 - iNaturalist can now be connected from Settings and an empty Species Review queue
 - Publishing now starts iNaturalist authorization before attempting an unconnected post
@@ -74,7 +104,8 @@ The paired companion token only authorizes this narrow local API.
 ## Iterate
 
 Double-click `build_android.command` in the repository root. The finished APK is
-copied to `dist/HikeJournal.apk`.
+copied to `dist/HikeJournal-v<version>.apk` (currently
+`dist/HikeJournal-v0.6.0.apk`).
 
 Android code is split by responsibility:
 
@@ -82,10 +113,12 @@ Android code is split by responsibility:
 - `data/HikeJournalApi.kt`: HTTP and multipart transport
 - `data/HikeJournalRepository.kt`: caching and data operations
 - `data/FieldSync.kt`: app-owned photos, local overlays, durable mutations, and background sync
-- `data/local/OfflineDatabase.kt`: Room mutation queue
+- `data/local/OfflineDatabase.kt`: Room mutation queue plus durable recording sessions and GPS points
+- `tracking/`: recording state, location filtering, foreground service, notification, and TCX generation
 - `data/OfflineMapPacks.kt`: MapLibre offline region lifecycle
 - `AppViewModel.kt`: application state and actions
 - `ui/HikeJournalApp.kt`: native screens and interactions
+- `ui/TrackingScreen.kt`: live recording map and controls
 - `ui/SpeciesScreens.kt`: field-guide index and species encounter records
 - `ui/HikeFilter.kt`: shared searchable outing scope selector
 - `ui/SpeciesReviewScreen.kt`: native species decision queue

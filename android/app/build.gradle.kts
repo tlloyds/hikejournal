@@ -43,8 +43,8 @@ android {
         applicationId = "com.hikejournal.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 61
-        versionName = "0.5.56"
+        versionCode = 62
+        versionName = "0.6.0"
 
         buildConfigField("String", "DEFAULT_API_URL", quoted(mobileApiUrl))
         buildConfigField("String", "MOBILE_API_TOKEN", quoted(mobileApiToken))
@@ -88,6 +88,7 @@ android {
         buildConfig = true
     }
     packaging.resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
+    sourceSets.getByName("androidTest").assets.srcDir("$projectDir/schemas")
 }
 
 ksp {
@@ -107,6 +108,7 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
+    implementation("androidx.core:core-ktx:1.15.0")
     implementation("io.coil-kt:coil-compose:2.7.0")
     implementation("io.coil-kt:coil-video:2.7.0")
     implementation("androidx.media3:media3-exoplayer:1.5.1")
@@ -118,11 +120,13 @@ dependencies {
     ksp("androidx.room:room-compiler:2.7.2")
     implementation("androidx.work:work-runtime-ktx:2.10.1")
     implementation("androidx.exifinterface:exifinterface:1.4.1")
+    implementation("com.google.android.gms:play-services-location:21.3.0")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
+    androidTestImplementation("androidx.room:room-testing:2.7.2")
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")

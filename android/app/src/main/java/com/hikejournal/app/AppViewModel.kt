@@ -20,12 +20,20 @@ import com.hikejournal.app.data.PublishOptions
 import com.hikejournal.app.data.PublishQueue
 import com.hikejournal.app.data.ReviewCandidate
 import com.hikejournal.app.data.ReviewItem
+import com.hikejournal.app.data.RecordedRouteUpload
+import com.hikejournal.app.data.RoutePoint
 import com.hikejournal.app.data.QuestSightingsMap
 import com.hikejournal.app.data.Sighting
 import com.hikejournal.app.data.SpeciesLabel
 import com.hikejournal.app.data.SpeciesRecord
 import com.hikejournal.app.data.SyncStatus
+import com.hikejournal.app.data.SyncScheduler
 import com.hikejournal.app.data.withoutHikes
+import com.hikejournal.app.tracking.HikeTrackingService
+import com.hikejournal.app.tracking.TrackingRepository
+import com.hikejournal.app.tracking.TrackingSnapshot
+import com.hikejournal.app.tracking.TrackingStatus
+import java.time.Instant
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -83,10 +91,16 @@ data class AppState(
     val publishNotice: String? = null,
     val syncStatus: SyncStatus = SyncStatus(),
     val isSyncing: Boolean = false,
+    val tracking: TrackingSnapshot? = null,
+    val trackingOpenRequestToken: Long = 0L,
+    val trackingEndRequestToken: Long = 0L,
+    val isFinalizingTracking: Boolean = false,
 )
 
 class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = HikeJournalRepository(application)
+    private val trackingRepository = TrackingRepository.get(application)
+    private val appContext = application.applicationContext
     private val _state = MutableStateFlow(AppState())
     val state: StateFlow<AppState> = _state.asStateFlow()
 
@@ -94,6 +108,33 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val pairingKey: String get() = repository.pairingKey
 
     init {
+        // Reconcile any durable operation whose enqueue completed just before the process died.
+        SyncScheduler.schedule(appContext)
+        viewModelScope.launch {
+            try {
+                val recovered = trackingRepository.recover()
+                if (recovered?.status in setOf(TrackingStatus.STARTING, TrackingStatus.RECORDING)) {
+                    // An Activity launch is a foreground-safe opportunity to restore a service
+                    // that may have been killed while its durable recording remained active.
+                    HikeTrackingService.start(appContext)
+                }
+            } catch (error: Exception) {
+                runCatching {
+                    trackingRepository.pauseAfterServiceFailure(
+                        "Hike tracking paused because Android could not restore the GPS service.",
+                    )
+                }
+                _state.update { it.copy(error = error.userMessage()) }
+            }
+            trackingRepository.snapshots.collect { snapshot ->
+                _state.update {
+                    it.copy(
+                        tracking = snapshot?.takeUnless { current -> current.status == TrackingStatus.FINISHED },
+                        isFinalizingTracking = snapshot?.status == TrackingStatus.FINALIZING,
+                    )
+                }
+            }
+        }
         viewModelScope.launch {
             repository.syncStatus.collect { syncStatus ->
                 val journalNeedsRemoteUrls = syncStatus.connected &&
@@ -853,6 +894,139 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun clearPublishNotice() {
         _state.update { it.copy(publishNotice = null) }
+    }
+
+    fun startTracking() {
+        viewModelScope.launch {
+            _state.update { it.copy(error = null) }
+            runCatching {
+                trackingRepository.start()
+            }.onSuccess {
+                _state.update { state ->
+                    state.copy(trackingOpenRequestToken = state.trackingOpenRequestToken + 1)
+                }
+            }.onFailure { error ->
+                _state.update { it.copy(error = error.userMessage()) }
+            }
+        }
+    }
+
+    fun pauseTracking() {
+        runCatching { HikeTrackingService.pause(appContext) }
+            .onFailure { error -> _state.update { it.copy(error = error.userMessage()) } }
+    }
+
+    fun resumeTracking() {
+        runCatching { HikeTrackingService.resume(appContext) }
+            .onFailure { error -> _state.update { it.copy(error = error.userMessage()) } }
+    }
+
+    fun openTrackingFromNotification(confirmEnd: Boolean) {
+        _state.update { state ->
+            state.copy(
+                trackingOpenRequestToken = state.trackingOpenRequestToken + 1,
+                trackingEndRequestToken = if (confirmEnd) {
+                    state.trackingEndRequestToken + 1
+                } else {
+                    state.trackingEndRequestToken
+                },
+            )
+        }
+    }
+
+    fun consumeTrackingOpenRequest(token: Long) {
+        _state.update { state ->
+            if (state.trackingOpenRequestToken == token) {
+                state.copy(trackingOpenRequestToken = 0L)
+            } else {
+                state
+            }
+        }
+    }
+
+    fun consumeTrackingEndRequest(token: Long) {
+        _state.update { state ->
+            if (state.trackingEndRequestToken == token) {
+                state.copy(trackingEndRequestToken = 0L)
+            } else {
+                state
+            }
+        }
+    }
+
+    fun finishTracking(onFinished: (Hike) -> Unit) {
+        viewModelScope.launch {
+            _state.update { it.copy(isFinalizingTracking = true, error = null) }
+            runCatching {
+                val paused = trackingRepository.current()
+                    ?: error("There is no hike recording to finish.")
+                check(paused.status == TrackingStatus.PAUSED) { "Pause the hike before ending it." }
+                val finalizing = trackingRepository.markFinalizing()
+                val tcxFile = if (finalizing.pointCount >= 2) {
+                    trackingRepository.generateTcx(finalizing.sessionId)
+                } else {
+                    null
+                }
+                val routeSegments = finalizing.routeSegments
+                    .map { segment ->
+                        segment.map { point -> RoutePoint(point.latitude, point.longitude) }
+                    }
+                    .filter { it.size >= 2 }
+                val durationSeconds = ((finalizing.activeElapsedMs + 500L) / 1_000L).coerceAtLeast(0L)
+                val distanceMiles = (finalizing.distanceMeters / 1_609.344).coerceAtLeast(0.0)
+                val startedAt = Instant.ofEpochMilli(finalizing.startedAtEpochMs).toString()
+                val route = tcxFile?.let { file ->
+                    RecordedRouteUpload(
+                        file = file,
+                        startedAt = startedAt,
+                        durationSeconds = durationSeconds,
+                        distanceMiles = distanceMiles,
+                        pointCount = finalizing.pointCount,
+                        routeSegments = routeSegments,
+                    )
+                }
+                val created = repository.createRecordedHike(
+                    hikeId = finalizing.hikeId,
+                    draft = HikeDraft(
+                        title = "Untitled hike",
+                        hikeDate = finalizing.hikeDate,
+                        distanceMiles = distanceMiles,
+                        locationName = "",
+                        notes = "",
+                    ),
+                    route = route,
+                ).copy(
+                    durationSeconds = durationSeconds,
+                    routeStartedAt = startedAt,
+                    routeSegments = routeSegments,
+                )
+                trackingRepository.markFinished(tcxFile?.absolutePath)
+                if (tcxFile == null) trackingRepository.clearFinished(finalizing.hikeId)
+                created
+            }.onSuccess { created ->
+                _state.update { state ->
+                    state.copy(
+                        hikes = listOf(created) + state.hikes.filterNot { it.id == created.id },
+                        isFinalizingTracking = false,
+                        notice = if (created.routeSegments.isEmpty()) {
+                            "Hike saved. GPS did not collect enough points to draw a route."
+                        } else {
+                            "Hike saved on this phone. Give it a name and location."
+                        },
+                    )
+                }
+                loadHikeLocations()
+                onFinished(created)
+            }.onFailure { error ->
+                runCatching { trackingRepository.failFinalization(error.userMessage()) }
+                _state.update {
+                    it.copy(
+                        isFinalizingTracking = false,
+                        error = "The hike is still paused and safe on this phone. ${error.userMessage()}",
+                    )
+                }
+            }
+        }
     }
 
     fun saveHike(draft: HikeDraft, routeUri: Uri?, editingId: String?, onSaved: () -> Unit) {

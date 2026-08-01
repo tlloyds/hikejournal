@@ -2,12 +2,16 @@ package com.hikejournal.app.data
 
 import android.content.Context
 import android.net.Uri
+import com.hikejournal.app.tracking.TrackingRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.nio.file.AtomicMoveNotSupportedException
+import java.nio.file.StandardCopyOption
+import java.time.Instant
 
 data class HikeDeletionResult(
     val notice: String? = null,
@@ -18,6 +22,7 @@ class HikeJournalRepository(context: Context) {
     private val appContext = context.applicationContext
     private val api = HikeJournalApi(appContext)
     private val fieldQueue = FieldOperationQueue(appContext)
+    private val trackingRepository = TrackingRepository.get(appContext)
     private val cacheDirectory = File(context.filesDir, "journal-cache").apply { mkdirs() }
 
     val syncStatus = fieldQueue.status
@@ -36,12 +41,32 @@ class HikeJournalRepository(context: Context) {
     }
 
     suspend fun loadHikes(): LoadResult<List<Hike>> {
-        val result = loadWithCache(
-            cacheFile = File(cacheDirectory, "hikes.json"),
-            fetch = api::getHikesJson,
-            parse = ::parseHikes,
-        )
-        return result.copy(value = fieldQueue.overlayHikes(result.value))
+        val resultAttempt = runCatching {
+            loadWithCache(
+                cacheFile = File(cacheDirectory, "hikes.json"),
+                fetch = api::getHikesJson,
+                parse = ::parseHikes,
+            )
+        }
+        val cachedDetails = loadCachedHikeFiles()
+        val result = resultAttempt.getOrElse { networkError ->
+            if (cachedDetails.none { it.isLocalDraft }) throw networkError
+            LoadResult(emptyList(), fromCache = true)
+        }
+        val hikes = result.value.associateBy { it.id }.toMutableMap()
+        cachedDetails.forEach { cached ->
+            when {
+                result.fromCache && (cached.isLocalDraft || cached.hike.id in hikes) -> {
+                    // A detail cache is newer than a stale list cache after an offline edit.
+                    hikes[cached.hike.id] = cached.hike
+                }
+                cached.isLocalDraft -> hikes.putIfAbsent(cached.hike.id, cached.hike)
+            }
+        }
+        if (!result.fromCache) {
+            clearVerifiedLocalDraftMarkers(result.value.mapTo(mutableSetOf()) { it.id })
+        }
+        return result.copy(value = fieldQueue.overlayHikes(hikes.values.toList()))
     }
 
     suspend fun loadHikeLocations(): LoadResult<List<HikeLocation>> = loadWithCache(
@@ -74,19 +99,36 @@ class HikeJournalRepository(context: Context) {
                     ?: (if (photos.length() > 0) photos.getJSONObject(photos.length() - 1) else null)
                 payload.put("cover_url", cover?.optString("url").orEmpty())
             }
-            payload.put("route_segments", JSONObject(api.getHikeRouteJson(hikeId)).optJSONArray("route_segments") ?: JSONArray())
+            val routePayload = JSONObject(api.getHikeRouteJson(hikeId))
+            payload.put("route_segments", routePayload.optJSONArray("route_segments") ?: JSONArray())
+            if (!routePayload.isNull("duration_seconds")) {
+                payload.put("duration_seconds", routePayload.optLong("duration_seconds"))
+            }
+            if (!routePayload.isNull("started_at")) {
+                payload.put("route_started_at", routePayload.optString("started_at"))
+            }
+            withContext(Dispatchers.IO) {
+                val preserveLocalDraft = runCatching {
+                    cacheFile.takeIf(File::exists)
+                        ?.readText()
+                        ?.let(::JSONObject)
+                        ?.optBoolean(LOCAL_DRAFT_MARKER)
+                }.getOrNull() == true
+                if (preserveLocalDraft) payload.put(LOCAL_DRAFT_MARKER, true)
+                writeJsonAtomically(cacheFile, payload)
+            }
             val completeJson = payload.toString()
-            withContext(Dispatchers.IO) { cacheFile.writeText(completeJson) }
             val parsed = withContext(Dispatchers.Default) { parseHike(completeJson) }
+            if (parsed.routeSegments.isNotEmpty()) trackingRepository.clearFinished(hikeId)
             val overlay = fieldQueue.overlayHike(parsed, hikeId)
                 ?: throw IllegalStateException("Hike not found.")
-            LoadResult(overlay, fromCache = false)
+            LoadResult(overlayRetainedTrackingRoute(overlay, hikeId), fromCache = false)
         } catch (networkError: Exception) {
             val cached = withContext(Dispatchers.IO) { cacheFile.takeIf { it.exists() }?.readText() }
             val parsed = withContext(Dispatchers.Default) { cached?.let(::parseHike) }
             val overlay = fieldQueue.overlayHike(parsed, hikeId)
             if (overlay == null) throw networkError
-            LoadResult(overlay, fromCache = true)
+            LoadResult(overlayRetainedTrackingRoute(overlay, hikeId), fromCache = true)
         }
     }
 
@@ -99,13 +141,10 @@ class HikeJournalRepository(context: Context) {
                 ?.takeIf { it.isNotBlank() }
                 ?.let(::parseHike)
         }
-        val cached = fieldQueue.overlayHike(parsed, hikeId)
-        if (expectedPhotoCount != null && cached?.photoCount != expectedPhotoCount) {
-            withContext(Dispatchers.IO) { cacheFile.delete() }
-            null
-        } else {
-            cached
+        val cached = fieldQueue.overlayHike(parsed, hikeId)?.let {
+            overlayRetainedTrackingRoute(it, hikeId)
         }
+        if (expectedPhotoCount != null && cached?.photoCount != expectedPhotoCount) null else cached
     }
 
     suspend fun loadSpecies(): LoadResult<List<SpeciesRecord>> {
@@ -303,11 +342,39 @@ class HikeJournalRepository(context: Context) {
         return result.copy(value = result.value.filterNot { it.hikeId in deletedHikeIds })
     }
 
-    suspend fun loadMapRouteSegments(): LoadResult<List<List<RoutePoint>>> = loadWithCache(
-        cacheFile = File(cacheDirectory, "map-routes.json"),
-        fetch = api::getMapRoutesJson,
-        parse = ::parseMapRouteSegments,
-    )
+    suspend fun loadMapRouteSegments(): LoadResult<List<List<RoutePoint>>> {
+        val pendingRoutes = fieldQueue.pendingRoutesByHikeId()
+        val retainedRoutes = trackingRepository.allFinishedRoutesByHikeId()
+            .mapValues { (_, segments) ->
+                segments.map { segment ->
+                    segment.map { point -> RoutePoint(point.latitude, point.longitude) }
+                }.filter { it.size >= 2 }
+            }
+            .filterValues { it.isNotEmpty() }
+        val deletedHikeIds = fieldQueue.deletedHikeIds()
+        val result = try {
+            loadWithCache(
+                cacheFile = File(cacheDirectory, "map-routes.json"),
+                fetch = api::getMapRoutesJson,
+                parse = ::parseMapRoutes,
+            )
+        } catch (networkError: Exception) {
+            val localRoutes = (retainedRoutes + pendingRoutes)
+                .filterKeys { it !in deletedHikeIds }
+                .values
+                .flatten()
+            if (localRoutes.isEmpty()) throw networkError
+            return LoadResult(localRoutes, fromCache = true)
+        }
+
+        val serverRoutes = result.value.associate { it.hikeId to it.segments }.toMutableMap()
+        retainedRoutes.forEach { (hikeId, segments) ->
+            if (serverRoutes[hikeId].isNullOrEmpty()) serverRoutes[hikeId] = segments
+        }
+        pendingRoutes.forEach { (hikeId, segments) -> serverRoutes[hikeId] = segments }
+        deletedHikeIds.forEach(serverRoutes::remove)
+        return LoadResult(serverRoutes.values.flatten(), result.fromCache)
+    }
 
     suspend fun loadReviewQueue(): LoadResult<List<ReviewItem>> {
         val result = loadWithCache(
@@ -373,10 +440,111 @@ class HikeJournalRepository(context: Context) {
         }
     }
 
-    suspend fun createHike(draft: HikeDraft): Hike = fieldQueue.queueCreateHike(draft)
+    suspend fun createHike(draft: HikeDraft): Hike {
+        val hike = fieldQueue.queueCreateHike(draft)
+        cacheLocalDraft(hike)
+        return hike
+    }
+
+    suspend fun createRecordedHike(
+        hikeId: String,
+        draft: HikeDraft,
+        route: RecordedRouteUpload?,
+    ): Hike {
+        val hike = fieldQueue.queueCreateHike(draft, hikeId)
+        route?.let { fieldQueue.queueRecordedRoute(hikeId, it) }
+        val recorded = hike.copy(
+            durationSeconds = route?.durationSeconds,
+            routeStartedAt = route?.startedAt,
+            routeSegments = route?.routeSegments.orEmpty(),
+        )
+        cacheLocalDraft(recorded)
+        return recorded
+    }
+
+    private suspend fun overlayRetainedTrackingRoute(hike: Hike, hikeId: String): Hike {
+        val recording = trackingRepository.finished(hikeId) ?: return hike
+        val routeSegments = recording.routeSegments
+            .map { segment ->
+                segment.map { point -> RoutePoint(point.latitude, point.longitude) }
+            }
+            .filter { it.size >= 2 }
+        return hike.copy(
+            distanceMiles = hike.distanceMiles
+                ?: (recording.distanceMeters / METERS_PER_MILE).coerceAtLeast(0.0),
+            durationSeconds = hike.durationSeconds
+                ?: ((recording.activeElapsedMs + 500L) / 1_000L).coerceAtLeast(0L),
+            routeStartedAt = hike.routeStartedAt
+                ?: Instant.ofEpochMilli(recording.startedAtEpochMs).toString(),
+            routeSegments = hike.routeSegments.ifEmpty { routeSegments },
+        )
+    }
+
+    private suspend fun cacheLocalDraft(hike: Hike) = journalCacheMutex.withLock {
+        withContext(Dispatchers.IO) {
+            writeJsonAtomically(
+                File(cacheDirectory, "hike-${hike.id}.json"),
+                hike.toLocalDraftJson(),
+            )
+        }
+    }
+
+    private suspend fun updateCachedDraft(hikeId: String, draft: HikeDraft) = journalCacheMutex.withLock {
+        withContext(Dispatchers.IO) {
+            val cacheFile = File(cacheDirectory, "hike-$hikeId.json")
+            if (!cacheFile.exists()) return@withContext
+            val payload = runCatching { JSONObject(cacheFile.readText()) }.getOrNull()
+                ?: return@withContext
+            payload
+                .put("title", draft.title)
+                .put("hike_date", draft.hikeDate)
+                .put("distance_miles", draft.distanceMiles ?: JSONObject.NULL)
+                .put("location_name", draft.locationName)
+                .put("notes", draft.notes)
+            writeJsonAtomically(cacheFile, payload)
+        }
+    }
+
+    private suspend fun loadCachedHikeFiles(): List<CachedHikeFile> = journalCacheMutex.withLock {
+        withContext(Dispatchers.IO) {
+            cacheDirectory.listFiles()
+                .orEmpty()
+                .asSequence()
+                .filter { it.isFile && it.name.startsWith("hike-") && it.extension == "json" }
+                .mapNotNull { file ->
+                    runCatching {
+                        val payload = JSONObject(file.readText())
+                        val hike = parseHike(payload.toString()).takeIf { it.id.isNotBlank() }
+                            ?: return@runCatching null
+                        CachedHikeFile(
+                            hike = hike,
+                            isLocalDraft = payload.optBoolean(LOCAL_DRAFT_MARKER),
+                        )
+                    }.getOrNull()
+                }
+                .toList()
+        }
+    }
+
+    private suspend fun clearVerifiedLocalDraftMarkers(verifiedHikeIds: Set<String>) =
+        journalCacheMutex.withLock {
+            withContext(Dispatchers.IO) {
+                verifiedHikeIds.forEach { hikeId ->
+                    val cacheFile = File(cacheDirectory, "hike-$hikeId.json")
+                    runCatching {
+                        if (!cacheFile.exists()) return@runCatching
+                        val payload = JSONObject(cacheFile.readText())
+                        if (!payload.optBoolean(LOCAL_DRAFT_MARKER)) return@runCatching
+                        payload.remove(LOCAL_DRAFT_MARKER)
+                        writeJsonAtomically(cacheFile, payload)
+                    }
+                }
+            }
+        }
 
     suspend fun updateHike(hikeId: String, draft: HikeDraft) {
         fieldQueue.queueUpdateHike(hikeId, draft)
+        updateCachedDraft(hikeId, draft)
     }
 
     suspend fun setArchived(hikeId: String, archived: Boolean) {
@@ -402,9 +570,17 @@ class HikeJournalRepository(context: Context) {
 
     suspend fun setHikeCover(hikeId: String, photoId: String?, coverUrl: String) {
         fieldQueue.queueHikeCover(hikeId, photoId, coverUrl)
-        withContext(Dispatchers.IO) {
-            File(cacheDirectory, "hikes.json").delete()
-            File(cacheDirectory, "hike-$hikeId.json").delete()
+        journalCacheMutex.withLock {
+            withContext(Dispatchers.IO) {
+                val cacheFile = File(cacheDirectory, "hike-$hikeId.json")
+                runCatching {
+                    if (!cacheFile.exists()) return@runCatching
+                    val payload = JSONObject(cacheFile.readText())
+                        .put("cover_photo_id", photoId ?: JSONObject.NULL)
+                        .put("cover_url", coverUrl)
+                    writeJsonAtomically(cacheFile, payload)
+                }
+            }
         }
     }
 
@@ -503,6 +679,71 @@ class HikeJournalRepository(context: Context) {
             if (cached.isNullOrBlank()) throw networkError
             LoadResult(parse(cached), fromCache = true)
         }
+    }
+}
+
+private const val METERS_PER_MILE = 1_609.344
+private const val LOCAL_DRAFT_MARKER = "local_android_draft"
+
+private data class CachedHikeFile(
+    val hike: Hike,
+    val isLocalDraft: Boolean,
+)
+
+private fun Hike.toLocalDraftJson(): JSONObject = JSONObject()
+    .put("id", id)
+    .put("title", title)
+    .put("hike_date", hikeDate)
+    .put("distance_miles", distanceMiles ?: JSONObject.NULL)
+    .put("duration_seconds", durationSeconds ?: JSONObject.NULL)
+    .put("route_started_at", routeStartedAt ?: JSONObject.NULL)
+    .put("location_name", locationName)
+    .put("notes", notes)
+    .put("is_archived", isArchived)
+    .put("is_standalone", isStandalone)
+    .put("cover_url", coverUrl)
+    .put("cover_photo_id", coverPhotoId ?: JSONObject.NULL)
+    .put("photo_count", photoCount)
+    .put("species_count", speciesCount)
+    // Pending operations are overlaid from Room. The durable cache represents the last locally
+    // complete hike once those operations have been acknowledged and removed.
+    .put("sync_state", "synced")
+    .put("photos", JSONArray())
+    .put(
+        "route_segments",
+        JSONArray().apply {
+            routeSegments.filter { it.size >= 2 }.forEach { segment ->
+                put(JSONArray().apply {
+                    segment.forEach { point ->
+                        put(JSONObject().put("lat", point.latitude).put("lng", point.longitude))
+                    }
+                })
+            }
+        },
+    )
+    .put(LOCAL_DRAFT_MARKER, true)
+
+private fun writeJsonAtomically(destination: File, payload: JSONObject) {
+    destination.parentFile?.mkdirs()
+    val temporary = File(destination.parentFile, ".${destination.name}.${System.nanoTime()}.tmp")
+    try {
+        temporary.writeText(payload.toString())
+        try {
+            java.nio.file.Files.move(
+                temporary.toPath(),
+                destination.toPath(),
+                StandardCopyOption.ATOMIC_MOVE,
+                StandardCopyOption.REPLACE_EXISTING,
+            )
+        } catch (_: AtomicMoveNotSupportedException) {
+            java.nio.file.Files.move(
+                temporary.toPath(),
+                destination.toPath(),
+                StandardCopyOption.REPLACE_EXISTING,
+            )
+        }
+    } finally {
+        if (temporary.exists()) temporary.delete()
     }
 }
 

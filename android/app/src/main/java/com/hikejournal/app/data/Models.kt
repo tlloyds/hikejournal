@@ -9,6 +9,8 @@ data class Hike(
     val title: String,
     val hikeDate: String,
     val distanceMiles: Double?,
+    val durationSeconds: Long? = null,
+    val routeStartedAt: String? = null,
     val locationName: String,
     val notes: String,
     val isArchived: Boolean,
@@ -25,6 +27,11 @@ data class Hike(
 data class RoutePoint(
     val latitude: Double,
     val longitude: Double,
+)
+
+internal data class MapRoute(
+    val hikeId: String,
+    val segments: List<List<RoutePoint>>,
 )
 
 data class Photo(
@@ -343,19 +350,26 @@ fun parseHikeLocations(json: String): List<HikeLocation> {
 
 fun parseHike(json: String): Hike = parseHike(JSONObject(json))
 
-fun parseMapRouteSegments(json: String): List<List<RoutePoint>> {
+internal fun parseMapRoutes(json: String): List<MapRoute> {
     val routes = JSONArray(json)
     return List(routes.length()) { routeIndex ->
-        val segments = routes.getJSONObject(routeIndex).optJSONArray("route_segments") ?: JSONArray()
-        List(segments.length()) { segmentIndex ->
-            val segment = segments.optJSONArray(segmentIndex) ?: JSONArray()
-            List(segment.length()) { pointIndex ->
-                val point = segment.getJSONObject(pointIndex)
-                RoutePoint(point.optDouble("lat"), point.optDouble("lng"))
-            }
-        }
-    }.flatten().filter { it.size >= 2 }
+        val route = routes.getJSONObject(routeIndex)
+        val segments = route.optJSONArray("route_segments") ?: JSONArray()
+        MapRoute(
+            hikeId = route.optString("hike_id"),
+            segments = List(segments.length()) { segmentIndex ->
+                val segment = segments.optJSONArray(segmentIndex) ?: JSONArray()
+                List(segment.length()) { pointIndex ->
+                    val point = segment.getJSONObject(pointIndex)
+                    RoutePoint(point.optDouble("lat"), point.optDouble("lng"))
+                }
+            }.filter { it.size >= 2 },
+        )
+    }
 }
+
+fun parseMapRouteSegments(json: String): List<List<RoutePoint>> =
+    parseMapRoutes(json).flatMap(MapRoute::segments)
 
 fun parseSpeciesList(json: String): List<SpeciesRecord> {
     val array = JSONArray(json)
@@ -554,6 +568,9 @@ private fun parseHike(json: JSONObject): Hike {
         title = json.optString("title", "Untitled hike"),
         hikeDate = json.optString("hike_date"),
         distanceMiles = json.optNullableDouble("distance_miles"),
+        durationSeconds = json.optNullableLong("duration_seconds"),
+        routeStartedAt = json.optNullableString("route_started_at")
+            ?: json.optNullableString("started_at"),
         locationName = json.optString("location_name"),
         notes = json.optString("notes"),
         isArchived = json.optBoolean("is_archived"),

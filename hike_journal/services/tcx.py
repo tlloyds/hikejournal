@@ -236,49 +236,87 @@ def parse_tcx_bytes(payload: bytes) -> ParsedTcxRouteImport:
     distance_meters = _parse_float(lap.findtext("tcx:DistanceMeters", default="", namespaces=TCX_NS))
     total_time_seconds = _parse_float(lap.findtext("tcx:TotalTimeSeconds", default="", namespaces=TCX_NS))
 
-    coordinates: list[list[float]] = []
-    elevation_track_points: list[tuple[float, float, float]] = []
-    for trackpoint in root.findall(".//tcx:Trackpoint", TCX_NS):
-        lat = _parse_float(trackpoint.findtext("tcx:Position/tcx:LatitudeDegrees", default="", namespaces=TCX_NS))
-        lng = _parse_float(trackpoint.findtext("tcx:Position/tcx:LongitudeDegrees", default="", namespaces=TCX_NS))
-        altitude = _parse_float(trackpoint.findtext("tcx:AltitudeMeters", default="", namespaces=TCX_NS))
-        if lat is None or lng is None:
-            continue
-        if altitude is not None:
-            elevation_track_points.append((lat, lng, altitude))
-            coordinates.append([lng, lat, altitude])
-        else:
-            coordinates.append([lng, lat])
+    coordinate_segments: list[list[list[float]]] = []
+    elevation_segments: list[list[tuple[float, float, float]]] = []
+    for track in root.findall(".//tcx:Track", TCX_NS):
+        coordinates: list[list[float]] = []
+        elevation_track_points: list[tuple[float, float, float]] = []
+        for trackpoint in track.findall("tcx:Trackpoint", TCX_NS):
+            lat = _parse_float(
+                trackpoint.findtext(
+                    "tcx:Position/tcx:LatitudeDegrees",
+                    default="",
+                    namespaces=TCX_NS,
+                )
+            )
+            lng = _parse_float(
+                trackpoint.findtext(
+                    "tcx:Position/tcx:LongitudeDegrees",
+                    default="",
+                    namespaces=TCX_NS,
+                )
+            )
+            altitude = _parse_float(
+                trackpoint.findtext("tcx:AltitudeMeters", default="", namespaces=TCX_NS)
+            )
+            if lat is None or lng is None:
+                continue
+            if altitude is not None:
+                elevation_track_points.append((lat, lng, altitude))
+                coordinates.append([lng, lat, altitude])
+            else:
+                coordinates.append([lng, lat])
+        if coordinates:
+            coordinate_segments.append(coordinates)
+            elevation_segments.append(elevation_track_points)
 
-    if not coordinates:
+    if not coordinate_segments:
         raise TcxParseError("TCX file does not include GPS points.")
 
-    elevation_gain_m, elevation_loss_m = _estimate_elevation_change(elevation_track_points)
+    elevation_changes = [
+        _estimate_elevation_change(elevation_track_points)
+        for elevation_track_points in elevation_segments
+    ]
+    elevation_gain_m = sum(gain for gain, _ in elevation_changes)
+    elevation_loss_m = sum(loss for _, loss in elevation_changes)
 
-    simplified_coordinates = _downsample_coordinates(coordinates)
-    start_lon, start_lat = coordinates[0][0], coordinates[0][1]
-    end_lon, end_lat = coordinates[-1][0], coordinates[-1][1]
+    simplified_segments = [
+        _downsample_coordinates(coordinates) for coordinates in coordinate_segments
+    ]
+    start_lon, start_lat = coordinate_segments[0][0][0], coordinate_segments[0][0][1]
+    end_lon, end_lat = coordinate_segments[-1][-1][0], coordinate_segments[-1][-1][1]
+    track_geojson: dict[str, Any] = {
+        "type": "LineString",
+        "coordinates": simplified_segments[0],
+        "meta": {
+            "elevation_gain_feet": _meters_to_feet(elevation_gain_m) if elevation_gain_m > 0 else None,
+            "elevation_loss_feet": _meters_to_feet(elevation_loss_m) if elevation_loss_m > 0 else None,
+        },
+    }
+    if len(simplified_segments) > 1:
+        track_geojson = {
+            "type": "MultiLineString",
+            "coordinates": simplified_segments,
+            "meta": {
+                "segment_count": len(simplified_segments),
+                "elevation_gain_feet": _meters_to_feet(elevation_gain_m) if elevation_gain_m > 0 else None,
+                "elevation_loss_feet": _meters_to_feet(elevation_loss_m) if elevation_loss_m > 0 else None,
+            },
+        }
 
     return ParsedTcxRouteImport(
         started_at=started_at,
         visited_on=visited_on,
         distance_miles=(distance_meters / METERS_PER_MILE) if distance_meters is not None else None,
         duration_seconds=int(round(total_time_seconds)) if total_time_seconds is not None else None,
-        track_point_count=len(coordinates),
+        track_point_count=sum(len(coordinates) for coordinates in coordinate_segments),
         elevation_gain_feet=_meters_to_feet(elevation_gain_m) if elevation_gain_m > 0 else None,
         elevation_loss_feet=_meters_to_feet(elevation_loss_m) if elevation_loss_m > 0 else None,
         start_latitude=start_lat,
         start_longitude=start_lon,
         end_latitude=end_lat,
         end_longitude=end_lon,
-        track_geojson={
-            "type": "LineString",
-            "coordinates": simplified_coordinates,
-            "meta": {
-                "elevation_gain_feet": _meters_to_feet(elevation_gain_m) if elevation_gain_m > 0 else None,
-                "elevation_loss_feet": _meters_to_feet(elevation_loss_m) if elevation_loss_m > 0 else None,
-            },
-        },
+        track_geojson=track_geojson,
     )
 
 

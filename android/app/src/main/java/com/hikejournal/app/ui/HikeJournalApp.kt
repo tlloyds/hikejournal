@@ -6,8 +6,14 @@
 
 package com.hikejournal.app.ui
 
+import android.Manifest
+import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.location.LocationManager
 import android.net.Uri
+import android.os.Build
+import android.provider.Settings
 import androidx.compose.runtime.DisposableEffect
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
@@ -111,6 +117,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -137,6 +144,8 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.core.app.NotificationManagerCompat
+import androidx.core.location.LocationManagerCompat
 import coil.compose.AsyncImage
 import coil.ImageLoader
 import coil.decode.VideoFrameDecoder
@@ -160,6 +169,7 @@ import com.hikejournal.app.data.SpeciesRecord
 import com.hikejournal.app.data.SyncAttention
 import com.hikejournal.app.data.localMediaAccess
 import com.hikejournal.app.data.requiredLocalMediaPermissions
+import com.hikejournal.app.tracking.TrackingStatus
 import com.hikejournal.app.ui.theme.Fern
 import com.hikejournal.app.ui.theme.Ink
 import com.hikejournal.app.ui.theme.InkMuted
@@ -186,6 +196,12 @@ private data class SpeciesBrowseContext(
     val species: List<SpeciesRecord>,
     val label: String,
 )
+
+private enum class TrackingPreflightIssue {
+    PreciseLocation,
+    Notifications,
+    LocationDisabled,
+}
 
 @Composable
 fun HikeJournalApp(viewModel: AppViewModel) {
@@ -216,6 +232,13 @@ fun HikeJournalApp(viewModel: AppViewModel) {
     var pendingHikeDelete by remember { mutableStateOf<Hike?>(null) }
     var speciesBrowseContext by remember { mutableStateOf<SpeciesBrowseContext?>(null) }
     var speciesCollectionPreferences by remember { mutableStateOf(SpeciesCollectionPreferences()) }
+    var trackingVisible by rememberSaveable { mutableStateOf(false) }
+    var trackingEndConfirmationRequested by rememberSaveable { mutableStateOf(false) }
+    var pendingTrackingStart by rememberSaveable { mutableStateOf(false) }
+    var trackingIssue by remember { mutableStateOf<TrackingPreflightIssue?>(null) }
+
+    val activeTracking = state.tracking?.takeUnless { it.status == TrackingStatus.FINISHED }
+    val trackingUi = activeTracking?.toTrackingUiModel()
 
     fun closeHikeMap() {
         val request = hikeMapRequest
@@ -248,6 +271,23 @@ fun HikeJournalApp(viewModel: AppViewModel) {
             viewModel.clearNotice()
         }
     }
+    LaunchedEffect(state.trackingOpenRequestToken, activeTracking?.sessionId) {
+        val token = state.trackingOpenRequestToken
+        if (token > 0L && activeTracking != null) {
+            trackingVisible = true
+            viewModel.consumeTrackingOpenRequest(token)
+        }
+    }
+    LaunchedEffect(state.trackingEndRequestToken, activeTracking?.sessionId) {
+        val token = state.trackingEndRequestToken
+        if (token > 0L && activeTracking != null) {
+            trackingVisible = true
+            if (activeTracking.status == TrackingStatus.PAUSED) {
+                trackingEndConfirmationRequested = true
+            }
+            viewModel.consumeTrackingEndRequest(token)
+        }
+    }
 
     val localMediaPermissions = rememberLauncherForActivityResult(RequestMultiplePermissions()) {
         val access = localMediaAccess(context)
@@ -262,6 +302,32 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                     "Media access is on, but location details are still off. Enable them to preserve each photo or video’s GPS coordinates."
             }
             else -> localMediaPickerOpen = true
+        }
+    }
+    val trackingPermissions = rememberLauncherForActivityResult(RequestMultiplePermissions()) {
+        if (!pendingTrackingStart) return@rememberLauncherForActivityResult
+        pendingTrackingStart = false
+        val issue = trackingPreflightIssue(context)
+        if (issue == null) {
+            trackingVisible = true
+            viewModel.startTracking()
+        } else {
+            trackingIssue = issue
+        }
+    }
+    val beginTracking: () -> Unit = {
+        val missingPermissions = missingTrackingPermissions(context)
+        if (missingPermissions.isNotEmpty()) {
+            pendingTrackingStart = true
+            trackingPermissions.launch(missingPermissions)
+        } else {
+            val issue = trackingPreflightIssue(context)
+            if (issue == null) {
+                trackingVisible = true
+                viewModel.startTracking()
+            } else {
+                trackingIssue = issue
+            }
         }
     }
     val routePicker = rememberLauncherForActivityResult(OpenDocument()) { uri ->
@@ -299,12 +365,16 @@ fun HikeJournalApp(viewModel: AppViewModel) {
     }
 
     BackHandler(
-        enabled = hikeMapRequest != null || selectedPhoto != null || syncAttentionOpen || settingsOpen ||
+        enabled = (trackingVisible && activeTracking != null) || hikeMapRequest != null || selectedPhoto != null || syncAttentionOpen || settingsOpen ||
             pendingUpload.isNotEmpty() ||
             pendingHikeDelete != null || createEntryOpen || creatingHike || editingHike != null || badgesOpen || state.journal != null ||
             state.speciesDetail != null || state.questMapQuest != null,
     ) {
         when {
+            trackingVisible && activeTracking != null -> {
+                trackingVisible = false
+                trackingEndConfirmationRequested = false
+            }
             pendingHikeDelete != null -> {
                 if (state.deletingHikeId == null) pendingHikeDelete = null
             }
@@ -343,6 +413,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
     }
 
     val screenKey = when {
+        trackingVisible && trackingUi != null -> "tracking:${trackingUi.sessionId}"
         hikeMapRequest != null -> "hike-map:${hikeMapRequest?.hike?.id}:${hikeMapRequest?.focusedPhoto?.id}"
         state.journal != null -> "journal:${state.journal?.id}"
         state.speciesDetail != null -> "species:${state.speciesDetail?.key}"
@@ -360,6 +431,30 @@ fun HikeJournalApp(viewModel: AppViewModel) {
             label = "journal-navigation",
         ) { key ->
             when {
+                key.startsWith("tracking:") && trackingUi != null -> {
+                    HikeTrackingScreen(
+                        tracking = trackingUi,
+                        onBack = {
+                            trackingVisible = false
+                            trackingEndConfirmationRequested = false
+                        },
+                        onPause = viewModel::pauseTracking,
+                        onResume = {
+                            val issue = trackingPreflightIssue(context)
+                            if (issue == null) viewModel.resumeTracking() else trackingIssue = issue
+                        },
+                        onEnd = {
+                            viewModel.finishTracking { finishedHike ->
+                                trackingVisible = false
+                                trackingEndConfirmationRequested = false
+                                viewModel.loadHikeLocations()
+                                editingHike = finishedHike
+                            }
+                        },
+                        requestEndConfirmation = trackingEndConfirmationRequested,
+                        onEndConfirmationShown = { trackingEndConfirmationRequested = false },
+                    )
+                }
                 key.startsWith("hike-map:") && hikeMapRequest != null -> {
                     val request = hikeMapRequest!!
                     HikeMapScreen(
@@ -488,7 +583,9 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                 )
                 else -> LibraryScreen(
                     state = state,
+                    tracking = trackingUi,
                     onOpenHike = viewModel::openHike,
+                    onOpenTracking = { trackingVisible = true },
                     onRefresh = { viewModel.refreshLibrary() },
                     onCreate = { createEntryOpen = true },
                     onSettings = { settingsOpen = true },
@@ -508,6 +605,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
             state.speciesDetail == null &&
             state.questMapQuest == null &&
             hikeMapRequest == null &&
+            !(trackingVisible && activeTracking != null) &&
             !badgesOpen
         ) {
             TopNavigation(
@@ -559,8 +657,13 @@ fun HikeJournalApp(viewModel: AppViewModel) {
 
     if (createEntryOpen) {
         CreateEntrySheet(
+            trackingInProgress = trackingUi != null,
             onDismiss = { createEntryOpen = false },
-            onCreateHike = {
+            onStartHike = {
+                createEntryOpen = false
+                if (trackingUi != null) trackingVisible = true else beginTracking()
+            },
+            onCreateManualHike = {
                 createEntryOpen = false
                 viewModel.loadHikeLocations()
                 creatingHike = true
@@ -570,6 +673,25 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                 pendingEverydayUpload = true
                 identifyAfterUpload = true
                 viewModel.openHike("everyday")
+            },
+        )
+    }
+
+    trackingIssue?.let { issue ->
+        TrackingPreflightDialog(
+            issue = issue,
+            onDismiss = { trackingIssue = null },
+            onOpenSettings = {
+                trackingIssue = null
+                val intent = when (issue) {
+                    TrackingPreflightIssue.LocationDisabled -> Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)
+                    TrackingPreflightIssue.PreciseLocation,
+                    TrackingPreflightIssue.Notifications -> Intent(
+                        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        Uri.parse("package:${context.packageName}"),
+                    )
+                }
+                context.startActivity(intent)
             },
         )
     }
@@ -798,7 +920,9 @@ fun HikeJournalApp(viewModel: AppViewModel) {
 @Composable
 private fun LibraryScreen(
     state: AppState,
+    tracking: TrackingUiModel?,
     onOpenHike: (String) -> Unit,
+    onOpenTracking: () -> Unit,
     onRefresh: () -> Unit,
     onCreate: () -> Unit,
     onSettings: () -> Unit,
@@ -857,6 +981,11 @@ private fun LibraryScreen(
                     onShowAttention = onShowSyncAttention,
                 )
             }
+            tracking?.let { active ->
+                item(key = "active-hike:${active.sessionId}") {
+                    ActiveHikeRow(tracking = active, onOpen = onOpenTracking)
+                }
+            }
             item {
                 SearchLine(query = query, onQueryChange = { query = it })
                 Row(
@@ -905,6 +1034,48 @@ private fun LibraryScreen(
             }
         }
     }
+}
+
+@Composable
+private fun ActiveHikeRow(tracking: TrackingUiModel, onOpen: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .background(Color(0xFFE2E9DC))
+            .clickable(onClick = onOpen)
+            .padding(horizontal = 20.dp, vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier
+                .size(42.dp)
+                .background(if (tracking.isPaused) Trail else Moss, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                if (tracking.isPaused) Icons.Rounded.PlayCircle else Icons.Rounded.Map,
+                contentDescription = null,
+                tint = Paper,
+                modifier = Modifier.size(24.dp),
+            )
+        }
+        Column(Modifier.weight(1f).padding(start = 13.dp)) {
+            Text(
+                if (tracking.isPaused) "HIKE PAUSED" else "HIKE IN PROGRESS",
+                style = MaterialTheme.typography.labelSmall,
+                color = if (tracking.isPaused) TrailText else Moss,
+            )
+            Text(
+                "${formatTrackingDuration(tracking.elapsedSeconds)} active · ${formatTrackingDistance(tracking.distanceMiles)}",
+                style = MaterialTheme.typography.titleMedium,
+                color = Ink,
+            )
+        }
+        Text("OPEN", style = MaterialTheme.typography.labelSmall, color = TrailText)
+        Spacer(Modifier.width(5.dp))
+        Icon(Icons.Rounded.ChevronRight, "Open active hike", tint = Fern)
+    }
+    HorizontalDivider(color = Line)
 }
 
 @Composable
@@ -1311,10 +1482,20 @@ private fun JournalScreen(
             Column(Modifier.padding(horizontal = 20.dp, vertical = 24.dp)) {
                 Text(formatDate(hike.hikeDate).uppercase(Locale.US), style = MaterialTheme.typography.labelSmall, color = TrailText)
                 Text(hike.title, style = MaterialTheme.typography.displayMedium, color = Ink)
-                if (hike.locationName.isNotBlank()) {
+                if (journalHikeMeta(hike).isNotBlank()) {
                     Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.LocationOn, null, tint = Fern, modifier = Modifier.size(18.dp))
-                        Text(hikeMeta(hike), style = MaterialTheme.typography.bodyMedium, color = InkMuted)
+                        Icon(
+                            if (hike.locationName.isNotBlank()) Icons.Rounded.LocationOn else Icons.Rounded.Map,
+                            null,
+                            tint = Fern,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Text(
+                            journalHikeMeta(hike),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = InkMuted,
+                            modifier = Modifier.padding(start = 5.dp),
+                        )
                     }
                 }
                 if (hike.notes.isNotBlank()) {
@@ -1769,8 +1950,10 @@ private fun VideoThumbnail(photo: Photo) {
 
 @Composable
 private fun CreateEntrySheet(
+    trackingInProgress: Boolean,
     onDismiss: () -> Unit,
-    onCreateHike: () -> Unit,
+    onStartHike: () -> Unit,
+    onCreateManualHike: () -> Unit,
     onCreateEverydaySighting: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -1786,26 +1969,38 @@ private fun CreateEntrySheet(
                 .padding(horizontal = 20.dp)
                 .padding(bottom = 28.dp),
         ) {
-            Text("NEW FIELD NOTE", style = MaterialTheme.typography.labelSmall, color = TrailText)
-            Text("What did you find?", style = MaterialTheme.typography.headlineLarge, color = Ink)
+            Text("NEW OUTING", style = MaterialTheme.typography.labelSmall, color = TrailText)
+            Text(if (trackingInProgress) "Your hike is still going" else "Start a hike", style = MaterialTheme.typography.headlineLarge, color = Ink)
             Text(
-                "Start a full outing, or add a quick sighting that is not attached to a hike.",
+                if (trackingInProgress) {
+                    "Return to the live route, timer, and distance without losing a step."
+                } else {
+                    "Track your route, active time, and distance while you walk—even when the trail has no signal."
+                },
                 style = MaterialTheme.typography.bodyMedium,
                 color = InkMuted,
                 modifier = Modifier.padding(top = 6.dp, bottom = 20.dp),
             )
             Button(
-                onClick = onCreateHike,
-                modifier = Modifier.fillMaxWidth().height(56.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Moss),
+                onClick = onStartHike,
+                modifier = Modifier.fillMaxWidth().height(62.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Trail),
+            ) {
+                Icon(Icons.Rounded.PlayCircle, null)
+                Spacer(Modifier.width(9.dp))
+                Text(if (trackingInProgress) "Return to hike" else "Start tracking")
+            }
+            OutlinedButton(
+                onClick = onCreateManualHike,
+                modifier = Modifier.fillMaxWidth().padding(top = 10.dp).height(56.dp),
             ) {
                 Icon(Icons.Rounded.Map, null)
                 Spacer(Modifier.width(9.dp))
-                Text("Create a hike")
+                Text("Create hike manually")
             }
-            OutlinedButton(
+            TextButton(
                 onClick = onCreateEverydaySighting,
-                modifier = Modifier.fillMaxWidth().padding(top = 10.dp).height(56.dp),
+                modifier = Modifier.fillMaxWidth().padding(top = 6.dp).height(48.dp),
             ) {
                 Icon(Icons.Rounded.CameraAlt, null)
                 Spacer(Modifier.width(9.dp))
@@ -1813,6 +2008,65 @@ private fun CreateEntrySheet(
             }
         }
     }
+}
+
+@Composable
+private fun TrackingPreflightDialog(
+    issue: TrackingPreflightIssue,
+    onDismiss: () -> Unit,
+    onOpenSettings: () -> Unit,
+) {
+    val title = when (issue) {
+        TrackingPreflightIssue.PreciseLocation -> "Precise location is needed"
+        TrackingPreflightIssue.Notifications -> "Keep hike tracking visible"
+        TrackingPreflightIssue.LocationDisabled -> "Turn on device location"
+    }
+    val message = when (issue) {
+        TrackingPreflightIssue.PreciseLocation ->
+            "Allow precise location while using HikeJournal so your route and distance can be recorded accurately."
+        TrackingPreflightIssue.Notifications ->
+            "Allow notifications so the timer, distance, and hike controls stay available while the screen is locked or another app is open."
+        TrackingPreflightIssue.LocationDisabled ->
+            "Device location is off. Turn it on before starting so HikeJournal can find the trail and record your route."
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Rounded.LocationOn, contentDescription = null, tint = Trail) },
+        title = { Text(title) },
+        text = { Text(message) },
+        confirmButton = {
+            TextButton(onClick = onOpenSettings) {
+                Text(if (issue == TrackingPreflightIssue.LocationDisabled) "Open location settings" else "Open app settings")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Not now") } },
+    )
+}
+
+private fun missingTrackingPermissions(context: Context): Array<String> = buildList {
+    if (context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+        // Android 12+ ignores a precise-only request. Ask for both location levels together.
+        add(Manifest.permission.ACCESS_COARSE_LOCATION)
+        add(Manifest.permission.ACCESS_FINE_LOCATION)
+    }
+    if (
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+        context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+    ) {
+        add(Manifest.permission.POST_NOTIFICATIONS)
+    }
+}.toTypedArray()
+
+private fun trackingPreflightIssue(context: Context): TrackingPreflightIssue? {
+    if (context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+        return TrackingPreflightIssue.PreciseLocation
+    }
+    if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) {
+        return TrackingPreflightIssue.Notifications
+    }
+    val locationManager = context.getSystemService(LocationManager::class.java)
+    if (!LocationManagerCompat.isLocationEnabled(locationManager)) return TrackingPreflightIssue.LocationDisabled
+    return null
 }
 
 @Composable
@@ -1829,7 +2083,9 @@ private fun HikeEditorSheet(
     var date by remember(hike?.id) { mutableStateOf(hike?.hikeDate ?: LocalDate.now().toString()) }
     var location by remember(hike?.id) { mutableStateOf(hike?.locationName.orEmpty()) }
     var locationMenuOpen by remember(hike?.id) { mutableStateOf(false) }
-    var distance by remember(hike?.id) { mutableStateOf(hike?.distanceMiles?.toString().orEmpty()) }
+    var distance by remember(hike?.id) {
+        mutableStateOf(hike?.distanceMiles?.let { String.format(Locale.US, "%.2f", it) }.orEmpty())
+    }
     var notes by remember(hike?.id) { mutableStateOf(hike?.notes.orEmpty()) }
     var validation by remember { mutableStateOf<String?>(null) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -2791,6 +3047,14 @@ private fun hikeMeta(hike: Hike): String {
     hike.distanceMiles?.let { parts += String.format(Locale.US, "%.1f mi", it) }
     if (hike.photoCount > 0) parts += "${hike.photoCount} photos"
     return parts.joinToString(" · ").ifBlank { "Field journal" }
+}
+
+private fun journalHikeMeta(hike: Hike): String {
+    val parts = mutableListOf<String>()
+    if (hike.locationName.isNotBlank()) parts += hike.locationName
+    hike.distanceMiles?.let { parts += String.format(Locale.US, "%.2f mi", it) }
+    hike.durationSeconds?.let { parts += "${formatTrackingDuration(it)} active" }
+    return parts.joinToString(" · ")
 }
 
 private fun formatDate(raw: String): String = try {

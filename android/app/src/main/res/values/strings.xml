@@ -1,3 +1,11 @@
 <resources>
     <string name="app_name">HikeJournal</string>
+    <string name="tracking_notification_channel_name">Active hike</string>
+    <string name="tracking_notification_channel_description">Time, distance, and controls for the hike being recorded</string>
+    <string name="tracking_notification_starting">Starting hike…</string>
+    <string name="tracking_notification_recording">Hike in progress</string>
+    <string name="tracking_notification_paused">Hike paused</string>
+    <string name="tracking_action_pause">Pause</string>
+    <string name="tracking_action_resume">Resume</string>
+    <string name="tracking_action_end">End</string>
 </resources>

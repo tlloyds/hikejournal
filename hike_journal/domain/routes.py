@@ -14,6 +14,11 @@ from hike_journal.services.tcx import (
 )
 
 
+NATIVE_GPS_SOURCE_TYPE = "hikejournal_android_gps"
+LEGACY_TCX_SOURCE_TYPE = "mapmyrun_tcx"
+LEGACY_TCX_COLLECTION_SOURCE_TYPE = "mapmyrun_tcx_collection"
+
+
 def format_duration_compact(value: int | float | None) -> str | None:
     if value in (None, ""):
         return None
@@ -120,8 +125,11 @@ def sync_hike_route_import(
     uploaded_file: Any,
     existing_route_import: dict[str, Any] | None,
     remove_existing: bool,
+    source_type: str | None = None,
 ) -> tuple[dict[str, Any] | None, str | None]:
     active_route_import = existing_route_import
+    if source_type is not None and source_type != NATIVE_GPS_SOURCE_TYPE:
+        return active_route_import, "Route source type is not supported."
     parsed: ParsedTcxRouteImport | None = None
     file_bytes: bytes | None = None
     if uploaded_file:
@@ -143,7 +151,12 @@ def sync_hike_route_import(
 
     storage_path, public_url = storage.upload_hike_route_import(hike_id, file_bytes)
     payload = {
-        "source_type": "mapmyrun_tcx_collection" if len(_normalize_uploaded_route_files(uploaded_file)) > 1 else "mapmyrun_tcx",
+        "source_type": source_type
+        or (
+            LEGACY_TCX_COLLECTION_SOURCE_TYPE
+            if len(_normalize_uploaded_route_files(uploaded_file)) > 1
+            else LEGACY_TCX_SOURCE_TYPE
+        ),
         "source_file_name": _route_import_source_name(uploaded_file),
         "source_storage_path": storage_path,
         "source_public_url": public_url,
@@ -277,20 +290,22 @@ def annotate_photos_with_route_context(
     route_import: dict[str, Any] | None,
     hike_distance_miles: float | None,
 ) -> list[dict[str, Any]]:
-    route_points = route_import_to_route_points(route_import)
-    if len(route_points) < 2 or not photos:
+    route_groups = route_import_to_route_groups(route_import)
+    if not route_groups or not photos:
         return photos
-    cumulative_miles = [0.0]
+    route_points: list[tuple[dict[str, float], float]] = []
     total_line_distance = 0.0
-    for index in range(1, len(route_points)):
-        segment = _haversine_distance_miles(
-            route_points[index - 1]["lat"],
-            route_points[index - 1]["lng"],
-            route_points[index]["lat"],
-            route_points[index]["lng"],
-        )
-        total_line_distance += segment
-        cumulative_miles.append(total_line_distance)
+    for route_group in route_groups:
+        route_points.append((route_group[0], total_line_distance))
+        for index in range(1, len(route_group)):
+            segment_distance = _haversine_distance_miles(
+                route_group[index - 1]["lat"],
+                route_group[index - 1]["lng"],
+                route_group[index]["lat"],
+                route_group[index]["lng"],
+            )
+            total_line_distance += segment_distance
+            route_points.append((route_group[index], total_line_distance))
     reference_distance = float(hike_distance_miles or 0.0) or total_line_distance
     for photo in photos:
         photo.pop("route_context_label", None)
@@ -300,12 +315,18 @@ def annotate_photos_with_route_context(
             continue
         nearest_index = 0
         nearest_distance = None
-        for index, point in enumerate(route_points):
+        nearest_route_miles = 0.0
+        for index, (point, route_miles) in enumerate(route_points):
             distance_to_point = (float(point["lat"]) - float(lat)) ** 2 + (float(point["lng"]) - float(lng)) ** 2
             if nearest_distance is None or distance_to_point < nearest_distance:
                 nearest_distance = distance_to_point
                 nearest_index = index
-        progress = nearest_index / max(1, len(route_points) - 1)
+                nearest_route_miles = route_miles
+        progress = (
+            nearest_route_miles / total_line_distance
+            if total_line_distance > 0
+            else nearest_index / max(1, len(route_points) - 1)
+        )
         approx_mile = reference_distance * progress
         photo["route_context_label"] = f"{_route_progress_label(progress)} • approx mile {approx_mile:.1f}"
     return photos

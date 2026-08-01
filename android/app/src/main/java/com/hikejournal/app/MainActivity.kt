@@ -20,17 +20,27 @@ class MainActivity : ComponentActivity() {
                 HikeJournalApp(viewModel)
             }
         }
-        handleInatIntent(intent)
+        handleAppIntent(intent)
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        handleInatIntent(intent)
+        handleAppIntent(intent)
     }
 
-    private fun handleInatIntent(intent: Intent?) {
-        if (intent?.data?.scheme != "hikejournal" || intent.data?.host != "inat") return
-        viewModel.completeInatConnection(intent.data?.getQueryParameter("status") == "connected")
+    private fun handleAppIntent(intent: Intent?) {
+        val data = intent?.data ?: return
+        if (data.scheme != "hikejournal") return
+        when (data.host) {
+            "inat" -> viewModel.completeInatConnection(data.getQueryParameter("status") == "connected")
+            "tracking" -> viewModel.openTrackingFromNotification(confirmEnd = data.path == "/end")
+            else -> return
+        }
+        // A notification/deep-link is a one-shot event. Clearing it prevents rotations and other
+        // Activity recreation from replaying Pause/End navigation.
+        intent.data = null
+        intent.action = null
+        setIntent(intent)
     }
 }

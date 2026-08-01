@@ -232,7 +232,47 @@ def test_everyday_journal_photo_page_and_route_are_available_to_android(monkeypa
 
     assert [photo["id"] for photo in page["photos"]] == ["everyday-photo"]
     assert page["next_offset"] is None
-    assert get_hike_route("everyday") == {"route_segments": []}
+    assert get_hike_route("everyday") == {
+        "route_segments": [],
+        "started_at": None,
+        "duration_seconds": None,
+        "distance_miles": None,
+        "track_point_count": 0,
+    }
+
+
+def test_hike_route_includes_recording_metadata(monkeypatch):
+    class Repository:
+        def get_hike_route_import(self, hike_id):
+            assert hike_id == "hike-1"
+            return {
+                "started_at": "2026-07-31T13:00:00+00:00",
+                "duration_seconds": 3723,
+                "distance_miles": 4.625,
+                "track_point_count": 42,
+                "track_geojson": {
+                    "type": "MultiLineString",
+                    "coordinates": [
+                        [[-82.1, 28.1], [-82.2, 28.2]],
+                        [[-82.3, 28.3], [-82.4, 28.4]],
+                    ],
+                },
+            }
+
+    service = type("Service", (), {"repository": Repository()})()
+    monkeypatch.setattr("mobile_api.get_services", lambda: service)
+    monkeypatch.setattr("mobile_api._get_visible_hike", lambda *_args: {"id": "hike-1"})
+
+    assert get_hike_route("hike-1") == {
+        "route_segments": [
+            [{"lat": 28.1, "lng": -82.1}, {"lat": 28.2, "lng": -82.2}],
+            [{"lat": 28.3, "lng": -82.3}, {"lat": 28.4, "lng": -82.4}],
+        ],
+        "started_at": "2026-07-31T13:00:00+00:00",
+        "duration_seconds": 3723,
+        "distance_miles": 4.625,
+        "track_point_count": 42,
+    }
 
 
 def test_mobile_route_upload_saves_tcx_and_returns_map_segments(monkeypatch):
@@ -256,6 +296,7 @@ def test_mobile_route_upload_saves_tcx_and_returns_map_segments(monkeypatch):
     def sync(**kwargs):
         captured["name"] = kwargs["uploaded_file"].name
         captured["contents"] = kwargs["uploaded_file"].getvalue()
+        captured["source_type"] = kwargs["source_type"]
         return route_import, None
 
     monkeypatch.setattr("mobile_api.sync_hike_route_import", sync)
@@ -269,11 +310,50 @@ def test_mobile_route_upload_saves_tcx_and_returns_map_segments(monkeypatch):
         app.dependency_overrides.pop(require_mobile_key, None)
 
     assert response.status_code == 201
-    assert captured == {"name": "pine-loop.tcx.txt", "contents": b"<TrainingCenterDatabase/>"}
+    assert captured == {
+        "name": "pine-loop.tcx.txt",
+        "contents": b"<TrainingCenterDatabase/>",
+        "source_type": None,
+    }
     assert response.json() == {
         "route_segments": [[{"lat": 28.1, "lng": -82.1}, {"lat": 28.2, "lng": -82.2}]],
         "track_point_count": 2,
     }
+
+
+def test_mobile_route_upload_accepts_only_native_gps_source(monkeypatch):
+    class Repository:
+        def get_hike_route_import(self, _hike_id):
+            return None
+
+    service = type("Service", (), {"repository": Repository(), "storage": object()})()
+    monkeypatch.setattr("mobile_api.get_services", lambda: service)
+    monkeypatch.setattr("mobile_api._get_visible_hike", lambda *_args: {"id": "hike-1"})
+    captured = {}
+
+    def sync(**kwargs):
+        captured["source_type"] = kwargs["source_type"]
+        return {"track_point_count": 0, "track_geojson": {}}, None
+
+    monkeypatch.setattr("mobile_api.sync_hike_route_import", sync)
+    app.dependency_overrides[require_mobile_key] = lambda: None
+    try:
+        native_response = TestClient(app).post(
+            "/v1/hikes/hike-1/route",
+            files={"file": ("recording.tcx", b"<TrainingCenterDatabase/>", "application/xml")},
+            data={"source_type": "hikejournal_android_gps"},
+        )
+        invalid_response = TestClient(app).post(
+            "/v1/hikes/hike-1/route",
+            files={"file": ("recording.tcx", b"<TrainingCenterDatabase/>", "application/xml")},
+            data={"source_type": "other_gps_app"},
+        )
+    finally:
+        app.dependency_overrides.pop(require_mobile_key, None)
+
+    assert native_response.status_code == 201
+    assert captured == {"source_type": "hikejournal_android_gps"}
+    assert invalid_response.status_code == 422
 
 
 def test_picker_metadata_fallback_parses_capture_time_and_coordinates():

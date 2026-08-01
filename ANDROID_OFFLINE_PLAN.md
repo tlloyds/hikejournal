@@ -2,8 +2,16 @@
 
 The Android app and Streamlit should remain two clients of the same Supabase database and R2 photo library. Offline support belongs in the Android client and its sync API; it does not require splitting the data model or replacing the web app.
 
-## What works in Android v0.5
+## What works in Android v0.6
 
+- Hikes can be recorded entirely offline with a foreground GPS service, live
+  route, active timer, distance, and durable pause/resume segments.
+- Recording state, accepted GPS points, distance, and timing checkpoints live in
+  Room. Screen-off and task swipes keep recording; interrupted sessions recover
+  safely without losing collected points.
+- Ending a paused recording creates an `Untitled hike`, generates a segmented
+  TCX route locally, and opens the existing edit-and-photo workflow. Hike and
+  route operations wait on their parent creation before syncing.
 - Previously loaded outings, journal details, species, review queue, publishing queue, and sightings remain readable without the companion.
 - Creates, edits, archives, captions, deletions, photo selections, and species decisions enter a durable Room queue and overlay the UI immediately.
 - Selected photos are copied into app-owned storage before the picker permission can disappear; original bytes retain EXIF date and coordinates.
@@ -13,8 +21,8 @@ The Android app and Streamlit should remain two clients of the same Supabase dat
 
 ## Target field workflow
 
-1. Open or create an outing with no signal.
-2. Capture photos and notes into app-owned storage, preserving original EXIF and coordinates.
+1. Start, pause, resume, and end a hike with no signal.
+2. Name the resulting outing, set its location, and capture photos and notes into app-owned storage while preserving original EXIF and coordinates.
 3. Make species decisions against downloaded suggestions.
 4. See every pending change in a small sync status surface.
 5. When any network returns, sync automatically and idempotently into the same Supabase/R2 records used by Streamlit.
@@ -56,3 +64,4 @@ The Android app and Streamlit should remain two clients of the same Supabase dat
 2. Deployable authenticated cloud mutation API — delivered; account deployment and HTTPS URL remain environment setup.
 3. Background R2 upload, retry, and attention handling — delivered in v0.5.
 4. User-selected offline trail packs — delivered; satellite activation remains provider-account configuration.
+5. Native offline hike recording and segmented route sync — delivered in v0.6.

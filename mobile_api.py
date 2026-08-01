@@ -27,7 +27,11 @@ from hike_journal.domain.discovery import (
 )
 from hike_journal.domain.library import filter_hikes_for_user, record_visible_for_user, user_owns_record
 from hike_journal.domain.locations import suggest_location_ids_for_hike
-from hike_journal.domain.routes import delete_hike_and_assets, route_import_to_route_groups, sync_hike_route_import
+from hike_journal.domain.routes import (
+    delete_hike_and_assets,
+    route_import_to_route_groups,
+    sync_hike_route_import,
+)
 from hike_journal.models import HikeDraft, SpeciesCandidate
 from hike_journal.services.exif import extract_metadata
 from hike_journal.services.image_processing import optimize_image
@@ -1652,13 +1656,18 @@ def get_hike_photos(
 @app.get("/v1/hikes/{hike_id}/route", dependencies=[Depends(require_mobile_key)])
 def get_hike_route(hike_id: str) -> dict[str, Any]:
     if hike_id == EVERYDAY_JOURNAL_ID:
-        return {"route_segments": []}
-    svc = get_services()
-    _get_visible_hike(svc.repository, hike_id)
+        route_import = None
+    else:
+        svc = get_services()
+        _get_visible_hike(svc.repository, hike_id)
+        route_import = svc.repository.get_hike_route_import(hike_id)
+    route_import = route_import or {}
     return {
-        "route_segments": route_import_to_route_groups(
-            svc.repository.get_hike_route_import(hike_id)
-        )
+        "route_segments": route_import_to_route_groups(route_import),
+        "started_at": route_import.get("started_at"),
+        "duration_seconds": route_import.get("duration_seconds"),
+        "distance_miles": route_import.get("distance_miles"),
+        "track_point_count": route_import.get("track_point_count") or 0,
     }
 
 
@@ -1728,6 +1737,7 @@ def update_hike(hike_id: str, payload: HikeInput) -> dict[str, Any]:
 async def upload_hike_route(
     hike_id: str,
     file: Annotated[UploadFile, File()],
+    source_type: Annotated[Literal["hikejournal_android_gps"] | None, Form()] = None,
 ) -> dict[str, Any]:
     """Save a TCX track for a hike so the native map can render its route."""
     svc = get_services()
@@ -1746,6 +1756,7 @@ async def upload_hike_route(
         uploaded_file=route_file,
         existing_route_import=svc.repository.get_hike_route_import(hike_id),
         remove_existing=False,
+        source_type=source_type,
     )
     if error:
         raise HTTPException(status_code=400, detail=error)

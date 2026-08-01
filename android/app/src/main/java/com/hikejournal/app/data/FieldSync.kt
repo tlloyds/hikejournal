@@ -39,6 +39,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.IOException
+import java.nio.file.AtomicMoveNotSupportedException
+import java.nio.file.StandardCopyOption
 import java.text.SimpleDateFormat
 import java.time.Instant
 import java.util.Date
@@ -73,7 +75,16 @@ data class HikeDeletionStatus(
     val lastError: String? = null,
 )
 
-private fun PendingOperationEntity.targetHikeId(): String? = parentId ?: entityId.takeIf {
+data class RecordedRouteUpload(
+    val file: File,
+    val startedAt: String,
+    val durationSeconds: Long,
+    val distanceMiles: Double,
+    val pointCount: Int,
+    val routeSegments: List<List<RoutePoint>>,
+)
+
+internal fun PendingOperationEntity.targetHikeId(): String? = parentId ?: entityId.takeIf {
     kind in setOf(
         OperationKind.CreateHike,
         OperationKind.UpdateHike,
@@ -81,6 +92,29 @@ private fun PendingOperationEntity.targetHikeId(): String? = parentId ?: entityI
         OperationKind.DeleteHike,
         OperationKind.SetHikeCover,
     )
+}
+
+internal fun selectNextSyncOperation(
+    operations: List<PendingOperationEntity>,
+    prioritizedPhotoId: String? = null,
+): PendingOperationEntity? {
+    val deletingHikeIds = operations
+        .filter { it.kind == OperationKind.DeleteHike }
+        .mapTo(mutableSetOf()) { it.entityId }
+    val pendingCreateHikeIds = operations
+        .filter { it.kind == OperationKind.CreateHike }
+        .mapTo(mutableSetOf()) { it.entityId }
+    fun eligible(operation: PendingOperationEntity): Boolean {
+        val targetHikeId = operation.targetHikeId()
+        return operation.state in setOf("queued", "syncing") &&
+            (operation.kind == OperationKind.DeleteHike || targetHikeId !in deletingHikeIds) &&
+            (operation.kind in setOf(OperationKind.CreateHike, OperationKind.DeleteHike) || targetHikeId !in pendingCreateHikeIds)
+    }
+    return operations.firstOrNull {
+        it.kind == OperationKind.UploadPhoto &&
+            it.entityId == prioritizedPhotoId &&
+            eligible(it)
+    } ?: operations.firstOrNull(::eligible)
 }
 
 private suspend fun invalidateHikeDeletionCaches(context: Context, hikeId: String): List<String> =
@@ -119,6 +153,13 @@ private suspend fun invalidateHikeDeletionCaches(context: Context, hikeId: Strin
         }
     }
 
+private suspend fun invalidateRouteCaches(context: Context) = journalCacheMutex.withLock {
+    withContext(Dispatchers.IO) {
+        val cacheDirectory = File(context.filesDir, "journal-cache")
+        File(cacheDirectory, "map-routes.json").delete()
+    }
+}
+
 class FieldOperationQueue(private val context: Context) {
     private val dao = OfflineDatabase.get(context).operations()
     private val preferences = context.getSharedPreferences("hikejournal_sync", Context.MODE_PRIVATE)
@@ -148,13 +189,43 @@ class FieldOperationQueue(private val context: Context) {
         )
     }.distinctUntilChanged()
 
-    suspend fun queueCreateHike(draft: HikeDraft): Hike {
-        val hikeId = UUID.randomUUID().toString()
-        enqueue(OperationKind.CreateHike, hikeId, null, draft.toQueueJson())
+    suspend fun queueCreateHike(
+        draft: HikeDraft,
+        hikeId: String = UUID.randomUUID().toString(),
+    ): Hike {
+        val existing = dao.find(OperationKind.CreateHike, hikeId)
+        if (existing == null) {
+            enqueue(OperationKind.CreateHike, hikeId, null, draft.toQueueJson())
+        } else if (existing.state != "syncing") {
+            dao.upsert(
+                existing.copy(
+                    payloadJson = draft.toQueueJson().toString(),
+                    state = "queued",
+                    attemptCount = 0,
+                    updatedAt = System.currentTimeMillis(),
+                    lastError = null,
+                ),
+            )
+            SyncScheduler.schedule(context)
+        }
         return localHike(hikeId, draft)
     }
 
     suspend fun queueUpdateHike(hikeId: String, draft: HikeDraft) {
+        val pendingCreate = dao.find(OperationKind.CreateHike, hikeId)
+        if (pendingCreate != null && pendingCreate.state != "syncing") {
+            dao.upsert(
+                pendingCreate.copy(
+                    payloadJson = draft.toQueueJson().toString(),
+                    state = "queued",
+                    attemptCount = 0,
+                    updatedAt = System.currentTimeMillis(),
+                    lastError = null,
+                ),
+            )
+            SyncScheduler.schedule(context)
+            return
+        }
         coalesce(OperationKind.UpdateHike, hikeId)
         enqueue(OperationKind.UpdateHike, hikeId, null, draft.toQueueJson())
     }
@@ -259,6 +330,65 @@ class FieldOperationQueue(private val context: Context) {
             contentType = "application/vnd.garmin.tcx+xml",
             fileName = filename,
         )
+    }
+
+    suspend fun queueRecordedRoute(hikeId: String, route: RecordedRouteUpload) = withContext(Dispatchers.IO) {
+        if (!route.file.exists()) throw IOException("The recorded route is no longer available on this phone.")
+        if (route.file.length() > MAX_LOCAL_MEDIA_BYTES) throw IOException("Recorded routes must be 30 MB or smaller.")
+        val operationEntityId = "recorded-route:$hikeId"
+        val destination = File(routeDirectory, "$hikeId-recorded.tcx")
+        val temporary = File(routeDirectory, "$hikeId-recorded.tcx.tmp")
+        val payload = JSONObject()
+            .put("source_type", "hikejournal_android_gps")
+            .put("started_at", route.startedAt)
+            .put("duration_seconds", route.durationSeconds)
+            .put("distance_miles", route.distanceMiles)
+            .put("track_point_count", route.pointCount)
+            .put("route_segments", route.routeSegments.toJson())
+        fieldSyncMutex.withLock {
+            try {
+                route.file.inputStream().use { input ->
+                    temporary.outputStream().use { output -> input.copyTo(output) }
+                }
+                try {
+                    java.nio.file.Files.move(
+                        temporary.toPath(),
+                        destination.toPath(),
+                        StandardCopyOption.ATOMIC_MOVE,
+                        StandardCopyOption.REPLACE_EXISTING,
+                    )
+                } catch (_: AtomicMoveNotSupportedException) {
+                    java.nio.file.Files.move(
+                        temporary.toPath(),
+                        destination.toPath(),
+                        StandardCopyOption.REPLACE_EXISTING,
+                    )
+                }
+            } catch (error: IOException) {
+                throw IOException("Could not preserve the recorded route for background sync.", error)
+            } finally {
+                if (temporary.exists()) temporary.delete()
+            }
+            val existing = dao.find(OperationKind.UploadRoute, operationEntityId)
+            dao.upsert(
+                PendingOperationEntity(
+                    id = existing?.id ?: UUID.randomUUID().toString(),
+                    kind = OperationKind.UploadRoute,
+                    entityId = operationEntityId,
+                    parentId = hikeId,
+                    payloadJson = payload.toString(),
+                    localFilePath = destination.absolutePath,
+                    contentType = "application/vnd.garmin.tcx+xml",
+                    fileName = "hikejournal-recording.tcx",
+                    state = "queued",
+                    attemptCount = 0,
+                    createdAt = existing?.createdAt ?: System.currentTimeMillis(),
+                    updatedAt = System.currentTimeMillis(),
+                    lastError = null,
+                ),
+            )
+        }
+        SyncScheduler.schedule(context)
     }
 
     suspend fun inspectMediaLocations(uris: List<Uri>): MediaLocationSummary =
@@ -437,7 +567,16 @@ class FieldOperationQueue(private val context: Context) {
         val operations = dao.listAll()
         val hikes = serverHikes.associateBy { it.id }.toMutableMap()
         operations.filter { it.kind == OperationKind.CreateHike }.forEach { operation ->
-            hikes.putIfAbsent(operation.entityId, localHike(operation.entityId, draft(operation)))
+            val next = draft(operation)
+            val existing = hikes[operation.entityId]
+            hikes[operation.entityId] = existing?.copy(
+                title = next.title,
+                hikeDate = next.hikeDate,
+                distanceMiles = next.distanceMiles,
+                locationName = next.locationName,
+                notes = next.notes,
+                syncState = operation.state,
+            ) ?: localHike(operation.entityId, next)
         }
         operations.forEach { operation ->
             when (operation.kind) {
@@ -476,6 +615,15 @@ class FieldOperationQueue(private val context: Context) {
                         syncState = operation.state,
                     )
                 }
+                OperationKind.UploadRoute -> hikes[operation.parentId]?.let {
+                    val payload = JSONObject(operation.payloadJson)
+                    hikes[it.id] = it.copy(
+                        durationSeconds = payload.optLong("duration_seconds")
+                            .takeUnless { _ -> payload.isNull("duration_seconds") },
+                        routeStartedAt = payload.optString("started_at").takeIf(String::isNotBlank),
+                        syncState = operation.state,
+                    )
+                }
                 OperationKind.DeleteHike -> hikes.remove(operation.entityId)
             }
         }
@@ -493,6 +641,17 @@ class FieldOperationQueue(private val context: Context) {
         if (hike == null) return null
         operations.forEach { operation ->
             when {
+                operation.kind == OperationKind.CreateHike && operation.entityId == hikeId -> {
+                    val next = draft(operation)
+                    hike = hike?.copy(
+                        title = next.title,
+                        hikeDate = next.hikeDate,
+                        distanceMiles = next.distanceMiles,
+                        locationName = next.locationName,
+                        notes = next.notes,
+                        syncState = operation.state,
+                    )
+                }
                 operation.kind == OperationKind.UpdateHike && operation.entityId == hikeId -> {
                     val next = draft(operation)
                     hike = hike?.copy(
@@ -523,6 +682,24 @@ class FieldOperationQueue(private val context: Context) {
                     hike = hike?.copy(
                         photos = hike!!.photos.filterNot { it.id == photo.id } + photo,
                         coverUrl = hike!!.coverUrl.ifBlank { photo.url },
+                        syncState = operation.state,
+                    )
+                }
+                operation.kind == OperationKind.UploadRoute && operation.parentId == hikeId -> {
+                    val payload = JSONObject(operation.payloadJson)
+                    hike = hike?.copy(
+                        distanceMiles = payload.optDouble("distance_miles")
+                            .takeUnless { it.isNaN() || payload.isNull("distance_miles") }
+                            ?: hike!!.distanceMiles,
+                        durationSeconds = payload.optLong("duration_seconds")
+                            .takeUnless { payload.isNull("duration_seconds") }
+                            ?: hike!!.durationSeconds,
+                        routeStartedAt = payload.optString("started_at").takeIf(String::isNotBlank)
+                            ?: hike!!.routeStartedAt,
+                        routeSegments = payload.optJSONArray("route_segments")
+                            ?.toRouteSegments()
+                            ?.takeIf { it.isNotEmpty() }
+                            ?: hike!!.routeSegments,
                         syncState = operation.state,
                     )
                 }
@@ -582,6 +759,19 @@ class FieldOperationQueue(private val context: Context) {
     suspend fun pendingReviewPhotoIds(): Set<String> = dao.listAll()
         .filter { it.kind == OperationKind.ReviewDecision }
         .mapTo(mutableSetOf()) { it.entityId }
+
+    suspend fun pendingRoutesByHikeId(): Map<String, List<List<RoutePoint>>> = dao.listAll()
+        .asSequence()
+        .filter { it.kind == OperationKind.UploadRoute && it.state != "completed" }
+        .mapNotNull { operation ->
+            val hikeId = operation.parentId ?: return@mapNotNull null
+            val segments = JSONObject(operation.payloadJson)
+                .optJSONArray("route_segments")
+                ?.toRouteSegments()
+                .orEmpty()
+            hikeId.takeIf { segments.isNotEmpty() }?.let { it to segments }
+        }
+        .toMap()
 
     suspend fun deletedHikeIds(): Set<String> = dao.listAll()
         .filter { it.kind == OperationKind.DeleteHike }
@@ -900,6 +1090,32 @@ private fun HikeDraft.toQueueJson(): JSONObject = JSONObject()
     .put("notes", notes)
     .put("location_id", locationId ?: JSONObject.NULL)
 
+private fun List<List<RoutePoint>>.toJson(): JSONArray {
+    val nonEmpty = filter { it.isNotEmpty() }
+    if (nonEmpty.isEmpty()) return JSONArray()
+    val perSegmentLimit = (1_500 / nonEmpty.size).coerceAtLeast(2)
+    return JSONArray().apply {
+        nonEmpty.forEach { segment ->
+            val step = kotlin.math.ceil(segment.size.toDouble() / perSegmentLimit).toInt().coerceAtLeast(1)
+            val sampled = segment.filterIndexed { index, _ -> index % step == 0 }.toMutableList()
+            if (sampled.lastOrNull() != segment.last()) sampled += segment.last()
+            put(JSONArray().apply {
+                sampled.forEach { point ->
+                    put(JSONObject().put("lat", point.latitude).put("lng", point.longitude))
+                }
+            })
+        }
+    }
+}
+
+private fun JSONArray.toRouteSegments(): List<List<RoutePoint>> = List(length()) { segmentIndex ->
+    val segment = optJSONArray(segmentIndex) ?: JSONArray()
+    List(segment.length()) { pointIndex ->
+        val point = segment.optJSONObject(pointIndex) ?: JSONObject()
+        RoutePoint(point.optDouble("lat"), point.optDouble("lng"))
+    }
+}.filter { it.size >= 2 }
+
 class FieldSyncEngine(private val context: Context) {
     private val dao = OfflineDatabase.get(context).operations()
     private val api = HikeJournalApi(context)
@@ -925,23 +1141,7 @@ class FieldSyncEngine(private val context: Context) {
         var shouldRetry = false
         while (true) {
             val operations = dao.listAll()
-            val deletingHikeIds = operations
-                .filter { it.kind == OperationKind.DeleteHike }
-                .mapTo(mutableSetOf()) { it.entityId }
-            val eligibleOperation: (PendingOperationEntity) -> Boolean = {
-                it.state in setOf("queued", "syncing") &&
-                    (it.kind == OperationKind.DeleteHike || it.targetHikeId() !in deletingHikeIds)
-            }
-            val operation = operations.firstOrNull {
-                it.kind == OperationKind.UploadPhoto &&
-                    it.entityId == prioritizedPhotoId &&
-                    eligibleOperation(it) &&
-                    operations.none { dependency ->
-                        dependency.kind == OperationKind.CreateHike &&
-                            dependency.entityId == it.parentId &&
-                            eligibleOperation(dependency)
-                    }
-            } ?: operations.firstOrNull(eligibleOperation) ?: break
+            val operation = selectNextSyncOperation(operations, prioritizedPhotoId) ?: break
             dao.updateState(
                 operation.id,
                 "syncing",
@@ -951,6 +1151,9 @@ class FieldSyncEngine(private val context: Context) {
             )
             try {
                 execute(operation)
+                if (operation.kind == OperationKind.UploadRoute) {
+                    invalidateRouteCaches(context)
+                }
                 operation.localFilePath?.takeIf {
                     operation.kind == OperationKind.UploadPhoto || operation.kind == OperationKind.UploadRoute
                 }?.let { File(it).delete() }
@@ -1110,6 +1313,7 @@ class FieldSyncEngine(private val context: Context) {
                 hikeId = requireNotNull(operation.parentId),
                 file = File(requireNotNull(operation.localFilePath)),
                 fileName = operation.fileName ?: "route.tcx",
+                sourceType = payload.optString("source_type").takeIf(String::isNotBlank),
             )
             OperationKind.UpdateCaption -> api.updateCaption(operation.entityId, payload.optString("caption"))
             OperationKind.DeletePhoto -> api.deletePhoto(operation.entityId)
