@@ -149,15 +149,16 @@ fun SpeciesIndexScreen(
     onRefreshQuestMap: () -> Unit,
     onCloseQuestMap: () -> Unit,
     onInitialAreaConsumed: () -> Unit,
-    onOpenSpecies: (String) -> Unit,
+    onOpenSpecies: (String, List<SpeciesRecord>, String) -> Unit,
 ) {
     var mode by remember { mutableStateOf(SpeciesMode.Collection) }
-    var query by remember { mutableStateOf("") }
+    var query by rememberSaveable { mutableStateOf("") }
     var speciesSort by rememberSaveable { mutableStateOf(SpeciesSort.Alphabetical) }
     var speciesSortOpen by remember { mutableStateOf(false) }
-    var selectedHikeId by remember { mutableStateOf<String?>(null) }
+    var selectedHikeId by rememberSaveable { mutableStateOf<String?>(null) }
     var filterOpen by remember { mutableStateOf(false) }
-    var observationType by remember { mutableStateOf(ObservationTypeFilter.All) }
+    var observationTypeName by rememberSaveable { mutableStateOf(ObservationTypeFilter.All.name) }
+    val observationType = ObservationTypeFilter.valueOf(observationTypeName)
     var observationTypeFilterOpen by remember { mutableStateOf(false) }
     var areaSearch by remember { mutableStateOf("") }
     var selectedAreaId by remember { mutableStateOf<String?>(null) }
@@ -253,6 +254,12 @@ fun SpeciesIndexScreen(
                 it.scientificName.contains(query, ignoreCase = true)
         }
         .let { items -> sortSpeciesRecords(items, speciesSort) }
+    val browseContext = buildList {
+        hikes.firstOrNull { it.id == selectedHikeId }?.title?.let(::add)
+        if (observationType != ObservationTypeFilter.All) add(observationType.label)
+        if (query.isNotBlank()) add("\u201c$query\u201d")
+        add(speciesSort.label)
+    }.joinToString(" \u00b7 ")
     val encounterCount = typeScopedSpecies.sumOf { it.encounterCount }
     val headerCount = when (mode) {
         SpeciesMode.Collection -> "${typeScopedSpecies.size} SPECIES · $encounterCount ENCOUNTERS"
@@ -405,7 +412,7 @@ fun SpeciesIndexScreen(
             }
         } else {
             items(filtered, key = { it.key }) { record ->
-                SpeciesIndexRow(record, onOpenSpecies)
+                SpeciesIndexRow(record) { key -> onOpenSpecies(key, filtered, browseContext) }
             }
         }
         }
@@ -802,7 +809,7 @@ fun SpeciesIndexScreen(
         ObservationTypeFilterSheet(
             selectedType = observationType,
             onSelect = {
-                observationType = it
+                observationTypeName = it.name
                 observationTypeFilterOpen = false
             },
             onDismiss = { observationTypeFilterOpen = false },
@@ -1501,6 +1508,7 @@ private fun SpeciesIndexRow(record: SpeciesRecord, onOpen: (String) -> Unit) {
 fun SpeciesDetailScreen(
     species: SpeciesRecord,
     allSpecies: List<SpeciesRecord>,
+    browseContext: String?,
     loading: Boolean,
     onBack: () -> Unit,
     onOpenSpecies: (String) -> Unit,
@@ -1527,7 +1535,11 @@ fun SpeciesDetailScreen(
         item { SpeciesHero(species, onBack) }
         item {
             Column(Modifier.padding(horizontal = 20.dp, vertical = 24.dp)) {
-                Text("PERSONAL FIELD GUIDE", style = MaterialTheme.typography.labelSmall, color = TrailText)
+                Text(
+                    browseContext?.let { "FIELD GUIDE \u00b7 $it" } ?: "PERSONAL FIELD GUIDE",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = TrailText,
+                )
                 Text(species.commonName, style = MaterialTheme.typography.displayMedium, color = Ink)
                 if (species.scientificName.isNotBlank()) {
                     Text(

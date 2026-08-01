@@ -170,11 +170,17 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
 import java.util.Locale
+import kotlinx.coroutines.delay
 
 private data class HikeMapRequest(
     val hike: Hike?,
     val focusedPhoto: Photo? = null,
     val returnToPhoto: Boolean = false,
+)
+
+private data class SpeciesBrowseContext(
+    val species: List<SpeciesRecord>,
+    val label: String,
 )
 
 @Composable
@@ -202,6 +208,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
     var openingPhotoMapId by remember { mutableStateOf<String?>(null) }
     var selectedRouteUri by remember { mutableStateOf<Uri?>(null) }
     var pendingHikeDelete by remember { mutableStateOf<Hike?>(null) }
+    var speciesBrowseContext by remember { mutableStateOf<SpeciesBrowseContext?>(null) }
 
     fun closeHikeMap() {
         val request = hikeMapRequest
@@ -226,6 +233,12 @@ fun HikeJournalApp(viewModel: AppViewModel) {
         val photo = selectedPhoto
         if (photo != null && !photo.isVideo && photo.species.none { it.isPrimary }) {
             viewModel.loadSpecies()
+        }
+    }
+    LaunchedEffect(state.notice) {
+        if (state.notice != null) {
+            delay(4_000)
+            viewModel.clearNotice()
         }
     }
 
@@ -301,7 +314,10 @@ fun HikeJournalApp(viewModel: AppViewModel) {
             }
             badgesOpen -> badgesOpen = false
             state.journal != null -> viewModel.closeJournal()
-            state.speciesDetail != null -> viewModel.closeSpecies()
+            state.speciesDetail != null -> {
+                speciesBrowseContext = null
+                viewModel.closeSpecies()
+            }
             state.questMapQuest != null -> viewModel.closeQuestSightingsMap()
         }
     }
@@ -377,9 +393,13 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                 key.startsWith("species:") && state.speciesDetail != null -> {
                     SpeciesDetailScreen(
                         species = state.speciesDetail!!,
-                        allSpecies = state.species,
+                        allSpecies = speciesBrowseContext?.species ?: state.species,
+                        browseContext = speciesBrowseContext?.label,
                         loading = state.isSpeciesLoading,
-                        onBack = viewModel::closeSpecies,
+                        onBack = {
+                            speciesBrowseContext = null
+                            viewModel.closeSpecies()
+                        },
                         onOpenSpecies = viewModel::openSpecies,
                         onOpenPhoto = { selectedPhoto = it },
                     )
@@ -422,7 +442,10 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                     onRefreshQuestMap = viewModel::refreshQuestSightingsMap,
                     onCloseQuestMap = viewModel::closeQuestSightingsMap,
                     onInitialAreaConsumed = { speciesEntryAreaName = null },
-                    onOpenSpecies = viewModel::openSpecies,
+                    onOpenSpecies = { key, filteredSpecies, context ->
+                        speciesBrowseContext = SpeciesBrowseContext(filteredSpecies, context)
+                        viewModel.openSpecies(key)
+                    },
                 )
                 destination == TopDestination.Review -> SpeciesReviewScreen(
                     queue = state.reviewQueue,
