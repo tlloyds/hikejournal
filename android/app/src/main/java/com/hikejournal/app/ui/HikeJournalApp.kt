@@ -838,6 +838,9 @@ private fun LibraryScreen(
             item {
                 LibraryHeader(
                     hikeCount = state.hikes.count { !it.isArchived && !it.isStandalone },
+                    totalMiles = state.hikes
+                        .filterNot { it.isStandalone }
+                        .sumOf { (it.distanceMiles ?: 0.0).coerceAtLeast(0.0) },
                     offline = state.isOffline,
                     refreshing = state.isRefreshing,
                     onRefresh = onRefresh,
@@ -945,6 +948,7 @@ private fun EverydayRow(journal: Hike, opening: Boolean, onOpen: (String) -> Uni
 @Composable
 private fun LibraryHeader(
     hikeCount: Int,
+    totalMiles: Double,
     offline: Boolean,
     refreshing: Boolean,
     onRefresh: () -> Unit,
@@ -963,9 +967,9 @@ private fun LibraryHeader(
                 Text("HikeJournal", style = MaterialTheme.typography.displayMedium, color = Paper)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        "$hikeCount OUTINGS · FIELD ARCHIVE",
+                        "$hikeCount OUTINGS · ${String.format(Locale.US, "%.1f", totalMiles)} MI HIKED · FIELD ARCHIVE",
                         style = MaterialTheme.typography.labelSmall,
-                        color = Color(0xFFB8C9B6),
+                        color = Color(0xFFE1E9DD),
                     )
                     if (offline) {
                         Spacer(Modifier.width(10.dp))
