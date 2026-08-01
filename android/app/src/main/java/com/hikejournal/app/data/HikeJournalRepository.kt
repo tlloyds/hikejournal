@@ -64,6 +64,16 @@ class HikeJournalRepository(context: Context) {
                 offset = if (page.isNull("next_offset")) -1 else page.optInt("next_offset", -1)
             } while (offset >= 0)
             payload.put("photos", photos)
+            payload.put("photo_count", photos.length())
+            if (payload.optString("cover_url").isBlank()) {
+                val coverId = payload.optString("cover_photo_id")
+                val cover = (0 until photos.length())
+                    .asSequence()
+                    .map { photos.getJSONObject(it) }
+                    .firstOrNull { it.optString("id") == coverId }
+                    ?: (if (photos.length() > 0) photos.getJSONObject(photos.length() - 1) else null)
+                payload.put("cover_url", cover?.optString("url").orEmpty())
+            }
             payload.put("route_segments", JSONObject(api.getHikeRouteJson(hikeId)).optJSONArray("route_segments") ?: JSONArray())
             val completeJson = payload.toString()
             withContext(Dispatchers.IO) { cacheFile.writeText(completeJson) }

@@ -111,13 +111,13 @@ def test_hike_detail_includes_route_segments_for_native_map(monkeypatch):
 
 def test_hike_photo_page_is_bounded_for_large_hikes(monkeypatch):
     class Repository:
-        def list_photos(self, _hike_id):
+        def list_photos_page(self, _hike_id, *, offset, limit):
             return [
                 {"id": f"photo-{index}", "hike_id": "hike-1", "public_url": "https://images.example/photo.jpg"}
-                for index in range(256)
+                for index in range(offset, min(offset + limit, 256))
             ]
 
-        def list_observations(self, _hike_id):
+        def list_observations_for_photo_ids(self, _photo_ids):
             return []
 
     repository = Repository()

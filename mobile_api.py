@@ -1529,6 +1529,15 @@ def get_hike(
     if hike_id == EVERYDAY_JOURNAL_ID:
         return _standalone_hike_payload(svc, include_details=True)
     hike = _get_visible_hike(svc.repository, hike_id)
+    if not include_photos:
+        # The Android client loads photos separately in small pages. Do not scan
+        # the complete photo/observation history just to render this header.
+        payload = _hike_payload(hike, photos=[])
+        if include_route:
+            payload["route_segments"] = route_import_to_route_groups(
+                svc.repository.get_hike_route_import(hike_id)
+            )
+        return payload
     photos = svc.repository.list_photos(hike_id)
     observations = svc.repository.list_observations(hike_id)
     observations_by_photo: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -1560,10 +1569,11 @@ def get_hike_photos(
     """Return a bounded page so photo-heavy hikes do not exceed proxy response limits."""
     svc = get_services()
     _get_visible_hike(svc.repository, hike_id)
-    photos = svc.repository.list_photos(hike_id)
-    page = photos[offset : offset + limit]
+    page = svc.repository.list_photos_page(hike_id, offset=offset, limit=limit)
     observations_by_photo: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for observation in svc.repository.list_observations(hike_id):
+    for observation in svc.repository.list_observations_for_photo_ids(
+        [str(photo.get("id") or "") for photo in page]
+    ):
         if observation.get("photo_id"):
             observations_by_photo[str(observation["photo_id"])].append(observation)
     next_offset = offset + len(page)
@@ -1572,7 +1582,7 @@ def get_hike_photos(
             _photo_payload(photo, observations_by_photo.get(str(photo.get("id")), []))
             for photo in page
         ],
-        "next_offset": next_offset if next_offset < len(photos) else None,
+        "next_offset": next_offset if len(page) == limit else None,
     }
 
 

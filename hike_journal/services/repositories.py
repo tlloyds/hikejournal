@@ -497,6 +497,19 @@ class HikeJournalRepository:
             )
         )
 
+    def list_photos_page(self, hike_id: str, *, offset: int, limit: int) -> list[dict[str, Any]]:
+        """Fetch only one ordered page for the native hike detail API."""
+        response = (
+            self.client.table("photos")
+            .select("*")
+            .eq("hike_id", hike_id)
+            .order("taken_at")
+            .order("created_at")
+            .range(offset, offset + limit - 1)
+            .execute()
+        )
+        return response.data or []
+
     def list_standalone_photos(self) -> list[dict[str, Any]]:
         return self._select_all_rows(
             lambda: (
