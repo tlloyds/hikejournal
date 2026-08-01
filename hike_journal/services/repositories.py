@@ -234,6 +234,22 @@ class HikeJournalRepository:
             if target_rows:
                 self.client.table("species_quest_taxa").insert(target_rows).execute()
         except Exception as exc:
+            # Earlier production installs predate the optional Wikipedia
+            # columns.  Keep quests usable until that migration is applied.
+            if "wikipedia_" in str(exc).lower():
+                legacy_target_rows = [
+                    {
+                        key: value
+                        for key, value in target_row.items()
+                        if key not in {"wikipedia_url", "wikipedia_summary"}
+                    }
+                    for target_row in target_rows
+                ]
+                try:
+                    self.client.table("species_quest_taxa").insert(legacy_target_rows).execute()
+                    return self.get_species_quest(quest_id) or {**quest, "taxa": []}
+                except Exception as legacy_exc:
+                    exc = legacy_exc
             # A partially saved quest is not useful, but cleanup must not hide
             # the actionable migration error from the mobile API.
             try:

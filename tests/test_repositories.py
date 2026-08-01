@@ -29,3 +29,40 @@ def test_large_batch_size_reduces_species_log_round_trips() -> None:
     assert len(chunks) == 8
     assert len(chunks[0]) == 200
     assert len(chunks[-1]) == 73
+
+
+def test_quest_save_retries_without_wikipedia_fields_for_legacy_schema() -> None:
+    class Table:
+        def __init__(self, name):
+            self.name = name
+            self.payload = None
+
+        def insert(self, payload):
+            self.payload = payload
+            return self
+
+        def execute(self):
+            if self.name == "species_quests":
+                return type("Response", (), {"data": [{"id": "quest-1"}]})()
+            if "wikipedia_url" in self.payload[0]:
+                raise RuntimeError("column species_quest_taxa.wikipedia_url does not exist")
+            saved_taxa.extend(self.payload)
+            return type("Response", (), {"data": self.payload})()
+
+    class Client:
+        def table(self, name):
+            return Table(name)
+
+    saved_taxa = []
+    repository = HikeJournalRepository(client=Client())
+    repository.get_species_quest = lambda _quest_id: {"id": "quest-1", "taxa": saved_taxa}
+
+    result = repository.create_species_quest(
+        {"title": "Wetland birds"},
+        [{"taxon_id": 123, "common_name": "Heron", "wikipedia_url": "https://example.com/heron"}],
+    )
+
+    assert result["id"] == "quest-1"
+    assert saved_taxa[0]["taxon_id"] == 123
+    assert "wikipedia_url" not in saved_taxa[0]
+    assert "wikipedia_summary" not in saved_taxa[0]
