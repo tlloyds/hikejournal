@@ -47,6 +47,7 @@ data class AppState(
     val questMapTaxon: DiscoveryTaxon? = null,
     val questSightingsMap: QuestSightingsMap? = null,
     val sightings: List<Sighting> = emptyList(),
+    val mapRouteSegments: List<List<com.hikejournal.app.data.RoutePoint>> = emptyList(),
     val reviewQueue: List<ReviewItem> = emptyList(),
     val publishQueue: PublishQueue = PublishQueue(false, 0, 0, 0, emptyList()),
     val isLoading: Boolean = true,
@@ -630,13 +631,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         if (_state.value.sightings.isNotEmpty() && !force) return
         viewModelScope.launch {
             _state.update { it.copy(isMapLoading = true, error = null) }
-            runCatching { repository.loadSightings() }
-                .onSuccess { result ->
+            runCatching {
+                repository.loadSightings() to repository.loadMapRouteSegments()
+            }.onSuccess { (sightings, routes) ->
                     _state.update {
                         it.copy(
-                            sightings = result.value,
+                            sightings = sightings.value,
+                            mapRouteSegments = routes.value,
                             isMapLoading = false,
-                            isOffline = result.fromCache,
+                            isOffline = sightings.fromCache || routes.fromCache,
                         )
                     }
                 }

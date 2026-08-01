@@ -168,6 +168,8 @@ class HikeJournalApi(private val context: Context) {
 
     suspend fun getSightingsJson(): String = request("/v1/sightings")
 
+    suspend fun getMapRoutesJson(): String = request("/v1/routes")
+
     suspend fun getReviewQueueJson(): String = request("/v1/species/review")
 
     suspend fun getInatAuthorizationUrl(): String = JSONObject(request("/v1/inat/oauth/start"))

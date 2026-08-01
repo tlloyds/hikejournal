@@ -303,6 +303,12 @@ class HikeJournalRepository(context: Context) {
         return result.copy(value = result.value.filterNot { it.hikeId in deletedHikeIds })
     }
 
+    suspend fun loadMapRouteSegments(): LoadResult<List<List<RoutePoint>>> = loadWithCache(
+        cacheFile = File(cacheDirectory, "map-routes.json"),
+        fetch = api::getMapRoutesJson,
+        parse = ::parseMapRouteSegments,
+    )
+
     suspend fun loadReviewQueue(): LoadResult<List<ReviewItem>> {
         val result = loadWithCache(
             cacheFile = File(cacheDirectory, "species-review.json"),

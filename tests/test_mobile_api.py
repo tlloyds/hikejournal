@@ -35,6 +35,7 @@ from mobile_api import (
     get_hike_route,
     list_discovery_areas,
     list_hike_locations,
+    list_map_routes,
     decide_species_review,
     derive_mobile_api_token,
     queue_photo_for_species_review,
@@ -139,6 +140,27 @@ def test_hike_photo_page_is_bounded_for_large_hikes(monkeypatch):
     assert first_page["next_offset"] == 50
     assert len(final_page["photos"]) == 6
     assert final_page["next_offset"] is None
+
+
+def test_main_map_routes_include_visible_hike_tracks(monkeypatch):
+    class Repository:
+        def get_hike_route_import(self, hike_id):
+            assert hike_id == "hike-1"
+            return {
+                "track_geojson": {
+                    "type": "LineString",
+                    "coordinates": [[-82.1, 28.1], [-82.2, 28.2]],
+                }
+            }
+
+    service = type("Service", (), {"repository": Repository()})()
+    monkeypatch.setattr("mobile_api.get_services", lambda: service)
+    monkeypatch.setattr("mobile_api._visible_hikes", lambda _repository: [{"id": "hike-1"}])
+
+    assert list_map_routes() == [{
+        "hike_id": "hike-1",
+        "route_segments": [[{"lat": 28.1, "lng": -82.1}, {"lat": 28.2, "lng": -82.2}]],
+    }]
 
 
 def test_everyday_journal_photo_page_and_route_are_available_to_android(monkeypatch):

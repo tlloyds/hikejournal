@@ -1519,6 +1519,21 @@ def list_sightings() -> list[dict[str, Any]]:
     )
 
 
+@app.get("/v1/routes", dependencies=[Depends(require_mobile_key)])
+def list_map_routes() -> list[dict[str, Any]]:
+    """Return the visible hike tracks for the all-sightings map."""
+    svc = get_services()
+    return [
+        {
+            "hike_id": str(hike["id"]),
+            "route_segments": route_import_to_route_groups(
+                svc.repository.get_hike_route_import(str(hike["id"]))
+            ),
+        }
+        for hike in _visible_hikes(svc.repository)
+    ]
+
+
 @app.get("/v1/hikes/{hike_id}", dependencies=[Depends(require_mobile_key)])
 def get_hike(
     hike_id: str,

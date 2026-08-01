@@ -340,6 +340,20 @@ fun parseHikeLocations(json: String): List<HikeLocation> {
 
 fun parseHike(json: String): Hike = parseHike(JSONObject(json))
 
+fun parseMapRouteSegments(json: String): List<List<RoutePoint>> {
+    val routes = JSONArray(json)
+    return List(routes.length()) { routeIndex ->
+        val segments = routes.getJSONObject(routeIndex).optJSONArray("route_segments") ?: JSONArray()
+        List(segments.length()) { segmentIndex ->
+            val segment = segments.optJSONArray(segmentIndex) ?: JSONArray()
+            List(segment.length()) { pointIndex ->
+                val point = segment.getJSONObject(pointIndex)
+                RoutePoint(point.optDouble("lat"), point.optDouble("lng"))
+            }
+        }
+    }.flatten().filter { it.size >= 2 }
+}
+
 fun parseSpeciesList(json: String): List<SpeciesRecord> {
     val array = JSONArray(json)
     return List(array.length()) { index -> parseSpecies(array.getJSONObject(index)) }

@@ -129,6 +129,7 @@ internal data class MapViewport(val bounds: LatLngBounds, val zoom: Double)
 @Composable
 fun SightingsMapScreen(
     sightings: List<Sighting>,
+    routeSegments: List<List<RoutePoint>>,
     loading: Boolean,
     onRefresh: () -> Unit,
     onOpenHike: (String) -> Unit,
@@ -148,6 +149,7 @@ fun SightingsMapScreen(
     Box(Modifier.fillMaxSize().background(Moss)) {
         HikeJournalMap(
             sightings = visibleSightings,
+            routeSegments = routeSegments,
             selectedSighting = selected,
             layerMode = layerMode,
             onSelect = { selected = it },
@@ -162,7 +164,11 @@ fun SightingsMapScreen(
                 Column(Modifier.weight(1f)) {
                     Text("HikeJournal", style = MaterialTheme.typography.titleMedium, color = Color(0xFFB7C8B5))
                     Text("Sightings map", style = MaterialTheme.typography.headlineMedium, color = Paper)
-                    Text("${visibleSightings.size} GEOTAGGED FRAMES", style = MaterialTheme.typography.labelSmall, color = Color(0xFFB7C8B5))
+                    Text(
+                        "${visibleSightings.size} GEOTAGGED FRAMES · ${routeSegments.size} ROUTE SEGMENTS",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color(0xFFB7C8B5),
+                    )
                 }
                 TextButton(onClick = {
                     layerMode = if (layerMode == MapLayerMode.Trail) MapLayerMode.Satellite else MapLayerMode.Trail

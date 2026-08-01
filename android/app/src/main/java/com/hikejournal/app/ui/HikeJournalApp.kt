@@ -475,6 +475,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                 )
                 destination == TopDestination.Map -> SightingsMapScreen(
                     sightings = state.sightings,
+                    routeSegments = state.mapRouteSegments,
                     loading = state.isMapLoading,
                     onRefresh = { viewModel.loadSightings(force = true) },
                     onOpenHike = viewModel::openEncounterHike,
@@ -2064,6 +2065,7 @@ private fun PhotoViewer(
 ) {
     var caption by remember(photo.id) { mutableStateOf(photo.caption) }
     var confirmDelete by remember { mutableStateOf(false) }
+    var photoFullscreen by remember { mutableStateOf(false) }
     var videoFullscreen by remember(photo.id) { mutableStateOf(false) }
     var horizontalDragDistance by remember(photo.id) { mutableFloatStateOf(0f) }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
@@ -2096,7 +2098,14 @@ private fun PhotoViewer(
                         modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
                         colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xB018221C)),
                     ) { Icon(Icons.Rounded.Fullscreen, "Open full-screen video", tint = Paper) }
-                } else AsyncImage(photo.url, photo.caption, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+                } else {
+                    AsyncImage(photo.url, photo.caption, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+                    FilledIconButton(
+                        onClick = { photoFullscreen = true },
+                        modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
+                        colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xB018221C)),
+                    ) { Icon(Icons.Rounded.Fullscreen, "Open full-screen photo", tint = Paper) }
+                }
             }
             Column(
                 Modifier
@@ -2203,6 +2212,14 @@ private fun PhotoViewer(
             }
         }
     }
+    if (photoFullscreen) {
+        FullscreenPhotoViewer(
+            photo = photo,
+            onDismiss = { photoFullscreen = false },
+            onPrevious = onPrevious,
+            onNext = onNext,
+        )
+    }
     if (confirmDelete) {
         val mediaName = if (photo.isVideo) "video" else "photo"
         AlertDialog(
@@ -2212,6 +2229,40 @@ private fun PhotoViewer(
             confirmButton = { TextButton(onClick = onDelete) { Text("Delete", color = MaterialTheme.colorScheme.error) } },
             dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Keep $mediaName") } },
         )
+    }
+}
+
+@Composable
+private fun FullscreenPhotoViewer(
+    photo: Photo,
+    onDismiss: () -> Unit,
+    onPrevious: (() -> Unit)?,
+    onNext: (() -> Unit)?,
+) {
+    var horizontalDragDistance by remember { mutableFloatStateOf(0f) }
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+        Box(
+            Modifier.fillMaxSize().background(Color.Black).pointerInput(photo.id) {
+                detectHorizontalDragGestures(
+                    onHorizontalDrag = { _, dragAmount -> horizontalDragDistance += dragAmount },
+                    onDragEnd = {
+                        when {
+                            horizontalDragDistance > 72f -> onPrevious?.invoke()
+                            horizontalDragDistance < -72f -> onNext?.invoke()
+                        }
+                        horizontalDragDistance = 0f
+                    },
+                    onDragCancel = { horizontalDragDistance = 0f },
+                )
+            },
+        ) {
+            AsyncImage(photo.url, photo.caption, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+            FilledIconButton(
+                onClick = onDismiss,
+                modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(12.dp),
+                colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xB018221C)),
+            ) { Icon(Icons.Rounded.Close, "Exit full-screen photo", tint = Paper) }
+        }
     }
 }
 
