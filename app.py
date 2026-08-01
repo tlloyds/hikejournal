@@ -656,6 +656,29 @@ def calculate_visible_storage_usage(
         "free_label": free_label,
     }
 
+def build_open_outing_sidebar_markup(current_hike: dict[str, Any], active_view: str) -> str:
+    """Return the Open outing sidebar block as standalone HTML."""
+    hike_id = str(current_hike["id"])
+    journal_href = f"?view=Journal&hike={quote(hike_id)}"
+    outing_map_href = f"?view=Map&hike={quote(hike_id)}"
+    metadata = escape(str(current_hike.get("hike_date") or ""))
+    location_name = str(current_hike.get("location_name") or "").strip()
+    if location_name:
+        metadata = f"{metadata} • {escape(location_name)}" if metadata else escape(location_name)
+
+    return (
+        '<div class="sidebar-current-hike">'
+        '<div class="sidebar-current-label">In progress</div>'
+        f'<div class="sidebar-current-title">{escape(str(current_hike.get("title") or "Untitled outing"))}</div>'
+        f'<div class="sidebar-current-meta">{metadata}</div>'
+        '<div class="sidebar-current-actions">'
+        f'<a class="sidebar-current-action{" active" if active_view == "Journal" else ""}" href="{escape(journal_href, quote=True)}" target="_self">Journal</a>'
+        f'<a class="sidebar-current-action{" active" if active_view == "Map" else ""}" href="{escape(outing_map_href, quote=True)}" target="_self">Map</a>'
+        '<a class="sidebar-current-action subtle" href="?view=Library&amp;scope=global" target="_self">Close</a>'
+        '</div>'
+        '</div>'
+    )
+
 
 def render_sidebar(
     repository: HikeJournalRepository,
@@ -707,27 +730,12 @@ def render_sidebar(
     st.markdown(f"<div class='sidebar-nav-shell'>{''.join(nav_markup)}</div>", unsafe_allow_html=True)
 
     if current_hike:
-        journal_href = f"?view=Journal&hike={quote(current_hike['id'])}"
-        outing_map_href = f"?view=Map&hike={quote(current_hike['id'])}"
         st.markdown("<div class='sidebar-section-label'>Open outing</div>", unsafe_allow_html=True)
-        st.markdown(
-            f"""
-            <div class="sidebar-current-hike">
-                <div class="sidebar-current-label">In progress</div>
-                <div class="sidebar-current-title">{escape(current_hike.get('title') or 'Untitled outing')}</div>
-                <div class="sidebar-current-meta">
-                    {escape(str(current_hike.get('hike_date') or ''))}
-                    {' • ' + escape(current_hike.get('location_name') or '') if current_hike.get('location_name') else ''}
-                </div>
-                <div class="sidebar-current-actions">
-                    <a class="sidebar-current-action{' active' if active_view == 'Journal' else ''}" href="{journal_href}" target="_self">Journal</a>
-                    <a class="sidebar-current-action{' active' if active_view == 'Map' else ''}" href="{outing_map_href}" target="_self">Map</a>
-                    <a class="sidebar-current-action subtle" href="?view=Library&scope=global" target="_self">Close</a>
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+        # Keep this structured block out of the Markdown parser.  GPS-created
+        # hikes generally have no location name, which previously left an empty
+        # indented interpolation in the Markdown source and exposed the action
+        # markup as a code block.
+        st.html(build_open_outing_sidebar_markup(current_hike, active_view))
     else:
         st.markdown("<div class='sidebar-section-label'>Open outing</div>", unsafe_allow_html=True)
         st.markdown(

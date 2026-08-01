@@ -148,6 +148,42 @@ def test_login_gate_uses_wordmark_hero_and_left_aligned_action(monkeypatch) -> N
     assert captured["login_mode"] is True
 
 
+def test_open_outing_sidebar_uses_html_safe_markup_without_a_location() -> None:
+    markup = app.build_open_outing_sidebar_markup(
+        {
+            "id": "hike-1",
+            "title": "Aldi",
+            "hike_date": "2026-08-01",
+            "location_name": None,
+        },
+        active_view="Journal",
+    )
+
+    assert "\n" not in markup
+    assert '<div class="sidebar-current-actions">' in markup
+    assert 'class="sidebar-current-action active"' in markup
+    assert 'href="?view=Journal&amp;hike=hike-1"' in markup
+    assert 'href="?view=Map&amp;hike=hike-1"' in markup
+    assert '<div class="sidebar-current-meta">2026-08-01</div>' in markup
+
+
+def test_open_outing_sidebar_escapes_hike_details() -> None:
+    markup = app.build_open_outing_sidebar_markup(
+        {
+            "id": "hike & 1",
+            "title": "<Aldi>",
+            "hike_date": "2026-08-01",
+            "location_name": "<Trail>",
+        },
+        active_view="Map",
+    )
+
+    assert "&lt;Aldi&gt;" in markup
+    assert "2026-08-01 • &lt;Trail&gt;" in markup
+    assert "hike%20%26%201" in markup
+    assert 'class="sidebar-current-action active"' in markup
+
+
 def test_app_species_log_wrapper_forwards_every_callback(monkeypatch) -> None:
     captured = {}
     monkeypatch.setattr(app, "render_species_log_view", lambda *args, **kwargs: captured.update(kwargs))
