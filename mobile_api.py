@@ -1520,7 +1520,11 @@ def list_sightings() -> list[dict[str, Any]]:
 
 
 @app.get("/v1/hikes/{hike_id}", dependencies=[Depends(require_mobile_key)])
-def get_hike(hike_id: str) -> dict[str, Any]:
+def get_hike(
+    hike_id: str,
+    include_photos: bool = True,
+    include_route: bool = True,
+) -> dict[str, Any]:
     svc = get_services()
     if hike_id == EVERYDAY_JOURNAL_ID:
         return _standalone_hike_payload(svc, include_details=True)
@@ -1535,14 +1539,52 @@ def get_hike(hike_id: str) -> dict[str, Any]:
         if observation.get("status") == "confirmed":
             confirmed_species.add(_species_key(observation))
     payload = _hike_payload(hike, photos=photos, species_count=len(confirmed_species))
-    payload["photos"] = [
-        _photo_payload(photo, observations_by_photo.get(str(photo.get("id")), []))
-        for photo in photos
-    ]
-    payload["route_segments"] = route_import_to_route_groups(
-        svc.repository.get_hike_route_import(hike_id)
-    )
+    if include_photos:
+        payload["photos"] = [
+            _photo_payload(photo, observations_by_photo.get(str(photo.get("id")), []))
+            for photo in photos
+        ]
+    if include_route:
+        payload["route_segments"] = route_import_to_route_groups(
+            svc.repository.get_hike_route_import(hike_id)
+        )
     return payload
+
+
+@app.get("/v1/hikes/{hike_id}/photos", dependencies=[Depends(require_mobile_key)])
+def get_hike_photos(
+    hike_id: str,
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=100),
+) -> dict[str, Any]:
+    """Return a bounded page so photo-heavy hikes do not exceed proxy response limits."""
+    svc = get_services()
+    _get_visible_hike(svc.repository, hike_id)
+    photos = svc.repository.list_photos(hike_id)
+    page = photos[offset : offset + limit]
+    observations_by_photo: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for observation in svc.repository.list_observations(hike_id):
+        if observation.get("photo_id"):
+            observations_by_photo[str(observation["photo_id"])].append(observation)
+    next_offset = offset + len(page)
+    return {
+        "photos": [
+            _photo_payload(photo, observations_by_photo.get(str(photo.get("id")), []))
+            for photo in page
+        ],
+        "next_offset": next_offset if next_offset < len(photos) else None,
+    }
+
+
+@app.get("/v1/hikes/{hike_id}/route", dependencies=[Depends(require_mobile_key)])
+def get_hike_route(hike_id: str) -> dict[str, Any]:
+    svc = get_services()
+    _get_visible_hike(svc.repository, hike_id)
+    return {
+        "route_segments": route_import_to_route_groups(
+            svc.repository.get_hike_route_import(hike_id)
+        )
+    }
 
 
 def _sync_hike_location_tags(

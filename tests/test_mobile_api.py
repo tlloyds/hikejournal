@@ -25,6 +25,7 @@ from mobile_api import (
     get_nearby_species_sightings,
     get_species_quest_sightings,
     get_hike,
+    get_hike_photos,
     list_discovery_areas,
     list_hike_locations,
     decide_species_review,
@@ -106,6 +107,31 @@ def test_hike_detail_includes_route_segments_for_native_map(monkeypatch):
     assert payload["route_segments"] == [
         [{"lat": 28.1, "lng": -82.1}, {"lat": 28.2, "lng": -82.2}]
     ]
+
+
+def test_hike_photo_page_is_bounded_for_large_hikes(monkeypatch):
+    class Repository:
+        def list_photos(self, _hike_id):
+            return [
+                {"id": f"photo-{index}", "hike_id": "hike-1", "public_url": "https://images.example/photo.jpg"}
+                for index in range(256)
+            ]
+
+        def list_observations(self, _hike_id):
+            return []
+
+    repository = Repository()
+    service = type("Service", (), {"repository": repository})()
+    monkeypatch.setattr("mobile_api.get_services", lambda: service)
+    monkeypatch.setattr("mobile_api._get_visible_hike", lambda *_args: {"id": "hike-1"})
+
+    first_page = get_hike_photos("hike-1", offset=0, limit=50)
+    final_page = get_hike_photos("hike-1", offset=250, limit=50)
+
+    assert len(first_page["photos"]) == 50
+    assert first_page["next_offset"] == 50
+    assert len(final_page["photos"]) == 6
+    assert final_page["next_offset"] is None
 
 
 def test_mobile_route_upload_saves_tcx_and_returns_map_segments(monkeypatch):

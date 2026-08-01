@@ -54,8 +54,20 @@ class HikeJournalRepository(context: Context) {
         val cacheFile = File(cacheDirectory, "hike-$hikeId.json")
         try {
             val json = api.getHikeJson(hikeId)
-            withContext(Dispatchers.IO) { cacheFile.writeText(json) }
-            val parsed = withContext(Dispatchers.Default) { parseHike(json) }
+            val payload = JSONObject(json)
+            val photos = JSONArray()
+            var offset = 0
+            do {
+                val page = JSONObject(api.getHikePhotosJson(hikeId, offset))
+                val pagePhotos = page.optJSONArray("photos") ?: JSONArray()
+                for (index in 0 until pagePhotos.length()) photos.put(pagePhotos.getJSONObject(index))
+                offset = if (page.isNull("next_offset")) -1 else page.optInt("next_offset", -1)
+            } while (offset >= 0)
+            payload.put("photos", photos)
+            payload.put("route_segments", JSONObject(api.getHikeRouteJson(hikeId)).optJSONArray("route_segments") ?: JSONArray())
+            val completeJson = payload.toString()
+            withContext(Dispatchers.IO) { cacheFile.writeText(completeJson) }
+            val parsed = withContext(Dispatchers.Default) { parseHike(completeJson) }
             val overlay = fieldQueue.overlayHike(parsed, hikeId)
                 ?: throw IllegalStateException("Hike not found.")
             LoadResult(overlay, fromCache = false)
