@@ -165,7 +165,7 @@ fun SightingsMapScreen(
                     Text("HikeJournal", style = MaterialTheme.typography.titleMedium, color = Color(0xFFB7C8B5))
                     Text("Sightings map", style = MaterialTheme.typography.headlineMedium, color = Paper)
                     Text(
-                        "${visibleSightings.size} GEOTAGGED FRAMES · ${routeSegments.size} ROUTE SEGMENTS",
+                        "${visibleSightings.size} GEOTAGGED PHOTOS · ${routeSegments.size} ROUTE SEGMENTS",
                         style = MaterialTheme.typography.labelSmall,
                         color = Color(0xFFB7C8B5),
                     )

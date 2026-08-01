@@ -401,7 +401,7 @@ def render_journal_view(
     with st.container(key="journal_upload"):
         st.markdown("<div class='journal-upload-label'>Add trail photos, videos, or an album ZIP</div>", unsafe_allow_html=True)
         st.caption(
-            "Upload original files or a Google Photos ZIP to preserve embedded GPS and capture times. "
+            "Upload original files or a Google Photos ZIP to preserve embedded GPS and photo dates and times. "
             "Photos are optimized after their EXIF data is read."
         )
         if st.session_state.journal_upload_notice:
@@ -504,7 +504,7 @@ def render_journal_view(
                     elif geotagged_uploads < photo_uploads:
                         st.caption(
                             f"{geotagged_uploads} of {photo_uploads} photos included map coordinates. "
-                            f"{timestamped_uploads} included capture times."
+                            f"{timestamped_uploads} included photo dates and times."
                         )
                     st.rerun()
 

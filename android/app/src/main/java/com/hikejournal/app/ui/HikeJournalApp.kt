@@ -908,26 +908,25 @@ private fun EverydayRow(journal: Hike, opening: Boolean, onOpen: (String) -> Uni
         Modifier
             .fillMaxWidth()
             .clickable(enabled = !opening) { onOpen(journal.id) }
-            .background(Paper)
-            .padding(horizontal = 20.dp, vertical = 14.dp),
+            .padding(horizontal = 20.dp, vertical = 15.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.size(74.dp).background(Moss)) {
+        Box(Modifier.size(88.dp).background(Moss)) {
             if (journal.coverUrl.isNotBlank()) {
                 AsyncImage(journal.coverUrl, "Latest everyday sighting", Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
             } else {
                 MountainField(Modifier.fillMaxSize())
             }
         }
-        Column(Modifier.weight(1f).padding(start = 14.dp)) {
-            Text("EVERYDAY SIGHTINGS", style = MaterialTheme.typography.labelSmall, color = TrailText)
+        Column(Modifier.weight(1f).padding(start = 16.dp)) {
+            Text("VARIOUS DATES", style = MaterialTheme.typography.labelSmall, color = TrailText)
             Text(
                 if (journal.photoCount == 0) "Add a quick observation" else "${journal.photoCount} field record${if (journal.photoCount == 1) "" else "s"}",
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.titleLarge,
                 color = Ink,
             )
             Text(
-                "Photos and videos outside a hike",
+                "Photos and videos not from a hike",
                 style = MaterialTheme.typography.bodyMedium,
                 color = InkMuted,
             )
@@ -938,7 +937,7 @@ private fun EverydayRow(journal: Hike, opening: Boolean, onOpen: (String) -> Uni
             Icon(Icons.Rounded.ChevronRight, "Open everyday sightings", tint = Fern)
         }
     }
-    HorizontalDivider(color = Line)
+    HorizontalDivider(color = Line, modifier = Modifier.padding(start = 124.dp))
 }
 
 @Composable
@@ -1337,7 +1336,7 @@ private fun JournalScreen(
                                 color = Ink,
                             )
                             Text(
-                                "Loading ${hike.photoCount} capture${if (hike.photoCount == 1) "" else "s"}…",
+                                "Loading ${hike.photoCount} photo${if (hike.photoCount == 1) "" else "s"}…",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = InkMuted,
                             )
@@ -1405,7 +1404,7 @@ private fun JournalScreen(
                     Text("Field journal", style = MaterialTheme.typography.headlineMedium, color = Ink)
                 }
                 Text(
-                    "${if (opening) hike.photoCount else hike.photos.size} frames",
+                    "${if (opening) hike.photoCount else hike.photos.size} photos",
                     style = MaterialTheme.typography.bodyMedium,
                     color = InkMuted,
                 )
@@ -2728,7 +2727,7 @@ private fun EmptyLibrary(onCreate: () -> Unit) {
 private fun EmptyPhotos(onAdd: () -> Unit) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 42.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Icon(Icons.Rounded.Image, null, tint = Fern, modifier = Modifier.size(48.dp))
-        Text("The first frame is waiting", style = MaterialTheme.typography.headlineSmall, color = Ink, modifier = Modifier.padding(top = 12.dp))
+        Text("The first photo is waiting", style = MaterialTheme.typography.headlineSmall, color = Ink, modifier = Modifier.padding(top = 12.dp))
         TextButton(onClick = onAdd) { Text("Upload photos") }
     }
 }
@@ -2762,7 +2761,7 @@ private fun hikeMeta(hike: Hike): String {
     val parts = mutableListOf<String>()
     if (hike.locationName.isNotBlank()) parts += hike.locationName
     hike.distanceMiles?.let { parts += String.format(Locale.US, "%.1f mi", it) }
-    if (hike.photoCount > 0) parts += "${hike.photoCount} captures"
+    if (hike.photoCount > 0) parts += "${hike.photoCount} photos"
     return parts.joinToString(" · ").ifBlank { "Field journal" }
 }
 

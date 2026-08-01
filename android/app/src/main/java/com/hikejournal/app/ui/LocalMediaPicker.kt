@@ -339,7 +339,7 @@ private fun LocalAlbumGrid(
                     if (limitedAccess) {
                         "Only your selected photos are shown. They stay on this phone until you add them to HikeJournal."
                     } else {
-                        "Choose original photos or videos from this phone. Location and capture details are preserved when available."
+                        "Choose original photos or videos from this phone. Location and photo details are preserved when available."
                     },
                     style = MaterialTheme.typography.bodyMedium,
                     color = InkMuted,

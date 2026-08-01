@@ -68,7 +68,7 @@ def _parse_picker_taken_at(value: str) -> datetime | None:
     try:
         return datetime.fromisoformat(raw.replace("Z", "+00:00"))
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail="Photo capture time must use ISO 8601 format.") from exc
+        raise HTTPException(status_code=400, detail="Photo date and time must use ISO 8601 format.") from exc
 
 
 def _validate_picker_coordinate(
