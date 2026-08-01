@@ -48,6 +48,52 @@ class FieldSyncOrderingTest {
         assertEquals(photo, selectNextSyncOperation(listOf(route, photo), prioritizedPhotoId = "photo-1"))
     }
 
+    @Test
+    fun `offline pending create is cancelled locally without an API requirement`() {
+        val create = operation("create", OperationKind.CreateHike, "hike-1")
+
+        assertEquals(
+            HikeDeletionMode.QUEUE_LOCAL_DRAFT_DELETION,
+            selectHikeDeletionMode(listOf(create), "hike-1", remoteDeletionAllowed = false),
+        )
+    }
+
+    @Test
+    fun `offline synced hike still requires a connection`() {
+        assertEquals(
+            HikeDeletionMode.REQUIRE_CONNECTION,
+            selectHikeDeletionMode(emptyList(), "hike-1", remoteDeletionAllowed = false),
+        )
+    }
+
+    @Test
+    fun `pending create is cancelled locally even when the network is available`() {
+        val create = operation("create", OperationKind.CreateHike, "hike-1")
+
+        assertEquals(
+            HikeDeletionMode.QUEUE_LOCAL_DRAFT_DELETION,
+            selectHikeDeletionMode(listOf(create), "hike-1", remoteDeletionAllowed = true),
+        )
+    }
+
+    @Test
+    fun `online synced hike attempts the idempotent API`() {
+        assertEquals(
+            HikeDeletionMode.DELETE_REMOTE_NOW,
+            selectHikeDeletionMode(emptyList(), "hike-1", remoteDeletionAllowed = true),
+        )
+    }
+
+    @Test
+    fun `existing deletion intent can finish local cleanup while offline`() {
+        val deletion = operation("delete", OperationKind.DeleteHike, "hike-1")
+
+        assertEquals(
+            HikeDeletionMode.QUEUE_LOCAL_DRAFT_DELETION,
+            selectHikeDeletionMode(listOf(deletion), "hike-1", remoteDeletionAllowed = false),
+        )
+    }
+
     private fun operation(
         id: String,
         kind: String,

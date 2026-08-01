@@ -4,7 +4,14 @@ from typing import Any
 
 import streamlit as st
 
-from hike_journal.domain.map_data import bounds_from_point_features, fallback_route_features, normalize_bounds, viewport_from_value
+from hike_journal.domain.map_data import (
+    bounds_from_point_features,
+    bounds_from_route_imports,
+    combine_bounds,
+    fallback_route_features,
+    normalize_bounds,
+    viewport_from_value,
+)
 from hike_journal.queries import fetch_unindexed_map_routes
 from hike_journal.services.repositories import HikeJournalRepository
 from hike_journal.ui.components import section_heading
@@ -70,7 +77,11 @@ def render_map_view(
     max_index = max(1, photo_count)
     map_scope = selected_hike_id or "master"
     scope_changed = st.session_state.get("map_photo_range_scope") not in {None, map_scope}
-    range_is_new = "map_photo_range" not in st.session_state or scope_changed
+    count_state_key = f"map_photo_count_{map_scope}"
+    previous_photo_count = st.session_state.get(count_state_key)
+    count_changed = previous_photo_count is not None and previous_photo_count != photo_count
+    st.session_state[count_state_key] = photo_count
+    range_is_new = "map_photo_range" not in st.session_state or scope_changed or count_changed
     if range_is_new:
         default_start = max(1, max_index - DEFAULT_MASTER_MAP_PHOTO_LIMIT + 1) if not selected_hike else 1
         st.session_state.map_photo_range = (default_start, max_index)
@@ -79,19 +90,41 @@ def render_map_view(
     end = min(max(start, int(current_range[1])), max_index)
     st.session_state.map_photo_range = (start, end)
     st.session_state.map_photo_range_scope = map_scope
-    photo_range = controls[2].slider(
-        "Photo range",
-        min_value=1,
-        max_value=max_index,
-        key="map_photo_range",
-        label_visibility="collapsed",
-        disabled=photo_count == 0,
-    )
+    if photo_count > 1:
+        photo_range = controls[2].slider(
+            "Photo range",
+            min_value=1,
+            max_value=max_index,
+            key="map_photo_range",
+            label_visibility="collapsed",
+        )
+    else:
+        photo_range = (1, 1)
+        controls[2].caption("1 mapped photo" if photo_count else "No mapped photos")
     displayed_count = 0 if photo_count == 0 else photo_range[1] - photo_range[0] + 1
     scope_label = "in this outing" if selected_hike else "across your library"
     controls[3].caption(f"{displayed_count:,} of {photo_count:,} photos • {species_count:,} species {scope_label}")
 
-    fit_bounds = normalize_bounds(summary.get("bounds"))
+    route_count, indexed_route_count = repository.get_map_route_index_status(
+        visible_hike_ids=visible_hike_ids,
+        hike_id=selected_hike_id,
+    )
+    compatibility_route_imports: list[dict[str, Any]] = []
+    if not summary.get("spatial_rpc_ready"):
+        compatibility_route_imports = repository.list_hike_route_imports()
+    elif indexed_route_count < route_count:
+        compatibility_route_imports = fetch_unindexed_map_routes(
+            tuple(visible_hike_ids),
+            selected_hike_id,
+        )
+    fit_bounds = combine_bounds(
+        normalize_bounds(summary.get("bounds")),
+        bounds_from_route_imports(
+            compatibility_route_imports,
+            visible_hike_ids=set(visible_hike_ids),
+            selected_hike_id=selected_hike_id,
+        ),
+    )
     component_key = f"maplibre_{map_scope}"
     component_state = st.session_state.get(component_key, {})
     viewport_value = component_state.get("viewport") if isinstance(component_state, dict) else None
@@ -100,7 +133,12 @@ def render_map_view(
     previous_range_signature = st.session_state.get(range_state_key)
     range_changed = previous_range_signature is not None and previous_range_signature != range_signature
     st.session_state[range_state_key] = range_signature
-    should_refit = viewport_value is None or range_changed
+    bounds_signature = tuple(round(value, 6) for value in fit_bounds) if fit_bounds else None
+    bounds_state_key = f"maplibre_bounds_signature_{map_scope}"
+    bounds_initialized = bounds_state_key in st.session_state
+    bounds_changed = not bounds_initialized or st.session_state.get(bounds_state_key) != bounds_signature
+    st.session_state[bounds_state_key] = bounds_signature
+    should_refit = viewport_value is None or range_changed or bounds_changed
     viewport = viewport_from_value(None if should_refit else viewport_value, fallback_bounds=fit_bounds)
 
     markers = repository.get_map_viewport(
@@ -117,13 +155,9 @@ def render_map_view(
         hike_id=selected_hike_id,
         viewport=viewport,
     )
-    route_count, indexed_route_count = repository.get_map_route_index_status(
-        visible_hike_ids=visible_hike_ids,
-        hike_id=selected_hike_id,
-    )
     if indexed_route_count < route_count:
         transitional_routes = fallback_route_features(
-            fetch_unindexed_map_routes(tuple(visible_hike_ids), selected_hike_id),
+            compatibility_route_imports,
             visible_hike_ids=set(visible_hike_ids),
             selected_hike_id=selected_hike_id,
             viewport=viewport,
@@ -131,7 +165,7 @@ def render_map_view(
         routes["features"] = [*(routes.get("features") or []), *(transitional_routes.get("features") or [])]
     if not summary.get("spatial_rpc_ready") and not routes.get("features"):
         routes = fallback_route_features(
-            repository.list_hike_route_imports(),
+            compatibility_route_imports,
             visible_hike_ids=set(visible_hike_ids),
             selected_hike_id=selected_hike_id,
             viewport=viewport,
@@ -145,8 +179,14 @@ def render_map_view(
             observation["confidence_label"] = format_confidence_label(observation)
         detail["viewer_url"] = map_viewer_url(detail, selected_hike_id=selected_hike_id)
 
-    requested_fit_bounds = (bounds_from_point_features(markers) or fit_bounds) if should_refit else None
-    fit_request = f"{map_scope}:{range_signature[0]}:{range_signature[1]}" if should_refit else None
+    # The summary bounds include both photos and routes. Prefer that combined
+    # extent so fitting photo points never crops the recorded path.
+    requested_fit_bounds = (fit_bounds or bounds_from_point_features(markers)) if should_refit else None
+    fit_request = (
+        f"{map_scope}:{range_signature[0]}:{range_signature[1]}:{bounds_signature}"
+        if should_refit
+        else None
+    )
 
     if not summary.get("spatial_rpc_ready"):
         st.info("The map is using its compatibility query path. Apply sql/scalable_maps_migration.sql to enable spatial clustering and zoom-aware route queries.")
@@ -155,8 +195,12 @@ def render_map_view(
             f"{route_count - indexed_route_count} saved routes still need their spatial backfill. "
             "They are shown through the compatibility path for now; rerun sql/scalable_maps_migration.sql to index them."
         )
-    if photo_count == 0 and not routes.get("features"):
-        st.warning("No map coordinates are available for the photos in view yet.")
+    if photo_count == 0 and route_count == 0:
+        st.warning(
+            "This outing does not have a recorded route or geotagged photos yet."
+            if selected_hike
+            else "No recorded routes or geotagged photos are available yet."
+        )
         return
 
     render_maplibre(

@@ -3,6 +3,8 @@ from pathlib import Path
 from hike_journal.domain.map_data import (
     MapViewport,
     bounds_from_point_features,
+    bounds_from_route_imports,
+    combine_bounds,
     fallback_route_features,
     normalize_bounds,
     normalize_rpc_payload,
@@ -47,6 +49,38 @@ def test_viewport_clamps_browser_coordinates_and_zoom() -> None:
 
 def test_normalize_bounds_orders_extent() -> None:
     assert normalize_bounds([-80, 30, -82, 27]) == (-82.0, 27.0, -80.0, 30.0)
+
+
+def test_single_photo_bounds_are_padded_instead_of_falling_back_to_default_region() -> None:
+    assert normalize_bounds([-122.3, 47.6, -122.3, 47.6]) == (
+        -122.31,
+        47.59,
+        -122.28999999999999,
+        47.61,
+    )
+
+
+def test_route_fallback_bounds_combine_with_photo_summary_extent() -> None:
+    route_bounds = bounds_from_route_imports(
+        [
+            {
+                "hike_id": "hike-1",
+                "track_geojson": {
+                    "type": "LineString",
+                    "coordinates": [[-123.0, 47.0], [-121.0, 48.0]],
+                },
+            }
+        ],
+        visible_hike_ids={"hike-1"},
+        selected_hike_id="hike-1",
+    )
+
+    assert combine_bounds([-122.4, 47.4, -122.2, 47.7], route_bounds) == (
+        -123.0,
+        47.0,
+        -121.0,
+        48.0,
+    )
 
 
 def test_rpc_payload_accepts_postgrest_singleton_shape() -> None:

@@ -1,3 +1,4 @@
+from hike_journal.domain.map_data import MapViewport
 from hike_journal.services.repositories import HikeJournalRepository, LIGHTWEIGHT_OBSERVATION_COLUMNS
 
 
@@ -31,6 +32,38 @@ def test_large_batch_size_reduces_species_log_round_trips() -> None:
     assert len(chunks) == 8
     assert len(chunks[0]) == 200
     assert len(chunks[-1]) == 73
+
+
+def test_selected_hike_marker_query_disables_clustering_without_changing_master_zoom() -> None:
+    class RpcCall:
+        def execute(self):
+            return type("Response", (), {"data": {"type": "FeatureCollection", "features": []}})()
+
+    class Client:
+        calls = []
+
+        def rpc(self, name, params):
+            self.calls.append((name, params))
+            return RpcCall()
+
+    client = Client()
+    repository = HikeJournalRepository(client=client)
+    viewport = MapViewport(west=-82, south=27, east=-80, north=29, zoom=8)
+    common = {
+        "visible_hike_ids": ["hike-1"],
+        "viewport": viewport,
+        "layer_mode": "Both",
+        "species_filter": "All confirmed species",
+        "range_start": 1,
+        "range_end": 10,
+    }
+
+    repository.get_map_viewport(hike_id="hike-1", **common)
+    repository.get_map_viewport(hike_id=None, **common)
+
+    assert client.calls[0][0] == "map_viewport"
+    assert client.calls[0][1]["p_zoom"] == 14.0
+    assert client.calls[1][1]["p_zoom"] == 8
 
 
 def test_quest_save_retries_without_wikipedia_fields_for_legacy_schema() -> None:

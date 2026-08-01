@@ -8,6 +8,11 @@ import org.junit.Test
 
 class TrackingScreenTest {
     @Test
+    fun `live tracking map defaults to satellite`() {
+        assertEquals(MapLayerMode.Satellite, DEFAULT_TRACKING_MAP_LAYER)
+    }
+
+    @Test
     fun `active duration uses clock notation`() {
         assertEquals("00:00", formatTrackingDuration(0))
         assertEquals("08:05", formatTrackingDuration(485))

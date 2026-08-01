@@ -117,6 +117,32 @@ internal fun selectNextSyncOperation(
     } ?: operations.firstOrNull(::eligible)
 }
 
+internal enum class HikeDeletionMode {
+    DELETE_REMOTE_NOW,
+    QUEUE_LOCAL_DRAFT_DELETION,
+    REQUIRE_CONNECTION,
+}
+
+internal fun selectHikeDeletionMode(
+    operations: List<PendingOperationEntity>,
+    hikeId: String,
+    remoteDeletionAllowed: Boolean,
+): HikeDeletionMode {
+    val hasPendingCreate = operations.any { operation ->
+        operation.kind == OperationKind.CreateHike && operation.entityId == hikeId
+    }
+    if (hasPendingCreate) return HikeDeletionMode.QUEUE_LOCAL_DRAFT_DELETION
+    if (remoteDeletionAllowed) return HikeDeletionMode.DELETE_REMOTE_NOW
+    val hasDeletionIntent = operations.any { operation ->
+        operation.kind == OperationKind.DeleteHike && operation.entityId == hikeId
+    }
+    return if (hasDeletionIntent) {
+        HikeDeletionMode.QUEUE_LOCAL_DRAFT_DELETION
+    } else {
+        HikeDeletionMode.REQUIRE_CONNECTION
+    }
+}
+
 private suspend fun invalidateHikeDeletionCaches(context: Context, hikeId: String): List<String> =
     journalCacheMutex.withLock {
         withContext(Dispatchers.IO) {
@@ -186,6 +212,9 @@ class FieldOperationQueue(private val context: Context) {
                         error = operation.lastError ?: "Sync failed without a server message.",
                     )
                 },
+            pendingCreateHikeIds = operations
+                .filter { it.kind == OperationKind.CreateHike }
+                .mapTo(mutableSetOf()) { it.entityId },
         )
     }.distinctUntilChanged()
 
@@ -1193,9 +1222,20 @@ class FieldSyncEngine(private val context: Context) {
 
     /** Persist the deletion intent before touching the network so a crash or lost
      * connection cannot let queued uploads recreate the hike later. */
-    suspend fun deleteHike(hikeId: String): HikeDeletionStatus = fieldSyncMutex.withLock {
+    suspend fun deleteHike(
+        hikeId: String,
+        remoteDeletionAllowed: Boolean,
+    ): HikeDeletionStatus = fieldSyncMutex.withLock {
         val existingDeletion = dao.find(OperationKind.DeleteHike, hikeId)
         val operations = dao.listForHike(hikeId)
+        val deletionMode = selectHikeDeletionMode(
+            operations = operations,
+            hikeId = hikeId,
+            remoteDeletionAllowed = remoteDeletionAllowed,
+        )
+        if (deletionMode == HikeDeletionMode.REQUIRE_CONNECTION) {
+            throw IOException("Connect HikeJournal before deleting an outing and all of its stored files.")
+        }
         val now = System.currentTimeMillis()
         val deletion = existingDeletion?.copy(
             state = "queued",
@@ -1219,6 +1259,28 @@ class FieldSyncEngine(private val context: Context) {
         )
         dao.upsert(deletion)
         SyncScheduler.schedule(context)
+        if (deletionMode == HikeDeletionMode.QUEUE_LOCAL_DRAFT_DELETION) {
+            val localCleanupFailures = discardHikeWork(hikeId, deletion.id)
+            val cacheFailures = invalidateHikeDeletionCaches(context, hikeId)
+            val cleanupFailureCount = localCleanupFailures.size + cacheFailures.size
+            val detail = cleanupFailureCount.takeIf { it > 0 }?.let { failureCount ->
+                "Android still needs to remove $failureCount local file" +
+                    if (failureCount == 1) "." else "s."
+            }
+            dao.updateState(
+                deletion.id,
+                "queued",
+                deletion.attemptCount,
+                System.currentTimeMillis(),
+                detail,
+            )
+            return@withLock HikeDeletionStatus(
+                pending = true,
+                needsAttention = false,
+                cleanupFailures = cleanupFailureCount,
+                lastError = detail,
+            )
+        }
         try {
             api.deleteHike(hikeId)
         } catch (error: Exception) {

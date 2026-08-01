@@ -10,6 +10,7 @@ from hike_journal.domain.discovery import candidate_taxon_snapshot
 from hike_journal.models import HikeDraft, SpeciesCandidate
 from hike_journal.domain.map_data import (
     MAX_VIEWPORT_FEATURES,
+    MIN_UNCLUSTERED_MAP_ZOOM,
     MapViewport,
     empty_feature_collection,
     normalize_rpc_payload,
@@ -616,7 +617,9 @@ class HikeJournalRepository:
             "p_south": viewport.south,
             "p_east": viewport.east,
             "p_north": viewport.north,
-            "p_zoom": viewport.zoom,
+            # Outing maps favor individually clickable photographs. The master
+            # map keeps the real zoom so its larger collection can cluster.
+            "p_zoom": max(viewport.zoom, MIN_UNCLUSTERED_MAP_ZOOM) if hike_id else viewport.zoom,
             "p_layer_mode": layer_mode,
             "p_species_filter": species_filter,
             "p_range_start": range_start,

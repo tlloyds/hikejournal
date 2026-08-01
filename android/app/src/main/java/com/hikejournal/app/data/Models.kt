@@ -312,6 +312,7 @@ data class SyncStatus(
     val connected: Boolean = true,
     val lastSyncedAt: Long? = null,
     val attentionItems: List<SyncAttention> = emptyList(),
+    val pendingCreateHikeIds: Set<String> = emptySet(),
 )
 
 data class SyncAttention(

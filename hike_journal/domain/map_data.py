@@ -7,6 +7,7 @@ from typing import Any
 
 DEFAULT_MAP_BOUNDS = (-82.2, 27.2, -79.8, 30.8)
 MAX_VIEWPORT_FEATURES = 2_500
+MIN_UNCLUSTERED_MAP_ZOOM = 14.0
 
 
 @dataclass(frozen=True)
@@ -64,9 +65,25 @@ def normalize_bounds(value: Any) -> tuple[float, float, float, float] | None:
         west, east = east, west
     if south > north:
         south, north = north, south
-    if west == east or south == north:
-        return None
+    if west == east:
+        west -= 0.01
+        east += 0.01
+    if south == north:
+        south -= 0.01
+        north += 0.01
     return west, south, east, north
+
+
+def combine_bounds(*values: Any) -> tuple[float, float, float, float] | None:
+    bounds = [normalized for value in values if (normalized := normalize_bounds(value))]
+    if not bounds:
+        return None
+    return (
+        min(value[0] for value in bounds),
+        min(value[1] for value in bounds),
+        max(value[2] for value in bounds),
+        max(value[3] for value in bounds),
+    )
 
 
 def empty_feature_collection(**meta: Any) -> dict[str, Any]:
@@ -144,6 +161,46 @@ def bounds_from_point_features(value: Any) -> tuple[float, float, float, float] 
         south -= 0.01
         north += 0.01
     return west, south, east, north
+
+
+def bounds_from_route_imports(
+    route_imports: list[dict[str, Any]],
+    *,
+    visible_hike_ids: set[str],
+    selected_hike_id: str | None,
+) -> tuple[float, float, float, float] | None:
+    coordinates: list[tuple[float, float]] = []
+    for route_import in route_imports:
+        hike_id = str(route_import.get("hike_id") or "")
+        if hike_id not in visible_hike_ids or (selected_hike_id and hike_id != selected_hike_id):
+            continue
+        geojson = route_import.get("track_geojson") or {}
+        raw_coordinates = geojson.get("coordinates") if isinstance(geojson, dict) else None
+        if not isinstance(raw_coordinates, list):
+            continue
+        groups = raw_coordinates if geojson.get("type") == "MultiLineString" else [raw_coordinates]
+        for group in groups:
+            if not isinstance(group, list):
+                continue
+            for point in group:
+                if not isinstance(point, (list, tuple)) or len(point) < 2:
+                    continue
+                try:
+                    longitude, latitude = float(point[0]), float(point[1])
+                except (TypeError, ValueError):
+                    continue
+                if isfinite(longitude) and isfinite(latitude):
+                    coordinates.append((longitude, latitude))
+    if not coordinates:
+        return None
+    return normalize_bounds(
+        (
+            min(point[0] for point in coordinates),
+            min(point[1] for point in coordinates),
+            max(point[0] for point in coordinates),
+            max(point[1] for point in coordinates),
+        )
+    )
 
 
 def fallback_route_features(

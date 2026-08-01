@@ -701,6 +701,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
             hike = hike,
             deleting = state.deletingHikeId == hike.id,
             connected = state.syncStatus.connected,
+            isLocalDraft = hike.id in state.syncStatus.pendingCreateHikeIds,
             onDismiss = { pendingHikeDelete = null },
             onDelete = {
                 viewModel.deleteHike(hike) {
@@ -1766,6 +1767,7 @@ private fun DeleteHikeDialog(
     hike: Hike,
     deleting: Boolean,
     connected: Boolean,
+    isLocalDraft: Boolean,
     onDismiss: () -> Unit,
     onDelete: () -> Unit,
 ) {
@@ -1809,13 +1811,14 @@ private fun DeleteHikeDialog(
                     modifier = Modifier.padding(top = 12.dp),
                 )
                 Text(
-                    if (connected) {
-                        "HikeJournal will verify the full deletion with the companion service."
-                    } else {
-                        "Connect HikeJournal to delete this hike and its stored files."
+                    when {
+                        connected -> "HikeJournal will verify the full deletion with the companion service."
+                        isLocalDraft ->
+                            "This unsynced draft will be removed from this phone now. Cleanup will sync when connected."
+                        else -> "Connect HikeJournal to delete this hike and its stored files."
                     },
                     style = MaterialTheme.typography.bodySmall,
-                    color = if (connected) InkMuted else MaterialTheme.colorScheme.error,
+                    color = if (connected || isLocalDraft) InkMuted else MaterialTheme.colorScheme.error,
                     modifier = Modifier.padding(top = 6.dp),
                 )
                 Row(
@@ -1845,7 +1848,10 @@ private fun DeleteHikeDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onDelete, enabled = understood && connected && !deleting) {
+            TextButton(
+                onClick = onDelete,
+                enabled = understood && canConfirmHikeDeletion(connected, isLocalDraft) && !deleting,
+            ) {
                 if (deleting) {
                     CircularProgressIndicator(
                         modifier = Modifier.size(18.dp),
@@ -1862,6 +1868,9 @@ private fun DeleteHikeDialog(
         },
     )
 }
+
+internal fun canConfirmHikeDeletion(connected: Boolean, isLocalDraft: Boolean): Boolean =
+    connected || isLocalDraft
 
 @Composable
 private fun PhotoTile(

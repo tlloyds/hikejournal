@@ -8,7 +8,7 @@ the current Supabase database and Cloudflare R2 photo library through the small
 
 1. For local use, keep the Mac and Android phone on the same Wi-Fi network.
 2. Double-click `start_hikejournal_mobile.command` in the repository root and leave its Terminal window open. For cellular/anywhere use, deploy `deploy/mobile/Dockerfile` and paste its HTTPS address plus pairing key into Android settings.
-3. Transfer `dist/HikeJournal-v0.6.0.apk` to the phone and open it.
+3. Transfer `dist/HikeJournal-v0.6.1.apk` to the phone and open it.
 4. Allow installation from the app you used to open the APK if Android asks.
 5. HikeJournal should connect to `http://192.168.0.157:8506` automatically.
 
@@ -17,6 +17,14 @@ and replace the server address. The API always uses port `8506`.
 
 Native hike recording does not need the companion or a network connection.
 Pairing is needed when queued hikes, routes, and photos are ready to sync.
+
+## Fixed in v0.6.1
+
+- Live hike tracking opens on the satellite map by default
+- Unsynced hikes can be deleted locally even when a recording contains no GPS
+  points or the phone is offline
+- Outing maps keep geotagged photos clickable alongside recorded routes and no
+  longer fail for hikes with zero or one mapped photo
 
 ## Included in v0.6.0
 
@@ -105,7 +113,7 @@ The paired companion token only authorizes this narrow local API.
 
 Double-click `build_android.command` in the repository root. The finished APK is
 copied to `dist/HikeJournal-v<version>.apk` (currently
-`dist/HikeJournal-v0.6.0.apk`).
+`dist/HikeJournal-v0.6.1.apk`).
 
 Android code is split by responsibility:
 

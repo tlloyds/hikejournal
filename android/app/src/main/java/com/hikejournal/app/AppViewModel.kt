@@ -1074,15 +1074,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun deleteHike(hike: Hike, onDeleted: () -> Unit) {
-        if (!_state.value.syncStatus.connected) {
-            _state.update {
-                it.copy(error = "Connect HikeJournal before deleting an outing and all of its stored files.")
-            }
-            return
-        }
         viewModelScope.launch {
             _state.update { it.copy(deletingHikeId = hike.id, error = null, notice = null) }
-            runCatching { repository.deleteHike(hike.id) }
+            val remoteDeletionAllowed = _state.value.syncStatus.connected
+            runCatching {
+                repository.deleteHike(
+                    hikeId = hike.id,
+                    remoteDeletionAllowed = remoteDeletionAllowed,
+                )
+            }
                 .onSuccess { deletionResult: HikeDeletionResult ->
                     _state.update { state ->
                         val deletedHikeIds = setOf(hike.id)

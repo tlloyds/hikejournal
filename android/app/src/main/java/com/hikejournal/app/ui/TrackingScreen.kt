@@ -74,6 +74,8 @@ internal enum class TrackingGpsUiStatus {
     Unavailable,
 }
 
+internal val DEFAULT_TRACKING_MAP_LAYER = MapLayerMode.Satellite
+
 internal data class TrackingUiModel(
     val sessionId: String,
     val status: TrackingStatus,
@@ -128,7 +130,7 @@ internal fun HikeTrackingScreen(
     requestEndConfirmation: Boolean = false,
     onEndConfirmationShown: () -> Unit = {},
 ) {
-    var layerMode by remember { mutableStateOf(MapLayerMode.Trail) }
+    var layerMode by remember { mutableStateOf(DEFAULT_TRACKING_MAP_LAYER) }
     var followPosition by rememberSaveable(tracking.sessionId) { mutableStateOf(true) }
     var confirmEnd by rememberSaveable(tracking.sessionId) { mutableStateOf(false) }
 

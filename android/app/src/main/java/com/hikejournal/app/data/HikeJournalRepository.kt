@@ -551,8 +551,14 @@ class HikeJournalRepository(context: Context) {
         fieldQueue.queueArchive(hikeId, archived)
     }
 
-    suspend fun deleteHike(hikeId: String): HikeDeletionResult {
-        val result = FieldSyncEngine(appContext).deleteHike(hikeId)
+    suspend fun deleteHike(
+        hikeId: String,
+        remoteDeletionAllowed: Boolean,
+    ): HikeDeletionResult {
+        val result = FieldSyncEngine(appContext).deleteHike(
+            hikeId = hikeId,
+            remoteDeletionAllowed = remoteDeletionAllowed,
+        )
         return when {
             result.needsAttention -> HikeDeletionResult(
                 warning = "Deletion needs sync attention: ${result.lastError ?: "check the companion service"}.",
