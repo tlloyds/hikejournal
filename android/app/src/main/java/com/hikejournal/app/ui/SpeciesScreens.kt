@@ -39,6 +39,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.CloudOff
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
@@ -69,6 +70,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -137,8 +139,9 @@ fun SpeciesIndexScreen(
     onRefresh: () -> Unit,
     onRefreshDiscovery: () -> Unit,
     onLoadNearby: (String?, String, Int, String?, Double?, Double?, Int) -> Unit,
-    onSaveQuest: (String, String?, List<Long>) -> Unit,
+    onSaveQuest: (String, String?, List<Long>, (FieldQuest) -> Unit) -> Unit,
     onSaveQuestFocus: (FieldQuest, List<Long>) -> Unit,
+    onRenameQuest: (FieldQuest, String) -> Unit,
     onArchiveQuest: (FieldQuest) -> Unit,
     onDeleteQuest: (FieldQuest) -> Unit,
     onOpenNearbyMap: (NearbySpecies, DiscoveryTaxon) -> Unit,
@@ -169,6 +172,8 @@ fun SpeciesIndexScreen(
     var editingQuestId by remember { mutableStateOf<String?>(null) }
     var previewTaxon by remember { mutableStateOf<DiscoveryTaxon?>(null) }
     var pendingDeleteQuest by remember { mutableStateOf<FieldQuest?>(null) }
+    var renamingQuest by remember { mutableStateOf<FieldQuest?>(null) }
+    var questNameDraft by remember { mutableStateOf("") }
     var nearbyResultLimit by remember { mutableIntStateOf(StandardNearbyLimit) }
     val context = LocalContext.current
     val selectedArea = discoveryAreas.firstOrNull { it.id == selectedAreaId }
@@ -575,6 +580,12 @@ fun SpeciesIndexScreen(
                                     "${nearby.areaName} · ${nearby.periodLabel}",
                                     linkedQuestHikeId,
                                     focusTaxonIds,
+                                    { quest ->
+                                        mode = SpeciesMode.Quests
+                                        selectedQuestId = quest.id
+                                        editingQuestId = null
+                                        focusTaxonIds = emptyList()
+                                    },
                                 )
                             },
                             enabled = !savingQuest && nearby.areaId.isNotBlank() && focusTaxonIds.isNotEmpty(),
@@ -715,6 +726,13 @@ fun SpeciesIndexScreen(
                             Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.End,
                         ) {
+                            TextButton(onClick = {
+                                renamingQuest = quest
+                                questNameDraft = quest.title
+                            }) {
+                                Icon(Icons.Rounded.Edit, null, modifier = Modifier.size(16.dp))
+                                Text("Rename", modifier = Modifier.padding(start = 4.dp))
+                            }
                             TextButton(onClick = { onArchiveQuest(quest) }) {
                                 Text(if (quest.status == "archived") "Restore" else "Archive")
                             }
@@ -953,6 +971,33 @@ fun SpeciesIndexScreen(
             containerColor = Paper,
         )
     }
+    renamingQuest?.let { quest ->
+        AlertDialog(
+            onDismissRequest = { renamingQuest = null },
+            title = { Text("Name this Field Quest", color = Ink) },
+            text = {
+                OutlinedTextField(
+                    value = questNameDraft,
+                    onValueChange = { questNameDraft = it },
+                    singleLine = true,
+                    label = { Text("Quest name") },
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onRenameQuest(quest, questNameDraft.trim())
+                        renamingQuest = null
+                    },
+                    enabled = questNameDraft.trim().isNotEmpty() && questNameDraft.trim() != quest.title,
+                ) { Text("Save name") }
+            },
+            dismissButton = {
+                TextButton(onClick = { renamingQuest = null }) { Text("Cancel") }
+            },
+            containerColor = Paper,
+        )
+    }
 }
 
 @Composable
@@ -1080,26 +1125,49 @@ private fun NearbyControls(
 
 @Composable
 private fun QuestTile(quest: FieldQuest, onOpen: () -> Unit) {
-    val focusedTaxa = quest.taxa.filter { it.focusOrder != null }
+    val focusedTaxa = quest.taxa.filter { it.focusOrder != null }.sortedBy { it.focusOrder }
     val found = focusedTaxa.count { it.collected }
     val progress = if (focusedTaxa.isEmpty()) 0f else found.toFloat() / focusedTaxa.size.toFloat()
-    Column(
+    val leadTaxon = focusedTaxa.firstOrNull() ?: quest.taxa.firstOrNull()
+    val leadImage = leadTaxon?.collectionPhotoUrl?.takeIf { leadTaxon.collected && it.isNotBlank() }
+        ?: leadTaxon?.referencePhoto?.url
+    Row(
         Modifier
             .fillMaxWidth()
             .padding(horizontal = 20.dp, vertical = 7.dp)
             .background(Paper, RoundedCornerShape(6.dp))
             .clickable(onClick = onOpen)
-            .padding(horizontal = 18.dp, vertical = 16.dp),
+            .padding(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.Top,
+        Box(
+            Modifier
+                .size(86.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(Color(0xFFDBE1D2)),
+            contentAlignment = Alignment.Center,
         ) {
-            Column(Modifier.weight(1f)) {
+            if (!leadImage.isNullOrBlank()) {
+                AsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current).data(leadImage).crossfade(true).build(),
+                    contentDescription = leadTaxon?.commonName,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                Text("FIELD\nQUEST", style = MaterialTheme.typography.labelSmall, color = TrailText)
+            }
+        }
+        Column(Modifier.weight(1f).padding(start = 14.dp, end = 4.dp)) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top,
+            ) {
+                Column(Modifier.weight(1f)) {
                 Text(
                     quest.title,
-                    style = MaterialTheme.typography.headlineMedium,
+                    style = MaterialTheme.typography.titleLarge,
                     color = Ink,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
@@ -1111,26 +1179,24 @@ private fun QuestTile(quest: FieldQuest, onOpen: () -> Unit) {
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+                }
+                Text("$found/${focusedTaxa.size}", style = MaterialTheme.typography.labelMedium, color = Moss)
             }
-            Text(
-                "$found of ${focusedTaxa.size}",
-                style = MaterialTheme.typography.labelMedium,
+            LinearProgressIndicator(
+                progress = { progress },
+                modifier = Modifier.fillMaxWidth().padding(top = 10.dp).height(4.dp),
                 color = Moss,
-                modifier = Modifier.padding(start = 12.dp, top = 4.dp),
+                trackColor = Line,
+            )
+            Text(
+                leadTaxon?.commonName?.let { "Lead target · $it" } ?: "Open quest",
+                style = MaterialTheme.typography.labelSmall,
+                color = TrailText,
+                modifier = Modifier.padding(top = 6.dp),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
-        LinearProgressIndicator(
-            progress = { progress },
-            modifier = Modifier.fillMaxWidth().padding(top = 12.dp).height(4.dp),
-            color = Moss,
-            trackColor = Line,
-        )
-        Text(
-            "Open quest",
-            style = MaterialTheme.typography.labelSmall,
-            color = TrailText,
-            modifier = Modifier.padding(top = 8.dp),
-        )
     }
 }
 

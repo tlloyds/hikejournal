@@ -410,8 +410,11 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                     onRefresh = { viewModel.loadSpecies(force = true) },
                     onRefreshDiscovery = { viewModel.loadSpeciesDiscovery(force = true) },
                     onLoadNearby = viewModel::loadNearbySpecies,
-                    onSaveQuest = viewModel::saveNearbyQuest,
+                    onSaveQuest = { title, hikeId, focusIds, onSaved ->
+                        viewModel.saveNearbyQuest(title, hikeId, focusIds, onSaved)
+                    },
                     onSaveQuestFocus = viewModel::saveQuestFocus,
+                    onRenameQuest = viewModel::renameQuest,
                     onArchiveQuest = viewModel::archiveQuest,
                     onDeleteQuest = viewModel::deleteQuest,
                     onOpenNearbyMap = viewModel::openNearbySightingsMap,

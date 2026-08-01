@@ -352,6 +352,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         title: String,
         linkedHikeId: String?,
         focusTaxonIds: List<Long>,
+        onSaved: (FieldQuest) -> Unit = {},
     ) {
         val nearby = _state.value.nearbySpecies ?: return
         if (nearby.areaId.isBlank()) {
@@ -379,10 +380,38 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         discoveryNotice = "Field Quest saved for offline use.",
                     )
                 }
+                onSaved(quest)
             }.onFailure { error ->
                 _state.update {
                     it.copy(isSavingQuest = false, discoveryNotice = error.userMessage())
                 }
+            }
+        }
+    }
+
+    fun renameQuest(quest: FieldQuest, title: String) {
+        val cleanTitle = title.trim()
+        if (cleanTitle.isEmpty() || cleanTitle == quest.title) return
+        if (_state.value.isOffline) {
+            _state.update { it.copy(discoveryNotice = "Renaming a quest needs a connection.") }
+            return
+        }
+        viewModelScope.launch {
+            _state.update { it.copy(isSavingQuest = true, discoveryNotice = null) }
+            runCatching {
+                repository.updateSpeciesQuest(questId = quest.id, title = cleanTitle)
+            }.onSuccess { updated ->
+                _state.update {
+                    it.copy(
+                        speciesQuests = it.speciesQuests.map { existing ->
+                            if (existing.id == updated.id) updated else existing
+                        },
+                        isSavingQuest = false,
+                        discoveryNotice = "Quest renamed.",
+                    )
+                }
+            }.onFailure { error ->
+                _state.update { it.copy(isSavingQuest = false, discoveryNotice = error.userMessage()) }
             }
         }
     }
