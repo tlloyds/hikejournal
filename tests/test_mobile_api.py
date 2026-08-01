@@ -98,7 +98,7 @@ def test_photo_payload_includes_stored_species_wikipedia_info():
                 "raw_response_json": {
                     "taxon_enrichment": {
                         "wikipedia_url": "https://en.wikipedia.org/wiki/Eastern_gray_squirrel",
-                        "wikipedia_summary": "The eastern gray squirrel is a tree squirrel.",
+                        "wikipedia_summary": "<i><b>The eastern gray squirrel</b></i> is a tree squirrel.",
                     }
                 },
             }

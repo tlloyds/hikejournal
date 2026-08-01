@@ -141,7 +141,7 @@ def _photo_payload(photo: Any) -> dict[str, Any] | None:
     }
 
 
-def _plain_text(value: Any) -> str:
+def plain_text(value: Any) -> str:
     text = re.sub(r"<[^>]+>", " ", str(value or ""))
     return re.sub(r"\s+", " ", unescape(text)).strip()
 
@@ -179,7 +179,7 @@ def normalize_species_counts(payload: dict[str, Any], *, limit: int = DISCOVERY_
                 "observation_count": max(count, 0),
                 "reference_photo": _photo_payload(taxon.get("default_photo")),
                 "wikipedia_url": str(taxon.get("wikipedia_url") or "").strip(),
-                "wikipedia_summary": _plain_text(taxon.get("wikipedia_summary")),
+                "wikipedia_summary": plain_text(taxon.get("wikipedia_summary")),
             }
         )
         if len(normalized) >= normalized_limit:

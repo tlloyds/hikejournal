@@ -23,6 +23,7 @@ from hike_journal.domain.discovery import (
     DISCOVERY_ALGORITHM_VERSION,
     normalize_discovery_limit,
     normalize_radius,
+    plain_text,
 )
 from hike_journal.domain.library import filter_hikes_for_user, record_visible_for_user, user_owns_record
 from hike_journal.domain.locations import suggest_location_ids_for_hike
@@ -377,11 +378,10 @@ def _photo_payload(photo: dict[str, Any], species: list[dict[str, Any]] | None =
                     .get("wikipedia_url")
                     or ""
                 ),
-                "wikipedia_summary": str(
+                "wikipedia_summary": plain_text(
                     (observation.get("raw_response_json") or {})
                     .get("taxon_enrichment", {})
                     .get("wikipedia_summary")
-                    or ""
                 ),
             }
             for observation in (species or [])
