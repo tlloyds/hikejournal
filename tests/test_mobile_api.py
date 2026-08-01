@@ -32,6 +32,7 @@ from mobile_api import (
     get_species_quest_sightings,
     get_hike,
     get_hike_photos,
+    get_hike_route,
     list_discovery_areas,
     list_hike_locations,
     decide_species_review,
@@ -138,6 +139,26 @@ def test_hike_photo_page_is_bounded_for_large_hikes(monkeypatch):
     assert first_page["next_offset"] == 50
     assert len(final_page["photos"]) == 6
     assert final_page["next_offset"] is None
+
+
+def test_everyday_journal_photo_page_and_route_are_available_to_android(monkeypatch):
+    class Repository:
+        def list_observations_for_photo_ids(self, photo_ids):
+            assert photo_ids == ["everyday-photo"]
+            return []
+
+    service = type("Service", (), {"repository": Repository()})()
+    monkeypatch.setattr("mobile_api.get_services", lambda: service)
+    monkeypatch.setattr(
+        "mobile_api._visible_standalone_photos",
+        lambda _service: [{"id": "everyday-photo", "public_url": "https://images.example/everyday.jpg"}],
+    )
+
+    page = get_hike_photos("everyday", offset=0, limit=50)
+
+    assert [photo["id"] for photo in page["photos"]] == ["everyday-photo"]
+    assert page["next_offset"] is None
+    assert get_hike_route("everyday") == {"route_segments": []}
 
 
 def test_mobile_route_upload_saves_tcx_and_returns_map_segments(monkeypatch):

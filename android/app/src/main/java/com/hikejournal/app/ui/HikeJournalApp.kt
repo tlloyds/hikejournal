@@ -209,6 +209,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
     var selectedRouteUri by remember { mutableStateOf<Uri?>(null) }
     var pendingHikeDelete by remember { mutableStateOf<Hike?>(null) }
     var speciesBrowseContext by remember { mutableStateOf<SpeciesBrowseContext?>(null) }
+    var speciesCollectionPreferences by remember { mutableStateOf(SpeciesCollectionPreferences()) }
 
     fun closeHikeMap() {
         val request = hikeMapRequest
@@ -442,6 +443,8 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                     onRefreshQuestMap = viewModel::refreshQuestSightingsMap,
                     onCloseQuestMap = viewModel::closeQuestSightingsMap,
                     onInitialAreaConsumed = { speciesEntryAreaName = null },
+                    collectionPreferences = speciesCollectionPreferences,
+                    onCollectionPreferencesChange = { speciesCollectionPreferences = it },
                     onOpenSpecies = { key, filteredSpecies, context ->
                         speciesBrowseContext = SpeciesBrowseContext(filteredSpecies, context)
                         viewModel.openSpecies(key)

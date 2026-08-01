@@ -1568,8 +1568,11 @@ def get_hike_photos(
 ) -> dict[str, Any]:
     """Return a bounded page so photo-heavy hikes do not exceed proxy response limits."""
     svc = get_services()
-    _get_visible_hike(svc.repository, hike_id)
-    page = svc.repository.list_photos_page(hike_id, offset=offset, limit=limit)
+    if hike_id == EVERYDAY_JOURNAL_ID:
+        page = _visible_standalone_photos(svc)[offset : offset + limit]
+    else:
+        _get_visible_hike(svc.repository, hike_id)
+        page = svc.repository.list_photos_page(hike_id, offset=offset, limit=limit)
     observations_by_photo: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for observation in svc.repository.list_observations_for_photo_ids(
         [str(photo.get("id") or "") for photo in page]
@@ -1588,6 +1591,8 @@ def get_hike_photos(
 
 @app.get("/v1/hikes/{hike_id}/route", dependencies=[Depends(require_mobile_key)])
 def get_hike_route(hike_id: str) -> dict[str, Any]:
+    if hike_id == EVERYDAY_JOURNAL_ID:
+        return {"route_segments": []}
     svc = get_services()
     _get_visible_hike(svc.repository, hike_id)
     return {

@@ -118,6 +118,13 @@ private const val QuestFocusLimit = 10
 private const val StandardNearbyLimit = 50
 private const val ExpandedNearbyLimit = 100
 
+data class SpeciesCollectionPreferences(
+    val query: String = "",
+    val sort: SpeciesSort = SpeciesSort.Alphabetical,
+    val selectedHikeId: String? = null,
+    val observationType: ObservationTypeFilter = ObservationTypeFilter.All,
+)
+
 @Composable
 fun SpeciesIndexScreen(
     species: List<SpeciesRecord>,
@@ -149,16 +156,17 @@ fun SpeciesIndexScreen(
     onRefreshQuestMap: () -> Unit,
     onCloseQuestMap: () -> Unit,
     onInitialAreaConsumed: () -> Unit,
+    collectionPreferences: SpeciesCollectionPreferences,
+    onCollectionPreferencesChange: (SpeciesCollectionPreferences) -> Unit,
     onOpenSpecies: (String, List<SpeciesRecord>, String) -> Unit,
 ) {
     var mode by remember { mutableStateOf(SpeciesMode.Collection) }
-    var query by rememberSaveable { mutableStateOf("") }
-    var speciesSort by rememberSaveable { mutableStateOf(SpeciesSort.Alphabetical) }
+    var query by remember { mutableStateOf(collectionPreferences.query) }
+    var speciesSort by remember { mutableStateOf(collectionPreferences.sort) }
     var speciesSortOpen by remember { mutableStateOf(false) }
-    var selectedHikeId by rememberSaveable { mutableStateOf<String?>(null) }
+    var selectedHikeId by remember { mutableStateOf(collectionPreferences.selectedHikeId) }
     var filterOpen by remember { mutableStateOf(false) }
-    var observationTypeName by rememberSaveable { mutableStateOf(ObservationTypeFilter.All.name) }
-    val observationType = ObservationTypeFilter.valueOf(observationTypeName)
+    var observationType by remember { mutableStateOf(collectionPreferences.observationType) }
     var observationTypeFilterOpen by remember { mutableStateOf(false) }
     var areaSearch by remember { mutableStateOf("") }
     var selectedAreaId by remember { mutableStateOf<String?>(null) }
@@ -353,7 +361,10 @@ fun SpeciesIndexScreen(
                 Icon(Icons.Rounded.Search, null, tint = InkMuted, modifier = Modifier.size(21.dp))
                 OutlinedTextField(
                     value = query,
-                    onValueChange = { query = it },
+                    onValueChange = {
+                        query = it
+                        onCollectionPreferencesChange(collectionPreferences.copy(query = it))
+                    },
                     modifier = Modifier.weight(1f).padding(start = 6.dp),
                     placeholder = { Text("Search common or scientific name") },
                     singleLine = true,
@@ -800,6 +811,7 @@ fun SpeciesIndexScreen(
             selectedHikeId = selectedHikeId,
             onSelect = {
                 selectedHikeId = it
+                onCollectionPreferencesChange(collectionPreferences.copy(selectedHikeId = it))
                 filterOpen = false
             },
             onDismiss = { filterOpen = false },
@@ -809,7 +821,8 @@ fun SpeciesIndexScreen(
         ObservationTypeFilterSheet(
             selectedType = observationType,
             onSelect = {
-                observationTypeName = it.name
+                observationType = it
+                onCollectionPreferencesChange(collectionPreferences.copy(observationType = it))
                 observationTypeFilterOpen = false
             },
             onDismiss = { observationTypeFilterOpen = false },
@@ -820,6 +833,7 @@ fun SpeciesIndexScreen(
             selectedSort = speciesSort,
             onSelect = {
                 speciesSort = it
+                onCollectionPreferencesChange(collectionPreferences.copy(sort = it))
                 speciesSortOpen = false
             },
             onDismiss = { speciesSortOpen = false },
