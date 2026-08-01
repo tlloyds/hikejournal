@@ -144,3 +144,35 @@ def test_ensure_taxonomy_corrects_id_and_persists_enrichment() -> None:
     )
     assert repository.raw_payload[1]["manual_override"] == {"edited_at": "now"}
     assert repository.raw_payload[1]["taxon_enrichment"]["taxon_id"] == 26159
+
+
+def test_ensure_taxonomy_uses_wikipedia_when_inaturalist_has_no_summary(monkeypatch) -> None:
+    class Repository:
+        def update_observation_taxon_resolution(self, observation_id, **_kwargs):
+            return {"id": observation_id}
+
+        def update_observation_raw_payload(self, _observation_id, raw_payload):
+            self.raw_payload = raw_payload
+            return raw_payload
+
+    class Client:
+        def fetch_taxon_enrichment(self, _taxon_id):
+            return enrichment(47126, "Sciurus carolinensis", common_name="Eastern gray squirrel")
+
+        def fetch_exact_taxon_enrichment(self, _query):
+            return None
+
+    monkeypatch.setattr(
+        "hike_journal.services.taxonomy.fill_missing_wikipedia_summary",
+        lambda item: ({**item, "wikipedia_summary": "A tree squirrel.", "wikipedia_url": "https://example.test/squirrel"}, True),
+    )
+    repository = Repository()
+    observation = {
+        "id": "observation-1",
+        "taxon_id": 47126,
+        "scientific_name": "Sciurus carolinensis",
+        "common_name": "Eastern gray squirrel",
+    }
+
+    assert ensure_observation_taxonomy(repository, Client(), observation)
+    assert repository.raw_payload["taxon_enrichment"]["wikipedia_summary"] == "A tree squirrel."

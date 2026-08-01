@@ -3905,7 +3905,7 @@ def assign_known_species_to_photos(
     assigned_photo_ids: list[str] = []
     try:
         for photo in photos:
-            repository.create_manual_observation(
+            created = repository.create_manual_observation(
                 hike_id=photo.get("hike_id"),
                 photo_id=photo["id"],
                 taxon_id=species.get("taxon_id"),
@@ -3925,6 +3925,8 @@ def assign_known_species_to_photos(
                 owner_subject=photo.get("owner_subject"),
                 owner_email=photo.get("owner_email"),
             )
+            if not str((taxon_enrichment or {}).get("wikipedia_summary") or "").strip():
+                ensure_taxon_enrichment(repository, inat_client, created)
             assigned_photo_ids.append(str(photo["id"]))
     finally:
         if assigned_photo_ids:

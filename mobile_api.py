@@ -1960,9 +1960,16 @@ def assign_known_species_to_photo(photo_id: str, payload: KnownSpeciesInput) -> 
         owner_subject=photo.get("owner_subject"),
         owner_email=photo.get("owner_email"),
     )
+    if not str((taxon_enrichment or {}).get("wikipedia_summary") or "").strip():
+        try:
+            ensure_observation_taxonomy(svc.repository, _mobile_inat_client(), created)
+        except (InatConfigurationError, InatRequestError):
+            # A known-species assignment remains useful if an optional enrichment lookup fails.
+            pass
     svc.repository.update_photo_processing_status(photo_id, "ready")
     _invalidate_species_data_cache()
-    return _photo_payload(photo, [created])
+    refreshed = svc.repository.list_observations_by_ids([str(created["id"])])
+    return _photo_payload(photo, refreshed or [created])
 
 
 @app.put("/v1/photos/{photo_id}/review", dependencies=[Depends(require_mobile_key)])

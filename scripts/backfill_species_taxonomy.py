@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import sys
 from typing import Any
@@ -18,6 +19,30 @@ from hike_journal.services.taxonomy import (
     resolve_observation_enrichment,
     taxonomy_resolution_fields,
 )
+from hike_journal.services.wikipedia import fill_missing_wikipedia_summary
+
+
+def build_wikipedia_backfill_plan(observations: list[dict[str, Any]]) -> list[tuple[str, dict[str, Any], bool]]:
+    """Prepare only confirmed observations with iNaturalist taxonomy but no blurb."""
+    def prepare(observation: dict[str, Any]) -> tuple[str, dict[str, Any], bool] | None:
+        raw_payload = dict(observation.get("raw_response_json") or {})
+        enrichment = raw_payload.get("taxon_enrichment")
+        if not isinstance(enrichment, dict):
+            return None
+        updated_enrichment, changed = fill_missing_wikipedia_summary(enrichment)
+        if changed:
+            raw_payload["taxon_enrichment"] = updated_enrichment
+            return (
+                str(observation["id"]),
+                raw_payload,
+                bool(str(updated_enrichment.get("wikipedia_summary") or "").strip()),
+            )
+        return None
+
+    # Wikipedia lookups are independent; modest parallelism keeps a large archive
+    # practical without putting a burst of traffic on the public endpoint.
+    with ThreadPoolExecutor(max_workers=6) as executor:
+        return [item for item in executor.map(prepare, observations) if item is not None]
 
 
 def build_reconciliation_plan(
@@ -164,6 +189,11 @@ def main() -> None:
         action="store_true",
         help="With --apply, write only missing iNaturalist enrichment and leave existing taxonomy fields unchanged.",
     )
+    parser.add_argument(
+        "--wikipedia-fallback",
+        action="store_true",
+        help="Fetch concise Wikipedia summaries for confirmed observations that iNaturalist did not populate.",
+    )
     args = parser.parse_args()
     if not settings.supabase_configured:
         raise SystemExit("SUPABASE_URL and SUPABASE_KEY are required.")
@@ -172,6 +202,23 @@ def main() -> None:
         create_client(settings.supabase_url, settings.supabase_key),
     )
     observations = repository.list_observations_for_taxonomy_reconciliation()
+    if args.wikipedia_fallback:
+        updates = build_wikipedia_backfill_plan(observations)
+        summaries_added = sum(1 for _, _, added_summary in updates if added_summary)
+        print(
+            {
+                "observations_missing_wikipedia": len(updates),
+                "summaries_found": summaries_added,
+                "no_unambiguous_article": len(updates) - summaries_added,
+            }
+        )
+        if not args.apply:
+            print("Dry run only. Re-run with --apply to write these Wikipedia summaries.")
+            return
+        for observation_id, raw_payload, _ in updates:
+            repository.update_observation_raw_payload(observation_id, raw_payload)
+        print(f"Added {summaries_added} Wikipedia summaries and recorded {len(updates) - summaries_added} unambiguous no-matches.")
+        return
     plan = build_reconciliation_plan(
         observations,
         InatClient(access_token="", base_url=settings.inat_base_url),

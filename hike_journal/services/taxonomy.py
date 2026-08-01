@@ -6,6 +6,7 @@ from typing import Any, Callable
 from hike_journal.domain.discovery import INFRASPECIES_RANKS
 from hike_journal.services.inat import InatClient, InatRequestError
 from hike_journal.services.repositories import HikeJournalRepository
+from hike_journal.services.wikipedia import fill_missing_wikipedia_summary
 
 
 def normalize_taxon_name(value: Any) -> str:
@@ -168,6 +169,7 @@ def ensure_observation_taxonomy(
 
     if not enrichment:
         return False
+    enrichment, _ = fill_missing_wikipedia_summary(enrichment)
     resolution = taxonomy_resolution_fields(enrichment)
     updated = repository.update_observation_taxon_resolution(
         str(observation["id"]),

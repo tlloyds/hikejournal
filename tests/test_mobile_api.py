@@ -619,8 +619,10 @@ def test_known_species_can_be_assigned_to_an_untagged_photo(monkeypatch):
             return []
 
         def list_observations_by_ids(self, observation_ids):
-            assert observation_ids == ["observation-source"]
-            return [{"raw_response_json": {"taxon_enrichment": {"rank": "species"}}}]
+            if observation_ids == ["observation-source"]:
+                return [{"raw_response_json": {"taxon_enrichment": {"rank": "species"}}}]
+            assert observation_ids == ["observation-new"]
+            return [{**self.created, "id": "observation-new", "raw_response_json": self.created["raw_payload"]}]
 
         def create_manual_observation(self, **kwargs):
             self.created = kwargs
@@ -638,6 +640,7 @@ def test_known_species_can_be_assigned_to_an_untagged_photo(monkeypatch):
         "owner_email": "hiker@example.com",
     }
     monkeypatch.setattr("mobile_api._get_visible_photo", lambda _photo_id: (service, photo))
+    monkeypatch.setattr("mobile_api.ensure_observation_taxonomy", lambda *_args: True)
     monkeypatch.setattr(
         "mobile_api._visible_species_data",
         lambda _service: (
