@@ -90,7 +90,7 @@ class HikeJournalRepository(context: Context) {
         }
     }
 
-    suspend fun loadCachedHike(hikeId: String): Hike? = journalCacheMutex.withLock {
+    suspend fun loadCachedHike(hikeId: String, expectedPhotoCount: Int? = null): Hike? = journalCacheMutex.withLock {
         val cacheFile = File(cacheDirectory, "hike-$hikeId.json")
         val parsed = withContext(Dispatchers.IO) {
             cacheFile
@@ -99,7 +99,13 @@ class HikeJournalRepository(context: Context) {
                 ?.takeIf { it.isNotBlank() }
                 ?.let(::parseHike)
         }
-        fieldQueue.overlayHike(parsed, hikeId)
+        val cached = fieldQueue.overlayHike(parsed, hikeId)
+        if (expectedPhotoCount != null && cached?.photoCount != expectedPhotoCount) {
+            withContext(Dispatchers.IO) { cacheFile.delete() }
+            null
+        } else {
+            cached
+        }
     }
 
     suspend fun loadSpecies(): LoadResult<List<SpeciesRecord>> {

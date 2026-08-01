@@ -43,8 +43,8 @@ android {
         applicationId = "com.hikejournal.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 48
-        versionName = "0.5.43"
+        versionCode = 49
+        versionName = "0.5.44"
 
         buildConfigField("String", "DEFAULT_API_URL", quoted(mobileApiUrl))
         buildConfigField("String", "MOBILE_API_TOKEN", quoted(mobileApiToken))

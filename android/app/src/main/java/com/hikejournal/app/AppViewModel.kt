@@ -188,7 +188,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
         viewModelScope.launch {
-            val cached = repository.loadCachedHike(hikeId)
+            val cached = repository.loadCachedHike(
+                hikeId = hikeId,
+                expectedPhotoCount = summary?.photoCount,
+            )
             if (cached != null) {
                 _state.update {
                     if (it.openingHikeId == hikeId || it.journal?.id == hikeId) {
