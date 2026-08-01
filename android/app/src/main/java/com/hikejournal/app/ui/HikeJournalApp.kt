@@ -2187,8 +2187,12 @@ private fun PhotoViewer(
                         TextButton(
                             onClick = { uriHandler.openUri(identifiedSpecies.wikipediaUrl) },
                             modifier = Modifier.padding(top = 4.dp),
+                            colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFE5F1DF)),
                         ) {
-                            Text("Read on Wikipedia")
+                            Text(
+                                "Read on Wikipedia",
+                                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+                            )
                             Spacer(Modifier.width(4.dp))
                             Icon(Icons.AutoMirrored.Rounded.OpenInNew, null, modifier = Modifier.size(16.dp))
                         }
