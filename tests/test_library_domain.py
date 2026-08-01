@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from hike_journal.domain.library import (
     count_unique_species,
     filter_standalone_observations,
@@ -6,6 +8,7 @@ from hike_journal.domain.library import (
     filter_hikes_for_user,
     record_visible_for_user,
     standalone_journal_is_active,
+    entry_sort_datetime,
 )
 from hike_journal.domain.species_filters import (
     SPECIES_TYPE_OPTIONS,
@@ -67,6 +70,17 @@ def test_standalone_journal_requires_explicit_scope_and_no_hike() -> None:
         requested_scope="standalone",
         selected_hike={"id": "hike-1"},
     )
+
+
+def test_species_log_sort_dates_normalize_offset_aware_timestamps() -> None:
+    timestamp = entry_sort_datetime(
+        {"photo": {"taken_at": "2026-07-30T22:15:00-04:00"}, "hike": {}}
+    )
+    hike_day = entry_sort_datetime({"photo": {}, "hike": {"hike_date": "2026-07-31"}})
+
+    assert timestamp == datetime(2026, 7, 31, 2, 15)
+    assert timestamp.tzinfo is None
+    assert timestamp > hike_day
 
 
 def test_standalone_filters_reject_hike_linked_records() -> None:

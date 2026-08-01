@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from datetime import date
+
+import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from hike_journal.models import PhotoMetadata, ProcessedImage, SpeciesCandidate
@@ -10,6 +14,7 @@ from mobile_api import (
     ReviewCandidateInput,
     ReviewDecisionInput,
     ReviewQueueInput,
+    SpeciesQuestInput,
     _build_species_payloads,
     _photo_payload,
     _parse_picker_taken_at,
@@ -20,6 +25,7 @@ from mobile_api import (
     app,
     assign_known_species_to_photo,
     create_hike,
+    create_species_quest,
     delete_species_quest,
     get_nearby_species,
     get_nearby_species_sightings,
@@ -963,6 +969,44 @@ def test_delete_species_quest_checks_visibility_then_deletes(monkeypatch):
 
     assert result == {"deleted": True, "id": "quest-1"}
     assert repository.deleted == "quest-1"
+
+
+def test_create_species_quest_converts_target_save_failure_to_service_error(monkeypatch):
+    class Repository:
+        def list_hike_locations(self):
+            return [{"id": "area-1", "name": "Wetland", "lat": 28.1, "lng": -82.2}]
+
+        def create_species_quest(self, _payload, _taxa):
+            raise RuntimeError("Field Quest targets could not be saved.")
+
+    repository = Repository()
+    service_container = type("Service", (), {"repository": repository})()
+
+    class Discovery:
+        def __init__(self, received_repository):
+            assert received_repository is repository
+
+        def resolve_area(self, _repository, area_id):
+            assert area_id == "area-1"
+            return {"id": "area-1", "name": "Wetland", "lat": 28.1, "lng": -82.2}
+
+        def nearby(self, **_kwargs):
+            return {
+                "period": {"label": "Late July", "months": [6, 7, 8]},
+                "filters": {"iconic_taxon": None},
+                "taxa": [{"taxon_id": 1}],
+            }
+
+    monkeypatch.setattr("mobile_api.get_services", lambda: service_container)
+    monkeypatch.setattr("mobile_api._user_context", lambda: {"subject": None, "email": None})
+    monkeypatch.setattr("mobile_api._discovery_collection_data", lambda _service: ([], {}))
+    monkeypatch.setattr("mobile_api.SpeciesDiscoveryService", Discovery)
+
+    with pytest.raises(HTTPException) as error:
+        create_species_quest(SpeciesQuestInput(area_id="area-1", target_date=date(2026, 7, 31)))
+
+    assert error.value.status_code == 503
+    assert error.value.detail == "Field Quest targets could not be saved."
 
 
 def test_quest_sightings_endpoint_checks_quest_visibility_and_species(monkeypatch):

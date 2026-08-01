@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 
 
@@ -244,6 +244,11 @@ def entry_sort_datetime(entry: dict[str, Any]) -> datetime:
     hike = entry.get("hike") or {}
     parsed_taken = _parse_datetime(photo.get("taken_at"))
     if parsed_taken:
+        # Persisted timestamps include an offset, while a hike date represents a
+        # date without one.  The Species Log compares both kinds of values, so
+        # use a single, offset-naive UTC timeline for sorting and labels.
+        if parsed_taken.tzinfo is not None:
+            return parsed_taken.astimezone(UTC).replace(tzinfo=None)
         return parsed_taken
     hike_date = hike.get("hike_date")
     if hike_date:

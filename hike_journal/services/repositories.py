@@ -233,9 +233,16 @@ class HikeJournalRepository:
         try:
             if target_rows:
                 self.client.table("species_quest_taxa").insert(target_rows).execute()
-        except Exception:
-            self.client.table("species_quests").delete().eq("id", quest_id).execute()
-            raise
+        except Exception as exc:
+            # A partially saved quest is not useful, but cleanup must not hide
+            # the actionable migration error from the mobile API.
+            try:
+                self.client.table("species_quests").delete().eq("id", quest_id).execute()
+            except Exception:
+                pass
+            raise RuntimeError(
+                "Field Quest targets could not be saved. Apply sql/species_discovery_migration.sql and try again."
+            ) from exc
         return self.get_species_quest(quest_id) or {**quest, "taxa": []}
 
     def list_species_quests(
