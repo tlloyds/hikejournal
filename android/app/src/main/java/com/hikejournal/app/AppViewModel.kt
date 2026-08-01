@@ -71,6 +71,7 @@ data class AppState(
     val isReviewLoading: Boolean = false,
     val decidingReviewId: String? = null,
     val identifyingReviewId: String? = null,
+    val resolvingSpeciesInfoPhotoId: String? = null,
     val prioritizingPhotoId: String? = null,
     val inatAuthorizationUrl: String? = null,
     val reviewUpdateId: String? = null,
@@ -170,7 +171,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             .onSuccess { result ->
                 _state.update { state ->
                     if (state.journal?.id == hikeId) {
-                        state.copy(journal = result.value, isOffline = result.fromCache)
+                        state.copy(
+                            journal = result.value,
+                            isOffline = result.fromCache,
+                            resolvingSpeciesInfoPhotoId = state.resolvingSpeciesInfoPhotoId?.takeUnless { photoId ->
+                                result.value.photos.any { photo ->
+                                    photo.id == photoId && photo.species.any { it.isPrimary }
+                                }
+                            },
+                        )
                     } else {
                         state
                     }
@@ -701,6 +710,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     it.copy(
                         reviewQueue = result.value,
                         decidingReviewId = null,
+                        resolvingSpeciesInfoPhotoId = item.id.takeIf { action == "confirm" },
                         isOffline = result.fromCache,
                         species = emptyList(),
                         sightings = emptyList(),

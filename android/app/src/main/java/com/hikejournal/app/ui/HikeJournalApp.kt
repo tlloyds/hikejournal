@@ -672,6 +672,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
             assigningSpecies = state.speciesAssignmentId == photo.id,
             openingMap = openingPhotoMapId == photo.id,
             identifying = state.identifyingReviewId == photo.id,
+            resolvingSpeciesInfo = state.resolvingSpeciesInfoPhotoId == photo.id,
             savingForRecommendation = state.prioritizingPhotoId == photo.id,
             onDismiss = {
                 if (openingPhotoMapId == photo.id) {
@@ -2077,6 +2078,7 @@ private fun PhotoViewer(
     assigningSpecies: Boolean,
     openingMap: Boolean,
     identifying: Boolean,
+    resolvingSpeciesInfo: Boolean,
     savingForRecommendation: Boolean,
     onDismiss: () -> Unit,
     onPrevious: (() -> Unit)?,
@@ -2169,7 +2171,17 @@ private fun PhotoViewer(
                     Text("Field Video", style = MaterialTheme.typography.titleMedium, color = Paper, modifier = Modifier.padding(top = 10.dp))
                     Text("Tap the expand icon for player-only viewing. Videos are not eligible for species review.", style = MaterialTheme.typography.bodyMedium, color = Color(0xFFBFD2B9), modifier = Modifier.padding(top = 4.dp))
                 } else if (identifiedSpecies != null) {
-                    if (identifiedSpecies.wikipediaSummary.isNotBlank()) {
+                    if (resolvingSpeciesInfo) {
+                        Button(
+                            onClick = {},
+                            enabled = false,
+                            modifier = Modifier.fillMaxWidth().padding(top = 10.dp).height(48.dp),
+                        ) {
+                            CircularProgressIndicator(Modifier.size(18.dp), color = Paper, strokeWidth = 2.dp)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Loading species information…")
+                        }
+                    } else if (identifiedSpecies.wikipediaSummary.isNotBlank()) {
                         Text(
                             "FROM WIKIPEDIA",
                             style = MaterialTheme.typography.labelSmall,
@@ -2183,7 +2195,7 @@ private fun PhotoViewer(
                             modifier = Modifier.padding(top = 4.dp),
                         )
                     }
-                    if (identifiedSpecies.wikipediaUrl.isNotBlank()) {
+                    if (!resolvingSpeciesInfo && identifiedSpecies.wikipediaUrl.isNotBlank()) {
                         TextButton(
                             onClick = { uriHandler.openUri(identifiedSpecies.wikipediaUrl) },
                             modifier = Modifier.padding(top = 4.dp),
