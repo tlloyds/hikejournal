@@ -117,14 +117,22 @@ def render_map_view(
             tuple(visible_hike_ids),
             selected_hike_id,
         )
-    fit_bounds = combine_bounds(
-        normalize_bounds(summary.get("bounds")),
-        bounds_from_route_imports(
-            compatibility_route_imports,
-            visible_hike_ids=set(visible_hike_ids),
-            selected_hike_id=selected_hike_id,
-        ),
-    )
+    photo_and_indexed_route_bounds = normalize_bounds(summary.get("bounds"))
+    # A route that has not reached PostGIS yet is still rendered below, but it
+    # must not displace the photo collection on the initial map view.  In
+    # particular, a legacy route can cover a much larger area than its photos,
+    # which made the master map look empty even though its photo layer loaded.
+    # Indexed routes are already part of the summary bounds.
+    fit_bounds = photo_and_indexed_route_bounds
+    if photo_count == 0:
+        fit_bounds = combine_bounds(
+            fit_bounds,
+            bounds_from_route_imports(
+                compatibility_route_imports,
+                visible_hike_ids=set(visible_hike_ids),
+                selected_hike_id=selected_hike_id,
+            ),
+        )
     component_key = f"maplibre_{map_scope}"
     component_state = st.session_state.get(component_key, {})
     viewport_value = component_state.get("viewport") if isinstance(component_state, dict) else None

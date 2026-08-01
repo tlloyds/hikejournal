@@ -208,6 +208,29 @@ def test_unindexed_route_outside_default_region_supplies_initial_bounds(monkeypa
     assert rendered[0]["routes"]["features"][0]["geometry"] == route_import["track_geojson"]
 
 
+def test_compatibility_route_does_not_replace_photo_extent(monkeypatch) -> None:
+    route_import = {
+        "hike_id": "hike-1",
+        "track_geojson": {
+            "type": "LineString",
+            "coordinates": [[-123.0, 47.0], [-121.0, 48.0]],
+        },
+    }
+    _fake_st, rendered = install_map_fakes(monkeypatch)
+
+    render_outing(
+        MapRepository(
+            photo_count=1,
+            route_count=1,
+            summary_bounds=[-82.0, 27.0, -81.0, 28.0],
+            spatial_rpc_ready=False,
+            route_imports=[route_import],
+        )
+    )
+
+    assert rendered[0]["fit_bounds"] == (-82.0, 27.0, -81.0, 28.0)
+
+
 def test_changed_summary_bounds_refit_once_after_route_sync(monkeypatch) -> None:
     fake_st, rendered = install_map_fakes(monkeypatch)
 
