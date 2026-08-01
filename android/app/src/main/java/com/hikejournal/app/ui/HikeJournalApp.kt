@@ -921,12 +921,12 @@ private fun EverydayRow(journal: Hike, opening: Boolean, onOpen: (String) -> Uni
         Column(Modifier.weight(1f).padding(start = 16.dp)) {
             Text("VARIOUS DATES", style = MaterialTheme.typography.labelSmall, color = TrailText)
             Text(
-                if (journal.photoCount == 0) "Add a quick observation" else "${journal.photoCount} field record${if (journal.photoCount == 1) "" else "s"}",
+                "Everyday Sightings",
                 style = MaterialTheme.typography.titleLarge,
                 color = Ink,
             )
             Text(
-                "Photos and videos not from a hike",
+                "Various Locations · ${journal.photoCount} photos",
                 style = MaterialTheme.typography.bodyMedium,
                 color = InkMuted,
             )
