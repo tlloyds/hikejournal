@@ -124,6 +124,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -2089,6 +2090,8 @@ private fun PhotoViewer(
     onAssignSpecies: (() -> Unit)?,
     onViewMap: (() -> Unit)?,
 ) {
+    val identifiedSpecies = photo.species.firstOrNull { it.isPrimary }
+    val uriHandler = LocalUriHandler.current
     var caption by remember(photo.id) { mutableStateOf(photo.caption) }
     var confirmDelete by remember { mutableStateOf(false) }
     var photoFullscreen by remember { mutableStateOf(false) }
@@ -2143,7 +2146,7 @@ private fun PhotoViewer(
                     .navigationBarsPadding()
                     .padding(16.dp),
             ) {
-                photo.species.firstOrNull()?.let { species ->
+                identifiedSpecies?.let { species ->
                     Text(species.commonName.ifBlank { species.scientificName }, style = MaterialTheme.typography.titleMedium, color = Color(0xFFBFD2B9))
                 }
                 if (onViewMap != null) {
@@ -2166,6 +2169,31 @@ private fun PhotoViewer(
                 if (photo.isVideo) {
                     Text("Field Video", style = MaterialTheme.typography.titleMedium, color = Paper, modifier = Modifier.padding(top = 10.dp))
                     Text("Tap the expand icon for player-only viewing. Videos are not eligible for species review.", style = MaterialTheme.typography.bodyMedium, color = Color(0xFFBFD2B9), modifier = Modifier.padding(top = 4.dp))
+                } else if (identifiedSpecies != null) {
+                    if (identifiedSpecies.wikipediaSummary.isNotBlank()) {
+                        Text(
+                            "FROM WIKIPEDIA",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color(0xFF91AA8C),
+                            modifier = Modifier.padding(top = 14.dp),
+                        )
+                        Text(
+                            identifiedSpecies.wikipediaSummary,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Paper,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                    }
+                    if (identifiedSpecies.wikipediaUrl.isNotBlank()) {
+                        TextButton(
+                            onClick = { uriHandler.openUri(identifiedSpecies.wikipediaUrl) },
+                            modifier = Modifier.padding(top = 4.dp),
+                        ) {
+                            Text("Read on Wikipedia")
+                            Spacer(Modifier.width(4.dp))
+                            Icon(Icons.AutoMirrored.Rounded.OpenInNew, null, modifier = Modifier.size(16.dp))
+                        }
+                    }
                 } else {
                     if (onAssignSpecies != null) {
                         OutlinedButton(
@@ -2220,16 +2248,16 @@ private fun PhotoViewer(
                         onCheckedChange = onSetReview,
                         modifier = Modifier.padding(top = 8.dp),
                     )
-                    if (onSetCover != null) {
-                        PhotoSettingRow(
-                            checked = isCoverPhoto,
-                            updating = updatingCover,
-                            title = "Hike cover",
-                            detail = if (isCoverPhoto) "Shown in your archive and journal." else "Use this photo as the hike cover.",
-                            onCheckedChange = onSetCover,
-                            modifier = Modifier.padding(top = 2.dp),
-                        )
-                    }
+                }
+                if (onSetCover != null) {
+                    PhotoSettingRow(
+                        checked = isCoverPhoto,
+                        updating = updatingCover,
+                        title = "Hike cover",
+                        detail = if (isCoverPhoto) "Shown in your archive and journal." else "Use this photo as the hike cover.",
+                        onCheckedChange = onSetCover,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
                 }
                 HorizontalDivider(color = Color(0xFF405148), modifier = Modifier.padding(vertical = 13.dp))
                 OutlinedTextField(

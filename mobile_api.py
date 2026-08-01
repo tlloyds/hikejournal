@@ -370,6 +370,19 @@ def _photo_payload(photo: dict[str, Any], species: list[dict[str, Any]] | None =
                 "scientific_name": observation.get("scientific_name"),
                 "status": observation.get("status"),
                 "is_primary": bool(observation.get("is_primary")),
+                "taxon_id": observation.get("taxon_id"),
+                "wikipedia_url": str(
+                    (observation.get("raw_response_json") or {})
+                    .get("taxon_enrichment", {})
+                    .get("wikipedia_url")
+                    or ""
+                ),
+                "wikipedia_summary": str(
+                    (observation.get("raw_response_json") or {})
+                    .get("taxon_enrichment", {})
+                    .get("wikipedia_summary")
+                    or ""
+                ),
             }
             for observation in (species or [])
         ],

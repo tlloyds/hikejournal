@@ -1105,6 +1105,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         scientificName = species.scientificName,
                         status = "confirmed",
                         isPrimary = true,
+                        taxonId = species.taxonId,
+                        wikipediaUrl = species.wikipediaUrl,
+                        wikipediaSummary = species.wikipediaSummary,
                     )
                     updatePhotoState(photo.id) { existing ->
                         existing.copy(

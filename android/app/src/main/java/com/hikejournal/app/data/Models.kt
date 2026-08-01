@@ -57,6 +57,9 @@ data class SpeciesLabel(
     val scientificName: String,
     val status: String,
     val isPrimary: Boolean,
+    val taxonId: Long? = null,
+    val wikipediaUrl: String = "",
+    val wikipediaSummary: String = "",
 )
 
 data class HikeDraft(
@@ -597,6 +600,9 @@ private fun parsePhoto(json: JSONObject): Photo {
                 scientificName = item.optString("scientific_name"),
                 status = item.optString("status"),
                 isPrimary = item.optBoolean("is_primary"),
+                taxonId = item.optNullableLong("taxon_id"),
+                wikipediaUrl = item.optString("wikipedia_url"),
+                wikipediaSummary = item.optString("wikipedia_summary"),
             )
         },
     )

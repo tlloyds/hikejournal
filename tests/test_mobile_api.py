@@ -85,6 +85,39 @@ def test_photo_payload_uses_mobile_contract_names():
     assert payload["species"] == []
 
 
+def test_photo_payload_includes_stored_species_wikipedia_info():
+    payload = _photo_payload(
+        {"id": "photo-1"},
+        species=[
+            {
+                "taxon_id": 47126,
+                "common_name": "Eastern gray squirrel",
+                "scientific_name": "Sciurus carolinensis",
+                "status": "confirmed",
+                "is_primary": True,
+                "raw_response_json": {
+                    "taxon_enrichment": {
+                        "wikipedia_url": "https://en.wikipedia.org/wiki/Eastern_gray_squirrel",
+                        "wikipedia_summary": "The eastern gray squirrel is a tree squirrel.",
+                    }
+                },
+            }
+        ],
+    )
+
+    assert payload["species"] == [
+        {
+            "common_name": "Eastern gray squirrel",
+            "scientific_name": "Sciurus carolinensis",
+            "status": "confirmed",
+            "is_primary": True,
+            "taxon_id": 47126,
+            "wikipedia_url": "https://en.wikipedia.org/wiki/Eastern_gray_squirrel",
+            "wikipedia_summary": "The eastern gray squirrel is a tree squirrel.",
+        }
+    ]
+
+
 def test_hike_detail_includes_route_segments_for_native_map(monkeypatch):
     class Repository:
         def list_photos(self, _hike_id):
