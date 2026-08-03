@@ -1401,11 +1401,7 @@ private fun FeaturedHike(hike: Hike, opening: Boolean, onOpen: (String) -> Unit)
                         )
                     }
                 } else {
-                    Text(
-                        hikeMeta(hike),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Color(0xFFE4E9DF),
-                    )
+                    HikeCardMetadata(hike = hike, color = Color(0xFFE4E9DF))
                 }
             }
         }
@@ -1432,7 +1428,7 @@ private fun HikeRow(hike: Hike, opening: Boolean, onOpen: (String) -> Unit) {
                 }
                 Text(formatDate(hike.hikeDate).uppercase(Locale.US), style = MaterialTheme.typography.labelSmall, color = TrailText)
                 Text(hike.title, style = MaterialTheme.typography.titleLarge, color = Ink, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Text(hikeMeta(hike), style = MaterialTheme.typography.bodyMedium, color = InkMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                HikeCardMetadata(hike = hike, color = InkMuted)
             }
             AnimatedContent(targetState = opening, label = "hike-row-opening") { isOpening ->
                 if (isOpening) {
@@ -3056,12 +3052,26 @@ private fun MountainField(modifier: Modifier = Modifier) {
     }
 }
 
-private fun hikeMeta(hike: Hike): String {
-    val parts = mutableListOf<String>()
-    if (hike.locationName.isNotBlank()) parts += hike.locationName
-    hike.distanceMiles?.let { parts += String.format(Locale.US, "%.1f mi", it) }
-    if (hike.photoCount > 0) parts += "${hike.photoCount} photos"
-    return parts.joinToString(" · ").ifBlank { "Field journal" }
+@Composable
+private fun HikeCardMetadata(hike: Hike, color: Color) {
+    if (hike.locationName.isNotBlank()) {
+        Text(
+            hike.locationName,
+            style = MaterialTheme.typography.bodyMedium,
+            color = color,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+
+    val stats = mutableListOf<String>()
+    hike.distanceMiles?.let { stats += String.format(Locale.US, "%.1f mi", it) }
+    if (hike.photoCount > 0) stats += "${hike.photoCount} photos"
+    Text(
+        stats.joinToString(" · ").ifBlank { "Field journal" },
+        style = MaterialTheme.typography.bodyMedium,
+        color = color,
+    )
 }
 
 private fun journalHikeMeta(hike: Hike): String {
