@@ -69,6 +69,30 @@ class HikeJournalRepository(context: Context) {
         return result.copy(value = fieldQueue.overlayHikes(hikes.values.toList()))
     }
 
+    /**
+     * Returns the last archive snapshot without waiting for the companion service.
+     *
+     * The archive list is intentionally separate from [loadHikes]: callers can show this
+     * immediately at launch, then use [loadHikes] to revalidate it in the background.
+     */
+    suspend fun loadCachedHikes(): List<Hike>? {
+        val cachedList = withContext(Dispatchers.IO) {
+            File(cacheDirectory, "hikes.json")
+                .takeIf(File::exists)
+                ?.readText()
+                ?.takeIf(String::isNotBlank)
+        }?.let { json -> withContext(Dispatchers.Default) { parseHikes(json) } }
+        val cachedDetails = loadCachedHikeFiles()
+        if (cachedList == null && cachedDetails.none { it.isLocalDraft }) return null
+
+        val hikes = cachedList.orEmpty().associateBy { it.id }.toMutableMap()
+        cachedDetails.forEach { cached ->
+            // A detail cache is newer than the archive snapshot after an offline edit.
+            if (cached.isLocalDraft || cached.hike.id in hikes) hikes[cached.hike.id] = cached.hike
+        }
+        return fieldQueue.overlayHikes(hikes.values.toList())
+    }
+
     suspend fun loadHikeLocations(): LoadResult<List<HikeLocation>> = loadWithCache(
         cacheFile = File(cacheDirectory, "hike-locations.json"),
         fetch = api::getHikeLocationsJson,

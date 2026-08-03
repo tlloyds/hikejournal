@@ -154,15 +154,34 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
         }
-        refreshLibrary(initial = true)
+        loadInitialLibrary()
     }
 
-    fun refreshLibrary(initial: Boolean = false) {
+    private fun loadInitialLibrary() {
+        viewModelScope.launch {
+            val cachedHikes = runCatching { repository.loadCachedHikes() }.getOrNull()
+            if (cachedHikes != null) {
+                _state.update {
+                    it.copy(
+                        hikes = cachedHikes,
+                        isLoading = false,
+                        isOffline = true,
+                        error = null,
+                    )
+                }
+            }
+            // Revalidate after the cached archive is on screen. Do not turn this background
+            // refresh into a loading state; the existing archive remains useful meanwhile.
+            refreshLibrary(initial = cachedHikes == null, showRefreshIndicator = false)
+        }
+    }
+
+    fun refreshLibrary(initial: Boolean = false, showRefreshIndicator: Boolean = !initial) {
         viewModelScope.launch {
             _state.update {
                 it.copy(
                     isLoading = initial && it.hikes.isEmpty(),
-                    isRefreshing = !initial,
+                    isRefreshing = showRefreshIndicator,
                     error = null,
                 )
             }
