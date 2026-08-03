@@ -37,10 +37,10 @@ internal sealed interface FilteredFix {
 }
 
 internal class TrackingLocationFilter(
-    private val maxAccuracyMeters: Float = 50f,
+    private val maxAccuracyMeters: Float = 25f,
     private val maxAgeMs: Long = 30_000L,
     private val maxFutureMs: Long = 10_000L,
-    private val minDistanceMeters: Double = 3.0,
+    private val minDistanceMeters: Double = 1.5,
     private val maxSpeedMetersPerSecond: Double = 12.0,
     private val segmentGapMs: Long = 60_000L,
 ) {
@@ -92,11 +92,12 @@ internal class TrackingLocationFilter(
             fix.latitude,
             fix.longitude,
         )
-        val combinedAccuracy = sqrt(
-            fix.accuracyMeters.toDouble() * fix.accuracyMeters +
-                last.accuracyMeters.toDouble() * last.accuracyMeters,
+        // Use the better of two nearby high-quality fixes for the drift gate. Combining their
+        // uncertainty was discarding too many legitimate walking points and straightening turns.
+        val driftGateMeters = max(
+            minDistanceMeters,
+            min(fix.accuracyMeters, last.accuracyMeters).toDouble() * ACCURACY_DRIFT_FACTOR,
         )
-        val driftGateMeters = max(minDistanceMeters, combinedAccuracy * ACCURACY_DRIFT_FACTOR)
         if (distance < driftGateMeters) {
             return FilteredFix.Rejected(RejectedFixReason.JITTER)
         }
@@ -113,7 +114,7 @@ internal class TrackingLocationFilter(
 
     companion object {
         private const val EARTH_RADIUS_METERS = 6_371_008.8
-        private const val ACCURACY_DRIFT_FACTOR = 0.5
+        private const val ACCURACY_DRIFT_FACTOR = 0.35
 
         fun haversineMeters(
             latitudeA: Double,

@@ -211,6 +211,16 @@ class TrackingRepository private constructor(
         return snapshot
     }
 
+    /** Permanently removes an in-progress recording and its route points. */
+    suspend fun discard() {
+        val discarded = database.withTransaction {
+            val current = dao.activeSession() ?: throw TrackingStateException("There is no hike in progress")
+            dao.discardActive(current.sessionId)
+        }
+        if (discarded == 0) throw TrackingStateException("The hike could not be discarded")
+        HikeTrackingService.stopAfterDiscard(appContext)
+    }
+
     suspend fun recover(): TrackingSnapshot? {
         val nowEpochMs = clock.epochMillis()
         val nowElapsedMs = clock.elapsedRealtimeMillis()

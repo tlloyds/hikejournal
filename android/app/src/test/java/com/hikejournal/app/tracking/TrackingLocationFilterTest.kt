@@ -21,7 +21,7 @@ class TrackingLocationFilterTest {
     }
 
     @Test
-    fun `combined accuracy rejects drift even when it exceeds three meters`() {
+    fun `quality-adjusted gate rejects small GPS drift`() {
         val previous = fix(
             latitude = 40.0,
             accuracy = 20f,
@@ -29,7 +29,7 @@ class TrackingLocationFilterTest {
             elapsedNanos = 1_000_000_000L,
         )
         val current = fix(
-            latitude = 40.00007,
+            latitude = 40.00005,
             accuracy = 20f,
             epochMs = 6_000L,
             elapsedNanos = 6_000_000_000L,
@@ -83,7 +83,7 @@ class TrackingLocationFilterTest {
         )
         assertEquals(
             RejectedFixReason.INVALID_ACCURACY,
-            rejected(fix(epochMs = 10_000L, accuracy = 51f), receivedAt = 10_000L),
+            rejected(fix(epochMs = 10_000L, accuracy = 26f), receivedAt = 10_000L),
         )
         assertEquals(
             RejectedFixReason.OUT_OF_ORDER,

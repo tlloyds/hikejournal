@@ -16,6 +16,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.IBinder
 import android.os.Looper
+import android.speech.tts.TextToSpeech
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
@@ -27,6 +28,7 @@ import com.google.android.gms.location.Priority
 import com.hikejournal.app.MainActivity
 import com.hikejournal.app.R
 import java.util.Locale
+import kotlin.math.floor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -52,6 +54,7 @@ class HikeTrackingService : Service() {
     private var stateCollection: Job? = null
     private var recoveryComplete = false
     private var startupRejected = false
+    private lateinit var progressAnnouncer: TrackingProgressAnnouncer
     private val locationBatches = Channel<List<Location>>(Channel.UNLIMITED)
 
     private val locationCallback = object : LocationCallback() {
@@ -67,6 +70,7 @@ class HikeTrackingService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        progressAnnouncer = TrackingProgressAnnouncer(applicationContext)
         createNotificationChannel()
         if (!TrackingPrerequisites.check(this).allSatisfied) {
             rejectStartup()
@@ -144,6 +148,7 @@ class HikeTrackingService : Service() {
         locationBatches.close()
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         stateCollection?.cancel()
+        progressAnnouncer.close()
         serviceScope.cancel()
         super.onDestroy()
     }
@@ -161,6 +166,7 @@ class HikeTrackingService : Service() {
             .setMinUpdateIntervalMillis(MIN_LOCATION_INTERVAL_MS)
             .setMinUpdateDistanceMeters(MIN_LOCATION_DISTANCE_METERS)
             .setMaxUpdateAgeMillis(0L)
+            .setWaitForAccurateLocation(true)
             .build()
         try {
             fusedLocationClient.requestLocationUpdates(request, locationCallback, Looper.getMainLooper())
@@ -182,6 +188,7 @@ class HikeTrackingService : Service() {
             else -> stopLocationUpdates()
         }
         notificationManager.notify(NOTIFICATION_ID, notification(snapshot))
+        if (snapshot.status == TrackingStatus.RECORDING) progressAnnouncer.announce(snapshot)
     }
 
     private fun rejectStartup() {
@@ -309,9 +316,11 @@ class HikeTrackingService : Service() {
         private const val ACTION_SYNC = "com.hikejournal.app.tracking.SYNC"
         private const val ACTION_PAUSE = "com.hikejournal.app.tracking.PAUSE"
         private const val ACTION_RESUME = "com.hikejournal.app.tracking.RESUME"
-        private const val LOCATION_INTERVAL_MS = 5_000L
-        private const val MIN_LOCATION_INTERVAL_MS = 3_000L
-        private const val MIN_LOCATION_DISTANCE_METERS = 3f
+        // Frequent only while a hike is actively recording. The filter rejects poor fixes, so
+        // these extra checkpoints preserve turns without accepting GPS noise.
+        private const val LOCATION_INTERVAL_MS = 2_000L
+        private const val MIN_LOCATION_INTERVAL_MS = 1_000L
+        private const val MIN_LOCATION_DISTANCE_METERS = 1.5f
         private const val CHECKPOINT_INTERVAL_MS = 15_000L
         private const val REQUEST_OPEN = 20
         private const val REQUEST_PAUSE = 21
@@ -342,6 +351,43 @@ class HikeTrackingService : Service() {
         fun stopAfterFinished(context: Context) {
             context.stopService(Intent(context, HikeTrackingService::class.java))
         }
+
+        fun stopAfterDiscard(context: Context) = stopAfterFinished(context)
+    }
+}
+
+private class TrackingProgressAnnouncer(context: Context) : TextToSpeech.OnInitListener {
+    private val appContext = context.applicationContext
+    private val preferences = appContext.getSharedPreferences("tracking_progress", Context.MODE_PRIVATE)
+    private var textToSpeech: TextToSpeech? = TextToSpeech(appContext, this)
+    private var ready = false
+
+    override fun onInit(status: Int) {
+        ready = status == TextToSpeech.SUCCESS
+        if (ready) textToSpeech?.language = Locale.US
+    }
+
+    fun announce(snapshot: TrackingSnapshot) {
+        val completedMiles = floor(snapshot.distanceMeters / METERS_PER_MILE).toInt()
+        val storedSessionId = preferences.getString("session_id", null)
+        if (storedSessionId != snapshot.sessionId) {
+            preferences.edit().putString("session_id", snapshot.sessionId)
+                .putInt("last_announced_mile", completedMiles).apply()
+            return
+        }
+        val lastAnnounced = preferences.getInt("last_announced_mile", 0)
+        if (completedMiles <= lastAnnounced) return
+        preferences.edit().putInt("last_announced_mile", completedMiles).apply()
+        if (!ready) return
+        val mileLabel = if (completedMiles == 1) "mile" else "miles"
+        val message = "$completedMiles $mileLabel complete. Total time: ${formatElapsed(snapshot.activeElapsedMs)}"
+        textToSpeech?.speak(message, TextToSpeech.QUEUE_ADD, null, "hike-mile-$completedMiles")
+    }
+
+    fun close() {
+        textToSpeech?.stop()
+        textToSpeech?.shutdown()
+        textToSpeech = null
     }
 }
 
@@ -359,3 +405,5 @@ private fun formatElapsed(elapsedMs: Long): String {
         String.format(Locale.US, "%02d:%02d", minutes, remainingSeconds)
     }
 }
+
+private const val METERS_PER_MILE = 1_609.344

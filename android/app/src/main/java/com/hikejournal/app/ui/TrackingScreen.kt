@@ -127,6 +127,7 @@ internal fun HikeTrackingScreen(
     onPause: () -> Unit,
     onResume: () -> Unit,
     onEnd: () -> Unit,
+    onDiscard: () -> Unit,
     requestEndConfirmation: Boolean = false,
     onEndConfirmationShown: () -> Unit = {},
 ) {
@@ -237,8 +238,19 @@ internal fun HikeTrackingScreen(
                 }
             },
             dismissButton = {
-                TextButton(onClick = { confirmEnd = false }, enabled = !tracking.isBusy) {
-                    Text("Keep hiking")
+                Row {
+                    TextButton(
+                        onClick = {
+                            confirmEnd = false
+                            onDiscard()
+                        },
+                        enabled = tracking.isPaused && !tracking.isBusy,
+                    ) {
+                        Text("Discard hike", color = MaterialTheme.colorScheme.error)
+                    }
+                    TextButton(onClick = { confirmEnd = false }, enabled = !tracking.isBusy) {
+                        Text("Keep hiking")
+                    }
                 }
             },
         )
