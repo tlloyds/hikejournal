@@ -620,7 +620,7 @@ private fun parsePhoto(json: JSONObject): Photo {
                 isPrimary = item.optBoolean("is_primary"),
                 taxonId = item.optNullableLong("taxon_id"),
                 wikipediaUrl = item.optString("wikipedia_url"),
-                wikipediaSummary = item.optString("wikipedia_summary"),
+                wikipediaSummary = plainWikipediaSummary(item.optString("wikipedia_summary")),
             )
         },
     )
@@ -636,7 +636,7 @@ private fun parseSpecies(json: JSONObject): SpeciesRecord {
         rank = json.optString("rank"),
         iconicTaxonName = json.optString("iconic_taxon_name", "Other"),
         wikipediaUrl = json.optString("wikipedia_url"),
-        wikipediaSummary = json.optString("wikipedia_summary"),
+        wikipediaSummary = plainWikipediaSummary(json.optString("wikipedia_summary")),
         encounterCount = json.optInt("encounter_count"),
         hikeCount = json.optInt("hike_count"),
         hikeIds = json.optJSONArray("hike_ids")?.let { array ->
@@ -666,6 +666,15 @@ private fun parseSpecies(json: JSONObject): SpeciesRecord {
         },
     )
 }
+
+internal fun plainWikipediaSummary(value: String): String = value
+    .replace(Regex("<[^>]*>"), " ")
+    .replace("&nbsp;", " ")
+    .replace("&amp;", "&")
+    .replace("&quot;", "\"")
+    .replace("&#39;", "'")
+    .replace(Regex("\\s+"), " ")
+    .trim()
 
 private fun parseFieldQuest(root: JSONObject): FieldQuest {
     val area = root.optJSONObject("area") ?: JSONObject()

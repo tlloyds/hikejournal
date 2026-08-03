@@ -47,6 +47,7 @@ def test_extract_taxon_enrichment_collects_aliases_and_summary() -> None:
     assert enrichment["english_common_name"] == "duck potato"
     assert enrichment["rank"] == "species"
     assert enrichment["iconic_taxon_name"] == "Plantae"
+    assert enrichment["wikipedia_summary"] == "Sagittaria lancifolia, the bulltongue arrowhead, is a wetland plant."
     assert "lanceleaf arrowhead" in enrichment["alias_names"]
     assert "duck potato" in enrichment["alias_names"]
     assert "bulltongue arrowhead" in enrichment["alias_names"]

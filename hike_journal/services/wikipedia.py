@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from html import unescape
 from typing import Any
 from urllib.parse import quote
 
@@ -18,7 +19,7 @@ class WikipediaRequestError(RuntimeError):
 
 def _plain_text(value: Any) -> str:
     without_tags = re.sub(r"<[^>]+>", "", str(value or ""))
-    return re.sub(r"\s+", " ", without_tags).strip()
+    return re.sub(r"\s+", " ", unescape(without_tags)).strip()
 
 
 def _concise_summary(value: Any) -> str:
@@ -43,12 +44,15 @@ def _concise_summary(value: Any) -> str:
 
 
 def fetch_wikipedia_summary(*, scientific_name: str | None, common_name: str | None) -> dict[str, str] | None:
-    """Find a concise Wikipedia summary, preferring the scientific-name article.
+    """Find a concise Wikipedia summary for the resolved scientific taxon.
 
-    A redirect from a scientific name to its common-name article is intentional and
-    keeps the result tied to the taxon iNaturalist already resolved for us.
+    A common name is only safe as a fallback when iNaturalist did not resolve a
+    scientific name at all. Common names can point to people, places, or unrelated
+    organisms (for example, Maid Marian), so never substitute one after a failed
+    scientific-name lookup.
     """
-    names = [str(scientific_name or "").strip(), str(common_name or "").strip()]
+    resolved_scientific_name = str(scientific_name or "").strip()
+    names = [resolved_scientific_name] if resolved_scientific_name else [str(common_name or "").strip()]
     tried: set[str] = set()
     for name in names:
         key = name.casefold()

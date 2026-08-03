@@ -142,7 +142,7 @@ def _photo_payload(photo: Any) -> dict[str, Any] | None:
 
 
 def plain_text(value: Any) -> str:
-    text = re.sub(r"<[^>]+>", " ", str(value or ""))
+    text = re.sub(r"<[^>]+>", "", str(value or ""))
     return re.sub(r"\s+", " ", unescape(text)).strip()
 
 

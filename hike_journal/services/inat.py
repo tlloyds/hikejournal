@@ -10,6 +10,7 @@ from urllib.parse import urlencode
 
 import requests
 
+from hike_journal.domain.discovery import plain_text
 from hike_journal.config import (
     load_inat_token_record_for_user,
     save_inat_access_token,
@@ -708,14 +709,15 @@ def extract_taxon_enrichment(taxon: dict[str, Any]) -> dict[str, Any]:
     preferred_common_name = _coerce_text(taxon.get("preferred_common_name"))
     english_common_name = _coerce_text(taxon.get("english_common_name"))
     scientific_name = _coerce_text(taxon.get("name"))
-    wikipedia_summary = _coerce_text(taxon.get("wikipedia_summary"))
+    raw_wikipedia_summary = _coerce_text(taxon.get("wikipedia_summary"))
+    wikipedia_summary = plain_text(raw_wikipedia_summary)
     alias_names = sorted(
         {
             alias
             for alias in [
                 preferred_common_name,
                 english_common_name,
-                *_extract_common_names_from_summary(wikipedia_summary),
+                *_extract_common_names_from_summary(raw_wikipedia_summary),
             ]
             if alias
         }
