@@ -1029,6 +1029,31 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun discardTracking(onDiscarded: () -> Unit) {
+        viewModelScope.launch {
+            _state.update { it.copy(isFinalizingTracking = true, error = null) }
+            runCatching { trackingRepository.discard() }
+                .onSuccess {
+                    _state.update {
+                        it.copy(
+                            tracking = null,
+                            isFinalizingTracking = false,
+                            notice = "Hike discarded.",
+                        )
+                    }
+                    onDiscarded()
+                }
+                .onFailure { error ->
+                    _state.update {
+                        it.copy(
+                            isFinalizingTracking = false,
+                            error = "The hike is still paused. ${error.userMessage()}",
+                        )
+                    }
+                }
+        }
+    }
+
     fun saveHike(draft: HikeDraft, routeUri: Uri?, editingId: String?, onSaved: () -> Unit) {
         viewModelScope.launch {
             _state.update { it.copy(isRefreshing = true, error = null) }

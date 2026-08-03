@@ -181,6 +181,9 @@ interface TrackingDao {
 
     @Query("DELETE FROM tracking_sessions WHERE status = 'FINISHED' AND (:hikeId IS NULL OR hikeId = :hikeId)")
     suspend fun clearFinished(hikeId: String?): Int
+
+    @Query("DELETE FROM tracking_sessions WHERE sessionId = :sessionId AND activeSlot = 1")
+    suspend fun discardActive(sessionId: String): Int
 }
 
 @Database(

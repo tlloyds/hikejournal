@@ -451,6 +451,12 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                                 editingHike = finishedHike
                             }
                         },
+                        onDiscard = {
+                            viewModel.discardTracking {
+                                trackingVisible = false
+                                trackingEndConfirmationRequested = false
+                            }
+                        },
                         requestEndConfirmation = trackingEndConfirmationRequested,
                         onEndConfirmationShown = { trackingEndConfirmationRequested = false },
                     )
