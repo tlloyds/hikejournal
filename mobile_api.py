@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from datetime import date, datetime, timezone
 import hashlib
 import hmac
+import logging
 import math
 import os
 import time
@@ -64,6 +65,7 @@ from hike_journal.services.taxonomy import ensure_observation_taxonomy
 MAX_UPLOAD_BYTES = 30 * 1024 * 1024
 EVERYDAY_JOURNAL_ID = "everyday"
 MOBILE_API_VERSION = "0.6.4"
+logger = logging.getLogger(__name__)
 
 
 def _parse_picker_taken_at(value: str) -> datetime | None:
@@ -1453,6 +1455,12 @@ def publish_species_observation(observation_id: str, payload: PublishInput) -> d
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Mobile iNaturalist publish failed")
+        raise HTTPException(
+            status_code=502,
+            detail="HikeJournal could not finish this iNaturalist post. Please try again.",
+        ) from exc
 
     _species_data_cache = None
     raw_payload = observation.get("raw_response_json")

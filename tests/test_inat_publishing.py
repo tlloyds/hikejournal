@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import requests
+
+import pytest
+
 from hike_journal.services.inat import InatRequestError
 from hike_journal.services.inat_publishing import (
+    download_public_image,
     get_publish_state,
     publish_observation_group,
     publish_single_observation,
@@ -68,6 +73,34 @@ def photo(**overrides):
         "lng": -81.1,
         **overrides,
     }
+
+
+def test_publish_download_failure_is_a_publish_error(monkeypatch) -> None:
+    def fail_download(*_args, **_kwargs):
+        raise requests.ConnectionError("storage unavailable")
+
+    monkeypatch.setattr("hike_journal.services.inat_publishing.requests.get", fail_download)
+
+    with pytest.raises(InatRequestError, match="could not download"):
+        download_public_image("https://images.example/photo.jpg")
+
+
+def test_invalid_publish_timestamp_does_not_abort_posting() -> None:
+    repository = FakeRepository()
+    client = FakeInatClient()
+
+    publish_single_observation(
+        repository,
+        client,
+        observation(),
+        photo(taken_at="not-a-timestamp"),
+        place_guess=None,
+        owner_subject=None,
+        owner_email=None,
+        image_loader=lambda _url: b"image-bytes",
+    )
+
+    assert client.created["observed_on"] is None
 
 
 def test_publish_single_observation_creates_photo_backed_record() -> None:

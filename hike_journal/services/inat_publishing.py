@@ -43,8 +43,11 @@ def build_inat_observation_url(observation_id: int | str) -> str:
 def download_public_image(public_url: str) -> bytes:
     if not public_url.strip():
         raise RuntimeError("This record is missing its public photo URL.")
-    response = requests.get(public_url, timeout=30)
-    response.raise_for_status()
+    try:
+        response = requests.get(public_url, timeout=30)
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        raise InatRequestError("HikeJournal could not download this field photo for iNaturalist.") from exc
     image_bytes = response.content
     if not image_bytes:
         raise RuntimeError("The field photo was empty.")
@@ -216,4 +219,7 @@ def _parse_datetime(value: Any) -> datetime | None:
         return None
     if isinstance(value, datetime):
         return value
-    return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
