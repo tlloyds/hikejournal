@@ -832,15 +832,18 @@ def _publish_item_payload(
     photo: dict[str, Any],
     hike: dict[str, Any] | None,
     *,
+    source_hike_id: str | None = None,
     related_observation_ids: list[str] | None = None,
 ) -> dict[str, Any]:
     posting = get_inat_posting(observation)
+    hike_id = str((hike or {}).get("id") or source_hike_id or "").strip() or EVERYDAY_JOURNAL_ID
+    is_everyday_sighting = hike_id == EVERYDAY_JOURNAL_ID
     return {
         "id": str(observation.get("id") or ""),
         "photo": _photo_payload(photo, [observation]),
-        "hike_id": str((hike or {}).get("id") or "") or None,
-        "hike_title": str((hike or {}).get("title") or "Everyday sighting"),
-        "hike_date": str((hike or {}).get("hike_date") or ""),
+        "hike_id": hike_id,
+        "hike_title": str((hike or {}).get("title") or ("Everyday sightings" if is_everyday_sighting else "Everyday sighting")),
+        "hike_date": str((hike or {}).get("hike_date") or _observed_on(photo, None) or ""),
         "location_name": str((hike or {}).get("location_name") or ""),
         "taxon_id": observation.get("taxon_id"),
         "common_name": str(observation.get("common_name") or observation.get("scientific_name") or "Unknown species"),
@@ -872,7 +875,8 @@ def _publish_queue_payload(svc: Services) -> dict[str, Any]:
         photo = photos_by_id.get(str(observation.get("photo_id") or ""))
         if not photo:
             continue
-        hike = hikes_by_id.get(str(photo.get("hike_id") or observation.get("hike_id") or ""))
+        source_hike_id = str(photo.get("hike_id") or observation.get("hike_id") or "")
+        hike = hikes_by_id.get(source_hike_id)
         related_ids = [str(observation.get("id") or "")]
         if get_publish_state(observation) == "ready":
             hike_id = str(photo.get("hike_id") or observation.get("hike_id") or "")
@@ -883,6 +887,7 @@ def _publish_queue_payload(svc: Services) -> dict[str, Any]:
                 observation,
                 photo,
                 hike,
+                source_hike_id=source_hike_id,
                 related_observation_ids=related_ids[:10],
             )
         )
@@ -1460,7 +1465,13 @@ def publish_species_observation(observation_id: str, payload: PublishInput) -> d
         "inat_photo_attached": posting.get("photo_attached"),
         "raw_response_json": {**raw_payload, "inat_posting": posting},
     }
-    return _publish_item_payload(updated, photo, hike, related_observation_ids=requested_ids)
+    return _publish_item_payload(
+        updated,
+        photo,
+        hike,
+        source_hike_id=str(photo.get("hike_id") or observation.get("hike_id") or ""),
+        related_observation_ids=requested_ids,
+    )
 
 
 @app.get("/v1/species/detail", dependencies=[Depends(require_mobile_key)])

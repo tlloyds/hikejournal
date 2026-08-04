@@ -93,6 +93,24 @@ private enum class PublishFilter(val state: String, val label: String) {
     Posted("posted", "Posted"),
 }
 
+internal const val EVERYDAY_SIGHTINGS_HIKE_ID = "everyday"
+
+/**
+ * Standalone uploads predate the synthetic Everyday Sightings journal and do
+ * not have a hike ID in cached queue responses. Keep them in that scope while
+ * also accepting the explicit ID returned by current companion versions.
+ */
+internal fun publishItemsForHikeScope(
+    items: List<PublishItem>,
+    selectedHikeId: String?,
+): List<PublishItem> = when (selectedHikeId) {
+    null -> items
+    EVERYDAY_SIGHTINGS_HIKE_ID -> items.filter {
+        it.hikeId.isNullOrBlank() || it.hikeId == EVERYDAY_SIGHTINGS_HIKE_ID
+    }
+    else -> items.filter { it.hikeId == selectedHikeId }
+}
+
 @Composable
 fun PublishingScreen(
     queue: PublishQueue,
@@ -113,7 +131,7 @@ fun PublishingScreen(
     var filterOpen by remember { mutableStateOf(false) }
     val selectedHike = hikes.firstOrNull { it.id == selectedHikeId }
     val scopedItems = remember(queue.items, selectedHikeId) {
-        if (selectedHikeId == null) queue.items else queue.items.filter { it.hikeId == selectedHikeId }
+        publishItemsForHikeScope(queue.items, selectedHikeId)
     }
     val readyCount = if (selectedHikeId == null) queue.readyCount else scopedItems.count { it.state == PublishFilter.Ready.state }
     val attentionCount = if (selectedHikeId == null) queue.needsAttentionCount else scopedItems.count { it.state == PublishFilter.Attention.state }

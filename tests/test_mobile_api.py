@@ -17,6 +17,7 @@ from mobile_api import (
     SpeciesQuestInput,
     _build_species_payloads,
     _photo_payload,
+    _publish_item_payload,
     _parse_picker_taken_at,
     _standalone_hike_payload,
     _review_candidates,
@@ -83,6 +84,18 @@ def test_photo_payload_uses_mobile_contract_names():
     assert payload["url"] == "https://images.example/photo.jpg"
     assert payload["caption"] == "Boardwalk at dusk"
     assert payload["species"] == []
+
+
+def test_publish_payload_assigns_standalone_items_to_everyday_sightings():
+    payload = _publish_item_payload(
+        {"id": "observation-1", "common_name": "Eastern gray squirrel"},
+        {"id": "photo-1", "taken_at": "2026-08-04T10:00:00"},
+        None,
+    )
+
+    assert payload["hike_id"] == "everyday"
+    assert payload["hike_title"] == "Everyday sightings"
+    assert payload["hike_date"] == "2026-08-04T10:00:00"
 
 
 def test_photo_payload_includes_stored_species_wikipedia_info():
