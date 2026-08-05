@@ -3054,24 +3054,28 @@ private fun MountainField(modifier: Modifier = Modifier) {
 
 @Composable
 private fun HikeCardMetadata(hike: Hike, color: Color) {
-    if (hike.locationName.isNotBlank()) {
+    // AnimatedContent positions each direct child in the same content area. Keep the
+    // location and stats in one vertical layout so featured-card metadata can never overlap.
+    Column {
+        if (hike.locationName.isNotBlank()) {
+            Text(
+                hike.locationName,
+                style = MaterialTheme.typography.bodyMedium,
+                color = color,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+
+        val stats = mutableListOf<String>()
+        hike.distanceMiles?.let { stats += String.format(Locale.US, "%.1f mi", it) }
+        if (hike.photoCount > 0) stats += "${hike.photoCount} photos"
         Text(
-            hike.locationName,
+            stats.joinToString(" · ").ifBlank { "Field journal" },
             style = MaterialTheme.typography.bodyMedium,
             color = color,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
         )
     }
-
-    val stats = mutableListOf<String>()
-    hike.distanceMiles?.let { stats += String.format(Locale.US, "%.1f mi", it) }
-    if (hike.photoCount > 0) stats += "${hike.photoCount} photos"
-    Text(
-        stats.joinToString(" · ").ifBlank { "Field journal" },
-        style = MaterialTheme.typography.bodyMedium,
-        color = color,
-    )
 }
 
 private fun journalHikeMeta(hike: Hike): String {
