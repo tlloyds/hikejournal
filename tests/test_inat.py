@@ -115,6 +115,48 @@ def test_taxon_enrichment_is_available_without_an_inat_account(monkeypatch) -> N
     assert captured["headers"].get("Authorization") is None
 
 
+def test_observation_creation_omits_open_geoprivacy_like_the_web_publisher(monkeypatch) -> None:
+    captured = {}
+
+    class Response:
+        status_code = 200
+        text = ""
+
+        @staticmethod
+        def json():
+            return {"id": 123}
+
+    client = InatClient(access_token="token", base_url="https://api.example/v1")
+
+    def fake_request(method, url, **kwargs):
+        captured.update({"method": method, "url": url, **kwargs})
+        return Response()
+
+    monkeypatch.setattr(client, "_request", fake_request)
+
+    client.create_observation(
+        taxon_id=42048,
+        species_guess="White-tailed Deer",
+        observed_on=datetime(2026, 8, 2, 9, 36),
+        lat=28.6,
+        lng=-81.1,
+        description="Posted from HikeJournal.",
+        tags=["HikeJournal"],
+        geoprivacy="open",
+    )
+
+    assert captured["json"] == {
+        "observation": {
+            "taxon_id": 42048,
+            "observed_on_string": "2026-08-02 09:36:00",
+            "latitude": 28.6,
+            "longitude": -81.1,
+            "description": "Posted from HikeJournal.",
+            "tag_list": "HikeJournal",
+        }
+    }
+
+
 def test_batch_taxon_enrichment_uses_public_lookup(monkeypatch) -> None:
     captured = {}
 

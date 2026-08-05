@@ -307,7 +307,10 @@ class InatClient:
             observation_payload["description"] = description.strip()
         if tags:
             observation_payload["tag_list"] = ",".join(tag.strip() for tag in tags if tag.strip())
-        if geoprivacy in {"open", "obscured", "private"}:
+        # iNaturalist represents an exact location by omitting geoprivacy.
+        # Sending its UI label ("open") causes its observation endpoint to
+        # fail for some accounts, while the web publisher correctly omits it.
+        if geoprivacy in {"obscured", "private"}:
             observation_payload["geoprivacy"] = geoprivacy
         if captive:
             observation_payload["captive"] = True
