@@ -38,6 +38,7 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
@@ -64,6 +65,7 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.hikejournal.app.data.ReviewCandidate
 import com.hikejournal.app.data.ReviewItem
+import com.hikejournal.app.data.ReviewBatchStatus
 import com.hikejournal.app.data.ReviewPhotoGroup
 import com.hikejournal.app.data.buildReviewPhotoGroups
 import com.hikejournal.app.data.splitReviewPhotoGroups
@@ -82,6 +84,7 @@ fun SpeciesReviewScreen(
     decidingId: String?,
     identifyingId: String?,
     batchIdentifying: Boolean,
+    batchProgress: ReviewBatchStatus?,
     offline: Boolean,
     onRefresh: () -> Unit,
     onDecision: (ReviewItem, String, ReviewCandidate?) -> Unit,
@@ -137,6 +140,7 @@ fun SpeciesReviewScreen(
             batchMode -> SpeciesBatchIdentificationContent(
                 queue = waitingItems,
                 submitting = batchIdentifying,
+                progress = batchProgress,
                 offline = offline,
                 onBack = { if (!batchIdentifying) batchMode = false },
                 onSubmit = { groups ->
@@ -200,6 +204,7 @@ fun SpeciesReviewScreen(
 private fun SpeciesBatchIdentificationContent(
     queue: List<ReviewItem>,
     submitting: Boolean,
+    progress: ReviewBatchStatus?,
     offline: Boolean,
     onBack: () -> Unit,
     onSubmit: (List<List<String>>) -> Unit,
@@ -253,6 +258,40 @@ private fun SpeciesBatchIdentificationContent(
                     color = if (selectedItems.isEmpty()) InkMuted else Moss,
                     modifier = Modifier.padding(top = 15.dp),
                 )
+                progress?.let { batch ->
+                    val total = batch.totalPhotos.coerceAtLeast(1)
+                    val current = when {
+                        batch.state == "completed" -> total
+                        batch.currentPhotoNumber > 0 -> batch.currentPhotoNumber.coerceIn(1, total)
+                        else -> 0
+                    }
+                    val statusLabel = when (batch.state) {
+                        "queued" -> "Preparing ID requests…"
+                        "running" -> "Submitting photo $current of ${batch.totalPhotos}…"
+                        "completed" -> "Submitted ${batch.processedCount} of ${batch.totalPhotos} photos"
+                        "failed" -> "Stopped after ${batch.processedCount} of ${batch.totalPhotos} photos"
+                        else -> "Updating submission status…"
+                    }
+                    Text(
+                        statusLabel,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (batch.state == "failed") Trail else Moss,
+                        modifier = Modifier.padding(top = 14.dp),
+                    )
+                    LinearProgressIndicator(
+                        progress = { current.toFloat() / total.toFloat() },
+                        modifier = Modifier.fillMaxWidth().padding(top = 7.dp),
+                        color = if (batch.state == "failed") Trail else Moss,
+                    )
+                    if (batch.currentGroup > 0 && batch.totalGroups > 0 && batch.state == "running") {
+                        Text(
+                            "Request ${batch.currentGroup} of ${batch.totalGroups}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = InkMuted,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                    }
+                }
             }
         }
         if (displayGroups.isEmpty()) {

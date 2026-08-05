@@ -429,6 +429,12 @@ class HikeJournalRepository(context: Context) {
         return result
     }
 
+    suspend fun startReviewBatch(groups: List<List<String>>): ReviewBatchStatus =
+        parseReviewBatchStatus(api.startReviewBatch(groups))
+
+    suspend fun getReviewBatchStatus(jobId: String): ReviewBatchStatus =
+        parseReviewBatchStatus(api.getReviewBatchStatus(jobId))
+
     suspend fun getInatAuthorizationUrl(): String = api.getInatAuthorizationUrl()
 
     suspend fun loadPublishQueue(): LoadResult<PublishQueue> {

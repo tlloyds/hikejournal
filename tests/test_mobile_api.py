@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import date
 
 import pytest
-from fastapi import HTTPException
+from fastapi import BackgroundTasks, HTTPException
 from fastapi.testclient import TestClient
 
 from hike_journal.models import PhotoMetadata, ProcessedImage, SpeciesCandidate
@@ -44,6 +45,8 @@ from mobile_api import (
     require_mobile_key,
     request_species_recommendation,
     request_species_batch_recommendation,
+    start_species_batch_recommendation,
+    get_species_batch_recommendation_status,
     set_photo_species_review,
     update_hike_cover,
     ReviewBatchInput,
@@ -783,6 +786,67 @@ def test_mobile_review_batch_saves_one_shared_suggestion_for_a_group(monkeypatch
     assert [candidate.taxon_id for _photo_id, candidate in repository.saved] == [20, 20]
     assert all(candidate.raw_payload["grouped_cv"] for _photo_id, candidate in repository.saved)
     assert storage.downloaded == ["photos/photo-a.jpg", "photos/photo-b.jpg"]
+
+
+def test_mobile_review_batch_status_reports_completion_after_background_work(monkeypatch):
+    class Repository:
+        def list_photo_records_for_ids(self, photo_ids):
+            return [
+                {
+                    "id": photo_id,
+                    "hike_id": "hike-1",
+                    "storage_path": f"photos/{photo_id}.jpg",
+                    "lat": 28.6,
+                    "lng": -81.1,
+                    "taken_at": "2026-08-05T10:00:00Z",
+                }
+                for photo_id in photo_ids
+            ]
+
+        def upsert_observation(self, _hike_id, photo_id, _candidate, **_kwargs):
+            return {"id": f"obs-{photo_id}", "photo_id": photo_id}
+
+    class Storage:
+        def download_file(self, _storage_path):
+            return b"image"
+
+    class InatClient:
+        def validate_credentials(self):
+            return None
+
+        def identify_species(self, **_kwargs):
+            return SpeciesCandidate("Species", "Species testus", 0.8, 10, {})
+
+    repository = Repository()
+    service = type("Service", (), {"repository": repository, "storage": Storage()})()
+    queue = [
+        {"id": "photo-a", "photo": {"id": "photo-a"}, "candidates": []},
+        {"id": "photo-b", "photo": {"id": "photo-b"}, "candidates": []},
+    ]
+    monkeypatch.setattr("mobile_api.get_services", lambda: service)
+    monkeypatch.setattr("mobile_api._mobile_inat_client", lambda: InatClient())
+    monkeypatch.setattr("mobile_api._review_queue_payload", lambda _service: queue)
+    monkeypatch.setattr("mobile_api.ensure_observation_taxonomy", lambda *_args: None)
+
+    tasks = BackgroundTasks()
+    job = start_species_batch_recommendation(
+        ReviewBatchInput(
+            groups=[
+                ReviewBatchGroupInput(photo_ids=["photo-a"]),
+                ReviewBatchGroupInput(photo_ids=["photo-b"]),
+            ]
+        ),
+        tasks,
+    )
+
+    assert job["state"] == "queued"
+    assert job["total_photos"] == 2
+    asyncio.run(tasks())
+
+    status = get_species_batch_recommendation_status(job["job_id"])
+    assert status["state"] == "completed"
+    assert status["processed_photo_ids"] == ["photo-a", "photo-b"]
+    assert status["current_photo_number"] == 2
 
 
 def test_existing_photo_can_be_queued_for_species_review(monkeypatch):

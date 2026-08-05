@@ -286,6 +286,23 @@ data class ReviewBatchResult(
     val warnings: List<String>,
 )
 
+data class ReviewBatchStatus(
+    val jobId: String,
+    val state: String,
+    val totalPhotos: Int,
+    val processedCount: Int,
+    val processedPhotoIds: List<String>,
+    val currentPhotoNumber: Int,
+    val currentPhotoId: String?,
+    val totalGroups: Int,
+    val currentGroup: Int,
+    val groupedCount: Int,
+    val individualCount: Int,
+    val warnings: List<String>,
+    val error: String?,
+    val items: List<ReviewItem>,
+)
+
 data class PublishItem(
     val id: String,
     val photo: Photo,
@@ -519,6 +536,29 @@ fun parseReviewBatchResult(json: String): ReviewBatchResult {
         groupedCount = root.optInt("grouped_count"),
         individualCount = root.optInt("individual_count"),
         warnings = List(warnings.length()) { index -> warnings.optString(index) },
+    )
+}
+
+fun parseReviewBatchStatus(json: String): ReviewBatchStatus {
+    val root = JSONObject(json)
+    val processed = root.optJSONArray("processed_photo_ids") ?: JSONArray()
+    val warnings = root.optJSONArray("warnings") ?: JSONArray()
+    val items = root.optJSONArray("items") ?: JSONArray()
+    return ReviewBatchStatus(
+        jobId = root.optString("job_id"),
+        state = root.optString("state", "queued"),
+        totalPhotos = root.optInt("total_photos"),
+        processedCount = root.optInt("processed_count", processed.length()),
+        processedPhotoIds = List(processed.length()) { index -> processed.optString(index) },
+        currentPhotoNumber = root.optInt("current_photo_number"),
+        currentPhotoId = root.optNullableString("current_photo_id"),
+        totalGroups = root.optInt("total_groups"),
+        currentGroup = root.optInt("current_group"),
+        groupedCount = root.optInt("grouped_count"),
+        individualCount = root.optInt("individual_count"),
+        warnings = List(warnings.length()) { index -> warnings.optString(index) },
+        error = root.optNullableString("error"),
+        items = List(items.length()) { index -> parseReviewItem(items.getJSONObject(index)) },
     )
 }
 

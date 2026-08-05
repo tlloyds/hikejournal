@@ -20,6 +20,7 @@ import com.hikejournal.app.data.PublishOptions
 import com.hikejournal.app.data.PublishQueue
 import com.hikejournal.app.data.ReviewCandidate
 import com.hikejournal.app.data.ReviewItem
+import com.hikejournal.app.data.ReviewBatchStatus
 import com.hikejournal.app.data.RecordedRouteUpload
 import com.hikejournal.app.data.RoutePoint
 import com.hikejournal.app.data.QuestSightingsMap
@@ -80,6 +81,7 @@ data class AppState(
     val decidingReviewId: String? = null,
     val identifyingReviewId: String? = null,
     val isBatchIdentifying: Boolean = false,
+    val batchProgress: ReviewBatchStatus? = null,
     val resolvingSpeciesInfoPhotoId: String? = null,
     val prioritizingPhotoId: String? = null,
     val inatAuthorizationUrl: String? = null,
@@ -807,37 +809,68 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun submitReviewBatch(groups: List<List<String>>, onSuccess: () -> Unit = {}) {
+    fun submitReviewBatch(groups: List<List<String>>, onFinished: () -> Unit = {}) {
         if (_state.value.isOffline) {
             _state.update { it.copy(error = "Batch identification needs a connection.") }
             return
         }
         if (groups.isEmpty()) return
         viewModelScope.launch {
-            _state.update { it.copy(isBatchIdentifying = true, error = null) }
-            runCatching { repository.requestReviewBatch(groups) }
-                .onSuccess { result ->
-                    val refreshedById = result.items.associateBy { it.id }
-                    _state.update { state ->
-                        state.copy(
-                            reviewQueue = state.reviewQueue.map { refreshedById[it.id] ?: it },
-                            isBatchIdentifying = false,
-                            isOffline = false,
-                            notice = buildString {
-                                append("Submitted ${result.processedPhotoIds.size} photo")
-                                if (result.processedPhotoIds.size != 1) append('s')
+            _state.update { it.copy(isBatchIdentifying = true, batchProgress = null, error = null) }
+            runCatching {
+                var status = repository.startReviewBatch(groups)
+                _state.update { it.copy(batchProgress = status) }
+                var statusCheckFailures = 0
+                while (status.state == "queued" || status.state == "running") {
+                    delay(1_000)
+                    status = try {
+                        repository.getReviewBatchStatus(status.jobId)
+                    } catch (error: Exception) {
+                        statusCheckFailures += 1
+                        if (statusCheckFailures >= 3) throw error
+                        continue
+                    }
+                    statusCheckFailures = 0
+                    _state.update { it.copy(batchProgress = status) }
+                }
+                status
+            }.onSuccess { status ->
+                val refreshedById = status.items.associateBy { it.id }
+                val completed = status.state == "completed"
+                _state.update { state ->
+                    state.copy(
+                        reviewQueue = state.reviewQueue.map { refreshedById[it.id] ?: it },
+                        isBatchIdentifying = false,
+                        isOffline = false,
+                        error = status.error?.takeUnless { completed },
+                        notice = if (completed) {
+                            buildString {
+                                append("Submitted ${status.processedPhotoIds.size} photo")
+                                if (status.processedPhotoIds.size != 1) append('s')
                                 append(" as ${groups.size} ID request")
                                 if (groups.size != 1) append('s')
-                                if (result.warnings.isNotEmpty()) append(". ${result.warnings.first()}")
-                            },
-                        )
-                    }
-                    onSuccess()
+                                if (status.warnings.isNotEmpty()) append(". ${status.warnings.first()}")
+                            }
+                        } else {
+                            null
+                        },
+                    )
                 }
-                .onFailure { error ->
-                    _state.update { it.copy(isBatchIdentifying = false, error = error.userMessage()) }
+                onFinished()
+            }.onFailure {
+                _state.update {
+                    it.copy(
+                        isBatchIdentifying = false,
+                        error = "The batch started, but HikeJournal could not confirm its status. Refresh the review queue to see completed IDs.",
+                    )
                 }
+                onFinished()
+            }
         }
+    }
+
+    fun clearBatchProgress() {
+        _state.update { it.copy(batchProgress = null) }
     }
 
     fun requestPhotoRecommendation(photo: Photo, onRecommended: (ReviewItem) -> Unit) {

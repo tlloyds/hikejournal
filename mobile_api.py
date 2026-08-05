@@ -11,11 +11,12 @@ import json
 import math
 import os
 import time
-from typing import Any, Annotated, Literal
+from threading import Lock
+from typing import Any, Annotated, Callable, Literal
 from types import SimpleNamespace
-from uuid import UUID
+from uuid import UUID, uuid4
 
-from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, UploadFile, status
+from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, Header, HTTPException, Query, UploadFile, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 from supabase import Client, create_client
@@ -67,7 +68,7 @@ from hike_journal.services.taxonomy import ensure_observation_taxonomy
 
 MAX_UPLOAD_BYTES = 30 * 1024 * 1024
 EVERYDAY_JOURNAL_ID = "everyday"
-MOBILE_API_VERSION = "0.6.17"
+MOBILE_API_VERSION = "0.6.18"
 logger = logging.getLogger(__name__)
 
 
@@ -212,6 +213,8 @@ _species_data_cache: tuple[
     float,
     tuple[list[dict[str, Any]], dict[str, dict[str, Any]], dict[str, dict[str, Any]]],
 ] | None = None
+_species_batch_jobs: dict[str, dict[str, Any]] = {}
+_species_batch_jobs_lock = Lock()
 
 
 def _invalidate_species_data_cache() -> None:
@@ -808,6 +811,8 @@ def _build_mobile_grouped_species_candidate(
     svc: Services,
     inat_client: InatClient,
     photos: list[dict[str, Any]],
+    *,
+    on_photo_start: Callable[[str], None] | None = None,
 ) -> tuple[SpeciesCandidate | None, list[dict[str, Any]], dict[str, SpeciesCandidate], list[str]]:
     aggregate: dict[str, dict[str, Any]] = {}
     processed_photos: list[dict[str, Any]] = []
@@ -816,6 +821,8 @@ def _build_mobile_grouped_species_candidate(
 
     for photo in photos:
         photo_id = str(photo.get("id") or "")
+        if on_photo_start:
+            on_photo_start(photo_id)
         try:
             candidates, _payload = inat_client.score_species_candidates(
                 image_bytes=_download_photo_for_cv(svc, photo),
@@ -1457,10 +1464,9 @@ def list_species_review() -> list[dict[str, Any]]:
     return _review_queue_payload(get_services())
 
 
-@app.post("/v1/species/review/batch-recommendation", dependencies=[Depends(require_mobile_key)])
-def request_species_batch_recommendation(payload: ReviewBatchInput) -> dict[str, Any]:
-    """Score one user-managed set of species-review groups in one request."""
-    global _species_data_cache
+def _prepare_species_batch_submission(
+    payload: ReviewBatchInput,
+) -> tuple[Services, list[ReviewBatchGroupInput], dict[str, dict[str, Any]], InatClient, list[str]]:
     svc = get_services()
     queue = _review_queue_payload(svc)
     queue_by_id = {str(item.get("id") or ""): item for item in queue}
@@ -1510,69 +1516,80 @@ def request_species_batch_recommendation(payload: ReviewBatchInput) -> dict[str,
         raise HTTPException(status_code=401, detail=str(exc)) from exc
     except InatRequestError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return svc, payload.groups, full_photos_by_id, inat_client, requested_ids
 
+
+def _process_species_batch_submission(
+    svc: Services,
+    groups: list[ReviewBatchGroupInput],
+    full_photos_by_id: dict[str, dict[str, Any]],
+    inat_client: InatClient,
+    *,
+    on_group_start: Callable[[int], None] | None = None,
+    on_photo_start: Callable[[str], None] | None = None,
+    on_photo_complete: Callable[[str], None] | None = None,
+) -> dict[str, Any]:
+    global _species_data_cache
     processed_ids: list[str] = []
     warnings: list[str] = []
     grouped_count = 0
     individual_count = 0
-    for group in payload.groups:
+    for group_index, group in enumerate(groups, start=1):
+        if on_group_start:
+            on_group_start(group_index)
         group_photos = [full_photos_by_id[photo_id] for photo_id in group.photo_ids]
-        try:
-            if len(group_photos) == 1:
-                photo = group_photos[0]
-                candidate = inat_client.identify_species(
-                    image_bytes=_download_photo_for_cv(svc, photo),
-                    filename=f"{photo['id']}.jpg",
-                    lat=photo.get("lat"),
-                    lng=photo.get("lng"),
-                    observed_on=_photo_observed_at(photo),
-                )
-                observation = svc.repository.upsert_observation(
-                    photo.get("hike_id"),
-                    photo["id"],
-                    candidate,
-                    owner_subject=photo.get("owner_subject"),
-                    owner_email=photo.get("owner_email"),
-                )
-                ensure_observation_taxonomy(svc.repository, inat_client, observation)
-                processed_ids.append(str(photo["id"]))
-                individual_count += 1
-                continue
-
-            grouped_candidate, processed_photos, individual_candidates, group_warnings = _build_mobile_grouped_species_candidate(
-                svc,
-                inat_client,
-                group_photos,
+        if len(group_photos) == 1:
+            photo = group_photos[0]
+            if on_photo_start:
+                on_photo_start(str(photo["id"]))
+            candidate = inat_client.identify_species(
+                image_bytes=_download_photo_for_cv(svc, photo),
+                filename=f"{photo['id']}.jpg",
+                lat=photo.get("lat"),
+                lng=photo.get("lng"),
+                observed_on=_photo_observed_at(photo),
             )
-            warnings.extend(group_warnings)
-            if grouped_candidate is not None:
-                grouped_count += 1
-            else:
-                individual_count += len(processed_photos)
-                warnings.append(
-                    f"The {len(group_photos)}-photo group did not reach consensus; saved individual suggestions instead."
-                )
-            for photo in processed_photos:
-                candidate = grouped_candidate or individual_candidates[str(photo["id"])]
-                observation = svc.repository.upsert_observation(
-                    photo.get("hike_id"),
-                    photo["id"],
-                    candidate,
-                    owner_subject=photo.get("owner_subject"),
-                    owner_email=photo.get("owner_email"),
-                )
-                ensure_observation_taxonomy(svc.repository, inat_client, observation)
-                processed_ids.append(str(photo["id"]))
-        except InatConfigurationError as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-        except InatAuthError as exc:
-            raise HTTPException(status_code=401, detail=str(exc)) from exc
-        except InatRateLimitError as exc:
-            raise HTTPException(status_code=429, detail=str(exc)) from exc
-        except InatComputerVisionBlockedError as exc:
-            raise HTTPException(status_code=503, detail=str(exc)) from exc
-        except InatRequestError as exc:
-            raise HTTPException(status_code=502, detail=str(exc)) from exc
+            observation = svc.repository.upsert_observation(
+                photo.get("hike_id"),
+                photo["id"],
+                candidate,
+                owner_subject=photo.get("owner_subject"),
+                owner_email=photo.get("owner_email"),
+            )
+            ensure_observation_taxonomy(svc.repository, inat_client, observation)
+            processed_ids.append(str(photo["id"]))
+            individual_count += 1
+            if on_photo_complete:
+                on_photo_complete(str(photo["id"]))
+            continue
+
+        grouped_candidate, processed_photos, individual_candidates, group_warnings = _build_mobile_grouped_species_candidate(
+            svc,
+            inat_client,
+            group_photos,
+            on_photo_start=on_photo_start,
+        )
+        warnings.extend(group_warnings)
+        if grouped_candidate is not None:
+            grouped_count += 1
+        else:
+            individual_count += len(processed_photos)
+            warnings.append(
+                f"The {len(group_photos)}-photo group did not reach consensus; saved individual suggestions instead."
+            )
+        for photo in processed_photos:
+            candidate = grouped_candidate or individual_candidates[str(photo["id"])]
+            observation = svc.repository.upsert_observation(
+                photo.get("hike_id"),
+                photo["id"],
+                candidate,
+                owner_subject=photo.get("owner_subject"),
+                owner_email=photo.get("owner_email"),
+            )
+            ensure_observation_taxonomy(svc.repository, inat_client, observation)
+            processed_ids.append(str(photo["id"]))
+            if on_photo_complete:
+                on_photo_complete(str(photo["id"]))
 
     _species_data_cache = None
     refreshed_queue = _review_queue_payload(svc)
@@ -1584,6 +1601,179 @@ def request_species_batch_recommendation(payload: ReviewBatchInput) -> dict[str,
         "individual_count": individual_count,
         "warnings": warnings,
     }
+
+
+def _http_error_for_species_batch(error: Exception) -> HTTPException:
+    if isinstance(error, InatConfigurationError):
+        return HTTPException(status_code=409, detail=str(error))
+    if isinstance(error, InatAuthError):
+        return HTTPException(status_code=401, detail=str(error))
+    if isinstance(error, InatRateLimitError):
+        return HTTPException(status_code=429, detail=str(error))
+    if isinstance(error, InatComputerVisionBlockedError):
+        return HTTPException(status_code=503, detail=str(error))
+    if isinstance(error, InatRequestError):
+        return HTTPException(status_code=502, detail=str(error))
+    return HTTPException(status_code=500, detail="Species identification could not complete.")
+
+
+def _review_batch_job_payload(job: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in job.items()
+        if key != "owner_context"
+    }
+
+
+def _get_review_batch_job(job_id: str) -> dict[str, Any]:
+    with _species_batch_jobs_lock:
+        job = _species_batch_jobs.get(job_id)
+        snapshot = dict(job) if job else None
+        if snapshot:
+            snapshot["processed_photo_ids"] = list(snapshot.get("processed_photo_ids") or [])
+            snapshot["warnings"] = list(snapshot.get("warnings") or [])
+            snapshot["items"] = list(snapshot.get("items") or [])
+    if not snapshot or snapshot.get("owner_context") != _user_context():
+        raise HTTPException(status_code=404, detail="Species identification batch not found.")
+    return _review_batch_job_payload(snapshot)
+
+
+def _update_review_batch_job(job_id: str, **updates: Any) -> None:
+    with _species_batch_jobs_lock:
+        job = _species_batch_jobs.get(job_id)
+        if job:
+            job.update(updates)
+
+
+def _run_species_batch_job(
+    job_id: str,
+    svc: Services,
+    groups: list[ReviewBatchGroupInput],
+    full_photos_by_id: dict[str, dict[str, Any]],
+    inat_client: InatClient,
+    total_photos: int,
+) -> None:
+    _update_review_batch_job(job_id, state="running")
+    next_photo_number = 1
+
+    def on_group_start(group_number: int) -> None:
+        _update_review_batch_job(job_id, current_group=group_number)
+
+    def on_photo_start(photo_id: str) -> None:
+        nonlocal next_photo_number
+        _update_review_batch_job(
+            job_id,
+            current_photo_id=photo_id,
+            current_photo_number=min(next_photo_number, total_photos),
+        )
+        next_photo_number += 1
+
+    def on_photo_complete(photo_id: str) -> None:
+        with _species_batch_jobs_lock:
+            job = _species_batch_jobs.get(job_id)
+            if not job:
+                return
+            processed_ids = list(job.get("processed_photo_ids") or [])
+            if photo_id not in processed_ids:
+                processed_ids.append(photo_id)
+            job["processed_photo_ids"] = processed_ids
+            job["processed_count"] = len(processed_ids)
+
+    try:
+        result = _process_species_batch_submission(
+            svc,
+            groups,
+            full_photos_by_id,
+            inat_client,
+            on_group_start=on_group_start,
+            on_photo_start=on_photo_start,
+            on_photo_complete=on_photo_complete,
+        )
+    except Exception as error:
+        processed_ids = _get_review_batch_job(job_id).get("processed_photo_ids") or []
+        refreshed_queue = _review_queue_payload(svc)
+        processed_set = set(processed_ids)
+        _update_review_batch_job(
+            job_id,
+            state="failed",
+            error=str(error),
+            current_photo_id=None,
+            items=[item for item in refreshed_queue if str(item.get("id") or "") in processed_set],
+        )
+        return
+
+    _update_review_batch_job(
+        job_id,
+        state="completed",
+        processed_photo_ids=result["processed_photo_ids"],
+        processed_count=len(result["processed_photo_ids"]),
+        current_photo_id=None,
+        current_photo_number=total_photos,
+        grouped_count=result["grouped_count"],
+        individual_count=result["individual_count"],
+        warnings=result["warnings"],
+        items=result["items"],
+    )
+
+
+@app.post("/v1/species/review/batch-recommendation", dependencies=[Depends(require_mobile_key)])
+def request_species_batch_recommendation(payload: ReviewBatchInput) -> dict[str, Any]:
+    """Compatibility endpoint for clients that still expect a synchronous response."""
+    svc, groups, full_photos_by_id, inat_client, _requested_ids = _prepare_species_batch_submission(payload)
+    try:
+        return _process_species_batch_submission(svc, groups, full_photos_by_id, inat_client)
+    except Exception as error:
+        raise _http_error_for_species_batch(error) from error
+
+
+@app.post("/v1/species/review/batch-recommendation/start", dependencies=[Depends(require_mobile_key)])
+def start_species_batch_recommendation(
+    payload: ReviewBatchInput,
+    background_tasks: BackgroundTasks,
+) -> dict[str, Any]:
+    svc, groups, full_photos_by_id, inat_client, requested_ids = _prepare_species_batch_submission(payload)
+    job_id = str(uuid4())
+    job = {
+        "job_id": job_id,
+        "state": "queued",
+        "total_photos": len(requested_ids),
+        "processed_count": 0,
+        "processed_photo_ids": [],
+        "current_photo_number": 0,
+        "current_photo_id": None,
+        "total_groups": len(groups),
+        "current_group": 0,
+        "grouped_count": 0,
+        "individual_count": 0,
+        "warnings": [],
+        "error": None,
+        "items": [],
+        "owner_context": _user_context(),
+    }
+    with _species_batch_jobs_lock:
+        finished_ids = [
+            existing_id
+            for existing_id, existing in _species_batch_jobs.items()
+            if existing.get("state") in {"completed", "failed"}
+        ]
+        for existing_id in finished_ids[:-50]:
+            _species_batch_jobs.pop(existing_id, None)
+        _species_batch_jobs[job_id] = job
+    background_tasks.add_task(
+        _run_species_batch_job,
+        job_id,
+        svc,
+        groups,
+        full_photos_by_id,
+        inat_client,
+        len(requested_ids),
+    )
+    return _review_batch_job_payload(job)
+
+
+@app.get("/v1/species/review/batch-recommendation/{job_id}", dependencies=[Depends(require_mobile_key)])
+def get_species_batch_recommendation_status(job_id: str) -> dict[str, Any]:
+    return _get_review_batch_job(job_id)
 
 
 @app.post("/v1/species/review/{photo_id}/recommendation", dependencies=[Depends(require_mobile_key)])
