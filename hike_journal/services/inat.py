@@ -297,21 +297,24 @@ class InatClient:
             raise InatConfigurationError("A species name or taxon is required before posting to iNaturalist.")
         if observed_on is not None:
             observation_payload["observed_on_string"] = observed_on.strftime("%Y-%m-%d %H:%M:%S")
-        if lat is not None and lng is not None:
-            observation_payload["location"] = f"{float(lat)},{float(lng)}"
+        # These names intentionally mirror the fields accepted by
+        # iNaturalist's observations controller. The v1 endpoint silently
+        # ignores its newer-looking `location` and `tags` aliases, which can
+        # create an otherwise blank observation before returning an error.
+        if lat is not None:
+            observation_payload["latitude"] = float(lat)
+        if lng is not None:
+            observation_payload["longitude"] = float(lng)
         if place_guess:
             observation_payload["place_guess"] = place_guess.strip()
         if description:
             observation_payload["description"] = description.strip()
         if tags:
-            observation_payload["tags"] = [tag.strip() for tag in tags if tag.strip()]
-        # iNaturalist represents an exact location by omitting geoprivacy.
-        # Sending its UI label ("open") causes its observation endpoint to
-        # fail for some accounts, while the web publisher correctly omits it.
-        if geoprivacy in {"obscured", "private"}:
+            observation_payload["tag_list"] = ",".join(tag.strip() for tag in tags if tag.strip())
+        if geoprivacy in {"open", "obscured", "private"}:
             observation_payload["geoprivacy"] = geoprivacy
         if captive:
-            observation_payload["captive"] = True
+            observation_payload["captive_flag"] = True
 
         response = self._request(
             "post",

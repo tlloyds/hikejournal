@@ -115,7 +115,7 @@ def test_taxon_enrichment_is_available_without_an_inat_account(monkeypatch) -> N
     assert captured["headers"].get("Authorization") is None
 
 
-def test_observation_creation_omits_open_geoprivacy_like_the_web_publisher(monkeypatch) -> None:
+def test_observation_creation_uses_inaturalist_observation_controller_fields(monkeypatch) -> None:
     captured = {}
 
     class Response:
@@ -143,15 +143,19 @@ def test_observation_creation_omits_open_geoprivacy_like_the_web_publisher(monke
         description="Posted from HikeJournal.",
         tags=["HikeJournal"],
         geoprivacy="open",
+        captive=True,
     )
 
     assert captured["json"] == {
         "observation": {
             "taxon_id": 42048,
             "observed_on_string": "2026-08-02 09:36:00",
-            "location": "28.6,-81.1",
+            "latitude": 28.6,
+            "longitude": -81.1,
             "description": "Posted from HikeJournal.",
-            "tags": ["HikeJournal"],
+            "tag_list": "HikeJournal",
+            "geoprivacy": "open",
+            "captive_flag": True,
         }
     }
 
