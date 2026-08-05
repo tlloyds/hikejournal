@@ -330,6 +330,24 @@ data class PublishOptions(
     val captive: Boolean = false,
 )
 
+data class PublishBatchStatus(
+    val jobId: String,
+    val state: String,
+    val totalGroups: Int,
+    val processedGroupCount: Int,
+    val postedGroupCount: Int,
+    val failedGroupCount: Int,
+    val partialGroupCount: Int,
+    val totalPhotos: Int,
+    val processedPhotoCount: Int,
+    val currentGroup: Int,
+    val currentGroupPhotoCount: Int,
+    val processedObservationIds: List<String>,
+    val processedPhotoIds: List<String>,
+    val errors: List<String>,
+    val error: String?,
+)
+
 data class SyncStatus(
     val pendingCount: Int = 0,
     val syncingCount: Int = 0,
@@ -622,6 +640,31 @@ private fun parsePublishItem(item: JSONObject): PublishItem = PublishItem(
     }.orEmpty(),
     relatedPhotoCount = item.optInt("related_photo_count", 1),
 )
+
+fun parsePublishBatchStatus(json: String): PublishBatchStatus {
+    val root = JSONObject(json)
+    fun strings(key: String): List<String> {
+        val values = root.optJSONArray(key) ?: JSONArray()
+        return List(values.length()) { index -> values.optString(index) }
+    }
+    return PublishBatchStatus(
+        jobId = root.optString("job_id"),
+        state = root.optString("state", "queued"),
+        totalGroups = root.optInt("total_groups"),
+        processedGroupCount = root.optInt("processed_group_count"),
+        postedGroupCount = root.optInt("posted_group_count"),
+        failedGroupCount = root.optInt("failed_group_count"),
+        partialGroupCount = root.optInt("partial_group_count"),
+        totalPhotos = root.optInt("total_photos"),
+        processedPhotoCount = root.optInt("processed_photo_count"),
+        currentGroup = root.optInt("current_group"),
+        currentGroupPhotoCount = root.optInt("current_group_photo_count"),
+        processedObservationIds = strings("processed_observation_ids"),
+        processedPhotoIds = strings("processed_photo_ids"),
+        errors = strings("errors"),
+        error = root.optNullableString("error"),
+    )
+}
 
 private fun parseHike(json: JSONObject): Hike {
     val photosJson = json.optJSONArray("photos") ?: JSONArray()

@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
@@ -43,10 +44,13 @@ import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -74,9 +78,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.hikejournal.app.data.Hike
+import com.hikejournal.app.data.GROUPED_PUBLISH_MAX_PHOTOS
+import com.hikejournal.app.data.PublishBatchStatus
 import com.hikejournal.app.data.PublishItem
+import com.hikejournal.app.data.PublishObservationGroup
 import com.hikejournal.app.data.PublishOptions
 import com.hikejournal.app.data.PublishQueue
+import com.hikejournal.app.data.buildPublishObservationGroups
+import com.hikejournal.app.data.splitPublishObservationGroups
 import com.hikejournal.app.ui.theme.Ink
 import com.hikejournal.app.ui.theme.InkMuted
 import com.hikejournal.app.ui.theme.Moss
@@ -117,10 +126,13 @@ fun PublishingScreen(
     hikes: List<Hike>,
     loading: Boolean,
     publishingId: String?,
+    batchPublishing: Boolean,
+    publishBatchProgress: PublishBatchStatus?,
     notice: String?,
     offline: Boolean,
     onRefresh: () -> Unit,
     onPublish: (PublishItem, PublishOptions) -> Unit,
+    onSubmitBatch: (List<List<String>>, PublishOptions, () -> Unit) -> Unit,
     onConnectInat: () -> Unit,
     onClearNotice: () -> Unit,
 ) {
@@ -129,6 +141,7 @@ fun PublishingScreen(
     var horizontalDragDistance by remember { mutableFloatStateOf(0f) }
     var selectedHikeId by remember { mutableStateOf<String?>(null) }
     var filterOpen by remember { mutableStateOf(false) }
+    var batchMode by remember { mutableStateOf(false) }
     val selectedHike = hikes.firstOrNull { it.id == selectedHikeId }
     val scopedItems = remember(queue.items, selectedHikeId) {
         publishItemsForHikeScope(queue.items, selectedHikeId)
@@ -158,7 +171,14 @@ fun PublishingScreen(
                             color = Color(0xFFB7C8B5),
                         )
                     }
-                    IconButton(onClick = onRefresh, enabled = !loading && publishingId == null) {
+                    TextButton(
+                        onClick = { batchMode = true },
+                        enabled = readyCount > 0 && !offline && !batchPublishing && publishingId == null && queue.connected,
+                        colors = ButtonDefaults.textButtonColors(contentColor = Paper),
+                    ) {
+                        Text("Batch post")
+                    }
+                    IconButton(onClick = onRefresh, enabled = !loading && publishingId == null && !batchPublishing) {
                         if (loading) CircularProgressIndicator(Modifier.size(20.dp), color = Paper, strokeWidth = 2.dp)
                         else Icon(Icons.Rounded.Refresh, "Refresh publishing queue", tint = Paper)
                     }
@@ -198,6 +218,17 @@ fun PublishingScreen(
             }
 
             when {
+                batchMode -> PublishBatchPlanContent(
+                    items = scopedItems.filter { it.state == PublishFilter.Ready.state },
+                    submitting = batchPublishing,
+                    progress = publishBatchProgress,
+                    connected = queue.connected,
+                    offline = offline,
+                    onBack = { if (!batchPublishing) batchMode = false },
+                    onSubmit = { groups, options ->
+                        onSubmitBatch(groups, options) { batchMode = false }
+                    },
+                )
                 loading && queue.items.isEmpty() -> PublishLoading()
                 current == null -> PublishEmpty(
                     filter = filter,
@@ -283,6 +314,283 @@ fun PublishingScreen(
         )
     }
 }
+
+@Composable
+private fun PublishBatchPlanContent(
+    items: List<PublishItem>,
+    submitting: Boolean,
+    progress: PublishBatchStatus?,
+    connected: Boolean,
+    offline: Boolean,
+    onBack: () -> Unit,
+    onSubmit: (List<List<String>>, PublishOptions) -> Unit,
+) {
+    var selectedIds by remember(items) { mutableStateOf(items.map { it.id }.toSet()) }
+    var separatePhotoIds by remember(items) { mutableStateOf(emptySet<String>()) }
+    var description by remember(items) { mutableStateOf("") }
+    var tags by remember(items) { mutableStateOf("") }
+    var geoprivacy by remember(items) { mutableStateOf("open") }
+    var captive by remember(items) { mutableStateOf(false) }
+    val selectedItems = items.filter { it.id in selectedIds }
+    val proposedGroups = buildPublishObservationGroups(selectedItems)
+    val displayGroups = proposedGroups.sortedBy { it.items.size == 1 }
+    val plannedGroups = splitPublishObservationGroups(proposedGroups, separatePhotoIds)
+    val groupedCount = plannedGroups.count { it.items.size > 1 }
+    val individualCount = plannedGroups.count { it.items.size == 1 }
+    val oversizedGroups = plannedGroups.filter { it.oversized }
+
+    LazyColumn(Modifier.fillMaxSize().padding(bottom = 92.dp)) {
+        item {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 20.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = onBack, enabled = !submitting) { Text("Back") }
+                    Spacer(Modifier.width(4.dp))
+                    Text("Plan grouped posts", style = MaterialTheme.typography.headlineMedium, color = Ink)
+                }
+                Text(
+                    "Select confirmed sightings and HikeJournal will propose groups from the same species and outing within 15 minutes and 50 meters. Split any photo that deserves its own iNaturalist observation.",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = InkMuted,
+                    modifier = Modifier.padding(top = 5.dp),
+                )
+                Row(
+                    Modifier.fillMaxWidth().padding(top = 14.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    OutlinedButton(
+                        onClick = { selectedIds = items.map { it.id }.toSet() },
+                        enabled = !submitting && selectedIds.size != items.size,
+                        modifier = Modifier.weight(1f),
+                    ) { Text("Select ready") }
+                    OutlinedButton(
+                        onClick = {
+                            selectedIds = emptySet()
+                            separatePhotoIds = emptySet()
+                        },
+                        enabled = !submitting && selectedIds.isNotEmpty(),
+                        modifier = Modifier.weight(1f),
+                    ) { Text("Clear") }
+                }
+                Text(
+                    "${selectedItems.size} selected · ${plannedGroups.size} planned observation${if (plannedGroups.size == 1) "" else "s"} · $groupedCount grouped · $individualCount individual",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (selectedItems.isEmpty()) InkMuted else Moss,
+                    modifier = Modifier.padding(top = 15.dp),
+                )
+                progress?.let { batch ->
+                    val total = batch.totalGroups.coerceAtLeast(1)
+                    val current = when {
+                        batch.state == "completed" -> total
+                        batch.currentGroup > 0 -> batch.currentGroup.coerceIn(1, total)
+                        else -> 0
+                    }
+                    val label = when (batch.state) {
+                        "queued" -> "Preparing grouped posts…"
+                        "running" -> "Posting observation $current of ${batch.totalGroups}…"
+                        "completed" -> "Posted ${batch.postedGroupCount} of ${batch.totalGroups} observations"
+                        "failed" -> "Stopped after ${batch.processedGroupCount} of ${batch.totalGroups} observations"
+                        else -> "Updating posting status…"
+                    }
+                    Text(
+                        label,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (batch.state == "failed") Trail else Moss,
+                        modifier = Modifier.padding(top = 14.dp),
+                    )
+                    LinearProgressIndicator(
+                        progress = { current.toFloat() / total.toFloat() },
+                        modifier = Modifier.fillMaxWidth().padding(top = 7.dp),
+                        color = if (batch.state == "failed") Trail else Moss,
+                    )
+                    if (batch.state == "running" && batch.currentGroupPhotoCount > 0) {
+                        Text(
+                            "Uploading ${batch.currentGroupPhotoCount} photo${if (batch.currentGroupPhotoCount == 1) "" else "s"} for this observation",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = InkMuted,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                    }
+                }
+            }
+        }
+        if (displayGroups.isEmpty()) {
+            item {
+                Text(
+                    "Choose at least one confirmed sighting to build the posting plan.",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = InkMuted,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp),
+                )
+            }
+        } else {
+            items(displayGroups, key = { group -> group.photoIds.joinToString("|") }) { group ->
+                PublishBatchGroupSection(
+                    group = group,
+                    selectedIds = selectedIds,
+                    separatePhotoIds = separatePhotoIds,
+                    enabled = !submitting,
+                    onSelectedChange = { observationId, selected ->
+                        selectedIds = if (selected) selectedIds + observationId else selectedIds - observationId
+                        if (!selected) {
+                            val photoId = items.firstOrNull { it.id == observationId }?.photo?.id
+                            if (photoId != null) separatePhotoIds = separatePhotoIds - photoId
+                        }
+                    },
+                    onSeparateChange = { observationId, separate ->
+                        separatePhotoIds = if (separate) separatePhotoIds + observationId else separatePhotoIds - observationId
+                    },
+                )
+            }
+        }
+        item {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp)) {
+                Text(
+                    "The lead photo supplies the date, location, and species. These posting options apply to every planned observation.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = InkMuted,
+                )
+                OutlinedTextField(
+                    description,
+                    { description = it },
+                    Modifier.fillMaxWidth().padding(top = 12.dp),
+                    label = { Text("Observation note") },
+                    maxLines = 3,
+                    enabled = !submitting,
+                )
+                OutlinedTextField(
+                    tags,
+                    { tags = it },
+                    Modifier.fillMaxWidth().padding(top = 9.dp),
+                    label = { Text("Tags · comma separated") },
+                    singleLine = true,
+                    enabled = !submitting,
+                )
+                Text("LOCATION SHARING", style = MaterialTheme.typography.labelSmall, color = InkMuted, modifier = Modifier.padding(top = 14.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf("open" to "Exact", "obscured" to "Obscured", "private" to "Private").forEach { option ->
+                        FilterChip(
+                            selected = geoprivacy == option.first,
+                            onClick = { geoprivacy = option.first },
+                            label = { Text(option.second, style = MaterialTheme.typography.labelSmall) },
+                            modifier = Modifier.weight(1f),
+                            enabled = !submitting,
+                        )
+                    }
+                }
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Captive or cultivated", style = MaterialTheme.typography.titleSmall)
+                        Text("Mark plants or animals that were not wild.", style = MaterialTheme.typography.bodySmall, color = InkMuted)
+                    }
+                    Switch(captive, { captive = it }, enabled = !submitting)
+                }
+                if (oversizedGroups.isNotEmpty()) {
+                    Text(
+                        "Split ${oversizedGroups.size} oversized group${if (oversizedGroups.size == 1) "" else "s"} to stay within iNaturalist's $GROUPED_PUBLISH_MAX_PHOTOS-photo limit.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Trail,
+                        modifier = Modifier.padding(top = 10.dp),
+                    )
+                }
+                Button(
+                    onClick = {
+                        onSubmit(
+                            plannedGroups.map { it.observationIds },
+                            PublishOptions(
+                                observationIds = emptyList(),
+                                description = description.trim(),
+                                tags = tags.split(',').map(String::trim).filter(String::isNotBlank),
+                                geoprivacy = geoprivacy,
+                                captive = captive,
+                            ),
+                        )
+                    },
+                    enabled = plannedGroups.isNotEmpty() && oversizedGroups.isEmpty() && !submitting && !offline && connected,
+                    modifier = Modifier.fillMaxWidth().padding(top = 14.dp).height(52.dp),
+                ) {
+                    if (submitting) CircularProgressIndicator(Modifier.size(19.dp), color = Paper, strokeWidth = 2.dp)
+                    else Icon(Icons.Rounded.CloudUpload, null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(if (submitting) "Posting observations…" else "Post ${plannedGroups.size} observation${if (plannedGroups.size == 1) "" else "s"} (${selectedItems.size} photos)")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PublishBatchGroupSection(
+    group: PublishObservationGroup,
+    selectedIds: Set<String>,
+    separatePhotoIds: Set<String>,
+    enabled: Boolean,
+    onSelectedChange: (String, Boolean) -> Unit,
+    onSeparateChange: (String, Boolean) -> Unit,
+) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
+            Text(
+                if (group.items.size > 1) {
+                    "Proposed group · ${group.items.size} photos"
+                } else {
+                    "Individual"
+                },
+                style = MaterialTheme.typography.titleMedium,
+                color = Ink,
+                modifier = Modifier.weight(1f),
+            )
+            if (group.items.size > 1) {
+                Text(
+                    "${formatGroupMetric(group.timeSpanMinutes, "min")} · ${formatGroupMetric(group.maxDistanceMeters, "m")}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = InkMuted,
+                )
+            }
+        }
+        if (group.items.size > GROUPED_PUBLISH_MAX_PHOTOS) {
+            Text(
+                "Split photos from this group before posting.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Trail,
+                modifier = Modifier.padding(top = 3.dp),
+            )
+        }
+        group.items.forEach { item ->
+            Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(
+                    checked = item.id in selectedIds,
+                    onCheckedChange = { selected -> onSelectedChange(item.id, selected) },
+                    enabled = enabled,
+                )
+                AsyncImage(
+                    model = item.photo.url,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.size(58.dp).clip(RoundedCornerShape(4.dp)),
+                )
+                Column(Modifier.weight(1f).padding(start = 10.dp)) {
+                    Text(item.commonName, style = MaterialTheme.typography.bodyMedium, color = Ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(item.hikeTitle, style = MaterialTheme.typography.bodySmall, color = InkMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(item.photo.takenAt ?: item.hikeDate.ifBlank { "Time unavailable" }, style = MaterialTheme.typography.bodySmall, color = InkMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                if (group.items.size > 1 && item.id in selectedIds) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Checkbox(
+                            checked = item.photo.id in separatePhotoIds,
+                            onCheckedChange = { separate -> onSeparateChange(item.photo.id, separate) },
+                            enabled = enabled,
+                        )
+                        Text("Split", style = MaterialTheme.typography.labelSmall, color = InkMuted)
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun formatGroupMetric(value: Double, suffix: String): String =
+    if (suffix == "min") "${String.format(Locale.US, "%.0f", value)} $suffix"
+    else "${String.format(Locale.US, "%.0f", value)} $suffix"
 
 @Composable
 private fun PublishItemContent(

@@ -15,6 +15,7 @@ import com.hikejournal.app.data.DiscoveryTaxon
 import com.hikejournal.app.data.FieldQuest
 import com.hikejournal.app.data.NearbySpecies
 import com.hikejournal.app.data.Photo
+import com.hikejournal.app.data.PublishBatchStatus
 import com.hikejournal.app.data.PublishItem
 import com.hikejournal.app.data.PublishOptions
 import com.hikejournal.app.data.PublishQueue
@@ -91,6 +92,8 @@ data class AppState(
     val deletingHikeId: String? = null,
     val isPublishLoading: Boolean = false,
     val publishingId: String? = null,
+    val isBatchPublishing: Boolean = false,
+    val publishBatchProgress: PublishBatchStatus? = null,
     val publishNotice: String? = null,
     val syncStatus: SyncStatus = SyncStatus(),
     val isSyncing: Boolean = false,
@@ -976,6 +979,88 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 _state.update { it.copy(publishingId = null, error = error.userMessage()) }
             }
         }
+    }
+
+    fun submitPublishBatch(
+        groups: List<List<String>>,
+        options: PublishOptions,
+        onFinished: () -> Unit = {},
+    ) {
+        if (_state.value.isOffline) {
+            _state.update { it.copy(error = "Publishing needs a connection to iNaturalist.") }
+            return
+        }
+        if (!_state.value.publishQueue.connected) {
+            connectInat()
+            return
+        }
+        if (groups.isEmpty()) return
+        viewModelScope.launch {
+            _state.update {
+                it.copy(
+                    isBatchPublishing = true,
+                    publishBatchProgress = null,
+                    publishNotice = null,
+                    error = null,
+                )
+            }
+            runCatching {
+                var status = repository.startPublishBatch(groups, options)
+                _state.update { it.copy(publishBatchProgress = status) }
+                var statusCheckFailures = 0
+                while (status.state == "queued" || status.state == "running") {
+                    delay(1_000)
+                    status = try {
+                        repository.getPublishBatchStatus(status.jobId)
+                    } catch (error: Exception) {
+                        statusCheckFailures += 1
+                        if (statusCheckFailures >= 3) throw error
+                        continue
+                    }
+                    statusCheckFailures = 0
+                    _state.update { it.copy(publishBatchProgress = status) }
+                }
+                val queueResult = repository.loadPublishQueue()
+                status to queueResult
+            }.onSuccess { (status, queueResult) ->
+                val notice = when {
+                    status.state == "failed" -> null
+                    status.failedGroupCount > 0 || status.partialGroupCount > 0 -> {
+                        "Posted ${status.postedGroupCount} of ${status.totalGroups} observations. " +
+                            "${status.failedGroupCount} could not be created and " +
+                            "${status.partialGroupCount} need photo attention."
+                    }
+                    else -> {
+                        "Posted ${status.postedGroupCount} iNaturalist observations from ${status.processedPhotoCount} photos."
+                    }
+                }
+                _state.update {
+                    it.copy(
+                        publishQueue = queueResult.value,
+                        isBatchPublishing = false,
+                        publishBatchProgress = status,
+                        isOffline = queueResult.fromCache,
+                        error = status.error,
+                        publishNotice = notice,
+                        species = emptyList(),
+                        sightings = emptyList(),
+                    )
+                }
+                onFinished()
+            }.onFailure { error ->
+                _state.update {
+                    it.copy(
+                        isBatchPublishing = false,
+                        error = "The batch started, but HikeJournal could not confirm its status. Refresh the publishing queue to see completed posts.",
+                    )
+                }
+                onFinished()
+            }
+        }
+    }
+
+    fun clearPublishBatchProgress() {
+        _state.update { it.copy(publishBatchProgress = null) }
     }
 
     fun clearPublishNotice() {

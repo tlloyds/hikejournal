@@ -242,6 +242,29 @@ class HikeJournalApi(private val context: Context) {
             .toRequestBody(jsonMediaType),
     )
 
+    suspend fun startPublishBatch(groups: List<List<String>>, options: PublishOptions): String {
+        val groupPayload = org.json.JSONArray()
+        groups.forEach { observationIds ->
+            groupPayload.put(org.json.JSONObject().put("observation_ids", org.json.JSONArray(observationIds)))
+        }
+        return request(
+            path = "/v1/species/publish/batch/start",
+            method = "POST",
+            body = JSONObject()
+                .put("acknowledged_public", true)
+                .put("groups", groupPayload)
+                .put("description", options.description)
+                .put("tags", org.json.JSONArray(options.tags))
+                .put("geoprivacy", options.geoprivacy)
+                .put("captive", options.captive)
+                .toString()
+                .toRequestBody(jsonMediaType),
+        )
+    }
+
+    suspend fun getPublishBatchStatus(jobId: String): String =
+        request("/v1/species/publish/batch/$jobId")
+
     suspend fun decideReview(
         photoId: String,
         observationId: String?,

@@ -59,6 +59,7 @@ from hike_journal.services.inat_publishing import (
     publish_observation_group,
     publish_single_observation,
 )
+from hike_journal.services.encounters import build_publish_encounter_plan
 from hike_journal.services.species_identification import select_shared_candidate
 from hike_journal.services.repositories import HikeJournalRepository
 from hike_journal.services.discovery import SpeciesDiscoveryService
@@ -68,7 +69,7 @@ from hike_journal.services.taxonomy import ensure_observation_taxonomy
 
 MAX_UPLOAD_BYTES = 30 * 1024 * 1024
 EVERYDAY_JOURNAL_ID = "everyday"
-MOBILE_API_VERSION = "0.6.18"
+MOBILE_API_VERSION = "0.6.19"
 logger = logging.getLogger(__name__)
 
 
@@ -181,6 +182,19 @@ class PublishInput(BaseModel):
     captive: bool = False
 
 
+class PublishBatchGroupInput(BaseModel):
+    observation_ids: list[str] = Field(min_length=1, max_length=8)
+
+
+class PublishBatchInput(BaseModel):
+    acknowledged_public: bool
+    groups: list[PublishBatchGroupInput] = Field(min_length=1, max_length=50)
+    description: str = Field(default="", max_length=5_000)
+    tags: list[str] = Field(default_factory=list, max_length=20)
+    geoprivacy: Literal["open", "obscured", "private"] = "open"
+    captive: bool = False
+
+
 class SpeciesQuestInput(BaseModel):
     area_id: str = Field(min_length=1, max_length=64)
     target_date: date
@@ -215,6 +229,8 @@ _species_data_cache: tuple[
 ] | None = None
 _species_batch_jobs: dict[str, dict[str, Any]] = {}
 _species_batch_jobs_lock = Lock()
+_species_publish_jobs: dict[str, dict[str, Any]] = {}
+_species_publish_jobs_lock = Lock()
 
 
 def _invalidate_species_data_cache() -> None:
@@ -1041,16 +1057,27 @@ def _publish_item_payload(
 
 def _publish_queue_payload(svc: Services) -> dict[str, Any]:
     observations, photos_by_id, hikes_by_id = _visible_species_data(svc)
-    ready_groups: dict[tuple[str, str, str], list[str]] = defaultdict(list)
+    ready_rows: list[dict[str, Any]] = []
     for observation in observations:
         photo = photos_by_id.get(str(observation.get("photo_id") or ""))
         if not photo or get_publish_state(observation) != "ready":
             continue
-        hike_id = str(photo.get("hike_id") or observation.get("hike_id") or "")
-        observed_day = str(_observed_on(photo, hikes_by_id.get(hike_id)) or "")[:10]
-        ready_groups[(_species_key(observation), hike_id, observed_day)].append(
-            str(observation.get("id") or "")
+        ready_rows.append(
+            {
+                "observation": observation,
+                "photo": photo,
+                "hike": hikes_by_id.get(str(photo.get("hike_id") or observation.get("hike_id") or "")),
+            }
         )
+    ready_groups_by_observation: dict[str, list[str]] = {}
+    for group in build_publish_encounter_plan(ready_rows, max_photos=8):
+        if group.get("oversized"):
+            continue
+        related_ids = [str(row.get("observation", {}).get("id") or "") for row in group.get("rows", [])]
+        for row in group.get("rows", []):
+            observation_id = str(row.get("observation", {}).get("id") or "")
+            if observation_id:
+                ready_groups_by_observation[observation_id] = related_ids
     items = []
     for observation in observations:
         photo = photos_by_id.get(str(observation.get("photo_id") or ""))
@@ -1058,18 +1085,15 @@ def _publish_queue_payload(svc: Services) -> dict[str, Any]:
             continue
         source_hike_id = str(photo.get("hike_id") or observation.get("hike_id") or "")
         hike = hikes_by_id.get(source_hike_id)
-        related_ids = [str(observation.get("id") or "")]
-        if get_publish_state(observation) == "ready":
-            hike_id = str(photo.get("hike_id") or observation.get("hike_id") or "")
-            observed_day = str(_observed_on(photo, hikes_by_id.get(hike_id)) or "")[:10]
-            related_ids = ready_groups.get((_species_key(observation), hike_id, observed_day), related_ids)
+        observation_id = str(observation.get("id") or "")
+        related_ids = ready_groups_by_observation.get(observation_id, [observation_id])
         items.append(
             _publish_item_payload(
                 observation,
                 photo,
                 hike,
                 source_hike_id=source_hike_id,
-                related_observation_ids=related_ids[:10],
+                related_observation_ids=related_ids[:8],
             )
         )
     priority = {"needs_attention": 0, "ready": 1, "posted": 2}
@@ -1886,6 +1910,257 @@ def decide_species_review(photo_id: str, payload: ReviewDecisionInput) -> dict[s
 @app.get("/v1/species/publish", dependencies=[Depends(require_mobile_key)])
 def list_species_publish() -> dict[str, Any]:
     return _publish_queue_payload(get_services())
+
+
+def _prepare_species_publish_batch(
+    payload: PublishBatchInput,
+) -> tuple[
+    Services,
+    list[list[tuple[dict[str, Any], dict[str, Any]]]],
+    InatClient,
+    dict[str, Any],
+]:
+    if not payload.acknowledged_public:
+        raise HTTPException(
+            status_code=400,
+            detail="Confirm that these observations will become public on iNaturalist.",
+        )
+    svc = get_services()
+    visible_observations, photos_by_id, _hikes_by_id = _visible_species_data(svc)
+    visible_by_id = {str(item.get("id") or ""): item for item in visible_observations}
+    normalized_groups: list[list[str]] = []
+    requested_ids: list[str] = []
+    for group in payload.groups:
+        normalized_group = [str(observation_id).strip() for observation_id in group.observation_ids]
+        if any(not observation_id for observation_id in normalized_group):
+            raise HTTPException(status_code=400, detail="Every grouped observation must have an ID.")
+        if len(set(normalized_group)) != len(normalized_group):
+            raise HTTPException(status_code=400, detail="A grouped observation cannot include the same sighting twice.")
+        normalized_groups.append(normalized_group)
+        requested_ids.extend(normalized_group)
+    if len(set(requested_ids)) != len(requested_ids):
+        raise HTTPException(status_code=400, detail="Each confirmed sighting can appear in only one planned observation.")
+    if any(observation_id not in visible_by_id for observation_id in requested_ids):
+        raise HTTPException(status_code=404, detail="Confirmed observation not found.")
+
+    full_rows = svc.repository.list_observations_by_ids(requested_ids)
+    full_by_id = {
+        str(item.get("id") or ""): item
+        for item in full_rows
+    }
+    if any(observation_id not in full_by_id for observation_id in requested_ids):
+        raise HTTPException(status_code=404, detail="Confirmed observation not found.")
+
+    records_by_group: list[list[tuple[dict[str, Any], dict[str, Any]]]] = []
+    for normalized_group in normalized_groups:
+        records: list[tuple[dict[str, Any], dict[str, Any]]] = []
+        for observation_id in normalized_group:
+            observation = full_by_id[observation_id]
+            if observation.get("status") != "confirmed":
+                raise HTTPException(status_code=409, detail="Confirm every species identification before publishing.")
+            if get_publish_state(observation) != "ready":
+                raise HTTPException(status_code=409, detail="One of these sightings has already been published to iNaturalist.")
+            photo = photos_by_id.get(str(observation.get("photo_id") or ""))
+            if not photo:
+                raise HTTPException(status_code=404, detail="The observation photo could not be found.")
+            records.append((observation, photo))
+        records_by_group.append(records)
+
+    inat_client = _mobile_inat_client()
+    if not inat_client.is_configured:
+        raise HTTPException(
+            status_code=409,
+            detail="Connect iNaturalist in HikeJournal before publishing.",
+        )
+    return svc, records_by_group, inat_client, _user_context()
+
+
+def _publish_batch_job_payload(job: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in job.items()
+        if key not in {"owner_context", "created_at"}
+    }
+
+
+def _get_species_publish_batch_job(job_id: str) -> dict[str, Any]:
+    with _species_publish_jobs_lock:
+        job = dict(_species_publish_jobs.get(job_id) or {})
+    if not job or job.get("owner_context") != _user_context():
+        raise HTTPException(status_code=404, detail="iNaturalist publish batch not found.")
+    return _publish_batch_job_payload(job)
+
+
+def _update_species_publish_batch_job(job_id: str, **updates: Any) -> None:
+    with _species_publish_jobs_lock:
+        if job_id in _species_publish_jobs:
+            _species_publish_jobs[job_id].update(updates)
+
+
+def _run_species_publish_batch_job(
+    job_id: str,
+    svc: Services,
+    records_by_group: list[list[tuple[dict[str, Any], dict[str, Any]]]],
+    inat_client: InatClient,
+    owner: dict[str, Any],
+    *,
+    description: str,
+    tags: list[str],
+    geoprivacy: str,
+    captive: bool,
+) -> None:
+    global _species_data_cache
+    _update_species_publish_batch_job(job_id, state="running")
+    processed_observation_ids: list[str] = []
+    processed_photo_ids: list[str] = []
+    errors: list[str] = []
+    posted_group_count = 0
+    failed_group_count = 0
+    partial_group_count = 0
+    processed_photo_count = 0
+    attempted_group_count = 0
+    try:
+        hikes_by_id = _visible_hikes(svc.repository)
+        for group_number, records in enumerate(records_by_group, start=1):
+            attempted_group_count = group_number
+            lead_observation, lead_photo = records[0]
+            hike_id = str(lead_photo.get("hike_id") or lead_observation.get("hike_id") or "")
+            hike = next((item for item in hikes_by_id if str(item.get("id") or "") == hike_id), None)
+            _update_species_publish_batch_job(
+                job_id,
+                current_group=group_number,
+                current_group_photo_count=len(records),
+            )
+            try:
+                posting = publish_observation_group(
+                    svc.repository,
+                    inat_client,
+                    records,
+                    place_guess=str((hike or {}).get("location_name") or "") or None,
+                    owner_subject=owner.get("subject"),
+                    owner_email=owner.get("email"),
+                    description=description,
+                    tags=tags,
+                    geoprivacy=geoprivacy,
+                    captive=captive,
+                )
+            except (InatAuthError, InatConfigurationError, InatRequestError, RuntimeError) as exc:
+                failed_group_count += 1
+                errors.append(
+                    f"{lead_observation.get('common_name') or lead_observation.get('scientific_name') or lead_observation.get('id')}: {exc}"
+                )
+            except Exception as exc:  # pragma: no cover - depends on remote service state
+                failed_group_count += 1
+                logger.exception("Mobile grouped iNaturalist publish failed")
+                errors.append(
+                    f"{lead_observation.get('common_name') or lead_observation.get('scientific_name') or lead_observation.get('id')}: HikeJournal could not finish this post."
+                )
+            else:
+                posted_group_count += 1
+                observation_ids = [str(observation.get("id") or "") for observation, _photo in records]
+                photo_ids = [str(photo.get("id") or "") for _observation, photo in records]
+                processed_observation_ids.extend(observation_ids)
+                processed_photo_ids.extend(photo_ids)
+                processed_photo_count += len(photo_ids)
+                if posting.get("photo_attached") is False:
+                    partial_group_count += 1
+            _update_species_publish_batch_job(
+                job_id,
+                processed_group_count=group_number,
+                posted_group_count=posted_group_count,
+                failed_group_count=failed_group_count,
+                partial_group_count=partial_group_count,
+                processed_photo_count=processed_photo_count,
+                processed_observation_ids=list(processed_observation_ids),
+                processed_photo_ids=list(processed_photo_ids),
+                errors=list(errors),
+            )
+        _species_data_cache = None
+        _update_species_publish_batch_job(
+            job_id,
+            state="completed",
+            current_group=len(records_by_group),
+            current_group_photo_count=0,
+            processed_group_count=len(records_by_group),
+            posted_group_count=posted_group_count,
+            failed_group_count=failed_group_count,
+            partial_group_count=partial_group_count,
+            processed_photo_count=processed_photo_count,
+            processed_observation_ids=list(processed_observation_ids),
+            processed_photo_ids=list(processed_photo_ids),
+            errors=list(errors),
+        )
+    except Exception as exc:  # pragma: no cover - defensive background-job guard
+        logger.exception("Mobile grouped iNaturalist publish batch failed")
+        _update_species_publish_batch_job(
+            job_id,
+            state="failed",
+            current_group_photo_count=0,
+            error=str(exc),
+            processed_group_count=attempted_group_count,
+            processed_photo_count=processed_photo_count,
+            processed_observation_ids=list(processed_observation_ids),
+            processed_photo_ids=list(processed_photo_ids),
+            errors=list(errors),
+        )
+
+
+@app.post("/v1/species/publish/batch/start", dependencies=[Depends(require_mobile_key)])
+def start_species_publish_batch(
+    payload: PublishBatchInput,
+    background_tasks: BackgroundTasks,
+) -> dict[str, Any]:
+    svc, records_by_group, inat_client, owner = _prepare_species_publish_batch(payload)
+    job_id = str(uuid4())
+    total_photos = sum(len(records) for records in records_by_group)
+    job = {
+        "job_id": job_id,
+        "state": "queued",
+        "total_groups": len(records_by_group),
+        "processed_group_count": 0,
+        "posted_group_count": 0,
+        "failed_group_count": 0,
+        "partial_group_count": 0,
+        "total_photos": total_photos,
+        "processed_photo_count": 0,
+        "processed_observation_ids": [],
+        "processed_photo_ids": [],
+        "current_group": 0,
+        "current_group_photo_count": 0,
+        "errors": [],
+        "error": None,
+        "owner_context": owner,
+    }
+    with _species_publish_jobs_lock:
+        now = time.time()
+        finished = [
+            key
+            for key, value in _species_publish_jobs.items()
+            if value.get("state") in {"completed", "failed"}
+            and now - float(value.get("created_at") or now) > 3600
+        ]
+        for key in finished:
+            _species_publish_jobs.pop(key, None)
+        job["created_at"] = now
+        _species_publish_jobs[job_id] = job
+    background_tasks.add_task(
+        _run_species_publish_batch_job,
+        job_id,
+        svc,
+        records_by_group,
+        inat_client,
+        owner,
+        description=payload.description,
+        tags=payload.tags,
+        geoprivacy=payload.geoprivacy,
+        captive=payload.captive,
+    )
+    return _publish_batch_job_payload(job)
+
+
+@app.get("/v1/species/publish/batch/{job_id}", dependencies=[Depends(require_mobile_key)])
+def get_species_publish_batch_status(job_id: str) -> dict[str, Any]:
+    return _get_species_publish_batch_job(job_id)
 
 
 @app.post("/v1/species/publish/{observation_id}", dependencies=[Depends(require_mobile_key)])

@@ -581,10 +581,18 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                     hikes = state.hikes,
                     loading = state.isPublishLoading,
                     publishingId = state.publishingId,
+                    batchPublishing = state.isBatchPublishing,
+                    publishBatchProgress = state.publishBatchProgress,
                     notice = state.publishNotice,
                     offline = state.isOffline,
                     onRefresh = { viewModel.loadPublishQueue(force = true) },
                     onPublish = viewModel::publishObservation,
+                    onSubmitBatch = { groups, options, onFinished ->
+                        viewModel.submitPublishBatch(groups, options) {
+                            viewModel.clearPublishBatchProgress()
+                            onFinished()
+                        }
+                    },
                     onConnectInat = viewModel::connectInat,
                     onClearNotice = viewModel::clearPublishNotice,
                 )

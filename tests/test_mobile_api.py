@@ -47,6 +47,10 @@ from mobile_api import (
     request_species_batch_recommendation,
     start_species_batch_recommendation,
     get_species_batch_recommendation_status,
+    PublishBatchInput,
+    PublishBatchGroupInput,
+    start_species_publish_batch,
+    get_species_publish_batch_status,
     set_photo_species_review,
     update_hike_cover,
     ReviewBatchInput,
@@ -847,6 +851,89 @@ def test_mobile_review_batch_status_reports_completion_after_background_work(mon
     assert status["state"] == "completed"
     assert status["processed_photo_ids"] == ["photo-a", "photo-b"]
     assert status["current_photo_number"] == 2
+
+
+def test_mobile_publish_batch_status_reports_each_group_after_background_work(monkeypatch):
+    observations = [
+        {
+            "id": "observation-a",
+            "photo_id": "photo-a",
+            "status": "confirmed",
+            "taxon_id": 10,
+            "common_name": "Species",
+            "scientific_name": "Species testus",
+        },
+        {
+            "id": "observation-b",
+            "photo_id": "photo-b",
+            "status": "confirmed",
+            "taxon_id": 10,
+            "common_name": "Species",
+            "scientific_name": "Species testus",
+        },
+    ]
+    photos = [
+        {
+            "id": "photo-a",
+            "hike_id": "hike-1",
+            "lat": 28.6,
+            "lng": -81.1,
+            "taken_at": "2026-08-05T10:00:00Z",
+            "public_url": "https://images.example/a.jpg",
+        },
+        {
+            "id": "photo-b",
+            "hike_id": "hike-1",
+            "lat": 28.60001,
+            "lng": -81.10001,
+            "taken_at": "2026-08-05T10:01:00Z",
+            "public_url": "https://images.example/b.jpg",
+        },
+    ]
+
+    class Repository:
+        def list_observations_by_ids(self, observation_ids):
+            return [observation for observation in observations if observation["id"] in observation_ids]
+
+    class InatClient:
+        is_configured = True
+
+    service = type("Service", (), {"repository": Repository()})()
+    calls = []
+
+    def fake_publish(_repository, _inat_client, records, **_kwargs):
+        calls.append([observation["id"] for observation, _photo in records])
+        return {"observation_id": 123, "photo_attached": True}
+
+    monkeypatch.setattr("mobile_api.get_services", lambda: service)
+    monkeypatch.setattr("mobile_api._visible_species_data", lambda _service: (observations, {photo["id"]: photo for photo in photos}, {"hike-1": {"id": "hike-1", "location_name": "Pine Loop"}}))
+    monkeypatch.setattr("mobile_api._visible_hikes", lambda _repository: [{"id": "hike-1", "location_name": "Pine Loop"}])
+    monkeypatch.setattr("mobile_api._mobile_inat_client", lambda: InatClient())
+    monkeypatch.setattr("mobile_api.publish_observation_group", fake_publish)
+
+    tasks = BackgroundTasks()
+    job = start_species_publish_batch(
+        PublishBatchInput(
+            acknowledged_public=True,
+            groups=[
+                PublishBatchGroupInput(observation_ids=["observation-a"]),
+                PublishBatchGroupInput(observation_ids=["observation-b"]),
+            ],
+        ),
+        tasks,
+    )
+
+    assert job["state"] == "queued"
+    assert job["total_groups"] == 2
+    assert job["total_photos"] == 2
+    asyncio.run(tasks())
+
+    status = get_species_publish_batch_status(job["job_id"])
+    assert status["state"] == "completed"
+    assert status["posted_group_count"] == 2
+    assert status["processed_photo_count"] == 2
+    assert status["processed_observation_ids"] == ["observation-a", "observation-b"]
+    assert calls == [["observation-a"], ["observation-b"]]
 
 
 def test_existing_photo_can_be_queued_for_species_review(monkeypatch):
