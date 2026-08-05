@@ -17,6 +17,7 @@ from mobile_api import (
     SpeciesQuestInput,
     _build_species_payloads,
     _photo_payload,
+    _mobile_inat_client,
     _publish_item_payload,
     _parse_picker_taken_at,
     _standalone_hike_payload,
@@ -96,6 +97,23 @@ def test_publish_payload_assigns_standalone_items_to_everyday_sightings():
     assert payload["hike_id"] == "everyday"
     assert payload["hike_title"] == "Everyday sightings"
     assert payload["hike_date"] == "2026-08-04T10:00:00"
+
+
+def test_mobile_publishing_upgrades_legacy_oauth_token_to_an_api_jwt(monkeypatch):
+    saved = {}
+    monkeypatch.setattr("mobile_api._user_context", lambda: {"subject": "user-1", "email": "hiker@example.com"})
+    monkeypatch.setattr("mobile_api._load_mobile_inat_token", lambda _email: "legacy-oauth-token")
+    monkeypatch.setattr("mobile_api.fetch_api_token_for_oauth_access_token", lambda token: f"jwt.for.{token}")
+    monkeypatch.setattr("mobile_api.get_services", lambda: object())
+    monkeypatch.setattr(
+        "mobile_api._save_mobile_inat_token",
+        lambda _service, *, email, access_token: saved.update(email=email, access_token=access_token),
+    )
+
+    client = _mobile_inat_client()
+
+    assert client.access_token == "jwt.for.legacy-oauth-token"
+    assert saved == {"email": "hiker@example.com", "access_token": "jwt.for.legacy-oauth-token"}
 
 
 def test_photo_payload_includes_stored_species_wikipedia_info():

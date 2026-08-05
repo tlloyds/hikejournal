@@ -755,9 +755,18 @@ def _download_photo_for_cv(svc: Services, photo: dict[str, Any]) -> bytes:
 
 def _mobile_inat_client() -> InatClient:
     owner = _user_context()
-    access_token = _load_mobile_inat_token(owner.get("email")) or resolve_access_token_for_user(
+    email = owner.get("email")
+    mobile_token = _load_mobile_inat_token(email)
+    # Older Android builds saved the short-lived OAuth token directly. The v1
+    # write API needs the JWT returned by /users/api_token; reads can still
+    # succeed with the OAuth token, which made this look connected until post.
+    if mobile_token and mobile_token.count(".") != 2:
+        mobile_token = fetch_api_token_for_oauth_access_token(mobile_token)
+        if email:
+            _save_mobile_inat_token(get_services(), email=email, access_token=mobile_token)
+    access_token = mobile_token or resolve_access_token_for_user(
         subject=owner.get("subject"),
-        email=owner.get("email"),
+        email=email,
     ) or settings.inat_access_token
     return InatClient(access_token=access_token, base_url=settings.inat_base_url)
 
