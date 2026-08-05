@@ -145,13 +145,14 @@ def test_observation_creation_omits_open_geoprivacy_like_the_web_publisher(monke
         geoprivacy="open",
     )
 
-    assert captured["data"] == {
-        "observation[taxon_id]": "42048",
-        "observation[observed_on_string]": "2026-08-02 09:36:00",
-        "observation[latitude]": "28.6",
-        "observation[longitude]": "-81.1",
-        "observation[description]": "Posted from HikeJournal.",
-        "observation[tag_list]": "HikeJournal",
+    assert captured["json"] == {
+        "observation": {
+            "taxon_id": 42048,
+            "observed_on_string": "2026-08-02 09:36:00",
+            "location": "28.6,-81.1",
+            "description": "Posted from HikeJournal.",
+            "tags": ["HikeJournal"],
+        }
     }
 
 
