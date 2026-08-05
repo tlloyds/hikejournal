@@ -67,7 +67,7 @@ from hike_journal.services.taxonomy import ensure_observation_taxonomy
 
 MAX_UPLOAD_BYTES = 30 * 1024 * 1024
 EVERYDAY_JOURNAL_ID = "everyday"
-MOBILE_API_VERSION = "0.6.16"
+MOBILE_API_VERSION = "0.6.17"
 logger = logging.getLogger(__name__)
 
 
@@ -1489,6 +1489,18 @@ def request_species_batch_recommendation(payload: ReviewBatchInput) -> dict[str,
     if not_waiting:
         raise HTTPException(status_code=409, detail="Only photos waiting for their first suggestion can be submitted for grouped identification.")
 
+    # The review queue is a display contract and deliberately omits private
+    # storage details. Resolve the selected IDs back to server-side photo
+    # records before asking CV to download their originals.
+    full_photo_rows = svc.repository.list_photo_records_for_ids(requested_ids)
+    full_photos_by_id = {
+        str(photo.get("id") or ""): photo
+        for photo in full_photo_rows
+        if photo.get("id")
+    }
+    if any(photo_id not in full_photos_by_id for photo_id in requested_ids):
+        raise HTTPException(status_code=404, detail="One or more selected photo files are no longer available.")
+
     inat_client = _mobile_inat_client()
     try:
         inat_client.validate_credentials()
@@ -1504,7 +1516,7 @@ def request_species_batch_recommendation(payload: ReviewBatchInput) -> dict[str,
     grouped_count = 0
     individual_count = 0
     for group in payload.groups:
-        group_photos = [queue_by_id[photo_id]["photo"] for photo_id in group.photo_ids]
+        group_photos = [full_photos_by_id[photo_id] for photo_id in group.photo_ids]
         try:
             if len(group_photos) == 1:
                 photo = group_photos[0]

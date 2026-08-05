@@ -724,6 +724,9 @@ def test_mobile_review_batch_saves_one_shared_suggestion_for_a_group(monkeypatch
         def __init__(self):
             self.saved = []
 
+        def list_photo_records_for_ids(self, photo_ids):
+            return [photo for photo in photos if photo["id"] in photo_ids]
+
         def upsert_observation(self, _hike_id, photo_id, candidate, **_kwargs):
             self.saved.append((photo_id, candidate))
             return {"id": f"obs-{photo_id}", "photo_id": photo_id}
@@ -744,10 +747,20 @@ def test_mobile_review_batch_saves_one_shared_suggestion_for_a_group(monkeypatch
             ], {}
 
     repository = Repository()
-    service = type("Service", (), {"repository": repository})()
+
+    class Storage:
+        def __init__(self):
+            self.downloaded = []
+
+        def download_file(self, storage_path):
+            self.downloaded.append(storage_path)
+            return b"image"
+
+    storage = Storage()
+    service = type("Service", (), {"repository": repository, "storage": storage})()
     photos = [
-        {"id": "photo-a", "hike_id": "hike-1", "lat": 28.6, "lng": -81.1, "taken_at": "2026-08-05T10:00:00Z"},
-        {"id": "photo-b", "hike_id": "hike-1", "lat": 28.60001, "lng": -81.10001, "taken_at": "2026-08-05T10:01:00Z"},
+        {"id": "photo-a", "hike_id": "hike-1", "storage_path": "photos/photo-a.jpg", "lat": 28.6, "lng": -81.1, "taken_at": "2026-08-05T10:00:00Z"},
+        {"id": "photo-b", "hike_id": "hike-1", "storage_path": "photos/photo-b.jpg", "lat": 28.60001, "lng": -81.10001, "taken_at": "2026-08-05T10:01:00Z"},
     ]
     queue = [
         {"id": photo["id"], "photo": photo, "candidates": []}
@@ -756,7 +769,6 @@ def test_mobile_review_batch_saves_one_shared_suggestion_for_a_group(monkeypatch
     monkeypatch.setattr("mobile_api.get_services", lambda: service)
     monkeypatch.setattr("mobile_api._mobile_inat_client", lambda: InatClient())
     monkeypatch.setattr("mobile_api._review_queue_payload", lambda _service: queue)
-    monkeypatch.setattr("mobile_api._download_photo_for_cv", lambda _service, _photo: b"image")
     monkeypatch.setattr("mobile_api.ensure_observation_taxonomy", lambda *_args: None)
 
     result = request_species_batch_recommendation(
@@ -770,6 +782,7 @@ def test_mobile_review_batch_saves_one_shared_suggestion_for_a_group(monkeypatch
     assert result["individual_count"] == 0
     assert [candidate.taxon_id for _photo_id, candidate in repository.saved] == [20, 20]
     assert all(candidate.raw_payload["grouped_cv"] for _photo_id, candidate in repository.saved)
+    assert storage.downloaded == ["photos/photo-a.jpg", "photos/photo-b.jpg"]
 
 
 def test_existing_photo_can_be_queued_for_species_review(monkeypatch):
