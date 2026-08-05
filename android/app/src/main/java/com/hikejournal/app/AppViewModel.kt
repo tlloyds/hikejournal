@@ -4,6 +4,8 @@ import android.app.Application
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
 import com.hikejournal.app.data.Hike
 import com.hikejournal.app.data.HikeDraft
 import com.hikejournal.app.data.HikeDeletionResult
@@ -28,6 +30,7 @@ import com.hikejournal.app.data.QuestSightingsMap
 import com.hikejournal.app.data.Sighting
 import com.hikejournal.app.data.SpeciesLabel
 import com.hikejournal.app.data.SpeciesRecord
+import com.hikejournal.app.data.SpeciesReviewBatchWork
 import com.hikejournal.app.data.SyncStatus
 import com.hikejournal.app.data.SyncScheduler
 import com.hikejournal.app.data.withoutHikes
@@ -36,7 +39,9 @@ import com.hikejournal.app.tracking.TrackingRepository
 import com.hikejournal.app.tracking.TrackingSnapshot
 import com.hikejournal.app.tracking.TrackingStatus
 import java.time.Instant
+import java.util.UUID
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -109,6 +114,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val appContext = application.applicationContext
     private val _state = MutableStateFlow(AppState())
     val state: StateFlow<AppState> = _state.asStateFlow()
+    private var handledSpeciesBatchWorkId: UUID? = null
 
     val serverUrl: String get() = repository.serverUrl
     val pairingKey: String get() = repository.pairingKey
@@ -160,7 +166,84 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
         }
+        observeSpeciesReviewBatchWork()
         loadInitialLibrary()
+    }
+
+    private fun observeSpeciesReviewBatchWork() {
+        viewModelScope.launch {
+            WorkManager.getInstance(appContext)
+                .getWorkInfosForUniqueWorkFlow(SpeciesReviewBatchWork.WorkName)
+                .collect { workInfos ->
+                    val work = workInfos.firstOrNull() ?: return@collect
+                    val status = SpeciesReviewBatchWork.statusFromData(work.progress)
+                    when (work.state) {
+                        WorkInfo.State.ENQUEUED, WorkInfo.State.RUNNING, WorkInfo.State.BLOCKED -> {
+                            _state.update { current ->
+                                current.copy(
+                                    isBatchIdentifying = true,
+                                    batchProgress = status ?: current.batchProgress,
+                                )
+                            }
+                        }
+                        WorkInfo.State.SUCCEEDED, WorkInfo.State.FAILED, WorkInfo.State.CANCELLED -> {
+                            if (handledSpeciesBatchWorkId == work.id) return@collect
+                            handledSpeciesBatchWorkId = work.id
+                            finishSpeciesReviewBatch(work, status)
+                        }
+                        else -> Unit
+                    }
+                }
+        }
+    }
+
+    private fun finishSpeciesReviewBatch(work: WorkInfo, status: ReviewBatchStatus?) {
+        val completed = work.state == WorkInfo.State.SUCCEEDED && status?.state == "completed"
+        val terminalStatus = status ?: ReviewBatchStatus(
+            jobId = "",
+            state = if (completed) "completed" else "failed",
+            totalPhotos = 0,
+            processedCount = 0,
+            processedPhotoIds = emptyList(),
+            currentPhotoNumber = 0,
+            currentPhotoId = null,
+            totalGroups = 0,
+            currentGroup = 0,
+            groupedCount = 0,
+            individualCount = 0,
+            warnings = emptyList(),
+            error = work.outputData.getString(SpeciesReviewBatchWork.ProgressError),
+            items = emptyList(),
+        )
+        if (completed) {
+            _state.update { current ->
+                current.copy(
+                    isBatchIdentifying = false,
+                    batchProgress = terminalStatus,
+                    isOffline = false,
+                    error = null,
+                    notice = buildSpeciesReviewBatchNotice(terminalStatus),
+                )
+            }
+            loadReviewQueue(force = true)
+        } else {
+            _state.update { current ->
+                current.copy(
+                    isBatchIdentifying = false,
+                    batchProgress = terminalStatus.copy(state = "failed"),
+                    error = terminalStatus.error
+                        ?: "The species review batch could not complete. Refresh the review queue to see any IDs that were saved.",
+                )
+            }
+        }
+    }
+
+    private fun buildSpeciesReviewBatchNotice(status: ReviewBatchStatus): String = buildString {
+        append("Submitted ${status.processedCount} photo")
+        if (status.processedCount != 1) append('s')
+        append(" as ${status.totalGroups} ID request")
+        if (status.totalGroups != 1) append('s')
+        if (status.warnings.isNotEmpty()) append(". ${status.warnings.first()}")
     }
 
     private fun loadInitialLibrary() {
@@ -812,64 +895,45 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun submitReviewBatch(groups: List<List<String>>, onFinished: () -> Unit = {}) {
+    fun submitReviewBatch(groups: List<List<String>>) {
         if (_state.value.isOffline) {
             _state.update { it.copy(error = "Batch identification needs a connection.") }
             return
         }
         if (groups.isEmpty()) return
-        viewModelScope.launch {
-            _state.update { it.copy(isBatchIdentifying = true, batchProgress = null, error = null) }
-            runCatching {
-                var status = repository.startReviewBatch(groups)
-                _state.update { it.copy(batchProgress = status) }
-                var statusCheckFailures = 0
-                while (status.state == "queued" || status.state == "running") {
-                    delay(1_000)
-                    status = try {
-                        repository.getReviewBatchStatus(status.jobId)
-                    } catch (error: Exception) {
-                        statusCheckFailures += 1
-                        if (statusCheckFailures >= 3) throw error
-                        continue
-                    }
-                    statusCheckFailures = 0
-                    _state.update { it.copy(batchProgress = status) }
-                }
-                status
-            }.onSuccess { status ->
-                val refreshedById = status.items.associateBy { it.id }
-                val completed = status.state == "completed"
-                _state.update { state ->
-                    state.copy(
-                        reviewQueue = state.reviewQueue.map { refreshedById[it.id] ?: it },
-                        isBatchIdentifying = false,
-                        isOffline = false,
-                        error = status.error?.takeUnless { completed },
-                        notice = if (completed) {
-                            buildString {
-                                append("Submitted ${status.processedPhotoIds.size} photo")
-                                if (status.processedPhotoIds.size != 1) append('s')
-                                append(" as ${groups.size} ID request")
-                                if (groups.size != 1) append('s')
-                                if (status.warnings.isNotEmpty()) append(". ${status.warnings.first()}")
-                            }
-                        } else {
-                            null
-                        },
-                    )
-                }
-                onFinished()
-            }.onFailure {
+        val totalPhotos = groups.sumOf(List<String>::size)
+        _state.update {
+            it.copy(
+                isBatchIdentifying = true,
+                batchProgress = ReviewBatchStatus(
+                    jobId = "",
+                    state = "queued",
+                    totalPhotos = totalPhotos,
+                    processedCount = 0,
+                    processedPhotoIds = emptyList(),
+                    currentPhotoNumber = 0,
+                    currentPhotoId = null,
+                    totalGroups = groups.size,
+                    currentGroup = 0,
+                    groupedCount = 0,
+                    individualCount = 0,
+                    warnings = emptyList(),
+                    error = null,
+                    items = emptyList(),
+                ),
+                error = null,
+            )
+        }
+        runCatching { SpeciesReviewBatchWork.enqueue(appContext, groups) }
+            .onFailure { error ->
                 _state.update {
                     it.copy(
                         isBatchIdentifying = false,
-                        error = "The batch started, but HikeJournal could not confirm its status. Refresh the review queue to see completed IDs.",
+                        batchProgress = null,
+                        error = error.message ?: "HikeJournal could not start the species review batch.",
                     )
                 }
-                onFinished()
             }
-        }
     }
 
     fun clearBatchProgress() {

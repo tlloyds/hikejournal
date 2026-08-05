@@ -69,7 +69,7 @@ from hike_journal.services.taxonomy import ensure_observation_taxonomy
 
 MAX_UPLOAD_BYTES = 30 * 1024 * 1024
 EVERYDAY_JOURNAL_ID = "everyday"
-MOBILE_API_VERSION = "0.6.19"
+MOBILE_API_VERSION = "0.6.20"
 logger = logging.getLogger(__name__)
 
 
@@ -171,6 +171,7 @@ class ReviewBatchGroupInput(BaseModel):
 
 class ReviewBatchInput(BaseModel):
     groups: list[ReviewBatchGroupInput] = Field(min_length=1, max_length=50)
+    client_request_id: str | None = Field(default=None, min_length=1, max_length=64)
 
 
 class PublishInput(BaseModel):
@@ -1645,7 +1646,7 @@ def _review_batch_job_payload(job: dict[str, Any]) -> dict[str, Any]:
     return {
         key: value
         for key, value in job.items()
-        if key != "owner_context"
+        if key not in {"owner_context", "client_request_id"}
     }
 
 
@@ -1755,6 +1756,21 @@ def start_species_batch_recommendation(
     payload: ReviewBatchInput,
     background_tasks: BackgroundTasks,
 ) -> dict[str, Any]:
+    owner_context = _user_context()
+    if payload.client_request_id:
+        with _species_batch_jobs_lock:
+            existing = next(
+                (
+                    existing
+                    for existing in _species_batch_jobs.values()
+                    if existing.get("owner_context") == owner_context
+                    and existing.get("client_request_id") == payload.client_request_id
+                ),
+                None,
+            )
+            if existing:
+                return _review_batch_job_payload(dict(existing))
+
     svc, groups, full_photos_by_id, inat_client, requested_ids = _prepare_species_batch_submission(payload)
     job_id = str(uuid4())
     job = {
@@ -1772,9 +1788,22 @@ def start_species_batch_recommendation(
         "warnings": [],
         "error": None,
         "items": [],
-        "owner_context": _user_context(),
+        "owner_context": owner_context,
+        "client_request_id": payload.client_request_id,
     }
     with _species_batch_jobs_lock:
+        if payload.client_request_id:
+            existing = next(
+                (
+                    existing
+                    for existing in _species_batch_jobs.values()
+                    if existing.get("owner_context") == owner_context
+                    and existing.get("client_request_id") == payload.client_request_id
+                ),
+                None,
+            )
+            if existing:
+                return _review_batch_job_payload(dict(existing))
         finished_ids = [
             existing_id
             for existing_id, existing in _species_batch_jobs.items()

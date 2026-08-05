@@ -189,7 +189,7 @@ class HikeJournalApi(private val context: Context) {
         )
     }
 
-    suspend fun startReviewBatch(groups: List<List<String>>): String {
+    suspend fun startReviewBatch(groups: List<List<String>>, clientRequestId: String? = null): String {
         val groupsJson = org.json.JSONArray()
         groups.forEach { photoIds ->
             groupsJson.put(JSONObject().put("photo_ids", org.json.JSONArray(photoIds)))
@@ -199,6 +199,7 @@ class HikeJournalApi(private val context: Context) {
             method = "POST",
             body = JSONObject()
                 .put("groups", groupsJson)
+                .put("client_request_id", clientRequestId ?: JSONObject.NULL)
                 .toString()
                 .toRequestBody(jsonMediaType),
         )

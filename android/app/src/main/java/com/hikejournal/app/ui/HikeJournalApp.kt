@@ -569,11 +569,9 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                     onDecision = viewModel::decideReview,
                     onRequestRecommendation = viewModel::requestReviewRecommendation,
                     onConnectInat = viewModel::connectInat,
-                    onSubmitBatch = { groups, onFinished ->
-                        viewModel.submitReviewBatch(groups) {
-                            viewModel.clearBatchProgress()
-                            onFinished()
-                        }
+                    onSubmitBatch = viewModel::submitReviewBatch,
+                    onBatchFinished = {
+                        viewModel.clearBatchProgress()
                     },
                 )
                 destination == TopDestination.Publish -> PublishingScreen(

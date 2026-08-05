@@ -853,6 +853,43 @@ def test_mobile_review_batch_status_reports_completion_after_background_work(mon
     assert status["current_photo_number"] == 2
 
 
+def test_mobile_review_batch_start_reuses_a_client_request_after_a_lost_response(monkeypatch):
+    owner = {"subject": "subject-1", "email": "owner@example.com"}
+    existing = {
+        "job_id": "job-1",
+        "state": "running",
+        "total_photos": 2,
+        "processed_count": 1,
+        "processed_photo_ids": ["photo-a"],
+        "current_photo_number": 2,
+        "current_photo_id": "photo-b",
+        "total_groups": 2,
+        "current_group": 2,
+        "grouped_count": 0,
+        "individual_count": 1,
+        "warnings": [],
+        "error": None,
+        "items": [],
+        "owner_context": owner,
+        "client_request_id": "request-1",
+    }
+    monkeypatch.setattr("mobile_api._user_context", lambda: owner)
+    monkeypatch.setattr("mobile_api._species_batch_jobs", {"job-1": existing})
+
+    result = start_species_batch_recommendation(
+        ReviewBatchInput(
+            groups=[ReviewBatchGroupInput(photo_ids=["photo-a"])],
+            client_request_id="request-1",
+        ),
+        BackgroundTasks(),
+    )
+
+    assert result["job_id"] == "job-1"
+    assert result["state"] == "running"
+    assert "owner_context" not in result
+    assert "client_request_id" not in result
+
+
 def test_mobile_publish_batch_status_reports_each_group_after_background_work(monkeypatch):
     observations = [
         {

@@ -90,7 +90,8 @@ fun SpeciesReviewScreen(
     onDecision: (ReviewItem, String, ReviewCandidate?) -> Unit,
     onRequestRecommendation: (ReviewItem) -> Unit,
     onConnectInat: () -> Unit,
-    onSubmitBatch: (List<List<String>>, () -> Unit) -> Unit,
+    onSubmitBatch: (List<List<String>>) -> Unit,
+    onBatchFinished: () -> Unit,
 ) {
     var index by remember { mutableIntStateOf(0) }
     var horizontalDragDistance by remember { mutableFloatStateOf(0f) }
@@ -99,6 +100,12 @@ fun SpeciesReviewScreen(
     val waitingItems = queue.filter { it.candidates.isEmpty() }
     LaunchedEffect(queueSignature) {
         if (queue.isEmpty()) index = 0 else index = index.coerceIn(0, queue.lastIndex)
+    }
+    LaunchedEffect(batchProgress?.jobId, batchProgress?.state, batchIdentifying) {
+        if (!batchIdentifying && batchProgress?.state in setOf("completed", "failed")) {
+            onBatchFinished()
+            batchMode = false
+        }
     }
     val item = queue.getOrNull(index)
     val pendingCount = queue.count { it.state == "pending" }
@@ -143,9 +150,7 @@ fun SpeciesReviewScreen(
                 progress = batchProgress,
                 offline = offline,
                 onBack = { if (!batchIdentifying) batchMode = false },
-                onSubmit = { groups ->
-                    onSubmitBatch(groups) { batchMode = false }
-                },
+                onSubmit = onSubmitBatch,
             )
             loading && queue.isEmpty() -> ReviewLoading()
             item == null -> ReviewEmpty(
