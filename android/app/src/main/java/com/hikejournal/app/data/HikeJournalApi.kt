@@ -172,6 +172,23 @@ class HikeJournalApi(private val context: Context) {
 
     suspend fun getReviewQueueJson(): String = request("/v1/species/review")
 
+    suspend fun requestReviewBatch(groups: List<List<String>>): String {
+        val groupsJson = org.json.JSONArray()
+        groups.forEach { photoIds ->
+            groupsJson.put(
+                JSONObject().put("photo_ids", org.json.JSONArray(photoIds)),
+            )
+        }
+        return request(
+            path = "/v1/species/review/batch-recommendation",
+            method = "POST",
+            body = JSONObject()
+                .put("groups", groupsJson)
+                .toString()
+                .toRequestBody(jsonMediaType),
+        )
+    }
+
     suspend fun getInatAuthorizationUrl(): String = JSONObject(request("/v1/inat/oauth/start"))
         .getString("authorize_url")
 

@@ -58,6 +58,7 @@ from hike_journal.services.inat_publishing import (
     publish_observation_group,
     publish_single_observation,
 )
+from hike_journal.services.species_identification import select_shared_candidate
 from hike_journal.services.repositories import HikeJournalRepository
 from hike_journal.services.discovery import SpeciesDiscoveryService
 from hike_journal.services.storage import StorageService
@@ -66,7 +67,7 @@ from hike_journal.services.taxonomy import ensure_observation_taxonomy
 
 MAX_UPLOAD_BYTES = 30 * 1024 * 1024
 EVERYDAY_JOURNAL_ID = "everyday"
-MOBILE_API_VERSION = "0.6.14"
+MOBILE_API_VERSION = "0.6.16"
 logger = logging.getLogger(__name__)
 
 
@@ -160,6 +161,14 @@ class ReviewDecisionInput(BaseModel):
     action: Literal["confirm", "reject"]
     observation_id: str | None = None
     candidate: ReviewCandidateInput | None = None
+
+
+class ReviewBatchGroupInput(BaseModel):
+    photo_ids: list[str] = Field(min_length=1, max_length=8)
+
+
+class ReviewBatchInput(BaseModel):
+    groups: list[ReviewBatchGroupInput] = Field(min_length=1, max_length=50)
 
 
 class PublishInput(BaseModel):
@@ -787,6 +796,109 @@ def _mobile_inat_client() -> InatClient:
     return InatClient(access_token=access_token, base_url=settings.inat_base_url)
 
 
+def _candidate_identity_key(candidate: SpeciesCandidate) -> str:
+    if candidate.taxon_id is not None:
+        return f"taxon:{candidate.taxon_id}"
+    scientific = (candidate.scientific_name or "").strip().casefold()
+    common = (candidate.common_name or "").strip().casefold()
+    return f"name:{scientific or common or 'unknown'}"
+
+
+def _build_mobile_grouped_species_candidate(
+    svc: Services,
+    inat_client: InatClient,
+    photos: list[dict[str, Any]],
+) -> tuple[SpeciesCandidate | None, list[dict[str, Any]], dict[str, SpeciesCandidate], list[str]]:
+    aggregate: dict[str, dict[str, Any]] = {}
+    processed_photos: list[dict[str, Any]] = []
+    individual_candidates: dict[str, SpeciesCandidate] = {}
+    warnings: list[str] = []
+
+    for photo in photos:
+        photo_id = str(photo.get("id") or "")
+        try:
+            candidates, _payload = inat_client.score_species_candidates(
+                image_bytes=_download_photo_for_cv(svc, photo),
+                filename=f"{photo_id}.jpg",
+                lat=photo.get("lat"),
+                lng=photo.get("lng"),
+                observed_on=_photo_observed_at(photo),
+                limit=5,
+            )
+        except (InatConfigurationError, InatAuthError):
+            raise
+        except (InatRequestError, RuntimeError) as exc:
+            warnings.append(f"{photo_id[:8]}: {exc}")
+            continue
+
+        processed_photos.append(photo)
+        individual_candidates[photo_id] = candidates[0]
+        for rank, candidate in enumerate(candidates, start=1):
+            key = _candidate_identity_key(candidate)
+            entry = aggregate.setdefault(
+                key,
+                {
+                    "taxon_id": candidate.taxon_id,
+                    "common_name": candidate.common_name,
+                    "scientific_name": candidate.scientific_name,
+                    "support_count": 0,
+                    "top1_count": 0,
+                    "total_confidence": 0.0,
+                    "best_confidence": 0.0,
+                },
+            )
+            confidence = float(candidate.confidence or 0)
+            entry["support_count"] += 1
+            entry["total_confidence"] += confidence
+            entry["best_confidence"] = max(entry["best_confidence"], confidence)
+            if rank == 1:
+                entry["top1_count"] += 1
+
+    if not processed_photos:
+        return None, [], {}, warnings
+
+    aggregate_candidates = sorted(
+        (
+            {
+                **entry,
+                "average_confidence": entry["total_confidence"] / entry["support_count"]
+                if entry["support_count"]
+                else 0.0,
+            }
+            for entry in aggregate.values()
+        ),
+        key=lambda entry: (
+            int(entry["top1_count"]),
+            int(entry["support_count"]),
+            float(entry["total_confidence"]),
+            float(entry["best_confidence"]),
+        ),
+        reverse=True,
+    )
+    top_match = select_shared_candidate(aggregate_candidates, photo_count=len(processed_photos))
+    raw_payload = {
+        "grouped_cv": True,
+        "group_size": len(processed_photos),
+        "group_photo_ids": [str(photo.get("id") or "") for photo in processed_photos],
+        "aggregate_candidates": aggregate_candidates,
+    }
+    grouped_candidate = None
+    if top_match is not None:
+        selected_confidence = (
+            top_match.get("best_confidence")
+            if len(processed_photos) == 2
+            else top_match.get("average_confidence")
+        )
+        grouped_candidate = SpeciesCandidate(
+            common_name=str(top_match.get("common_name") or top_match.get("scientific_name") or "Unknown species"),
+            scientific_name=str(top_match.get("scientific_name") or top_match.get("common_name") or "Unknown species"),
+            confidence=float(selected_confidence or 0),
+            taxon_id=top_match.get("taxon_id"),
+            raw_payload=raw_payload,
+        )
+    return grouped_candidate, processed_photos, individual_candidates, warnings
+
+
 def _mobile_inat_oauth_record(value: str) -> dict[str, str] | None:
     try:
         payload = json.loads(value)
@@ -986,6 +1098,7 @@ def app_config() -> dict[str, Any]:
             "grouped_inat_publish",
             "map_packs",
             "live_inat_cv",
+            "grouped_species_review",
             "mobile_inat_oauth",
             "species_discovery",
             "everyday_sightings",
@@ -1342,6 +1455,123 @@ def delete_species_quest(quest_id: str) -> dict[str, Any]:
 @app.get("/v1/species/review", dependencies=[Depends(require_mobile_key)])
 def list_species_review() -> list[dict[str, Any]]:
     return _review_queue_payload(get_services())
+
+
+@app.post("/v1/species/review/batch-recommendation", dependencies=[Depends(require_mobile_key)])
+def request_species_batch_recommendation(payload: ReviewBatchInput) -> dict[str, Any]:
+    """Score one user-managed set of species-review groups in one request."""
+    global _species_data_cache
+    svc = get_services()
+    queue = _review_queue_payload(svc)
+    queue_by_id = {str(item.get("id") or ""): item for item in queue}
+    requested_ids: list[str] = []
+    seen_ids: set[str] = set()
+    for group in payload.groups:
+        if len(group.photo_ids) > 8:
+            raise HTTPException(status_code=400, detail="A grouped ID request can include at most 8 photos.")
+        for raw_photo_id in group.photo_ids:
+            photo_id = str(raw_photo_id).strip()
+            if not photo_id:
+                raise HTTPException(status_code=400, detail="Every grouped ID photo must have an ID.")
+            if photo_id in seen_ids:
+                raise HTTPException(status_code=400, detail="A photo can only appear once in a grouped ID request.")
+            seen_ids.add(photo_id)
+            requested_ids.append(photo_id)
+
+    missing_ids = [photo_id for photo_id in requested_ids if photo_id not in queue_by_id]
+    if missing_ids:
+        raise HTTPException(status_code=404, detail="One or more selected photos are no longer in species review.")
+    not_waiting = [
+        photo_id
+        for photo_id in requested_ids
+        if queue_by_id[photo_id].get("candidates")
+    ]
+    if not_waiting:
+        raise HTTPException(status_code=409, detail="Only photos waiting for their first suggestion can be submitted for grouped identification.")
+
+    inat_client = _mobile_inat_client()
+    try:
+        inat_client.validate_credentials()
+    except InatConfigurationError as exc:
+        raise HTTPException(status_code=409, detail="Connect iNaturalist in HikeJournal before requesting recommendations.") from exc
+    except InatAuthError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+    except InatRequestError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    processed_ids: list[str] = []
+    warnings: list[str] = []
+    grouped_count = 0
+    individual_count = 0
+    for group in payload.groups:
+        group_photos = [queue_by_id[photo_id]["photo"] for photo_id in group.photo_ids]
+        try:
+            if len(group_photos) == 1:
+                photo = group_photos[0]
+                candidate = inat_client.identify_species(
+                    image_bytes=_download_photo_for_cv(svc, photo),
+                    filename=f"{photo['id']}.jpg",
+                    lat=photo.get("lat"),
+                    lng=photo.get("lng"),
+                    observed_on=_photo_observed_at(photo),
+                )
+                observation = svc.repository.upsert_observation(
+                    photo.get("hike_id"),
+                    photo["id"],
+                    candidate,
+                    owner_subject=photo.get("owner_subject"),
+                    owner_email=photo.get("owner_email"),
+                )
+                ensure_observation_taxonomy(svc.repository, inat_client, observation)
+                processed_ids.append(str(photo["id"]))
+                individual_count += 1
+                continue
+
+            grouped_candidate, processed_photos, individual_candidates, group_warnings = _build_mobile_grouped_species_candidate(
+                svc,
+                inat_client,
+                group_photos,
+            )
+            warnings.extend(group_warnings)
+            if grouped_candidate is not None:
+                grouped_count += 1
+            else:
+                individual_count += len(processed_photos)
+                warnings.append(
+                    f"The {len(group_photos)}-photo group did not reach consensus; saved individual suggestions instead."
+                )
+            for photo in processed_photos:
+                candidate = grouped_candidate or individual_candidates[str(photo["id"])]
+                observation = svc.repository.upsert_observation(
+                    photo.get("hike_id"),
+                    photo["id"],
+                    candidate,
+                    owner_subject=photo.get("owner_subject"),
+                    owner_email=photo.get("owner_email"),
+                )
+                ensure_observation_taxonomy(svc.repository, inat_client, observation)
+                processed_ids.append(str(photo["id"]))
+        except InatConfigurationError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except InatAuthError as exc:
+            raise HTTPException(status_code=401, detail=str(exc)) from exc
+        except InatRateLimitError as exc:
+            raise HTTPException(status_code=429, detail=str(exc)) from exc
+        except InatComputerVisionBlockedError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except InatRequestError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    _species_data_cache = None
+    refreshed_queue = _review_queue_payload(svc)
+    processed_set = set(processed_ids)
+    return {
+        "items": [item for item in refreshed_queue if str(item.get("id") or "") in processed_set],
+        "processed_photo_ids": processed_ids,
+        "grouped_count": grouped_count,
+        "individual_count": individual_count,
+        "warnings": warnings,
+    }
 
 
 @app.post("/v1/species/review/{photo_id}/recommendation", dependencies=[Depends(require_mobile_key)])

@@ -79,6 +79,7 @@ data class AppState(
     val isReviewLoading: Boolean = false,
     val decidingReviewId: String? = null,
     val identifyingReviewId: String? = null,
+    val isBatchIdentifying: Boolean = false,
     val resolvingSpeciesInfoPhotoId: String? = null,
     val prioritizingPhotoId: String? = null,
     val inatAuthorizationUrl: String? = null,
@@ -802,6 +803,39 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 .onFailure { error ->
                     _state.update { it.copy(identifyingReviewId = null, error = error.userMessage()) }
+                }
+        }
+    }
+
+    fun submitReviewBatch(groups: List<List<String>>, onSuccess: () -> Unit = {}) {
+        if (_state.value.isOffline) {
+            _state.update { it.copy(error = "Batch identification needs a connection.") }
+            return
+        }
+        if (groups.isEmpty()) return
+        viewModelScope.launch {
+            _state.update { it.copy(isBatchIdentifying = true, error = null) }
+            runCatching { repository.requestReviewBatch(groups) }
+                .onSuccess { result ->
+                    val refreshedById = result.items.associateBy { it.id }
+                    _state.update { state ->
+                        state.copy(
+                            reviewQueue = state.reviewQueue.map { refreshedById[it.id] ?: it },
+                            isBatchIdentifying = false,
+                            isOffline = false,
+                            notice = buildString {
+                                append("Submitted ${result.processedPhotoIds.size} photo")
+                                if (result.processedPhotoIds.size != 1) append('s')
+                                append(" as ${groups.size} ID request")
+                                if (groups.size != 1) append('s')
+                                if (result.warnings.isNotEmpty()) append(". ${result.warnings.first()}")
+                            },
+                        )
+                    }
+                    onSuccess()
+                }
+                .onFailure { error ->
+                    _state.update { it.copy(isBatchIdentifying = false, error = error.userMessage()) }
                 }
         }
     }

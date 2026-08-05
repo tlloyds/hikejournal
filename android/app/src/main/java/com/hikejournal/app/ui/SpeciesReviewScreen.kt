@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -33,6 +34,7 @@ import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -46,6 +48,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -61,6 +64,9 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.hikejournal.app.data.ReviewCandidate
 import com.hikejournal.app.data.ReviewItem
+import com.hikejournal.app.data.ReviewPhotoGroup
+import com.hikejournal.app.data.buildReviewPhotoGroups
+import com.hikejournal.app.data.splitReviewPhotoGroups
 import com.hikejournal.app.ui.theme.Ink
 import com.hikejournal.app.ui.theme.InkMuted
 import com.hikejournal.app.ui.theme.Moss
@@ -75,15 +81,19 @@ fun SpeciesReviewScreen(
     loading: Boolean,
     decidingId: String?,
     identifyingId: String?,
+    batchIdentifying: Boolean,
     offline: Boolean,
     onRefresh: () -> Unit,
     onDecision: (ReviewItem, String, ReviewCandidate?) -> Unit,
     onRequestRecommendation: (ReviewItem) -> Unit,
     onConnectInat: () -> Unit,
+    onSubmitBatch: (List<List<String>>, () -> Unit) -> Unit,
 ) {
     var index by remember { mutableIntStateOf(0) }
     var horizontalDragDistance by remember { mutableFloatStateOf(0f) }
+    var batchMode by remember { mutableStateOf(false) }
     val queueSignature = remember(queue) { queue.joinToString(",") { it.id } }
+    val waitingItems = queue.filter { it.candidates.isEmpty() }
     LaunchedEffect(queueSignature) {
         if (queue.isEmpty()) index = 0 else index = index.coerceIn(0, queue.lastIndex)
     }
@@ -101,6 +111,13 @@ fun SpeciesReviewScreen(
                 Text("Species review", style = MaterialTheme.typography.headlineMedium, color = Paper)
                 Text("$pendingCount TO DECIDE · $waitingCount NEED ID", style = MaterialTheme.typography.labelSmall, color = Color(0xFFB7C8B5))
             }
+            TextButton(
+                onClick = { batchMode = true },
+                enabled = waitingItems.isNotEmpty() && !offline && !batchIdentifying,
+                colors = ButtonDefaults.textButtonColors(contentColor = Paper),
+            ) {
+                Text("Batch ID")
+            }
             IconButton(onClick = onRefresh, enabled = !loading && decidingId == null) {
                 if (loading) CircularProgressIndicator(Modifier.size(20.dp), color = Paper, strokeWidth = 2.dp)
                 else Icon(Icons.Rounded.Refresh, "Refresh review queue", tint = Paper)
@@ -117,6 +134,15 @@ fun SpeciesReviewScreen(
         }
 
         when {
+            batchMode -> SpeciesBatchIdentificationContent(
+                queue = waitingItems,
+                submitting = batchIdentifying,
+                offline = offline,
+                onBack = { if (!batchIdentifying) batchMode = false },
+                onSubmit = { groups ->
+                    onSubmitBatch(groups) { batchMode = false }
+                },
+            )
             loading && queue.isEmpty() -> ReviewLoading()
             item == null -> ReviewEmpty(
                 offline = offline,
@@ -169,6 +195,191 @@ fun SpeciesReviewScreen(
         }
     }
 }
+
+@Composable
+private fun SpeciesBatchIdentificationContent(
+    queue: List<ReviewItem>,
+    submitting: Boolean,
+    offline: Boolean,
+    onBack: () -> Unit,
+    onSubmit: (List<List<String>>) -> Unit,
+) {
+    var selectedIds by remember(queue) { mutableStateOf(queue.map { it.id }.toSet()) }
+    var separatePhotoIds by remember(queue) { mutableStateOf(emptySet<String>()) }
+    val selectedItems = queue.filter { it.id in selectedIds }
+    val proposedGroups = buildReviewPhotoGroups(selectedItems)
+    val displayGroups = proposedGroups.sortedBy { it.items.size == 1 }
+    val plannedGroups = splitReviewPhotoGroups(proposedGroups, separatePhotoIds)
+    val groupedCount = plannedGroups.count { it.items.size > 1 }
+    val individualCount = plannedGroups.count { it.items.size == 1 }
+
+    LazyColumn(
+        Modifier.fillMaxSize().padding(bottom = 92.dp),
+    ) {
+        item {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 20.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = onBack, enabled = !submitting) { Text("Back") }
+                    Spacer(Modifier.width(4.dp))
+                    Text("Plan batch IDs", style = MaterialTheme.typography.headlineMedium, color = Ink)
+                }
+                Text(
+                    "Select waiting photos and HikeJournal will propose groups from the same outing within 2 minutes and 12 meters. Split any photo that deserves its own request.",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = InkMuted,
+                    modifier = Modifier.padding(top = 5.dp),
+                )
+                Row(
+                    Modifier.fillMaxWidth().padding(top = 14.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    OutlinedButton(
+                        onClick = { selectedIds = queue.map { it.id }.toSet() },
+                        enabled = !submitting && selectedIds.size != queue.size,
+                        modifier = Modifier.weight(1f),
+                    ) { Text("Select waiting") }
+                    OutlinedButton(
+                        onClick = {
+                            selectedIds = emptySet()
+                            separatePhotoIds = emptySet()
+                        },
+                        enabled = !submitting && selectedIds.isNotEmpty(),
+                        modifier = Modifier.weight(1f),
+                    ) { Text("Clear") }
+                }
+                Text(
+                    "${selectedItems.size} selected · ${plannedGroups.size} ID request${if (plannedGroups.size == 1) "" else "s"} · $groupedCount grouped · $individualCount individual",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (selectedItems.isEmpty()) InkMuted else Moss,
+                    modifier = Modifier.padding(top = 15.dp),
+                )
+            }
+        }
+        if (displayGroups.isEmpty()) {
+            item {
+                Text(
+                    "Choose at least one photo to build the request plan.",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = InkMuted,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp),
+                )
+            }
+        } else {
+            items(displayGroups, key = { group -> group.photoIds.joinToString("|") }) { group ->
+                BatchGroupSection(
+                    group = group,
+                    selectedIds = selectedIds,
+                    separatePhotoIds = separatePhotoIds,
+                    enabled = !submitting,
+                    onSelectedChange = { photoId, selected ->
+                        selectedIds = if (selected) selectedIds + photoId else selectedIds - photoId
+                        if (!selected) separatePhotoIds = separatePhotoIds - photoId
+                    },
+                    onSeparateChange = { photoId, separate ->
+                        separatePhotoIds = if (separate) separatePhotoIds + photoId else separatePhotoIds - photoId
+                    },
+                )
+            }
+        }
+        item {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp)) {
+                Text(
+                    "Two-photo groups use the stronger top suggestion for both photos. Larger groups need a shared top-choice consensus; otherwise the request saves individual suggestions.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = InkMuted,
+                )
+                Button(
+                    onClick = { onSubmit(plannedGroups.map { it.photoIds }) },
+                    enabled = plannedGroups.isNotEmpty() && !submitting && !offline,
+                    modifier = Modifier.fillMaxWidth().padding(top = 14.dp).height(52.dp),
+                ) {
+                    if (submitting) CircularProgressIndicator(Modifier.size(19.dp), color = Paper, strokeWidth = 2.dp)
+                    else Icon(Icons.Rounded.Refresh, null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(if (submitting) "Submitting ID requests…" else "Submit ${plannedGroups.size} ID request${if (plannedGroups.size == 1) "" else "s"}")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BatchGroupSection(
+    group: ReviewPhotoGroup,
+    selectedIds: Set<String>,
+    separatePhotoIds: Set<String>,
+    enabled: Boolean,
+    onSelectedChange: (String, Boolean) -> Unit,
+    onSeparateChange: (String, Boolean) -> Unit,
+) {
+    Column(
+        Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp),
+    ) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
+            Text(
+                if (group.items.size > 1) "Proposed group · ${group.items.size} photos" else "Individual",
+                style = MaterialTheme.typography.titleMedium,
+                color = Ink,
+                modifier = Modifier.weight(1f),
+            )
+            if (group.items.size > 1) {
+                Text(
+                    "${formatGroupMetric(group.timeSpanMinutes, "min")} · ${formatGroupMetric(group.maxDistanceMeters, "m")}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = InkMuted,
+                )
+            }
+        }
+        group.items.forEach { item ->
+            Row(
+                Modifier.fillMaxWidth().padding(top = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Checkbox(
+                    checked = item.id in selectedIds,
+                    onCheckedChange = { checked -> onSelectedChange(item.id, checked) },
+                    enabled = enabled,
+                )
+                AsyncImage(
+                    model = item.photo.url,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.size(58.dp).clip(RoundedCornerShape(4.dp)),
+                )
+                Column(Modifier.weight(1f).padding(start = 10.dp)) {
+                    Text(
+                        item.hikeTitle,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Ink,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        item.photo.takenAt ?: item.hikeDate.ifBlank { "Time unavailable" },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = InkMuted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                if (group.items.size > 1 && item.id in selectedIds) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Checkbox(
+                            checked = item.id in separatePhotoIds,
+                            onCheckedChange = { separate -> onSeparateChange(item.id, separate) },
+                            enabled = enabled,
+                        )
+                        Text("Split", style = MaterialTheme.typography.labelSmall, color = InkMuted)
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun formatGroupMetric(value: Double, suffix: String): String =
+    if (suffix == "min") "${String.format(Locale.US, "%.1f", value)} $suffix"
+    else "${String.format(Locale.US, "%.0f", value)} $suffix"
 
 @Composable
 private fun ReviewItemContent(

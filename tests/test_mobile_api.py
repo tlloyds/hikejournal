@@ -43,8 +43,11 @@ from mobile_api import (
     queue_photo_for_species_review,
     require_mobile_key,
     request_species_recommendation,
+    request_species_batch_recommendation,
     set_photo_species_review,
     update_hike_cover,
+    ReviewBatchInput,
+    ReviewBatchGroupInput,
 )
 
 
@@ -714,6 +717,59 @@ def test_mobile_review_reject_keeps_photo_in_review(monkeypatch):
 
     assert repository.deleted == ["obs-1"]
     assert repository.photo_status == ("photo-1", "in_review")
+
+
+def test_mobile_review_batch_saves_one_shared_suggestion_for_a_group(monkeypatch):
+    class Repository:
+        def __init__(self):
+            self.saved = []
+
+        def upsert_observation(self, _hike_id, photo_id, candidate, **_kwargs):
+            self.saved.append((photo_id, candidate))
+            return {"id": f"obs-{photo_id}", "photo_id": photo_id}
+
+    class InatClient:
+        def validate_credentials(self):
+            return None
+
+        def score_species_candidates(self, *, filename, **_kwargs):
+            if filename == "photo-a.jpg":
+                return [
+                    SpeciesCandidate("Species 10", "Species testus 10", 0.76, 10, {}),
+                    SpeciesCandidate("Species 20", "Species testus 20", 0.40, 20, {}),
+                ], {}
+            return [
+                SpeciesCandidate("Species 20", "Species testus 20", 0.91, 20, {}),
+                SpeciesCandidate("Species 10", "Species testus 10", 0.30, 10, {}),
+            ], {}
+
+    repository = Repository()
+    service = type("Service", (), {"repository": repository})()
+    photos = [
+        {"id": "photo-a", "hike_id": "hike-1", "lat": 28.6, "lng": -81.1, "taken_at": "2026-08-05T10:00:00Z"},
+        {"id": "photo-b", "hike_id": "hike-1", "lat": 28.60001, "lng": -81.10001, "taken_at": "2026-08-05T10:01:00Z"},
+    ]
+    queue = [
+        {"id": photo["id"], "photo": photo, "candidates": []}
+        for photo in photos
+    ]
+    monkeypatch.setattr("mobile_api.get_services", lambda: service)
+    monkeypatch.setattr("mobile_api._mobile_inat_client", lambda: InatClient())
+    monkeypatch.setattr("mobile_api._review_queue_payload", lambda _service: queue)
+    monkeypatch.setattr("mobile_api._download_photo_for_cv", lambda _service, _photo: b"image")
+    monkeypatch.setattr("mobile_api.ensure_observation_taxonomy", lambda *_args: None)
+
+    result = request_species_batch_recommendation(
+        ReviewBatchInput(
+            groups=[ReviewBatchGroupInput(photo_ids=["photo-a", "photo-b"])]
+        )
+    )
+
+    assert result["processed_photo_ids"] == ["photo-a", "photo-b"]
+    assert result["grouped_count"] == 1
+    assert result["individual_count"] == 0
+    assert [candidate.taxon_id for _photo_id, candidate in repository.saved] == [20, 20]
+    assert all(candidate.raw_payload["grouped_cv"] for _photo_id, candidate in repository.saved)
 
 
 def test_existing_photo_can_be_queued_for_species_review(monkeypatch):

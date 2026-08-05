@@ -278,6 +278,14 @@ data class ReviewItem(
     val candidates: List<ReviewCandidate>,
 )
 
+data class ReviewBatchResult(
+    val items: List<ReviewItem>,
+    val processedPhotoIds: List<String>,
+    val groupedCount: Int,
+    val individualCount: Int,
+    val warnings: List<String>,
+)
+
 data class PublishItem(
     val id: String,
     val photo: Photo,
@@ -498,6 +506,20 @@ fun parseSightings(json: String): List<Sighting> {
 fun parseReviewQueue(json: String): List<ReviewItem> {
     val array = JSONArray(json)
     return List(array.length()) { index -> parseReviewItem(array.getJSONObject(index)) }
+}
+
+fun parseReviewBatchResult(json: String): ReviewBatchResult {
+    val root = JSONObject(json)
+    val items = root.optJSONArray("items") ?: JSONArray()
+    val processed = root.optJSONArray("processed_photo_ids") ?: JSONArray()
+    val warnings = root.optJSONArray("warnings") ?: JSONArray()
+    return ReviewBatchResult(
+        items = List(items.length()) { index -> parseReviewItem(items.getJSONObject(index)) },
+        processedPhotoIds = List(processed.length()) { index -> processed.optString(index) },
+        groupedCount = root.optInt("grouped_count"),
+        individualCount = root.optInt("individual_count"),
+        warnings = List(warnings.length()) { index -> warnings.optString(index) },
+    )
 }
 
 fun parseReviewItem(json: String): ReviewItem = parseReviewItem(JSONObject(json))

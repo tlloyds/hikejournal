@@ -562,11 +562,13 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                     loading = state.isReviewLoading,
                     decidingId = state.decidingReviewId,
                     identifyingId = state.identifyingReviewId,
+                    batchIdentifying = state.isBatchIdentifying,
                     offline = state.isOffline,
                     onRefresh = { viewModel.loadReviewQueue(force = true) },
                     onDecision = viewModel::decideReview,
                     onRequestRecommendation = viewModel::requestReviewRecommendation,
                     onConnectInat = viewModel::connectInat,
+                    onSubmitBatch = { groups, onSuccess -> viewModel.submitReviewBatch(groups, onSuccess) },
                 )
                 destination == TopDestination.Publish -> PublishingScreen(
                     queue = state.publishQueue,

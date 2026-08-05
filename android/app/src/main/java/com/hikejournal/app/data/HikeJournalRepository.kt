@@ -421,6 +421,14 @@ class HikeJournalRepository(context: Context) {
         return item
     }
 
+    suspend fun requestReviewBatch(groups: List<List<String>>): ReviewBatchResult {
+        val result = parseReviewBatchResult(api.requestReviewBatch(groups))
+        withContext(Dispatchers.IO) {
+            File(cacheDirectory, "species-review.json").delete()
+        }
+        return result
+    }
+
     suspend fun getInatAuthorizationUrl(): String = api.getInatAuthorizationUrl()
 
     suspend fun loadPublishQueue(): LoadResult<PublishQueue> {
