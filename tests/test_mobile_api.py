@@ -116,6 +116,19 @@ def test_mobile_publishing_upgrades_legacy_oauth_token_to_an_api_jwt(monkeypatch
     assert saved == {"email": "hiker@example.com", "access_token": "jwt.for.legacy-oauth-token"}
 
 
+def test_mobile_publishing_uses_a_fresh_jwt_from_stored_oauth_credentials(monkeypatch):
+    monkeypatch.setattr("mobile_api._user_context", lambda: {"subject": "user-1", "email": "hiker@example.com"})
+    monkeypatch.setattr(
+        "mobile_api._load_mobile_inat_token",
+        lambda _email: '{"oauth_access_token":"renewable-oauth-token","refresh_token":"refresh-token"}',
+    )
+    monkeypatch.setattr("mobile_api.fetch_api_token_for_oauth_access_token", lambda token: f"jwt.for.{token}")
+
+    client = _mobile_inat_client()
+
+    assert client.access_token == "jwt.for.renewable-oauth-token"
+
+
 def test_photo_payload_includes_stored_species_wikipedia_info():
     payload = _photo_payload(
         {"id": "photo-1"},

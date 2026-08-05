@@ -7,6 +7,7 @@ from datetime import date, datetime, timezone
 import hashlib
 import hmac
 import logging
+import json
 import math
 import os
 import time
@@ -48,6 +49,7 @@ from hike_journal.services.inat import (
     exchange_oauth_code,
     fetch_api_token_for_oauth_access_token,
     parse_candidates,
+    refresh_oauth_access_token,
     resolve_access_token_for_user,
 )
 from hike_journal.services.inat_publishing import (
@@ -757,6 +759,20 @@ def _mobile_inat_client() -> InatClient:
     owner = _user_context()
     email = owner.get("email")
     mobile_token = _load_mobile_inat_token(email)
+    token_record = _mobile_inat_oauth_record(mobile_token)
+    if token_record:
+        oauth_access_token = str(token_record.get("oauth_access_token") or "")
+        refresh_token = str(token_record.get("refresh_token") or "")
+        try:
+            mobile_token = fetch_api_token_for_oauth_access_token(oauth_access_token)
+        except InatAuthError:
+            if not refresh_token:
+                raise
+            refreshed = refresh_oauth_access_token(refresh_token=refresh_token)
+            if not refreshed.get("refresh_token"):
+                refreshed["refresh_token"] = refresh_token
+            _save_mobile_inat_oauth_token(get_services(), email=email, token_payload=refreshed)
+            mobile_token = fetch_api_token_for_oauth_access_token(str(refreshed.get("access_token") or ""))
     # Older Android builds saved the short-lived OAuth token directly. The v1
     # write API needs the JWT returned by /users/api_token; reads can still
     # succeed with the OAuth token, which made this look connected until post.
@@ -769,6 +785,22 @@ def _mobile_inat_client() -> InatClient:
         email=email,
     ) or settings.inat_access_token
     return InatClient(access_token=access_token, base_url=settings.inat_base_url)
+
+
+def _mobile_inat_oauth_record(value: str) -> dict[str, str] | None:
+    try:
+        payload = json.loads(value)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    oauth_access_token = str(payload.get("oauth_access_token") or "").strip()
+    if not oauth_access_token:
+        return None
+    return {
+        "oauth_access_token": oauth_access_token,
+        "refresh_token": str(payload.get("refresh_token") or "").strip(),
+    }
 
 
 def _mobile_inat_token_key() -> str:
@@ -802,6 +834,25 @@ def _save_mobile_inat_token(svc: Services, *, email: str, access_token: str) -> 
         raise InatConfigurationError(
             "The mobile iNaturalist credentials table is not ready. Apply sql/mobile_inat_oauth_migration.sql, then try again."
         ) from exc
+
+
+def _save_mobile_inat_oauth_token(svc: Services, *, email: str, token_payload: dict[str, Any]) -> None:
+    oauth_access_token = str(token_payload.get("access_token") or "").strip()
+    if not oauth_access_token:
+        raise InatAuthError("iNaturalist OAuth did not return a usable access token.")
+    # Store the renewable OAuth credential, not the short-lived v1 JWT. The
+    # existing encrypted text column deliberately supports this JSON payload.
+    _save_mobile_inat_token(
+        svc,
+        email=email,
+        access_token=json.dumps(
+            {
+                "oauth_access_token": oauth_access_token,
+                "refresh_token": str(token_payload.get("refresh_token") or "").strip(),
+            },
+            separators=(",", ":"),
+        ),
+    )
 
 
 def _mobile_oauth_redirect_uri() -> str:
@@ -973,8 +1024,7 @@ def finish_mobile_inat_oauth(code: str | None = None, state: str | None = None, 
         return RedirectResponse("hikejournal://inat?status=error&message=missing_code")
     try:
         token_payload = exchange_oauth_code(code=code, redirect_uri=_mobile_oauth_redirect_uri())
-        access_token = fetch_api_token_for_oauth_access_token(str(token_payload.get("access_token") or ""))
-        _save_mobile_inat_token(get_services(), email=email, access_token=access_token)
+        _save_mobile_inat_oauth_token(get_services(), email=email, token_payload=token_payload)
     except (InatConfigurationError, InatAuthError, InatRequestError) as exc:
         return RedirectResponse("hikejournal://inat?status=error&message=authorization_failed")
     return RedirectResponse("hikejournal://inat?status=connected")
