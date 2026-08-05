@@ -315,11 +315,15 @@ class InatClient:
         if captive:
             observation_payload["captive"] = True
 
+        form_payload = {
+            f"observation[{key}]": str(value)
+            for key, value in observation_payload.items()
+        }
         response = self._request(
             "post",
             url,
             headers=headers,
-            json={"observation": observation_payload},
+            data=form_payload,
             timeout=30,
         )
         if response.status_code == 401:
