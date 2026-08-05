@@ -66,7 +66,7 @@ from hike_journal.services.taxonomy import ensure_observation_taxonomy
 
 MAX_UPLOAD_BYTES = 30 * 1024 * 1024
 EVERYDAY_JOURNAL_ID = "everyday"
-MOBILE_API_VERSION = "0.6.4"
+MOBILE_API_VERSION = "0.6.14"
 logger = logging.getLogger(__name__)
 
 

@@ -240,6 +240,10 @@ class Settings:
     r2_api_token: str = os.getenv("R2_API_TOKEN", "")
     inat_access_token_env: str = os.getenv("INAT_ACCESS_TOKEN", "")
     inat_base_url: str = os.getenv("INAT_BASE_URL", "https://api.inaturalist.org/v1").rstrip("/")
+    # iNaturalist's Node v1 API is suitable for reads, but its write surface is
+    # intentionally limited. Observation creation and media upload use the
+    # Rails JSON endpoints used by the iNaturalist web application.
+    inat_web_base_url: str = os.getenv("INAT_WEB_BASE_URL", "https://www.inaturalist.org").rstrip("/")
     inat_discovery_base_url: str = os.getenv(
         "INAT_DISCOVERY_BASE_URL",
         "https://api.inaturalist.org/v2",

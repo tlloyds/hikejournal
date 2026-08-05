@@ -50,6 +50,7 @@ class InatClient:
     def __init__(self, access_token: str | None = None, base_url: str | None = None):
         self.access_token = access_token or settings.inat_access_token
         self.base_url = (base_url or settings.inat_base_url).rstrip("/")
+        self.web_base_url = settings.inat_web_base_url
         self.request_interval_seconds = 0.75
         self.cv_request_interval_seconds = max(self.request_interval_seconds, settings.inat_cv_request_interval_seconds)
         self._last_request_at = 0.0
@@ -286,7 +287,10 @@ class InatClient:
         if not self.is_configured:
             raise InatConfigurationError("No iNaturalist token is configured yet.")
 
-        url = f"{self.base_url}/observations"
+        # The Node /v1 observations endpoint accepts only a small subset of
+        # create fields and has been returning 500s after creating empty
+        # records. Use the Rails JSON endpoint that powers the web publisher.
+        url = f"{self.web_base_url}/observations.json"
         headers = self._headers(auth=True)
         observation_payload: dict[str, Any] = {}
         if taxon_id:
@@ -297,10 +301,6 @@ class InatClient:
             raise InatConfigurationError("A species name or taxon is required before posting to iNaturalist.")
         if observed_on is not None:
             observation_payload["observed_on_string"] = observed_on.strftime("%Y-%m-%d %H:%M:%S")
-        # These names intentionally mirror the fields accepted by
-        # iNaturalist's observations controller. The v1 endpoint silently
-        # ignores its newer-looking `location` and `tags` aliases, which can
-        # create an otherwise blank observation before returning an error.
         if lat is not None:
             observation_payload["latitude"] = float(lat)
         if lng is not None:
@@ -320,7 +320,8 @@ class InatClient:
             "post",
             url,
             headers=headers,
-            json={"observation": observation_payload},
+            data={f"observation[{key}]": str(value).lower() if isinstance(value, bool) else str(value)
+                  for key, value in observation_payload.items()},
             timeout=30,
         )
         if response.status_code == 401:
@@ -350,7 +351,7 @@ class InatClient:
         if not self.is_configured:
             raise InatConfigurationError("No iNaturalist token is configured yet.")
 
-        url = f"{self.base_url}/observation_photos"
+        url = f"{self.web_base_url}/observation_photos.json"
         headers = self._headers(auth=True)
         response = self._request(
             "post",

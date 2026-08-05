@@ -115,7 +115,7 @@ def test_taxon_enrichment_is_available_without_an_inat_account(monkeypatch) -> N
     assert captured["headers"].get("Authorization") is None
 
 
-def test_observation_creation_uses_inaturalist_observation_controller_fields(monkeypatch) -> None:
+def test_observation_creation_uses_inaturalist_web_publisher_request(monkeypatch) -> None:
     captured = {}
 
     class Response:
@@ -146,17 +146,16 @@ def test_observation_creation_uses_inaturalist_observation_controller_fields(mon
         captive=True,
     )
 
-    assert captured["json"] == {
-        "observation": {
-            "taxon_id": 42048,
-            "observed_on_string": "2026-08-02 09:36:00",
-            "latitude": 28.6,
-            "longitude": -81.1,
-            "description": "Posted from HikeJournal.",
-            "tag_list": "HikeJournal",
-            "geoprivacy": "open",
-            "captive_flag": True,
-        }
+    assert captured["url"] == "https://www.inaturalist.org/observations.json"
+    assert captured["data"] == {
+        "observation[taxon_id]": "42048",
+        "observation[observed_on_string]": "2026-08-02 09:36:00",
+        "observation[latitude]": "28.6",
+        "observation[longitude]": "-81.1",
+        "observation[description]": "Posted from HikeJournal.",
+        "observation[tag_list]": "HikeJournal",
+        "observation[geoprivacy]": "open",
+        "observation[captive_flag]": "true",
     }
 
 
