@@ -2437,11 +2437,12 @@ private fun PhotoViewer(
             ) {
                 Column(
                     Modifier
-                        .fillMaxWidth()
-                        .weight(1f)
+                        .fillMaxSize()
+                        .imePadding()
+                        .navigationBarsPadding()
                         .verticalScroll(rememberScrollState())
                         .padding(horizontal = 16.dp)
-                        .padding(top = 16.dp, bottom = 14.dp),
+                        .padding(top = 16.dp, bottom = 32.dp),
                 ) {
                 identifiedSpecies?.let { species ->
                     Text(species.commonName.ifBlank { species.scientificName }, style = MaterialTheme.typography.titleMedium, color = Color(0xFFBFD2B9))
@@ -2571,15 +2572,6 @@ private fun PhotoViewer(
                     )
                 }
                 HorizontalDivider(color = Color(0xFF405148), modifier = Modifier.padding(top = 13.dp))
-                }
-                Column(
-                    Modifier
-                        .fillMaxWidth()
-                        .imePadding()
-                        .navigationBarsPadding()
-                        .padding(horizontal = 16.dp)
-                        .padding(bottom = 16.dp),
-                ) {
                     OutlinedTextField(
                         caption,
                         { caption = it },
@@ -2599,6 +2591,7 @@ private fun PhotoViewer(
                         modifier = Modifier.fillMaxWidth().padding(top = 10.dp).height(52.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF315844), contentColor = Paper),
                     ) { Text("Save note") }
+                    Spacer(Modifier.height(16.dp))
                 }
             }
         }
