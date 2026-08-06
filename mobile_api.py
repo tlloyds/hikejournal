@@ -69,7 +69,7 @@ from hike_journal.services.taxonomy import ensure_observation_taxonomy
 
 MAX_UPLOAD_BYTES = 30 * 1024 * 1024
 EVERYDAY_JOURNAL_ID = "everyday"
-MOBILE_API_VERSION = "0.6.20"
+MOBILE_API_VERSION = "0.6.21"
 logger = logging.getLogger(__name__)
 
 
@@ -190,6 +190,7 @@ class PublishBatchGroupInput(BaseModel):
 class PublishBatchInput(BaseModel):
     acknowledged_public: bool
     groups: list[PublishBatchGroupInput] = Field(min_length=1, max_length=50)
+    client_request_id: str | None = Field(default=None, min_length=1, max_length=64)
     description: str = Field(default="", max_length=5_000)
     tags: list[str] = Field(default_factory=list, max_length=20)
     geoprivacy: Literal["open", "obscured", "private"] = "open"
@@ -2008,7 +2009,7 @@ def _publish_batch_job_payload(job: dict[str, Any]) -> dict[str, Any]:
     return {
         key: value
         for key, value in job.items()
-        if key not in {"owner_context", "created_at"}
+        if key not in {"owner_context", "created_at", "client_request_id"}
     }
 
 
@@ -2139,6 +2140,20 @@ def start_species_publish_batch(
     payload: PublishBatchInput,
     background_tasks: BackgroundTasks,
 ) -> dict[str, Any]:
+    owner_context = _user_context()
+    if payload.client_request_id:
+        with _species_publish_jobs_lock:
+            existing = next(
+                (
+                    existing
+                    for existing in _species_publish_jobs.values()
+                    if existing.get("owner_context") == owner_context
+                    and existing.get("client_request_id") == payload.client_request_id
+                ),
+                None,
+            )
+            if existing:
+                return _publish_batch_job_payload(dict(existing))
     svc, records_by_group, inat_client, owner = _prepare_species_publish_batch(payload)
     job_id = str(uuid4())
     total_photos = sum(len(records) for records in records_by_group)
@@ -2159,18 +2174,28 @@ def start_species_publish_batch(
         "errors": [],
         "error": None,
         "owner_context": owner,
+        "client_request_id": payload.client_request_id,
     }
     with _species_publish_jobs_lock:
-        now = time.time()
-        finished = [
-            key
-            for key, value in _species_publish_jobs.items()
-            if value.get("state") in {"completed", "failed"}
-            and now - float(value.get("created_at") or now) > 3600
+        if payload.client_request_id:
+            existing = next(
+                (
+                    existing
+                    for existing in _species_publish_jobs.values()
+                    if existing.get("owner_context") == owner_context
+                    and existing.get("client_request_id") == payload.client_request_id
+                ),
+                None,
+            )
+            if existing:
+                return _publish_batch_job_payload(dict(existing))
+        finished_ids = [
+            existing_id
+            for existing_id, existing in _species_publish_jobs.items()
+            if existing.get("state") in {"completed", "failed"}
         ]
-        for key in finished:
-            _species_publish_jobs.pop(key, None)
-        job["created_at"] = now
+        for existing_id in finished_ids[:-50]:
+            _species_publish_jobs.pop(existing_id, None)
         _species_publish_jobs[job_id] = job
     background_tasks.add_task(
         _run_species_publish_batch_job,

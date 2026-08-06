@@ -948,21 +948,24 @@ def test_mobile_publish_batch_status_reports_each_group_after_background_work(mo
     monkeypatch.setattr("mobile_api._mobile_inat_client", lambda: InatClient())
     monkeypatch.setattr("mobile_api.publish_observation_group", fake_publish)
 
-    tasks = BackgroundTasks()
-    job = start_species_publish_batch(
-        PublishBatchInput(
-            acknowledged_public=True,
-            groups=[
-                PublishBatchGroupInput(observation_ids=["observation-a"]),
-                PublishBatchGroupInput(observation_ids=["observation-b"]),
-            ],
-        ),
-        tasks,
+    payload = PublishBatchInput(
+        acknowledged_public=True,
+        groups=[
+            PublishBatchGroupInput(observation_ids=["observation-a"]),
+            PublishBatchGroupInput(observation_ids=["observation-b"]),
+        ],
+        client_request_id="publish-request-1",
     )
+    tasks = BackgroundTasks()
+    job = start_species_publish_batch(payload, tasks)
 
     assert job["state"] == "queued"
     assert job["total_groups"] == 2
     assert job["total_photos"] == 2
+    retry_tasks = BackgroundTasks()
+    retry_job = start_species_publish_batch(payload, retry_tasks)
+    assert retry_job["job_id"] == job["job_id"]
+    assert retry_tasks.tasks == []
     asyncio.run(tasks())
 
     status = get_species_publish_batch_status(job["job_id"])

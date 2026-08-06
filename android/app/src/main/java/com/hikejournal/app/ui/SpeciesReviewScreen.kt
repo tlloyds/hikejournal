@@ -317,7 +317,7 @@ private fun SpeciesBatchIdentificationContent(
                     enabled = !submitting,
                     onSelectedChange = { photoId, selected ->
                         selectedIds = if (selected) selectedIds + photoId else selectedIds - photoId
-                        if (!selected) separatePhotoIds = separatePhotoIds - photoId
+                        separatePhotoIds = separatePhotoIds - photoId
                     },
                     onSeparateChange = { photoId, separate ->
                         separatePhotoIds = if (separate) separatePhotoIds + photoId else separatePhotoIds - photoId
@@ -380,7 +380,7 @@ private fun BatchGroupSection(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Checkbox(
-                    checked = item.id in selectedIds,
+                    checked = item.id in selectedIds && item.id !in separatePhotoIds,
                     onCheckedChange = { checked -> onSelectedChange(item.id, checked) },
                     enabled = enabled,
                 )

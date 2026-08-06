@@ -18,6 +18,8 @@ import com.hikejournal.app.data.FieldQuest
 import com.hikejournal.app.data.NearbySpecies
 import com.hikejournal.app.data.Photo
 import com.hikejournal.app.data.PublishBatchStatus
+import com.hikejournal.app.data.PublishBatchRequest
+import com.hikejournal.app.data.PublishBatchWork
 import com.hikejournal.app.data.PublishItem
 import com.hikejournal.app.data.PublishOptions
 import com.hikejournal.app.data.PublishQueue
@@ -115,6 +117,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val _state = MutableStateFlow(AppState())
     val state: StateFlow<AppState> = _state.asStateFlow()
     private var handledSpeciesBatchWorkId: UUID? = null
+    private var handledPublishBatchWorkId: UUID? = null
 
     val serverUrl: String get() = repository.serverUrl
     val pairingKey: String get() = repository.pairingKey
@@ -167,6 +170,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         observeSpeciesReviewBatchWork()
+        observePublishBatchWork()
         loadInitialLibrary()
     }
 
@@ -244,6 +248,86 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         append(" as ${status.totalGroups} ID request")
         if (status.totalGroups != 1) append('s')
         if (status.warnings.isNotEmpty()) append(". ${status.warnings.first()}")
+    }
+
+    private fun observePublishBatchWork() {
+        viewModelScope.launch {
+            WorkManager.getInstance(appContext)
+                .getWorkInfosForUniqueWorkFlow(PublishBatchWork.WorkName)
+                .collect { workInfos ->
+                    val work = workInfos.firstOrNull() ?: return@collect
+                    val status = PublishBatchWork.statusFromData(work.progress)
+                    when (work.state) {
+                        WorkInfo.State.ENQUEUED, WorkInfo.State.RUNNING, WorkInfo.State.BLOCKED -> {
+                            _state.update { current ->
+                                current.copy(
+                                    isBatchPublishing = true,
+                                    publishBatchProgress = status ?: current.publishBatchProgress,
+                                )
+                            }
+                        }
+                        WorkInfo.State.SUCCEEDED, WorkInfo.State.FAILED, WorkInfo.State.CANCELLED -> {
+                            if (handledPublishBatchWorkId == work.id) return@collect
+                            handledPublishBatchWorkId = work.id
+                            finishPublishBatch(work, status)
+                        }
+                        else -> Unit
+                    }
+                }
+        }
+    }
+
+    private fun finishPublishBatch(work: WorkInfo, status: PublishBatchStatus?) {
+        val completed = work.state == WorkInfo.State.SUCCEEDED && status?.state == "completed"
+        val terminalStatus = status ?: PublishBatchStatus(
+            jobId = "",
+            state = if (completed) "completed" else "failed",
+            totalGroups = 0,
+            processedGroupCount = 0,
+            postedGroupCount = 0,
+            failedGroupCount = 0,
+            partialGroupCount = 0,
+            totalPhotos = 0,
+            processedPhotoCount = 0,
+            currentGroup = 0,
+            currentGroupPhotoCount = 0,
+            processedObservationIds = emptyList(),
+            processedPhotoIds = emptyList(),
+            errors = emptyList(),
+            error = work.outputData.getString(PublishBatchWork.ProgressError),
+        )
+        if (completed) {
+            _state.update { current ->
+                current.copy(
+                    isBatchPublishing = false,
+                    publishBatchProgress = terminalStatus,
+                    isOffline = false,
+                    error = null,
+                    publishNotice = buildPublishBatchNotice(terminalStatus),
+                )
+            }
+            loadPublishQueue(force = true)
+        } else {
+            _state.update { current ->
+                current.copy(
+                    isBatchPublishing = false,
+                    publishBatchProgress = terminalStatus.copy(state = "failed"),
+                    error = terminalStatus.error
+                        ?: "The iNaturalist publish batch could not complete. Refresh the publishing queue to see any posts that were saved.",
+                )
+            }
+        }
+    }
+
+    private fun buildPublishBatchNotice(status: PublishBatchStatus): String = buildString {
+        append("Posted ${status.postedGroupCount} observation")
+        if (status.postedGroupCount != 1) append('s')
+        append(" from ${status.processedPhotoCount} photo")
+        if (status.processedPhotoCount != 1) append('s')
+        if (status.failedGroupCount > 0 || status.partialGroupCount > 0) {
+            append(". ${status.failedGroupCount} could not be created and ${status.partialGroupCount} need photo attention")
+        }
+        status.errors.firstOrNull()?.let { append(". $it") }
     }
 
     private fun loadInitialLibrary() {
@@ -1048,7 +1132,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun submitPublishBatch(
         groups: List<List<String>>,
         options: PublishOptions,
-        onFinished: () -> Unit = {},
     ) {
         if (_state.value.isOffline) {
             _state.update { it.copy(error = "Publishing needs a connection to iNaturalist.") }
@@ -1059,68 +1142,26 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
         if (groups.isEmpty()) return
-        viewModelScope.launch {
-            _state.update {
-                it.copy(
-                    isBatchPublishing = true,
-                    publishBatchProgress = null,
-                    publishNotice = null,
-                    error = null,
-                )
-            }
-            runCatching {
-                var status = repository.startPublishBatch(groups, options)
-                _state.update { it.copy(publishBatchProgress = status) }
-                var statusCheckFailures = 0
-                while (status.state == "queued" || status.state == "running") {
-                    delay(1_000)
-                    status = try {
-                        repository.getPublishBatchStatus(status.jobId)
-                    } catch (error: Exception) {
-                        statusCheckFailures += 1
-                        if (statusCheckFailures >= 3) throw error
-                        continue
-                    }
-                    statusCheckFailures = 0
-                    _state.update { it.copy(publishBatchProgress = status) }
-                }
-                val queueResult = repository.loadPublishQueue()
-                status to queueResult
-            }.onSuccess { (status, queueResult) ->
-                val notice = when {
-                    status.state == "failed" -> null
-                    status.failedGroupCount > 0 || status.partialGroupCount > 0 -> {
-                        "Posted ${status.postedGroupCount} of ${status.totalGroups} observations. " +
-                            "${status.failedGroupCount} could not be created and " +
-                            "${status.partialGroupCount} need photo attention."
-                    }
-                    else -> {
-                        "Posted ${status.postedGroupCount} iNaturalist observations from ${status.processedPhotoCount} photos."
-                    }
-                }
-                _state.update {
-                    it.copy(
-                        publishQueue = queueResult.value,
-                        isBatchPublishing = false,
-                        publishBatchProgress = status,
-                        isOffline = queueResult.fromCache,
-                        error = status.error,
-                        publishNotice = notice,
-                        species = emptyList(),
-                        sightings = emptyList(),
-                    )
-                }
-                onFinished()
-            }.onFailure { error ->
-                _state.update {
-                    it.copy(
-                        isBatchPublishing = false,
-                        error = "The batch started, but HikeJournal could not confirm its status. Refresh the publishing queue to see completed posts.",
-                    )
-                }
-                onFinished()
-            }
+        _state.update {
+            it.copy(
+                isBatchPublishing = true,
+                publishBatchProgress = PublishBatchWork.emptyStatus(
+                    PublishBatchRequest("", groups, options),
+                ),
+                publishNotice = null,
+                error = null,
+            )
         }
+        runCatching { PublishBatchWork.enqueue(appContext, groups, options) }
+            .onFailure { error ->
+                _state.update {
+                    it.copy(
+                        isBatchPublishing = false,
+                        publishBatchProgress = null,
+                        error = error.message ?: "HikeJournal could not start the iNaturalist publish batch.",
+                    )
+                }
+            }
     }
 
     fun clearPublishBatchProgress() {

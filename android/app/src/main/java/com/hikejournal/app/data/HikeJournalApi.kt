@@ -243,7 +243,11 @@ class HikeJournalApi(private val context: Context) {
             .toRequestBody(jsonMediaType),
     )
 
-    suspend fun startPublishBatch(groups: List<List<String>>, options: PublishOptions): String {
+    suspend fun startPublishBatch(
+        groups: List<List<String>>,
+        options: PublishOptions,
+        clientRequestId: String? = null,
+    ): String {
         val groupPayload = org.json.JSONArray()
         groups.forEach { observationIds ->
             groupPayload.put(org.json.JSONObject().put("observation_ids", org.json.JSONArray(observationIds)))
@@ -254,6 +258,7 @@ class HikeJournalApi(private val context: Context) {
             body = JSONObject()
                 .put("acknowledged_public", true)
                 .put("groups", groupPayload)
+                .put("client_request_id", clientRequestId ?: JSONObject.NULL)
                 .put("description", options.description)
                 .put("tags", org.json.JSONArray(options.tags))
                 .put("geoprivacy", options.geoprivacy)

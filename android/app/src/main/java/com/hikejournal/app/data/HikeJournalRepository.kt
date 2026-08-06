@@ -468,7 +468,8 @@ class HikeJournalRepository(context: Context) {
     suspend fun startPublishBatch(
         groups: List<List<String>>,
         options: PublishOptions,
-    ): PublishBatchStatus = parsePublishBatchStatus(api.startPublishBatch(groups, options))
+        clientRequestId: String? = null,
+    ): PublishBatchStatus = parsePublishBatchStatus(api.startPublishBatch(groups, options, clientRequestId))
 
     suspend fun getPublishBatchStatus(jobId: String): PublishBatchStatus =
         parsePublishBatchStatus(api.getPublishBatchStatus(jobId))

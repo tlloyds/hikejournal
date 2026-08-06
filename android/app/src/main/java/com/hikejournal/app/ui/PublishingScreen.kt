@@ -132,7 +132,8 @@ fun PublishingScreen(
     offline: Boolean,
     onRefresh: () -> Unit,
     onPublish: (PublishItem, PublishOptions) -> Unit,
-    onSubmitBatch: (List<List<String>>, PublishOptions, () -> Unit) -> Unit,
+    onSubmitBatch: (List<List<String>>, PublishOptions) -> Unit,
+    onBatchFinished: () -> Unit,
     onConnectInat: () -> Unit,
     onClearNotice: () -> Unit,
 ) {
@@ -155,6 +156,12 @@ fun PublishingScreen(
         index = if (filtered.isEmpty()) 0 else index.coerceIn(0, filtered.lastIndex)
     }
     val current = filtered.getOrNull(index)
+    LaunchedEffect(publishBatchProgress?.jobId, publishBatchProgress?.state, batchPublishing) {
+        if (!batchPublishing && publishBatchProgress?.state in setOf("completed", "failed")) {
+            onBatchFinished()
+            batchMode = false
+        }
+    }
 
     Box(Modifier.fillMaxSize().background(Parchment)) {
         Column(Modifier.fillMaxSize()) {
@@ -226,7 +233,7 @@ fun PublishingScreen(
                     offline = offline,
                     onBack = { if (!batchPublishing) batchMode = false },
                     onSubmit = { groups, options ->
-                        onSubmitBatch(groups, options) { batchMode = false }
+                        onSubmitBatch(groups, options)
                     },
                 )
                 loading && queue.items.isEmpty() -> PublishLoading()
