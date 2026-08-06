@@ -44,7 +44,7 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = 83
-        versionName = "0.6.21"
+        versionName = "0.6.22"
 
         buildConfigField("String", "DEFAULT_API_URL", quoted(mobileApiUrl))
         buildConfigField("String", "MOBILE_API_TOKEN", quoted(mobileApiToken))

@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -216,6 +217,7 @@ private fun SpeciesBatchIdentificationContent(
 ) {
     var selectedIds by remember(queue) { mutableStateOf(queue.map { it.id }.toSet()) }
     var separatePhotoIds by remember(queue) { mutableStateOf(emptySet<String>()) }
+    val listState = rememberLazyListState()
     val selectedItems = queue.filter { it.id in selectedIds }
     val proposedGroups = buildReviewPhotoGroups(selectedItems)
     val displayGroups = proposedGroups.sortedBy { it.items.size == 1 }
@@ -223,8 +225,13 @@ private fun SpeciesBatchIdentificationContent(
     val groupedCount = plannedGroups.count { it.items.size > 1 }
     val individualCount = plannedGroups.count { it.items.size == 1 }
 
+    LaunchedEffect(submitting) {
+        if (submitting) listState.animateScrollToItem(0)
+    }
+
     LazyColumn(
-        Modifier.fillMaxSize().padding(bottom = 92.dp),
+        state = listState,
+        modifier = Modifier.fillMaxSize().padding(bottom = 92.dp),
     ) {
         item {
             Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 20.dp)) {
