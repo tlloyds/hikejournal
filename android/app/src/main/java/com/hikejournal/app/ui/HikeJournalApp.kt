@@ -631,31 +631,37 @@ fun HikeJournalApp(viewModel: AppViewModel) {
             )
         }
 
-        AnimatedVisibility(
-            visible = !state.error.isNullOrBlank(),
-            modifier = Modifier.align(Alignment.BottomCenter),
-            enter = slideInVertically { it } + fadeIn(),
-            exit = fadeOut(),
+        Column(
+            Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+                .navigationBarsPadding(),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            ErrorBanner(message = state.error.orEmpty(), onDismiss = viewModel::clearError)
-        }
-        AnimatedVisibility(
-            visible = state.notice != null && state.error.isNullOrBlank(),
-            modifier = Modifier.align(Alignment.BottomCenter),
-            enter = slideInVertically { it } + fadeIn(),
-            exit = fadeOut(),
-        ) {
-            NoticeBanner(message = state.notice.orEmpty(), onDismiss = viewModel::clearNotice)
-        }
-        AnimatedVisibility(
-            visible = destination != TopDestination.Publish &&
-                !state.publishNotice.isNullOrBlank() &&
-                state.error.isNullOrBlank(),
-            modifier = Modifier.align(Alignment.BottomCenter),
-            enter = slideInVertically { it } + fadeIn(),
-            exit = fadeOut(),
-        ) {
-            NoticeBanner(message = state.publishNotice.orEmpty(), onDismiss = viewModel::clearPublishNotice)
+            AnimatedVisibility(
+                visible = !state.error.isNullOrBlank(),
+                enter = slideInVertically { it } + fadeIn(),
+                exit = fadeOut(),
+            ) {
+                ErrorBanner(message = state.error.orEmpty(), onDismiss = viewModel::clearError)
+            }
+            AnimatedVisibility(
+                visible = state.notice != null && state.error.isNullOrBlank(),
+                enter = slideInVertically { it } + fadeIn(),
+                exit = fadeOut(),
+            ) {
+                NoticeBanner(message = state.notice.orEmpty(), onDismiss = viewModel::clearNotice)
+            }
+            AnimatedVisibility(
+                visible = destination != TopDestination.Publish &&
+                    !state.publishNotice.isNullOrBlank() &&
+                    state.error.isNullOrBlank(),
+                enter = slideInVertically { it } + fadeIn(),
+                exit = fadeOut(),
+            ) {
+                NoticeBanner(message = state.publishNotice.orEmpty(), onDismiss = viewModel::clearPublishNotice)
+            }
         }
     }
 
@@ -3005,29 +3011,45 @@ private fun SettingsDialog(
 
 @Composable
 private fun ErrorBanner(message: String, onDismiss: () -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().background(Color(0xFF8F3D32)).navigationBarsPadding().clickable(onClick = onDismiss).padding(horizontal = 18.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
+    Surface(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onDismiss),
+        color = Color(0xFF8F3D32),
+        shape = RoundedCornerShape(18.dp),
+        shadowElevation = 8.dp,
     ) {
-        Text(message, color = Paper, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-        Icon(Icons.Rounded.Close, "Dismiss", tint = Paper)
+        Row(
+            Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.Top,
+        ) {
+            Text(message, color = Paper, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+            Icon(Icons.Rounded.Close, "Dismiss", tint = Paper, modifier = Modifier.padding(start = 12.dp))
+        }
     }
 }
 
 @Composable
 private fun NoticeBanner(message: String, onDismiss: () -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().background(Moss).navigationBarsPadding().clickable(onClick = onDismiss).padding(horizontal = 18.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
+    Surface(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onDismiss),
+        color = Moss,
+        shape = RoundedCornerShape(18.dp),
+        shadowElevation = 8.dp,
     ) {
-        Icon(Icons.Rounded.Check, null, tint = Paper, modifier = Modifier.size(20.dp))
-        Text(
-            message,
-            color = Paper,
-            style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.weight(1f).padding(start = 10.dp),
-        )
-        Icon(Icons.Rounded.Close, "Dismiss", tint = Paper)
+        Row(
+            Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.Top,
+        ) {
+            Icon(Icons.Rounded.Check, "Complete", tint = Paper, modifier = Modifier.size(20.dp))
+            Text(
+                message,
+                color = Paper,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f).padding(start = 10.dp),
+            )
+            Icon(Icons.Rounded.Close, "Dismiss", tint = Paper, modifier = Modifier.padding(start = 12.dp))
+        }
     }
 }
 

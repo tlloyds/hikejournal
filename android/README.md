@@ -113,7 +113,7 @@ The paired companion token only authorizes this narrow local API.
 
 Double-click `build_android.command` in the repository root. The finished APK is
 copied to `dist/HikeJournal-v<version>.apk` (currently
-`dist/HikeJournal-v0.6.27.apk`).
+`dist/HikeJournal-v0.6.28.apk`).
 
 Android code is split by responsibility:
 

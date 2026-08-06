@@ -119,6 +119,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val appContext = application.applicationContext
     private val _state = MutableStateFlow(AppState())
     val state: StateFlow<AppState> = _state.asStateFlow()
+    private var observedSpeciesBatchWorkId: UUID? = null
+    private var observedPublishBatchWorkId: UUID? = null
     private var handledSpeciesBatchWorkId: UUID? = null
     private var handledPublishBatchWorkId: UUID? = null
 
@@ -183,6 +185,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 .getWorkInfosForUniqueWorkFlow(SpeciesReviewBatchWork.WorkName)
                 .collect { workInfos ->
                     val work = workInfos.firstOrNull() ?: return@collect
+                    if (!adoptSpeciesBatchWork(work)) return@collect
                     val status = if (work.state.isFinished) {
                         SpeciesReviewBatchWork.statusFromData(work.outputData)
                             ?: SpeciesReviewBatchWork.statusFromData(work.progress)
@@ -209,6 +212,22 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private fun adoptSpeciesBatchWork(work: WorkInfo): Boolean {
+        if (observedSpeciesBatchWorkId == null) {
+            if (work.state.isFinished) return false
+            observedSpeciesBatchWorkId = work.id
+        }
+        return observedSpeciesBatchWorkId == work.id
+    }
+
+    private fun adoptPublishBatchWork(work: WorkInfo): Boolean {
+        if (observedPublishBatchWorkId == null) {
+            if (work.state.isFinished) return false
+            observedPublishBatchWorkId = work.id
+        }
+        return observedPublishBatchWorkId == work.id
+    }
+
     private fun finishSpeciesReviewBatch(work: WorkInfo, status: ReviewBatchStatus?) {
         val completed = work.state == WorkInfo.State.SUCCEEDED && status?.state == "completed"
         val terminalStatus = status ?: ReviewBatchStatus(
@@ -229,7 +248,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             items = emptyList(),
         )
         if (completed) {
-            val speciesBeforeBatch = _state.value.species
             _state.update { current ->
                 current.copy(
                     isBatchIdentifying = false,
@@ -239,9 +257,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     notice = buildSpeciesReviewBatchNotice(
                         status = terminalStatus,
                         species = current.species,
-                        speciesBeforeBatch = speciesBeforeBatch,
-                        hikes = current.hikes,
-                        quests = current.speciesQuests,
                     ),
                 )
             }
@@ -275,9 +290,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         notice = buildSpeciesReviewBatchNotice(
                             status = terminalStatus,
                             species = refreshedSpecies,
-                            speciesBeforeBatch = speciesBeforeBatch,
-                            hikes = current.hikes,
-                            quests = current.speciesQuests,
                             suggestionCount = suggestionCount,
                         ),
                     )
@@ -299,39 +311,19 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private fun buildSpeciesReviewBatchNotice(
         status: ReviewBatchStatus,
         species: List<SpeciesRecord>,
-        speciesBeforeBatch: List<SpeciesRecord>,
-        hikes: List<Hike>,
-        quests: List<FieldQuest>,
         suggestionCount: Int? = null,
     ): String = buildString {
-        append("Submitted ${status.processedCount} photo")
+        append("Species ID complete · ${status.processedCount} photo")
         if (status.processedCount != 1) append('s')
-        append(" as ${status.totalGroups} ID request")
+        append(" · ${status.totalGroups} request")
         if (status.totalGroups != 1) append('s')
         val counts = speciesTypeCounts(species)
-        val beforeKeys = speciesBeforeBatch.mapTo(mutableSetOf()) { it.taxonId?.toString() ?: it.key }
-        val newConfirmedCount = species
-            .map { it.taxonId?.toString() ?: it.key }
-            .distinct()
-            .count { it !in beforeKeys }
         append(". Field Guide: ${counts.total} confirmed species")
-        if (newConfirmedCount > 0) append(" (+$newConfirmedCount new)")
-        append(" — plants ${counts.plants}, animals ${counts.animals} ")
-        append("(mammals ${counts.mammals}, birds ${counts.birds}, insects ${counts.insects}), fungi ${counts.fungi}")
         suggestionCount?.takeIf { it > 0 }?.let { count ->
-            append(". $count unique suggestion")
+            append(" · $count suggestion")
             if (count != 1) append('s')
-            append(" ready to confirm")
+            append(" ready")
         }
-        val badges = calculateTrailBadges(hikes, species, quests)
-        append(". Badge progress: ")
-        append("${badgeMetricProgress(badges, BadgeMetric.SpeciesCount)} species")
-        append(" · ${badgeMetricProgress(badges, BadgeMetric.Plants)} plants")
-        append(" · ${badgeMetricProgress(badges, BadgeMetric.Mammals)} mammals")
-        append(" · ${badgeMetricProgress(badges, BadgeMetric.Birds)} birds")
-        append(" · ${badgeMetricProgress(badges, BadgeMetric.Insects)} insects")
-        append(" · ${badgeMetricProgress(badges, BadgeMetric.Fungi)} fungi")
-        if (suggestionCount != null && suggestionCount > 0) append(". Confirm suggestions to add badge credit")
         if (status.warnings.isNotEmpty()) append(". ${status.warnings.first()}")
     }
 
@@ -367,6 +359,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 .getWorkInfosForUniqueWorkFlow(PublishBatchWork.WorkName)
                 .collect { workInfos ->
                     val work = workInfos.firstOrNull() ?: return@collect
+                    if (!adoptPublishBatchWork(work)) return@collect
                     val status = if (work.state.isFinished) {
                         PublishBatchWork.statusFromData(work.outputData)
                             ?: PublishBatchWork.statusFromData(work.progress)
@@ -437,9 +430,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun buildPublishBatchNotice(status: PublishBatchStatus): String = buildString {
-        append("Posted ${status.postedGroupCount} observation")
+        append("iNaturalist publish complete · ${status.postedGroupCount} observation")
         if (status.postedGroupCount != 1) append('s')
-        append(" from ${status.processedPhotoCount} photo")
+        append(" · ${status.processedPhotoCount} photo")
         if (status.processedPhotoCount != 1) append('s')
         if (status.failedGroupCount > 0 || status.partialGroupCount > 0) {
             append(". ${status.failedGroupCount} could not be created and ${status.partialGroupCount} need photo attention")
@@ -1127,6 +1120,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
         runCatching { SpeciesReviewBatchWork.enqueue(appContext, groups) }
+            .onSuccess { workId ->
+                observedSpeciesBatchWorkId = workId
+                handledSpeciesBatchWorkId = null
+            }
             .onFailure { error ->
                 _state.update {
                     it.copy(
@@ -1271,6 +1268,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
         runCatching { PublishBatchWork.enqueue(appContext, groups, options) }
+            .onSuccess { workId ->
+                observedPublishBatchWorkId = workId
+                handledPublishBatchWorkId = null
+            }
             .onFailure { error ->
                 _state.update {
                     it.copy(
