@@ -180,7 +180,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 .getWorkInfosForUniqueWorkFlow(SpeciesReviewBatchWork.WorkName)
                 .collect { workInfos ->
                     val work = workInfos.firstOrNull() ?: return@collect
-                    val status = SpeciesReviewBatchWork.statusFromData(work.progress)
+                    val status = if (work.state.isFinished) {
+                        SpeciesReviewBatchWork.statusFromData(work.outputData)
+                            ?: SpeciesReviewBatchWork.statusFromData(work.progress)
+                    } else {
+                        SpeciesReviewBatchWork.statusFromData(work.progress)
+                    }
                     when (work.state) {
                         WorkInfo.State.ENQUEUED, WorkInfo.State.RUNNING, WorkInfo.State.BLOCKED -> {
                             _state.update { current ->
@@ -216,7 +221,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             groupedCount = 0,
             individualCount = 0,
             warnings = emptyList(),
-            error = work.outputData.getString(SpeciesReviewBatchWork.ProgressError),
+            error = work.outputData.getString(SpeciesReviewBatchWork.ProgressError)
+                ?.takeIf(String::isNotBlank),
             items = emptyList(),
         )
         if (completed) {
@@ -256,7 +262,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 .getWorkInfosForUniqueWorkFlow(PublishBatchWork.WorkName)
                 .collect { workInfos ->
                     val work = workInfos.firstOrNull() ?: return@collect
-                    val status = PublishBatchWork.statusFromData(work.progress)
+                    val status = if (work.state.isFinished) {
+                        PublishBatchWork.statusFromData(work.outputData)
+                            ?: PublishBatchWork.statusFromData(work.progress)
+                    } else {
+                        PublishBatchWork.statusFromData(work.progress)
+                    }
                     when (work.state) {
                         WorkInfo.State.ENQUEUED, WorkInfo.State.RUNNING, WorkInfo.State.BLOCKED -> {
                             _state.update { current ->
@@ -294,7 +305,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             processedObservationIds = emptyList(),
             processedPhotoIds = emptyList(),
             errors = emptyList(),
-            error = work.outputData.getString(PublishBatchWork.ProgressError),
+            error = work.outputData.getString(PublishBatchWork.ProgressError)
+                ?.takeIf(String::isNotBlank),
         )
         if (completed) {
             _state.update { current ->

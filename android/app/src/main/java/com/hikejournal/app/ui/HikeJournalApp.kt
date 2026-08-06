@@ -632,7 +632,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
         }
 
         AnimatedVisibility(
-            visible = state.error != null,
+            visible = !state.error.isNullOrBlank(),
             modifier = Modifier.align(Alignment.BottomCenter),
             enter = slideInVertically { it } + fadeIn(),
             exit = fadeOut(),
@@ -640,12 +640,22 @@ fun HikeJournalApp(viewModel: AppViewModel) {
             ErrorBanner(message = state.error.orEmpty(), onDismiss = viewModel::clearError)
         }
         AnimatedVisibility(
-            visible = state.notice != null && state.error == null,
+            visible = state.notice != null && state.error.isNullOrBlank(),
             modifier = Modifier.align(Alignment.BottomCenter),
             enter = slideInVertically { it } + fadeIn(),
             exit = fadeOut(),
         ) {
             NoticeBanner(message = state.notice.orEmpty(), onDismiss = viewModel::clearNotice)
+        }
+        AnimatedVisibility(
+            visible = destination != TopDestination.Publish &&
+                !state.publishNotice.isNullOrBlank() &&
+                state.error.isNullOrBlank(),
+            modifier = Modifier.align(Alignment.BottomCenter),
+            enter = slideInVertically { it } + fadeIn(),
+            exit = fadeOut(),
+        ) {
+            NoticeBanner(message = state.publishNotice.orEmpty(), onDismiss = viewModel::clearPublishNotice)
         }
     }
 
