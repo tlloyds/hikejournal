@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
@@ -338,6 +339,7 @@ private fun PublishBatchPlanContent(
     var tags by remember(items) { mutableStateOf("") }
     var geoprivacy by remember(items) { mutableStateOf("open") }
     var captive by remember(items) { mutableStateOf(false) }
+    val listState = rememberLazyListState()
     val selectedItems = items.filter { it.id in selectedIds }
     val proposedGroups = buildPublishObservationGroups(selectedItems)
     val displayGroups = proposedGroups.sortedBy { it.items.size == 1 }
@@ -346,7 +348,14 @@ private fun PublishBatchPlanContent(
     val individualCount = plannedGroups.count { it.items.size == 1 }
     val oversizedGroups = plannedGroups.filter { it.oversized }
 
-    LazyColumn(Modifier.fillMaxSize().padding(bottom = 92.dp)) {
+    LaunchedEffect(submitting) {
+        if (submitting) listState.animateScrollToItem(0)
+    }
+
+    LazyColumn(
+        state = listState,
+        modifier = Modifier.fillMaxSize().padding(bottom = 92.dp),
+    ) {
         item {
             Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 20.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
