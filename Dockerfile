@@ -16,6 +16,7 @@ COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY mobile_api.py ./
+COPY VERSION ./VERSION
 COPY hike_journal ./hike_journal
 
 RUN useradd --create-home --uid 10001 hikejournal

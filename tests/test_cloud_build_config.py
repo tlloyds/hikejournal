@@ -20,3 +20,9 @@ def test_cloud_build_uses_supported_logging_and_deploys_cloud_run() -> None:
     assert cloud_run_deploy["args"][:3] == ["run", "deploy", "${_SERVICE_NAME}"]
     assert "--region" in cloud_run_deploy["args"]
     assert "--quiet" in cloud_run_deploy["args"]
+
+
+def test_mobile_containers_include_the_release_version_file() -> None:
+    for dockerfile in (Path("Dockerfile"), Path("deploy/mobile/Dockerfile")):
+        contents = dockerfile.read_text(encoding="utf-8")
+        assert "COPY VERSION ./VERSION" in contents
