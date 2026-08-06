@@ -11,6 +11,7 @@ import json
 import math
 import os
 import time
+from pathlib import Path
 from threading import Lock
 from typing import Any, Annotated, Callable, Literal
 from types import SimpleNamespace
@@ -69,7 +70,9 @@ from hike_journal.services.taxonomy import ensure_observation_taxonomy
 
 MAX_UPLOAD_BYTES = 30 * 1024 * 1024
 EVERYDAY_JOURNAL_ID = "everyday"
-MOBILE_API_VERSION = "0.6.21"
+MOBILE_API_VERSION = Path(__file__).resolve().with_name("VERSION").read_text(encoding="utf-8").strip()
+if not MOBILE_API_VERSION:
+    raise RuntimeError("VERSION must contain the mobile API release version")
 logger = logging.getLogger(__name__)
 
 

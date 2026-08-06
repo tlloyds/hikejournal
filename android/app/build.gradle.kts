@@ -27,6 +27,10 @@ fun String.sha256(): String = MessageDigest.getInstance("SHA-256")
 fun quoted(value: String): String = "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
 
 val rootEnvironment = loadRootEnvironment()
+val releaseVersion = rootProject.file("../VERSION").readText().trim()
+require(releaseVersion.matches(Regex("\\d+\\.\\d+\\.\\d+"))) {
+    "VERSION must contain a semantic version such as 0.6.26"
+}
 val mobileApiToken = rootEnvironment["MOBILE_API_TOKEN"]?.takeIf { it.isNotBlank() }
     ?: "${rootEnvironment["SUPABASE_KEY"].orEmpty()}:hikejournal-mobile-local-v1".sha256()
 val mobileApiUrl = rootEnvironment["MOBILE_API_URL"]?.takeIf { it.isNotBlank() }
@@ -43,8 +47,8 @@ android {
         applicationId = "com.hikejournal.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 85
-        versionName = "0.6.25"
+        versionCode = 86
+        versionName = releaseVersion
 
         buildConfigField("String", "DEFAULT_API_URL", quoted(mobileApiUrl))
         buildConfigField("String", "MOBILE_API_TOKEN", quoted(mobileApiToken))

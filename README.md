@@ -40,7 +40,8 @@ That script uses the repo's existing virtualenv and opens the app on port `8505`
 The native Android app can now record a hike directly—with an offline GPS route,
 active timer, distance, pause/resume notification, and an `Untitled hike` handoff
 to the existing Journal workflow. Build it with `./build_android.command`; the
-versioned APK is written to `dist/`. Installation, first-recording permissions,
+versioned APK is written to `dist/`. The shared release version lives in
+`VERSION` and is used by both Android and the mobile API. Installation, first-recording permissions,
 and companion pairing are documented in [android/README.md](android/README.md).
 
 If you already have a running project from the earlier single-observation version, also run:

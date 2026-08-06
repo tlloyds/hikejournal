@@ -21,7 +21,7 @@ cd "$ANDROID_DIR"
 JAVA_HOME="$JAVA_HOME" ANDROID_HOME="$ANDROID_HOME" ./gradlew --no-daemon :app:assembleDebug
 
 mkdir -p "$ROOT/dist"
-VERSION_NAME="$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' "$ANDROID_DIR/app/build.gradle.kts" | head -n 1)"
+VERSION_NAME="$(tr -d '[:space:]' < "$ROOT/VERSION")"
 OUTPUT_APK="$ROOT/dist/HikeJournal-v${VERSION_NAME}.apk"
 cp "$ANDROID_BUILD_DIR/app/outputs/apk/debug/app-debug.apk" "$OUTPUT_APK"
 

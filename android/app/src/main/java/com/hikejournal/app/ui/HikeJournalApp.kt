@@ -2432,13 +2432,17 @@ private fun PhotoViewer(
             Column(
                 Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 390.dp, max = 430.dp)
-                    .background(Color(0xFF18221C))
-                    .verticalScroll(rememberScrollState())
-                    .imePadding()
-                    .navigationBarsPadding()
-                    .padding(16.dp),
+                    .weight(1f)
+                    .background(Color(0xFF18221C)),
             ) {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp)
+                        .padding(top = 16.dp, bottom = 14.dp),
+                ) {
                 identifiedSpecies?.let { species ->
                     Text(species.commonName.ifBlank { species.scientificName }, style = MaterialTheme.typography.titleMedium, color = Color(0xFFBFD2B9))
                 }
@@ -2566,22 +2570,36 @@ private fun PhotoViewer(
                         modifier = Modifier.padding(top = 8.dp),
                     )
                 }
-                HorizontalDivider(color = Color(0xFF405148), modifier = Modifier.padding(vertical = 13.dp))
-                OutlinedTextField(
-                    caption,
-                    { caption = it },
-                    Modifier.fillMaxWidth(),
-                    label = { Text(if (photo.isVideo) "Video note" else "Photo note") },
-                    placeholder = { Text(if (photo.isVideo) "Enter video note…" else "Enter photo note…") },
-                    textStyle = MaterialTheme.typography.bodyLarge.copy(color = Paper),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = Paper,
-                        unfocusedTextColor = Paper,
-                        focusedPlaceholderColor = Color(0xFFD3E0CF),
-                        unfocusedPlaceholderColor = Color(0xFFD3E0CF),
-                    ),
-                )
-                Button(onClick = { onSaveCaption(caption) }, Modifier.fillMaxWidth().padding(top = 10.dp)) { Text("Save note") }
+                HorizontalDivider(color = Color(0xFF405148), modifier = Modifier.padding(top = 13.dp))
+                }
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .imePadding()
+                        .navigationBarsPadding()
+                        .padding(horizontal = 16.dp)
+                        .padding(bottom = 16.dp),
+                ) {
+                    OutlinedTextField(
+                        caption,
+                        { caption = it },
+                        Modifier.fillMaxWidth(),
+                        label = { Text(if (photo.isVideo) "Video note" else "Photo note", color = Color(0xFFE5F1DF)) },
+                        placeholder = { Text(if (photo.isVideo) "Enter video note…" else "Enter photo note…", color = Color(0xFFD3E0CF)) },
+                        textStyle = MaterialTheme.typography.bodyLarge.copy(color = Paper),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = Paper,
+                            unfocusedTextColor = Paper,
+                            focusedPlaceholderColor = Color(0xFFD3E0CF),
+                            unfocusedPlaceholderColor = Color(0xFFD3E0CF),
+                        ),
+                    )
+                    Button(
+                        onClick = { onSaveCaption(caption) },
+                        modifier = Modifier.fillMaxWidth().padding(top = 10.dp).height(52.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF315844), contentColor = Paper),
+                    ) { Text("Save note") }
+                }
             }
         }
     }
