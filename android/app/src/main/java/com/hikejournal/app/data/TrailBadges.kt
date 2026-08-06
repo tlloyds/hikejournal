@@ -63,6 +63,59 @@ data class TrailBadge(
         get() = (current / definition.target).coerceIn(0.0, 1.0).toFloat()
 }
 
+data class SpeciesTypeCounts(
+    val total: Int,
+    val plants: Int,
+    val animals: Int,
+    val mammals: Int,
+    val birds: Int,
+    val insects: Int,
+    val fungi: Int,
+)
+
+fun speciesTypeCounts(species: List<SpeciesRecord>): SpeciesTypeCounts {
+    val distinctSpecies = species.distinctBy { it.taxonId?.toString() ?: it.key }
+    fun hasIconicTaxon(species: SpeciesRecord, vararg names: String): Boolean {
+        val normalized = species.iconicTaxonName.trim().lowercase()
+        return normalized in names.map(String::lowercase).toSet()
+    }
+
+    val plants = distinctSpecies.count { hasIconicTaxon(it, "plantae", "plant") }
+    val fungi = distinctSpecies.count { hasIconicTaxon(it, "fungi", "fungus") }
+    val mammals = distinctSpecies.count { hasIconicTaxon(it, "mammalia", "mammal") }
+    val birds = distinctSpecies.count { hasIconicTaxon(it, "aves", "bird") }
+    val insects = distinctSpecies.count { hasIconicTaxon(it, "insecta", "insect") }
+    val animalTaxa = setOf(
+        "animalia",
+        "metazoa",
+        "mammalia",
+        "mammal",
+        "aves",
+        "bird",
+        "insecta",
+        "insect",
+        "amphibia",
+        "reptilia",
+        "actinopterygii",
+        "arachnida",
+        "mollusca",
+        "crustacea",
+        "annelida",
+        "cnidaria",
+        "echinodermata",
+    )
+    val animals = distinctSpecies.count { it.iconicTaxonName.trim().lowercase() in animalTaxa }
+    return SpeciesTypeCounts(
+        total = distinctSpecies.size,
+        plants = plants,
+        animals = animals,
+        mammals = mammals,
+        birds = birds,
+        insects = insects,
+        fungi = fungi,
+    )
+}
+
 private fun badge(
     id: String,
     title: String,

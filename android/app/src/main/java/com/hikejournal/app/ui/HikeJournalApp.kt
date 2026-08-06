@@ -267,7 +267,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
     }
     LaunchedEffect(state.notice) {
         if (state.notice != null) {
-            delay(4_000)
+            delay(if (state.notice.orEmpty().length > 180) 8_000 else 4_000)
             viewModel.clearNotice()
         }
     }

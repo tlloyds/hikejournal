@@ -35,6 +35,28 @@ class TrailBadgesTest {
     }
 
     @Test
+    fun `species type summary deduplicates records and keeps specialty counts`() {
+        val species = listOf(
+            species(1, "Plantae"),
+            species(2, "Mammalia"),
+            species(3, "Aves"),
+            species(4, "Insecta"),
+            species(5, "Fungi"),
+            species(2, "Mammalia").copy(key = "duplicate-key"),
+        )
+
+        val counts = speciesTypeCounts(species)
+
+        assertEquals(5, counts.total)
+        assertEquals(1, counts.plants)
+        assertEquals(3, counts.animals)
+        assertEquals(1, counts.mammals)
+        assertEquals(1, counts.birds)
+        assertEquals(1, counts.insects)
+        assertEquals(1, counts.fungi)
+    }
+
+    @Test
     fun `everyday sightings do not count as a hike milestone`() {
         val everyday = hike(id = "everyday", miles = 0.0).copy(isStandalone = true)
 

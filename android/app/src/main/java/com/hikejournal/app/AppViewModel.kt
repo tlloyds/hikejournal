@@ -12,6 +12,7 @@ import com.hikejournal.app.data.HikeDeletionResult
 import com.hikejournal.app.data.HikeJournalRepository
 import com.hikejournal.app.data.HikeLocation
 import com.hikejournal.app.data.MediaLocationSummary
+import com.hikejournal.app.data.BadgeMetric
 import com.hikejournal.app.data.DiscoveryArea
 import com.hikejournal.app.data.DiscoveryTaxon
 import com.hikejournal.app.data.FieldQuest
@@ -35,14 +36,16 @@ import com.hikejournal.app.data.SpeciesRecord
 import com.hikejournal.app.data.SpeciesReviewBatchWork
 import com.hikejournal.app.data.SyncStatus
 import com.hikejournal.app.data.SyncScheduler
+import com.hikejournal.app.data.calculateTrailBadges
+import com.hikejournal.app.data.speciesTypeCounts
 import com.hikejournal.app.data.withoutHikes
 import com.hikejournal.app.tracking.HikeTrackingService
 import com.hikejournal.app.tracking.TrackingRepository
 import com.hikejournal.app.tracking.TrackingSnapshot
 import com.hikejournal.app.tracking.TrackingStatus
 import java.time.Instant
+import java.util.Locale
 import java.util.UUID
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -226,16 +229,61 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             items = emptyList(),
         )
         if (completed) {
+            val speciesBeforeBatch = _state.value.species
             _state.update { current ->
                 current.copy(
                     isBatchIdentifying = false,
                     batchProgress = terminalStatus,
                     isOffline = false,
                     error = null,
-                    notice = buildSpeciesReviewBatchNotice(terminalStatus),
+                    notice = buildSpeciesReviewBatchNotice(
+                        status = terminalStatus,
+                        species = current.species,
+                        speciesBeforeBatch = speciesBeforeBatch,
+                        hikes = current.hikes,
+                        quests = current.speciesQuests,
+                    ),
                 )
             }
-            loadReviewQueue(force = true)
+            val batchPhotoIds = SpeciesReviewBatchWork.loadRequest(appContext)
+                ?.groups
+                .orEmpty()
+                .flatten()
+                .toSet()
+            viewModelScope.launch {
+                val speciesResult = runCatching { repository.loadSpecies() }.getOrNull()
+                val reviewResult = runCatching { repository.loadReviewQueue() }.getOrNull()
+                val updatedSpecies = speciesResult?.value
+                val updatedReviewQueue = reviewResult?.value
+                val suggestionCount = updatedReviewQueue
+                    ?.filter { it.id in batchPhotoIds }
+                    ?.mapNotNull { item ->
+                        item.candidates.firstOrNull()?.let { candidate ->
+                            candidate.taxonId?.toString()
+                                ?: candidate.scientificName.ifBlank { candidate.commonName }.lowercase()
+                        }
+                    }
+                    ?.distinct()
+                    ?.size
+                _state.update { current ->
+                    val refreshedSpecies = updatedSpecies ?: current.species
+                    current.copy(
+                        species = refreshedSpecies,
+                        reviewQueue = updatedReviewQueue ?: current.reviewQueue,
+                        isOffline = speciesResult?.fromCache ?: reviewResult?.fromCache ?: current.isOffline,
+                        badgesHydrated = if (updatedSpecies != null) false else current.badgesHydrated,
+                        notice = buildSpeciesReviewBatchNotice(
+                            status = terminalStatus,
+                            species = refreshedSpecies,
+                            speciesBeforeBatch = speciesBeforeBatch,
+                            hikes = current.hikes,
+                            quests = current.speciesQuests,
+                            suggestionCount = suggestionCount,
+                        ),
+                    )
+                }
+                if (updatedReviewQueue == null) loadReviewQueue(force = true)
+            }
         } else {
             _state.update { current ->
                 current.copy(
@@ -248,12 +296,69 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun buildSpeciesReviewBatchNotice(status: ReviewBatchStatus): String = buildString {
+    private fun buildSpeciesReviewBatchNotice(
+        status: ReviewBatchStatus,
+        species: List<SpeciesRecord>,
+        speciesBeforeBatch: List<SpeciesRecord>,
+        hikes: List<Hike>,
+        quests: List<FieldQuest>,
+        suggestionCount: Int? = null,
+    ): String = buildString {
         append("Submitted ${status.processedCount} photo")
         if (status.processedCount != 1) append('s')
         append(" as ${status.totalGroups} ID request")
         if (status.totalGroups != 1) append('s')
+        val counts = speciesTypeCounts(species)
+        val beforeKeys = speciesBeforeBatch.mapTo(mutableSetOf()) { it.taxonId?.toString() ?: it.key }
+        val newConfirmedCount = species
+            .map { it.taxonId?.toString() ?: it.key }
+            .distinct()
+            .count { it !in beforeKeys }
+        append(". Field Guide: ${counts.total} confirmed species")
+        if (newConfirmedCount > 0) append(" (+$newConfirmedCount new)")
+        append(" — plants ${counts.plants}, animals ${counts.animals} ")
+        append("(mammals ${counts.mammals}, birds ${counts.birds}, insects ${counts.insects}), fungi ${counts.fungi}")
+        suggestionCount?.takeIf { it > 0 }?.let { count ->
+            append(". $count unique suggestion")
+            if (count != 1) append('s')
+            append(" ready to confirm")
+        }
+        val badges = calculateTrailBadges(hikes, species, quests)
+        append(". Badge progress: ")
+        append("${badgeMetricProgress(badges, BadgeMetric.SpeciesCount)} species")
+        append(" · ${badgeMetricProgress(badges, BadgeMetric.Plants)} plants")
+        append(" · ${badgeMetricProgress(badges, BadgeMetric.Mammals)} mammals")
+        append(" · ${badgeMetricProgress(badges, BadgeMetric.Birds)} birds")
+        append(" · ${badgeMetricProgress(badges, BadgeMetric.Insects)} insects")
+        append(" · ${badgeMetricProgress(badges, BadgeMetric.Fungi)} fungi")
+        if (suggestionCount != null && suggestionCount > 0) append(". Confirm suggestions to add badge credit")
         if (status.warnings.isNotEmpty()) append(". ${status.warnings.first()}")
+    }
+
+    private fun badgeMetricProgress(badges: List<com.hikejournal.app.data.TrailBadge>, metric: BadgeMetric): String {
+        val series = badges.filter { it.definition.metric == metric }
+        val current = series.firstOrNull()?.current ?: 0.0
+        val next = series.firstOrNull { !it.earned }
+        fun format(value: Double): String = if (metric == BadgeMetric.TotalMiles || metric == BadgeMetric.LongestHike) {
+            String.format(Locale.US, "%.1f", value)
+        } else {
+            value.toInt().toString()
+        }
+        return next?.let { "${format(current)}/${format(it.definition.target)}" } ?: format(current)
+    }
+
+    private fun buildHikeSaveNotice(
+        hike: Hike,
+        hikes: List<Hike>,
+        species: List<SpeciesRecord>,
+        quests: List<FieldQuest>,
+    ): String {
+        val badges = calculateTrailBadges(hikes, species, quests)
+        val title = hike.title.trim().ifBlank { "Untitled hike" }
+        return "\"$title\" saved. Trail progress: " +
+            "${badgeMetricProgress(badges, BadgeMetric.HikeCount)} hikes · " +
+            "${badgeMetricProgress(badges, BadgeMetric.TotalMiles)} lifetime miles · " +
+            "${badgeMetricProgress(badges, BadgeMetric.LongestHike)} longest hike"
     }
 
     private fun observePublishBatchWork() {
@@ -959,6 +1064,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         isOffline = result.fromCache,
                         species = emptyList(),
                         sightings = emptyList(),
+                        badgesHydrated = false,
                     )
                 }
             }.onFailure { error ->
@@ -1358,17 +1464,32 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             }.onSuccess { created ->
                 val savedId = created?.id ?: editingId.orEmpty()
                 _state.update { state ->
+                    val previous = state.journal?.takeIf { it.id == savedId }
+                        ?: state.hikes.firstOrNull { it.id == savedId }
+                    val saved = created ?: previous?.copy(
+                        title = draft.title,
+                        hikeDate = draft.hikeDate,
+                        distanceMiles = draft.distanceMiles,
+                        locationName = draft.locationName,
+                        notes = draft.notes,
+                        syncState = "queued",
+                    )
+                    val updatedHikes = saved?.let { hike ->
+                        listOf(hike) + state.hikes.filterNot { it.id == hike.id }
+                    } ?: state.hikes
                     state.copy(
-                        hikes = created?.let { newHike ->
-                            listOf(newHike) + state.hikes.filterNot { it.id == newHike.id }
-                        } ?: state.hikes,
+                        hikes = updatedHikes,
+                        journal = saved?.let { hike ->
+                            if (state.journal?.id == hike.id) hike else state.journal
+                        } ?: state.journal,
                         isRefreshing = false,
+                        notice = saved?.let { hike ->
+                            buildHikeSaveNotice(hike, updatedHikes, state.species, state.speciesQuests)
+                        } ?: state.notice,
                     )
                 }
                 onSaved()
                 if (editingId != null) openHike(savedId)
-                delay(1_000)
-                refreshLibrary()
             }.onFailure { error ->
                 _state.update { it.copy(isRefreshing = false, error = error.userMessage()) }
             }
