@@ -13,6 +13,7 @@ import com.hikejournal.app.data.HikeJournalRepository
 import com.hikejournal.app.data.HikeLocation
 import com.hikejournal.app.data.MediaLocationSummary
 import com.hikejournal.app.data.BadgeMetric
+import com.hikejournal.app.data.CompanionConfig
 import com.hikejournal.app.data.DiscoveryArea
 import com.hikejournal.app.data.DiscoveryTaxon
 import com.hikejournal.app.data.FieldQuest
@@ -70,6 +71,7 @@ data class AppState(
     val mapRouteSegments: List<List<com.hikejournal.app.data.RoutePoint>> = emptyList(),
     val reviewQueue: List<ReviewItem> = emptyList(),
     val publishQueue: PublishQueue = PublishQueue(false, 0, 0, 0, emptyList()),
+    val companionConfig: CompanionConfig = CompanionConfig(webUrl = BuildConfig.DEFAULT_WEB_URL),
     val isLoading: Boolean = true,
     val openingHikeId: String? = null,
     val isRefreshing: Boolean = false,
@@ -176,7 +178,24 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
         observeSpeciesReviewBatchWork()
         observePublishBatchWork()
+        refreshCompanionConfig()
         loadInitialLibrary()
+    }
+
+    /**
+     * Capability discovery is deliberately fail-open. Older companions can omit this endpoint
+     * and offline startup continues to use the build's existing web-link fallback.
+     */
+    private fun refreshCompanionConfig() {
+        val requestedServerUrl = repository.serverUrl
+        viewModelScope.launch {
+            runCatching { repository.loadCompanionConfig() }
+                .onSuccess { config ->
+                    if (repository.serverUrl == requestedServerUrl) {
+                        _state.update { it.copy(companionConfig = config) }
+                    }
+                }
+        }
     }
 
     private fun observeSpeciesReviewBatchWork() {
@@ -1808,6 +1827,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun updateConnection(serverUrl: String, pairingKey: String) {
         repository.updateConnection(serverUrl, pairingKey)
         _state.update { AppState() }
+        refreshCompanionConfig()
         refreshLibrary(initial = true)
     }
 

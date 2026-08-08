@@ -30,6 +30,8 @@ class HikeJournalRepository(context: Context) {
     val serverUrl: String get() = api.serverUrl
     val pairingKey: String get() = api.pairingKey
 
+    suspend fun loadCompanionConfig(): CompanionConfig = api.getCompanionConfig()
+
     fun updateServerUrl(value: String) {
         api.serverUrl = value
     }

@@ -97,7 +97,6 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
-private const val MAP_STYLE = "https://demotiles.maplibre.org/style.json"
 private const val SOURCE_ID = "hikejournal-sightings"
 private const val LAYER_ID = "hikejournal-sightings-circles"
 private const val SELECTED_SOURCE_ID = "hikejournal-selected-sighting"
@@ -257,7 +256,7 @@ private fun OfflineMapPacksSheet(
     LaunchedEffect(Unit) { refresh() }
 
     val satelliteStyle = BuildConfig.SATELLITE_OFFLINE_STYLE_URL
-    val styleUrl = if (layerMode == MapLayerMode.Trail) MAP_STYLE else satelliteStyle
+    val styleUrl = if (layerMode == MapLayerMode.Trail) BuildConfig.TRAIL_MAP_STYLE_URL else satelliteStyle
     val layerLabel = if (layerMode == MapLayerMode.Trail) "Trail" else "Satellite"
 
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Paper) {
@@ -507,7 +506,7 @@ private class NativeMapController {
         val builder = if (nextLayerMode == MapLayerMode.Satellite) {
             Style.Builder().fromJson(SATELLITE_STYLE)
         } else {
-            Style.Builder().fromUri(MAP_STYLE)
+            Style.Builder().fromUri(BuildConfig.TRAIL_MAP_STYLE_URL)
         }
         map.setStyle(builder) { style ->
             style.addSource(GeoJsonSource(ROUTE_SOURCE_ID, routeFeatureCollection(routeSegments)))

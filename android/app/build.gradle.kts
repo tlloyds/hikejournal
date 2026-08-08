@@ -1,4 +1,7 @@
+import java.io.File
+import java.net.URI
 import java.security.MessageDigest
+import org.gradle.api.GradleException
 
 plugins {
     id("com.android.application")
@@ -27,44 +30,69 @@ fun String.sha256(): String = MessageDigest.getInstance("SHA-256")
 fun quoted(value: String): String = "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
 
 val rootEnvironment = loadRootEnvironment()
+fun configuredValue(name: String): String? = System.getenv(name)
+    ?.trim()
+    ?.takeIf(String::isNotBlank)
+    ?: rootEnvironment[name]?.trim()?.takeIf(String::isNotBlank)
+
 val releaseVersion = rootProject.file("../VERSION").readText().trim()
 require(releaseVersion.matches(Regex("\\d+\\.\\d+\\.\\d+"))) {
-    "VERSION must contain a semantic version such as 0.6.28"
+    "VERSION must contain a semantic version such as 1.2.3"
 }
-val mobileApiToken = rootEnvironment["MOBILE_API_TOKEN"]?.takeIf { it.isNotBlank() }
-    ?: "${rootEnvironment["SUPABASE_KEY"].orEmpty()}:hikejournal-mobile-local-v1".sha256()
-val mobileApiUrl = rootEnvironment["MOBILE_API_URL"]?.takeIf { it.isNotBlank() }
-    ?: "http://192.168.0.157:8506"
-val mobileWebUrl = rootEnvironment["MOBILE_WEB_URL"]?.takeIf { it.isNotBlank() }
-    ?: "http://192.168.0.157:8505"
-val satelliteOfflineStyleUrl = rootEnvironment["MOBILE_SATELLITE_OFFLINE_STYLE_URL"].orEmpty()
+val debugMobileApiToken = configuredValue("MOBILE_API_TOKEN")
+    ?: "${configuredValue("SUPABASE_KEY").orEmpty()}:hikejournal-mobile-local-v1".sha256()
+val configuredMobileApiUrl = configuredValue("MOBILE_API_URL")
+val configuredMobileWebUrl = configuredValue("MOBILE_WEB_URL")
+val configuredTrailMapStyleUrl = configuredValue("MOBILE_TRAIL_MAP_STYLE_URL")
+val configuredSatelliteOfflineStyleUrl = configuredValue("MOBILE_SATELLITE_OFFLINE_STYLE_URL")
+val debugMobileApiUrl = configuredMobileApiUrl ?: "http://192.168.0.157:8506"
+val debugMobileWebUrl = configuredMobileWebUrl ?: "http://192.168.0.157:8505"
+val debugTrailMapStyleUrl = configuredTrailMapStyleUrl
+    ?: "https://demotiles.maplibre.org/style.json"
+
+val signingValues = listOf(
+    "ANDROID_KEYSTORE_PATH",
+    "ANDROID_KEYSTORE_PASSWORD",
+    "ANDROID_KEY_ALIAS",
+    "ANDROID_KEY_PASSWORD",
+).associateWith(::configuredValue)
+val anySigningValueConfigured = signingValues.values.any { !it.isNullOrBlank() }
+val allSigningValuesConfigured = signingValues.values.all { !it.isNullOrBlank() }
+val configuredKeystore = signingValues.getValue("ANDROID_KEYSTORE_PATH")?.let { path ->
+    File(path).let { configured ->
+        if (configured.isAbsolute) configured else rootProject.file("..").resolve(configured)
+    }
+}
+val productionSigningAvailable = allSigningValuesConfigured && configuredKeystore?.isFile == true
 
 android {
     namespace = "com.hikejournal.app"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.hikejournal.app"
         minSdk = 26
-        targetSdk = 35
-        versionCode = 88
+        targetSdk = 36
+        versionCode = 89
         versionName = releaseVersion
 
-        buildConfigField("String", "DEFAULT_API_URL", quoted(mobileApiUrl))
-        buildConfigField("String", "MOBILE_API_TOKEN", quoted(mobileApiToken))
-        buildConfigField("String", "DEFAULT_WEB_URL", quoted(mobileWebUrl))
-        buildConfigField("String", "SATELLITE_OFFLINE_STYLE_URL", quoted(satelliteOfflineStyleUrl))
+        // Safe defaults ensure a newly added non-debug build type cannot inherit a LAN
+        // endpoint or the development pairing credential by accident.
+        buildConfigField("String", "DEFAULT_API_URL", quoted(""))
+        buildConfigField("String", "MOBILE_API_TOKEN", quoted(""))
+        buildConfigField("String", "DEFAULT_WEB_URL", quoted(""))
+        buildConfigField("String", "TRAIL_MAP_STYLE_URL", quoted(""))
+        buildConfigField("String", "SATELLITE_OFFLINE_STYLE_URL", quoted(""))
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     signingConfigs {
-        val keystorePath = rootEnvironment["ANDROID_KEYSTORE_PATH"]
-        if (!keystorePath.isNullOrBlank() && file(keystorePath).exists()) {
+        if (productionSigningAvailable) {
             create("production") {
-                storeFile = file(keystorePath)
-                storePassword = rootEnvironment["ANDROID_KEYSTORE_PASSWORD"]
-                keyAlias = rootEnvironment["ANDROID_KEY_ALIAS"]
-                keyPassword = rootEnvironment["ANDROID_KEY_PASSWORD"]
+                storeFile = configuredKeystore
+                storePassword = signingValues.getValue("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias = signingValues.getValue("ANDROID_KEY_ALIAS")
+                keyPassword = signingValues.getValue("ANDROID_KEY_PASSWORD")
             }
         }
     }
@@ -72,11 +100,32 @@ android {
     buildTypes {
         debug {
             isMinifyEnabled = false
+            buildConfigField("String", "DEFAULT_API_URL", quoted(debugMobileApiUrl))
+            buildConfigField("String", "MOBILE_API_TOKEN", quoted(debugMobileApiToken))
+            buildConfigField("String", "DEFAULT_WEB_URL", quoted(debugMobileWebUrl))
+            buildConfigField("String", "TRAIL_MAP_STYLE_URL", quoted(debugTrailMapStyleUrl))
+            buildConfigField(
+                "String",
+                "SATELLITE_OFFLINE_STYLE_URL",
+                quoted(configuredSatelliteOfflineStyleUrl.orEmpty()),
+            )
         }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
+            buildConfigField("String", "DEFAULT_API_URL", quoted(configuredMobileApiUrl.orEmpty()))
             buildConfigField("String", "MOBILE_API_TOKEN", quoted(""))
+            buildConfigField("String", "DEFAULT_WEB_URL", quoted(configuredMobileWebUrl.orEmpty()))
+            buildConfigField(
+                "String",
+                "TRAIL_MAP_STYLE_URL",
+                quoted(configuredTrailMapStyleUrl.orEmpty()),
+            )
+            buildConfigField(
+                "String",
+                "SATELLITE_OFFLINE_STYLE_URL",
+                quoted(configuredSatelliteOfflineStyleUrl.orEmpty()),
+            )
             signingConfigs.findByName("production")?.let { signingConfig = it }
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
@@ -93,6 +142,56 @@ android {
     }
     packaging.resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
     sourceSets.getByName("androidTest").assets.srcDir("$projectDir/schemas")
+}
+
+fun requireReleaseHttpsUrl(name: String, value: String?, required: Boolean) {
+    if (value.isNullOrBlank()) {
+        if (required) throw GradleException("$name is required for a personal release build.")
+        return
+    }
+    val uri = runCatching { URI(value) }.getOrNull()
+    if (
+        uri?.scheme?.lowercase() != "https" ||
+        uri.host.isNullOrBlank() ||
+        uri.userInfo != null ||
+        uri.rawQuery != null ||
+        uri.rawFragment != null
+    ) {
+        throw GradleException(
+            "$name must be an absolute HTTPS base URL without credentials, a query, or a fragment.",
+        )
+    }
+}
+
+val validatePersonalReleaseConfiguration = tasks.register("validatePersonalReleaseConfiguration") {
+    group = "verification"
+    description = "Rejects unsafe or incomplete configuration before building a personal release."
+    doLast {
+        requireReleaseHttpsUrl("MOBILE_API_URL", configuredMobileApiUrl, required = true)
+        requireReleaseHttpsUrl("MOBILE_WEB_URL", configuredMobileWebUrl, required = false)
+        requireReleaseHttpsUrl(
+            "MOBILE_TRAIL_MAP_STYLE_URL",
+            configuredTrailMapStyleUrl,
+            required = true,
+        )
+        requireReleaseHttpsUrl(
+            "MOBILE_SATELLITE_OFFLINE_STYLE_URL",
+            configuredSatelliteOfflineStyleUrl,
+            required = false,
+        )
+        if (anySigningValueConfigured && !allSigningValuesConfigured) {
+            throw GradleException(
+                "Set all four Android signing values, or leave all four unset to build unsigned artifacts.",
+            )
+        }
+        if (allSigningValuesConfigured && configuredKeystore?.isFile != true) {
+            throw GradleException("ANDROID_KEYSTORE_PATH must point to an existing keystore file.")
+        }
+    }
+}
+
+tasks.matching { it.name == "preReleaseBuild" }.configureEach {
+    dependsOn(validatePersonalReleaseConfiguration)
 }
 
 ksp {

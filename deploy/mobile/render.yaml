@@ -4,11 +4,13 @@ services:
     runtime: docker
     dockerfilePath: ./deploy/mobile/Dockerfile
     dockerContext: .
-    healthCheckPath: /health
+    healthCheckPath: /health/live
     autoDeploy: false
     envVars:
       - key: MOBILE_API_TOKEN
         generateValue: true
+      - key: MOBILE_JOB_STORE_REQUIRED
+        value: true
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_KEY
@@ -34,6 +36,8 @@ services:
       - key: MOBILE_INAT_OAUTH_REDIRECT_URI
         sync: false
       - key: MOBILE_OWNER_EMAIL
+        sync: false
+      - key: MOBILE_OWNER_SUBJECT
         sync: false
       - key: MOBILE_WEB_URL
         sync: false

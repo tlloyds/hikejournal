@@ -8,7 +8,8 @@ the current Supabase database and Cloudflare R2 photo library through the small
 
 1. For local use, keep the Mac and Android phone on the same Wi-Fi network.
 2. Double-click `start_hikejournal_mobile.command` in the repository root and leave its Terminal window open. For cellular/anywhere use, deploy `deploy/mobile/Dockerfile` and paste its HTTPS address plus pairing key into Android settings.
-3. Transfer `dist/HikeJournal-v0.6.1.apk` to the phone and open it.
+3. Run `./build_android.command debug`, transfer the resulting
+   `dist/HikeJournal-v<version>-debug.apk` to the phone, and open it.
 4. Allow installation from the app you used to open the APK if Android asks.
 5. HikeJournal should connect to `http://192.168.0.157:8506` automatically.
 
@@ -111,9 +112,40 @@ The paired companion token only authorizes this narrow local API.
 
 ## Iterate
 
-Double-click `build_android.command` in the repository root. The finished APK is
-copied to `dist/HikeJournal-v<version>.apk` (currently
-`dist/HikeJournal-v0.6.28.apk`).
+Run `./build_android.command debug` (or double-click the command) to preserve the
+existing personal/debug workflow. The finished APK is copied to
+`dist/HikeJournal-v<version>-debug.apk`, which cannot overwrite a canonical
+signed personal release.
+
+Run `./build_android.command personal` for the productionized variant. It
+requires explicit HTTPS `MOBILE_API_URL` and `MOBILE_TRAIL_MAP_STYLE_URL`
+values, never compiles a pairing key, and produces a minified APK plus an AAB.
+Debug builds retain the MapLibre demo-style fallback; personal-release builds
+do not. With all four `ANDROID_KEYSTORE_*` values plus the recorded public
+`ANDROID_EXPECTED_SIGNER_SHA256` digest, the command verifies the signed APK
+and AAB signer identity before promoting canonical artifacts. Without signing
+inputs it creates clearly named `-unsigned` artifacts for inspection only.
+Signed files are staged and promoted with atomic per-file renames only after
+the APK and strict AAB signature gates pass.
+Partial signing configuration,
+missing production URLs, signer mismatch, and release-policy failures stop the
+build.
+
+The permanent key is an identity, not a disposable build input. Android cannot
+upgrade the currently installed debug-signed package with a differently signed
+personal release. Before that one-time transition, sync or export every local
+hike, route, photo, edit, review action, and publishing item; then uninstall the
+debug build, install the permanently signed APK, and pair it again. Never create
+a throwaway release key. Pairing credentials use Android Keystore-backed AES-GCM
+when the device supports it. Legacy plaintext preferences migrate best-effort
+on an in-place, same-signature upgrade; a compatibility fallback remains for
+Keystore failure, so migration/key-invalidation device tests are still required
+before this is a strict release guarantee.
+
+Before treating any APK as release-safe, run
+`python3 scripts/verify_android_artifact.py <apk> --mode release
+--expected-signer-sha256 <recorded-digest>`; see
+`../docs/ANDROID_ARTIFACT_VERIFICATION.md`.
 
 Android code is split by responsibility:
 

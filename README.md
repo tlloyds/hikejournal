@@ -2,6 +2,20 @@
 
 HikeJournal is a private field journal for specific hikes on specific dates. It lets you create a hike, upload optimized photos, edit notes and captions, manually select photos for species review, and map both geotagged photos and confirmed species.
 
+## Delivery roadmaps
+
+The active delivery plan is split into three compatibility-gated tracks:
+
+- [Track A: personal release hardening](docs/roadmaps/TRACK_A_PERSONAL_RELEASE.md)
+- [Track A implementation status](docs/roadmaps/TRACK_A_PROGRESS.md)
+- [Track B: multi-user product](docs/roadmaps/TRACK_B_MULTI_USER.md)
+- [Track C: Google Play publication](docs/roadmaps/TRACK_C_GOOGLE_PLAY.md)
+- [Track A operations and restore runbook](docs/TRACK_A_OPERATIONS_RUNBOOK.md)
+- [Android artifact verification](docs/ANDROID_ARTIFACT_VERIFICATION.md)
+
+The [roadmap overview](docs/roadmaps/README.md) defines the shared no-regression
+invariant, sequencing, evidence requirements, and webapp boundaries.
+
 ## Stack
 
 - Streamlit for the app UI
@@ -18,7 +32,7 @@ HikeJournal is a private field journal for specific hikes on specific dates. It 
    pip install -r requirements.txt
    ```
 3. Copy `.env.example` to `.env` and fill in your Supabase values.
-4. Run the SQL in [sql/schema.sql](/Users/adl/Documents/Playground/hike-journal/sql/schema.sql).
+4. Run the SQL in [sql/schema.sql](sql/schema.sql).
 5. Run `sql/scalable_maps_migration.sql` to add PostGIS indexes and viewport map RPCs.
 6. Run `sql/species_discovery_migration.sql` to add Nearby discovery snapshots
    and stable Field Quests.
@@ -46,8 +60,8 @@ and companion pairing are documented in [android/README.md](android/README.md).
 
 If you already have a running project from the earlier single-observation version, also run:
 
-- [sql/multi_observations_migration.sql](/Users/adl/Documents/Playground/hike-journal/sql/multi_observations_migration.sql)
-- [sql/auth_sharing_migration.sql](/Users/adl/Documents/Playground/hike-journal/sql/auth_sharing_migration.sql) for hike ownership, archive state, and collaborators
+- [sql/multi_observations_migration.sql](sql/multi_observations_migration.sql)
+- [sql/auth_sharing_migration.sql](sql/auth_sharing_migration.sql) for hike ownership, archive state, and collaborators
 - `sql/species_discovery_migration.sql` for species-level collection credit,
   the 24-hour shared iNaturalist cache, and owner-scoped Field Quests
 
@@ -81,7 +95,7 @@ Needed later for species scoring:
 
 The app is wired for Streamlit's native Google OIDC flow.
 
-1. Copy [.streamlit/secrets.toml.example](/Users/adl/Documents/Playground/hike-journal/.streamlit/secrets.toml.example) to `.streamlit/secrets.toml`
+1. Copy [.streamlit/secrets.toml.example](.streamlit/secrets.toml.example) to `.streamlit/secrets.toml`
 2. Fill in your Google client id and client secret
 3. Add this local callback URI in Google Cloud Console:
    - `http://localhost:8505/oauth2callback`

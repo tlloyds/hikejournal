@@ -57,6 +57,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
+import com.hikejournal.app.BuildConfig
 import com.hikejournal.app.data.DiscoveryTaxon
 import com.hikejournal.app.data.FieldQuest
 import com.hikejournal.app.data.QuestSighting
@@ -100,7 +101,6 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.cos
 
-private const val QUEST_MAP_STYLE = "https://demotiles.maplibre.org/style.json"
 private const val QUEST_AREA_SOURCE = "field-quest-search-area"
 private const val QUEST_AREA_FILL = "field-quest-search-area-fill"
 private const val QUEST_AREA_LINE = "field-quest-search-area-line"
@@ -565,7 +565,7 @@ private class QuestNativeMapController {
         val builder = if (nextLayerMode == QuestMapLayerMode.Satellite) {
             Style.Builder().fromJson(QUEST_SATELLITE_STYLE)
         } else {
-            Style.Builder().fromUri(QUEST_MAP_STYLE)
+            Style.Builder().fromUri(BuildConfig.TRAIL_MAP_STYLE_URL)
         }
         map.setStyle(builder) { style ->
             style.addSource(GeoJsonSource(QUEST_AREA_SOURCE, areaFeatureCollection(area)))

@@ -83,13 +83,15 @@ fun localMediaAccess(context: Context): LocalMediaAccess {
 suspend fun loadLocalMediaLibrary(
     context: Context,
     access: LocalMediaAccess = localMediaAccess(context),
-): List<LocalMediaAlbum> = withContext(Dispatchers.IO) {
-    if (!access.canReadMedia) return@withContext emptyList()
-    val items = buildList {
-        if (access.canReadImages) addAll(queryLocalMedia(context, isVideo = false))
-        if (access.canReadVideos) addAll(queryLocalMedia(context, isVideo = true))
-    }.sortedByDescending(LocalMediaItem::takenAtMillis)
-    buildLocalMediaAlbums(items)
+): List<LocalMediaAlbum> {
+    if (!access.canReadMedia) return emptyList()
+    val items = withContext(Dispatchers.IO) {
+        buildList {
+            if (access.canReadImages) addAll(queryLocalMedia(context, isVideo = false))
+            if (access.canReadVideos) addAll(queryLocalMedia(context, isVideo = true))
+        }
+    }
+    return withContext(Dispatchers.Default) { buildLocalMediaAlbums(items) }
 }
 
 internal fun buildLocalMediaAlbums(items: List<LocalMediaItem>): List<LocalMediaAlbum> {

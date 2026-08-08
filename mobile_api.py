@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 from collections import defaultdict
 import base64
-from contextlib import asynccontextmanager
-from datetime import date, datetime, timezone
+from contextlib import asynccontextmanager, suppress
+from datetime import UTC, date, datetime, timezone
 import hashlib
 import hmac
 import logging
@@ -12,13 +13,14 @@ import math
 import os
 import time
 from pathlib import Path
-from threading import Lock
+from threading import Lock, Thread, local
 from typing import Any, Annotated, Callable, Literal
 from types import SimpleNamespace
 from uuid import UUID, uuid4
 
-from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, Header, HTTPException, Query, UploadFile, status
-from fastapi.responses import RedirectResponse
+from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile, status
+from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
 from supabase import Client, create_client
 
@@ -40,6 +42,8 @@ from hike_journal.models import HikeDraft, SpeciesCandidate
 from hike_journal.services.exif import extract_metadata
 from hike_journal.services.image_processing import optimize_image
 from hike_journal.media import is_supported_video_upload, video_content_type
+from hike_journal.mobile_contract import MOBILE_CONTRACT_VERSION, build_mobile_config
+from hike_journal.services.api_runtime import RequestMetrics, run_dependency_probes
 from hike_journal.services.inat import (
     InatAuthError,
     InatClient,
@@ -61,6 +65,18 @@ from hike_journal.services.inat_publishing import (
     publish_single_observation,
 )
 from hike_journal.services.encounters import build_publish_encounter_plan
+from hike_journal.services.mobile_jobs import (
+    InMemoryMobileJobStore,
+    MobileJobIdempotencyConflict,
+    MobileJobRecord,
+    MobileJobStore,
+    build_mobile_job_store,
+    is_durable_mobile_job_id,
+    is_mobile_job_recoverable,
+    mobile_job_owner_key,
+    mobile_job_request_fingerprint,
+    validate_mobile_job_request,
+)
 from hike_journal.services.species_identification import select_shared_candidate
 from hike_journal.services.repositories import HikeJournalRepository
 from hike_journal.services.discovery import SpeciesDiscoveryService
@@ -70,6 +86,11 @@ from hike_journal.services.taxonomy import ensure_observation_taxonomy
 
 MAX_UPLOAD_BYTES = 30 * 1024 * 1024
 EVERYDAY_JOURNAL_ID = "everyday"
+MOBILE_JOB_OWNER_SCOPE = "single-owner"
+SPECIES_REVIEW_JOB_TYPE = "species-review-batch"
+SPECIES_PUBLISH_JOB_TYPE = "species-publish-batch"
+MOBILE_JOB_MAX_LOCAL_WORKERS = 4
+MOBILE_JOB_CACHE_FINGERPRINT_KEY = "_request_fingerprint"
 MOBILE_API_VERSION = Path(__file__).resolve().with_name("VERSION").read_text(encoding="utf-8").strip()
 if not MOBILE_API_VERSION:
     raise RuntimeError("VERSION must contain the mobile API release version")
@@ -114,6 +135,41 @@ def derive_mobile_api_token(supabase_key: str | None = None) -> str:
     if not source:
         return ""
     return hashlib.sha256(f"{source}:hikejournal-mobile-local-v1".encode()).hexdigest()
+
+
+def hosted_mobile_policy_enabled() -> bool:
+    configured = os.getenv("MOBILE_REQUIRE_EXPLICIT_TOKEN", "").strip().lower()
+    return configured in {"1", "true", "yes", "on"} or bool(
+        os.getenv("K_SERVICE", "").strip()
+    )
+
+
+def _hosted_mobile_configuration_errors() -> list[str]:
+    """Return non-secret configuration failures for the hosted personal API."""
+    if not hosted_mobile_policy_enabled():
+        return []
+    errors: list[str] = []
+    token = os.getenv("MOBILE_API_TOKEN", "").strip()
+    if len(token) < 32 or len(set(token)) < 12:
+        errors.append("MOBILE_API_TOKEN must be a high-entropy value of at least 32 characters")
+    owner_email = os.getenv("MOBILE_OWNER_EMAIL", "").strip().lower()
+    if (
+        not owner_email
+        or "@" not in owner_email
+        or owner_email.startswith("@")
+        or owner_email.endswith("@")
+        or any(character.isspace() for character in owner_email)
+    ):
+        errors.append("MOBILE_OWNER_EMAIL must identify the personal owner")
+    if not os.getenv("MOBILE_OWNER_SUBJECT", "").strip():
+        errors.append("MOBILE_OWNER_SUBJECT must be a stable personal-owner identifier")
+    return errors
+
+
+def _validate_hosted_mobile_configuration() -> None:
+    errors = _hosted_mobile_configuration_errors()
+    if errors:
+        raise RuntimeError("Hosted mobile API configuration is invalid: " + "; ".join(errors))
 
 
 def mobile_owner_email() -> str | None:
@@ -225,6 +281,7 @@ class Services:
         self.client: Client = create_client(settings.supabase_url, settings.supabase_key)
         self.repository = HikeJournalRepository(self.client)
         self.storage = StorageService(self.client)
+        self.mobile_job_store = build_mobile_job_store(self.client)
 
 
 services: Services | None = None
@@ -236,6 +293,14 @@ _species_batch_jobs: dict[str, dict[str, Any]] = {}
 _species_batch_jobs_lock = Lock()
 _species_publish_jobs: dict[str, dict[str, Any]] = {}
 _species_publish_jobs_lock = Lock()
+_local_mobile_job_store: MobileJobStore = InMemoryMobileJobStore()
+_mobile_job_dispatch_lock = Lock()
+_mobile_jobs_dispatching: set[str] = set()
+_mobile_job_worker = local()
+
+
+class MobileJobLeaseLost(RuntimeError):
+    """Stops a stale process worker after its durable lease has been replaced."""
 
 
 def _invalidate_species_data_cache() -> None:
@@ -246,9 +311,17 @@ def _invalidate_species_data_cache() -> None:
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     global services
+    _validate_hosted_mobile_configuration()
     services = Services()
-    yield
-    services = None
+    await asyncio.to_thread(_dispatch_recoverable_mobile_jobs)
+    recovery_task = asyncio.create_task(_mobile_job_recovery_loop())
+    try:
+        yield
+    finally:
+        recovery_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await recovery_task
+        services = None
 
 
 app = FastAPI(
@@ -258,13 +331,104 @@ app = FastAPI(
     redoc_url=None,
     lifespan=lifespan,
 )
+app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=5)
+request_metrics = RequestMetrics()
+_dependency_health_lock = Lock()
+_dependency_health_cache: tuple[Any, float, dict[str, Any], bool] | None = None
+
+
+def _request_route_template(request: Request) -> str:
+    route = request.scope.get("route")
+    template = getattr(route, "path", None)
+    return str(template) if template else "<unmatched>"
+
+
+def _safe_request_id(request: Request) -> str:
+    candidate = request.headers.get("x-request-id", "").strip()
+    if candidate and len(candidate) <= 128 and all(
+        character.isalnum() or character in "-_.:" for character in candidate
+    ):
+        return candidate
+    return str(uuid4())
+
+
+@app.middleware("http")
+async def record_request_telemetry(request: Request, call_next: Callable[[Request], Any]):
+    request_id = _safe_request_id(request)
+    started = request_metrics.start_request()
+    try:
+        response = await call_next(request)
+    except Exception:
+        route = _request_route_template(request)
+        elapsed_ms = (time.perf_counter() - started) * 1000
+        request_metrics.finish_request(
+            started=started,
+            method=request.method,
+            route=route,
+            status_code=500,
+        )
+        logger.exception(
+            (
+                "Unhandled mobile API request failure request_id=%s method=%s "
+                "route=%s status=%s latency_ms=%.2f"
+            ),
+            request_id,
+            request.method,
+            route,
+            500,
+            elapsed_ms,
+            extra={
+                "request_id": request_id,
+                "method": request.method,
+                "route": route,
+                "status_code": 500,
+                "latency_ms": round(elapsed_ms, 2),
+            },
+        )
+        raise
+    route = _request_route_template(request)
+    elapsed_ms = (time.perf_counter() - started) * 1000
+    request_metrics.finish_request(
+        started=started,
+        method=request.method,
+        route=route,
+        status_code=response.status_code,
+    )
+    logger.info(
+        (
+            "Mobile API request completed request_id=%s method=%s route=%s "
+            "status=%s latency_ms=%.2f"
+        ),
+        request_id,
+        request.method,
+        route,
+        response.status_code,
+        elapsed_ms,
+        extra={
+            "request_id": request_id,
+            "method": request.method,
+            "route": route,
+            "status_code": response.status_code,
+            "latency_ms": round(elapsed_ms, 2),
+        },
+    )
+    response.headers["X-Request-ID"] = request_id
+    response.headers["X-HikeJournal-API-Version"] = MOBILE_API_VERSION
+    response.headers["X-HikeJournal-Contract-Version"] = MOBILE_CONTRACT_VERSION
+    response.headers["Server-Timing"] = f"app;dur={elapsed_ms:.2f}"
+    return response
 
 
 def require_mobile_key(
+    request: Request,
     x_hikejournal_key: Annotated[str | None, Header()] = None,
 ) -> None:
     expected = derive_mobile_api_token()
     if not expected or not x_hikejournal_key or not hmac.compare_digest(expected, x_hikejournal_key):
+        logger.warning(
+            "Rejected invalid mobile pairing key route=%s",
+            _request_route_template(request),
+        )
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Pairing key is missing or invalid.")
 
 
@@ -272,6 +436,421 @@ def get_services() -> Services:
     if services is None:
         raise HTTPException(status_code=503, detail="Mobile services are starting.")
     return services
+
+
+def _mobile_job_store() -> MobileJobStore:
+    """Use durable Supabase jobs in service mode and an explicit local fallback in tests/dev."""
+    active_services = services
+    store = getattr(active_services, "mobile_job_store", None) if active_services is not None else None
+    return store if isinstance(store, MobileJobStore) else _local_mobile_job_store
+
+
+def _find_mobile_job_by_request(
+    *,
+    job_type: str,
+    owner_context: dict[str, Any],
+    client_request_id: str | None,
+    request_payload: dict[str, Any] | None = None,
+) -> MobileJobRecord | None:
+    if not client_request_id:
+        return None
+    existing = _mobile_job_store().find_by_client_request(
+        job_type=job_type,
+        owner_scope=MOBILE_JOB_OWNER_SCOPE,
+        owner_key=mobile_job_owner_key(owner_context),
+        client_request_id=client_request_id,
+    )
+    if existing and request_payload is not None:
+        try:
+            validate_mobile_job_request(existing, request_payload)
+        except MobileJobIdempotencyConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return existing
+
+
+def _validate_cached_mobile_job_request(
+    cached_job: dict[str, Any],
+    request_payload: dict[str, Any],
+) -> None:
+    """Validate current process-local entries without exposing the hash to clients."""
+    expected = str(cached_job.get(MOBILE_JOB_CACHE_FINGERPRINT_KEY) or "")
+    if not expected:
+        # Compatibility for cache entries created before durable fingerprints
+        # existed. They cannot be reconstructed without retaining raw input.
+        return
+    actual = mobile_job_request_fingerprint(request_payload)
+    if not hmac.compare_digest(expected, actual):
+        raise HTTPException(
+            status_code=409,
+            detail="This client request ID was already used for different background work.",
+        )
+
+
+def _get_mobile_job(job_id: str, *, job_type: str) -> MobileJobRecord | None:
+    if not is_durable_mobile_job_id(job_id):
+        # Older process-local tests/jobs used short IDs. Callers can still fall
+        # back to those caches, but malformed public IDs never reach a UUID
+        # column query in the durable store.
+        return None
+    record = _mobile_job_store().get(job_id)
+    return record if record and record.job_type == job_type else None
+
+
+def _create_mobile_job(
+    *,
+    job_type: str,
+    owner_context: dict[str, Any],
+    client_request_id: str | None,
+    job: dict[str, Any],
+    request_payload: dict[str, Any],
+) -> tuple[MobileJobRecord, bool]:
+    try:
+        return _mobile_job_store().create(
+            job_type=job_type,
+            owner_scope=MOBILE_JOB_OWNER_SCOPE,
+            owner_key=mobile_job_owner_key(owner_context),
+            client_request_id=client_request_id,
+            payload=job,
+            request_payload=request_payload,
+            job_id=str(job["job_id"]),
+        )
+    except MobileJobIdempotencyConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+def _current_mobile_job_lease_owner() -> str | None:
+    return getattr(_mobile_job_worker, "lease_owner", None)
+
+
+def _clear_mobile_job_lease_owner() -> None:
+    _mobile_job_worker.lease_owner = None
+
+
+def _persist_mobile_job_update(job_id: str, **updates: Any) -> MobileJobRecord | None:
+    lease_owner = _current_mobile_job_lease_owner()
+    updated = _mobile_job_store().update(
+        job_id,
+        expected_lease_owner=lease_owner,
+        lease_seconds=1800,
+        **updates,
+    )
+    if lease_owner and updated is None:
+        _clear_mobile_job_lease_owner()
+        raise MobileJobLeaseLost(
+            f"Worker lease for mobile job {job_id} was replaced before this update."
+        )
+    if updates.get("state") in {"completed", "failed", "cancelled"}:
+        _clear_mobile_job_lease_owner()
+    return updated
+
+
+def _claim_mobile_job(job_id: str, *, job_type: str) -> bool:
+    _clear_mobile_job_lease_owner()
+    store = _mobile_job_store()
+    record = store.get(job_id)
+    if record is None:
+        # Compatibility for direct unit tests and older process-local jobs.
+        return True
+    if record.job_type != job_type:
+        return False
+    worker_identity = f"{os.getenv('K_REVISION', 'local')}:{uuid4()}"
+    claimed = store.acquire_lease(
+        job_id,
+        lease_owner=worker_identity,
+        lease_seconds=1800,
+    )
+    if claimed is None:
+        return False
+    _mobile_job_worker.lease_owner = worker_identity
+    return True
+
+
+def _cache_mobile_job(record: MobileJobRecord) -> None:
+    cached_payload = dict(record.payload)
+    if record.request_fingerprint:
+        cached_payload[MOBILE_JOB_CACHE_FINGERPRINT_KEY] = record.request_fingerprint
+    if record.job_type == SPECIES_REVIEW_JOB_TYPE:
+        with _species_batch_jobs_lock:
+            _species_batch_jobs[record.job_id] = cached_payload
+    elif record.job_type == SPECIES_PUBLISH_JOB_TYPE:
+        with _species_publish_jobs_lock:
+            _species_publish_jobs[record.job_id] = cached_payload
+
+
+def _resume_species_review_job(
+    record: MobileJobRecord,
+    *,
+    had_prior_attempt: bool | None = None,
+) -> None:
+    request = ReviewBatchInput.model_validate(record.request_payload)
+    processed_ids = list(record.payload.get("processed_photo_ids") or [])
+    processed_set = set(processed_ids)
+    recovery_warnings: list[str] = []
+
+    # A worker can stop after saving an observation but before its progress
+    # callback is persisted. Treat an existing suggestion as completed so a
+    # restart never repeats that external CV request or overwrites the result.
+    should_reconcile = (
+        had_prior_attempt if had_prior_attempt is not None else record.attempt_count > 0
+    )
+    if should_reconcile:
+        svc = get_services()
+        queue = _review_queue_payload(svc)
+        queue_by_id = {str(item.get("id") or ""): item for item in queue}
+        requested_ids = [photo_id for group in request.groups for photo_id in group.photo_ids]
+        for photo_id in requested_ids:
+            item = queue_by_id.get(photo_id)
+            if photo_id in processed_set:
+                continue
+            if item is None or item.get("candidates"):
+                processed_set.add(photo_id)
+                processed_ids.append(photo_id)
+                if item is None:
+                    recovery_warnings.append(
+                        f"Skipped {photo_id} because it is no longer waiting in species review."
+                    )
+
+    remaining_groups = [
+        ReviewBatchGroupInput(
+            photo_ids=[photo_id for photo_id in group.photo_ids if photo_id not in processed_set]
+        )
+        for group in request.groups
+    ]
+    remaining_groups = [group for group in remaining_groups if group.photo_ids]
+    _cache_mobile_job(record)
+    if processed_ids != list(record.payload.get("processed_photo_ids") or []) or recovery_warnings:
+        _update_review_batch_job(
+            record.job_id,
+            processed_photo_ids=processed_ids,
+            processed_count=len(processed_ids),
+            warnings=list(record.payload.get("warnings") or []) + recovery_warnings,
+        )
+
+    if not remaining_groups:
+        svc = get_services()
+        processed_set = set(processed_ids)
+        items = [
+            item
+            for item in _review_queue_payload(svc)
+            if str(item.get("id") or "") in processed_set
+        ]
+        _update_review_batch_job(
+            record.job_id,
+            state="completed",
+            processed_photo_ids=processed_ids,
+            processed_count=len(processed_ids),
+            current_photo_id=None,
+            current_photo_number=int(record.payload.get("total_photos") or len(processed_ids)),
+            items=items,
+            error=None,
+        )
+        return
+
+    resumed_request = request.model_copy(update={"groups": remaining_groups})
+    svc, groups, full_photos_by_id, inat_client, _requested_ids = _prepare_species_batch_submission(
+        resumed_request
+    )
+    _run_species_batch_job(
+        record.job_id,
+        svc,
+        groups,
+        full_photos_by_id,
+        inat_client,
+        int(record.payload.get("total_photos") or len(processed_ids) + len(_requested_ids)),
+        lease_already_claimed=True,
+    )
+
+
+def _resume_species_publish_job(record: MobileJobRecord) -> None:
+    request = PublishBatchInput.model_validate(record.request_payload)
+    svc, records_by_group, inat_client, owner = _prepare_species_publish_batch(request)
+    _cache_mobile_job(record)
+    _run_species_publish_batch_job(
+        record.job_id,
+        svc,
+        records_by_group,
+        inat_client,
+        owner,
+        description=request.description,
+        tags=request.tags,
+        geoprivacy=request.geoprivacy,
+        captive=request.captive,
+        lease_already_claimed=True,
+    )
+
+
+def _resume_mobile_job(record: MobileJobRecord) -> None:
+    _clear_mobile_job_lease_owner()
+    try:
+        if record.job_type not in {SPECIES_REVIEW_JOB_TYPE, SPECIES_PUBLISH_JOB_TYPE}:
+            return
+        # Claim before validation, reconciliation, or any other recovery work.
+        # The database claim atomically rechecks the queued/retry/expiry state,
+        # so a stale recovery snapshot can never write through a renewed lease.
+        if not _claim_mobile_job(record.job_id, job_type=record.job_type):
+            return
+        claimed_record = _mobile_job_store().get(record.job_id) or record
+        if record.job_type == SPECIES_REVIEW_JOB_TYPE:
+            _resume_species_review_job(
+                claimed_record,
+                had_prior_attempt=record.attempt_count > 0,
+            )
+        else:
+            _resume_species_publish_job(claimed_record)
+    except MobileJobLeaseLost:
+        logger.warning("Stopped stale worker for mobile job %s", record.job_id)
+    except Exception as error:
+        logger.exception("Could not recover durable mobile job %s", record.job_id)
+        if not _current_mobile_job_lease_owner():
+            # Preparation can fail before the normal worker claims the row.
+            # Atomically claim it now; if another worker already did, leave
+            # that replacement untouched instead of writing an unfenced error.
+            failure_owner = f"{os.getenv('K_REVISION', 'local')}:recovery-error:{uuid4()}"
+            claimed = _mobile_job_store().acquire_lease(
+                record.job_id,
+                lease_owner=failure_owner,
+                lease_seconds=1800,
+            )
+            if claimed is None:
+                logger.warning(
+                    "Did not overwrite an already-claimed mobile job after recovery failed for %s",
+                    record.job_id,
+                )
+                return
+            _mobile_job_worker.lease_owner = failure_owner
+        try:
+            _persist_mobile_job_update(
+                record.job_id,
+                state="failed",
+                error=str(error) or "HikeJournal could not recover this background job.",
+            )
+        except MobileJobLeaseLost:
+            logger.warning(
+                "Did not overwrite the replacement worker after recovery failed for mobile job %s",
+                record.job_id,
+            )
+            return
+        _cache_mobile_job(
+            _mobile_job_store().get(record.job_id) or record
+        )
+    finally:
+        with _mobile_job_dispatch_lock:
+            _mobile_jobs_dispatching.discard(record.job_id)
+
+
+def _start_mobile_job_dispatch(record: MobileJobRecord) -> bool:
+    with _mobile_job_dispatch_lock:
+        if record.job_id in _mobile_jobs_dispatching:
+            return False
+        if len(_mobile_jobs_dispatching) >= MOBILE_JOB_MAX_LOCAL_WORKERS:
+            return False
+        _mobile_jobs_dispatching.add(record.job_id)
+    worker = Thread(
+        target=_resume_mobile_job,
+        args=(record,),
+        name=f"mobile-job-{record.job_id[:8]}",
+        daemon=True,
+    )
+    try:
+        worker.start()
+    except Exception:
+        with _mobile_job_dispatch_lock:
+            _mobile_jobs_dispatching.discard(record.job_id)
+        logger.exception("Could not start local recovery worker for mobile job %s", record.job_id)
+        return False
+    return True
+
+
+def _prepare_recoverable_mobile_job(record: MobileJobRecord) -> MobileJobRecord | None:
+    store = _mobile_job_store()
+    if record.state == "queued":
+        return record
+    if record.state == "failed":
+        # Identification writes are local upserts and can be reconciled before
+        # retry. A timed-out iNaturalist publish create is not safe to repeat
+        # automatically because the remote API has no idempotency key.
+        return record if record.job_type == SPECIES_REVIEW_JOB_TYPE else None
+    if record.state == "running" and record.lease_expires_at:
+        if not record.lease_owner:
+            logger.warning(
+                "Cannot safely recover running mobile job %s without its prior lease owner",
+                record.job_id,
+            )
+            return None
+        if record.attempt_count >= record.max_attempts:
+            store.fail_expired_lease(
+                record.job_id,
+                expected_lease_owner=record.lease_owner,
+                error=(
+                    "The background worker stopped on its final attempt. "
+                    "Review this job before starting it again."
+                ),
+            )
+            return None
+        if record.job_type == SPECIES_REVIEW_JOB_TYPE:
+            # Leave the expired row untouched until the recovery worker's
+            # atomic lease claim. This avoids an unfenced state transition
+            # between the recovery scan and worker startup.
+            return record
+        store.fail_expired_lease(
+            record.job_id,
+            expected_lease_owner=record.lease_owner,
+            error=(
+                "The publishing worker stopped while iNaturalist may have been creating an observation. "
+                "Review the publish queue before trying this group again."
+            ),
+        )
+    return None
+
+
+def _dispatch_recoverable_mobile_jobs(*, job_id: str | None = None) -> int:
+    if job_id is not None and not is_durable_mobile_job_id(job_id):
+        return 0
+    try:
+        store = _mobile_job_store()
+        if job_id is not None:
+            record = store.get(job_id)
+            records = (
+                [record]
+                if record
+                and record.job_type in {SPECIES_REVIEW_JOB_TYPE, SPECIES_PUBLISH_JOB_TYPE}
+                and is_mobile_job_recoverable(record)
+                else []
+            )
+        else:
+            records = store.list_recoverable(
+                job_types={SPECIES_REVIEW_JOB_TYPE, SPECIES_PUBLISH_JOB_TYPE}
+            )
+    except Exception:
+        logger.exception("Could not inspect durable mobile jobs for recovery")
+        return 0
+    dispatched = 0
+    for record in records:
+        try:
+            recoverable = _prepare_recoverable_mobile_job(record)
+            if recoverable and _start_mobile_job_dispatch(recoverable):
+                dispatched += 1
+        except Exception:
+            logger.exception("Could not prepare durable mobile job %s for recovery", record.job_id)
+    return dispatched
+
+
+async def _mobile_job_recovery_loop() -> None:
+    raw_interval = os.getenv("MOBILE_JOB_RECOVERY_INTERVAL_SECONDS", "15").strip()
+    try:
+        interval = max(5, min(int(raw_interval), 300))
+    except ValueError:
+        interval = 15
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            await asyncio.to_thread(_dispatch_recoverable_mobile_jobs)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # Recovery is periodic by design. One transient database or local
+            # thread failure must not permanently stop all future scans.
+            logger.exception("Durable mobile job recovery iteration failed")
 
 
 def _user_context() -> dict[str, Any]:
@@ -1124,25 +1703,108 @@ def health() -> dict[str, str]:
     return {"status": "ok", "service": "hikejournal-mobile", "version": MOBILE_API_VERSION}
 
 
+@app.get("/health/live")
+def health_live() -> dict[str, str]:
+    """Process liveness only; dependency failures must not trigger a restart loop."""
+    return health()
+
+
+def _dependency_health_payload() -> tuple[dict[str, Any], bool]:
+    global _dependency_health_cache
+    svc = services
+    if svc is None:
+        configuration_ok = not _hosted_mobile_configuration_errors()
+        dependencies = {
+            name: {"status": "starting"}
+            for name in ("database", "storage", "job_store")
+        }
+        dependencies["configuration"] = {
+            "status": "ok" if configuration_ok else "error"
+        }
+        return dependencies, False
+
+    try:
+        cache_seconds = max(
+            1,
+            min(float(os.getenv("MOBILE_HEALTH_CACHE_SECONDS", "10")), 60),
+        )
+    except ValueError:
+        cache_seconds = 10
+    with _dependency_health_lock:
+        now = time.monotonic()
+        cached = _dependency_health_cache
+        if cached and cached[0] is svc and now - cached[1] <= cache_seconds:
+            return cached[2], cached[3]
+        probes = run_dependency_probes(
+            {
+                "configuration": _validate_hosted_mobile_configuration,
+                "database": lambda: svc.client.table("hikes").select("id").limit(1).execute(),
+                "storage": svc.storage.check_health,
+                "job_store": svc.mobile_job_store.verify,
+            },
+            timeout_seconds=3,
+        )
+        dependencies = {name: result.payload() for name, result in probes.items()}
+        ready = all(
+            dependency["status"] == "ok" for dependency in dependencies.values()
+        )
+        _dependency_health_cache = (svc, now, dependencies, ready)
+        return dependencies, ready
+
+
+@app.get("/health/ready")
+def health_ready() -> JSONResponse:
+    """Dependency-aware readiness with no credential or exception disclosure."""
+    dependencies, ready = _dependency_health_payload()
+    return JSONResponse(
+        status_code=200 if ready else 503,
+        content={
+            "status": "ok" if ready else "unavailable",
+            "service": "hikejournal-mobile",
+            "version": MOBILE_API_VERSION,
+            "dependencies": dependencies,
+        },
+    )
+
+
+@app.get("/v1/operations/health", dependencies=[Depends(require_mobile_key)])
+def operations_health() -> JSONResponse:
+    dependencies, ready = _dependency_health_payload()
+    store = _mobile_job_store()
+    return JSONResponse(
+        status_code=200 if ready else 503,
+        content={
+            "status": "ok" if ready else "unavailable",
+            "version": MOBILE_API_VERSION,
+            "contract_version": MOBILE_CONTRACT_VERSION,
+            "durable_job_store": not isinstance(store, InMemoryMobileJobStore),
+            "dependencies": dependencies,
+        },
+    )
+
+
+@app.get("/v1/operations/metrics", dependencies=[Depends(require_mobile_key)])
+def operations_metrics() -> dict[str, Any]:
+    store = _mobile_job_store()
+    return {
+        "version": MOBILE_API_VERSION,
+        "contract_version": MOBILE_CONTRACT_VERSION,
+        "requests": request_metrics.snapshot(),
+        "jobs": store.operational_metrics(),
+    }
+
+
 @app.get("/v1/config", dependencies=[Depends(require_mobile_key)])
 def app_config() -> dict[str, Any]:
-    return {
-        "web_url": os.getenv("MOBILE_WEB_URL", "http://192.168.0.157:8505").rstrip("/"),
-        "api_version": MOBILE_API_VERSION,
-        "capabilities": [
-            "offline_sync",
-            "grouped_inat_publish",
-            "map_packs",
-            "live_inat_cv",
-            "grouped_species_review",
-            "mobile_inat_oauth",
-            "species_discovery",
-            "everyday_sightings",
-            "hike_covers",
-            "hike_deletion",
-            "reversible_species_review",
-        ],
-    }
+    store = _mobile_job_store()
+    capabilities = ["api_contract_v1", "operational_health", "gzip_responses"]
+    if not isinstance(store, InMemoryMobileJobStore):
+        capabilities.append("durable_background_jobs")
+    return build_mobile_config(
+        web_url=os.getenv("MOBILE_WEB_URL", "http://192.168.0.157:8505"),
+        api_version=MOBILE_API_VERSION,
+        additional_capabilities=capabilities,
+    )
 
 
 @app.get("/v1/inat/oauth/start", dependencies=[Depends(require_mobile_key)])
@@ -1646,28 +2308,53 @@ def _http_error_for_species_batch(error: Exception) -> HTTPException:
     return HTTPException(status_code=500, detail="Species identification could not complete.")
 
 
+def _species_review_retry_delay(error: Exception, *, attempt_count: int) -> int | None:
+    if isinstance(error, (InatAuthError, InatConfigurationError)):
+        return None
+    if isinstance(error, InatRateLimitError):
+        retry_after = getattr(error, "retry_after", None)
+        return max(15, min(int(retry_after or 60), 900))
+    if isinstance(error, InatComputerVisionBlockedError):
+        return 300
+    if isinstance(error, InatRequestError):
+        return min(30 * (2 ** max(0, attempt_count - 1)), 300)
+    return None
+
+
 def _review_batch_job_payload(job: dict[str, Any]) -> dict[str, Any]:
     return {
         key: value
         for key, value in job.items()
-        if key not in {"owner_context", "client_request_id"}
+        if key not in {
+            "owner_context",
+            "client_request_id",
+            MOBILE_JOB_CACHE_FINGERPRINT_KEY,
+        }
     }
 
 
 def _get_review_batch_job(job_id: str) -> dict[str, Any]:
-    with _species_batch_jobs_lock:
-        job = _species_batch_jobs.get(job_id)
-        snapshot = dict(job) if job else None
-        if snapshot:
-            snapshot["processed_photo_ids"] = list(snapshot.get("processed_photo_ids") or [])
-            snapshot["warnings"] = list(snapshot.get("warnings") or [])
-            snapshot["items"] = list(snapshot.get("items") or [])
-    if not snapshot or snapshot.get("owner_context") != _user_context():
+    record = _get_mobile_job(job_id, job_type=SPECIES_REVIEW_JOB_TYPE)
+    snapshot = dict(record.payload) if record else None
+    if snapshot is None:
+        with _species_batch_jobs_lock:
+            job = _species_batch_jobs.get(job_id)
+            snapshot = dict(job) if job else None
+    if snapshot:
+        snapshot["processed_photo_ids"] = list(snapshot.get("processed_photo_ids") or [])
+        snapshot["warnings"] = list(snapshot.get("warnings") or [])
+        snapshot["items"] = list(snapshot.get("items") or [])
+    if (
+        not snapshot
+        or mobile_job_owner_key(snapshot.get("owner_context") or {})
+        != mobile_job_owner_key(_user_context())
+    ):
         raise HTTPException(status_code=404, detail="Species identification batch not found.")
     return _review_batch_job_payload(snapshot)
 
 
 def _update_review_batch_job(job_id: str, **updates: Any) -> None:
+    _persist_mobile_job_update(job_id, **updates)
     with _species_batch_jobs_lock:
         job = _species_batch_jobs.get(job_id)
         if job:
@@ -1681,12 +2368,27 @@ def _run_species_batch_job(
     full_photos_by_id: dict[str, dict[str, Any]],
     inat_client: InatClient,
     total_photos: int,
+    *,
+    lease_already_claimed: bool = False,
 ) -> None:
+    if lease_already_claimed:
+        if not _current_mobile_job_lease_owner():
+            raise MobileJobLeaseLost(job_id)
+    elif not _claim_mobile_job(job_id, job_type=SPECIES_REVIEW_JOB_TYPE):
+        return
+    claimed_record = _get_mobile_job(job_id, job_type=SPECIES_REVIEW_JOB_TYPE)
+    existing_payload = dict(claimed_record.payload) if claimed_record else {}
+    baseline_processed_ids = list(existing_payload.get("processed_photo_ids") or [])
+    baseline_grouped_count = int(existing_payload.get("grouped_count") or 0)
+    baseline_individual_count = int(existing_payload.get("individual_count") or 0)
+    baseline_warnings = list(existing_payload.get("warnings") or [])
+    baseline_items = list(existing_payload.get("items") or [])
     _update_review_batch_job(job_id, state="running")
-    next_photo_number = 1
+    next_photo_number = len(baseline_processed_ids) + 1
 
     def on_group_start(group_number: int) -> None:
-        _update_review_batch_job(job_id, current_group=group_number)
+        previous_group = int(existing_payload.get("current_group") or 0)
+        _update_review_batch_job(job_id, current_group=max(previous_group, group_number))
 
     def on_photo_start(photo_id: str) -> None:
         nonlocal next_photo_number
@@ -1699,14 +2401,18 @@ def _run_species_batch_job(
 
     def on_photo_complete(photo_id: str) -> None:
         with _species_batch_jobs_lock:
-            job = _species_batch_jobs.get(job_id)
-            if not job:
-                return
-            processed_ids = list(job.get("processed_photo_ids") or [])
-            if photo_id not in processed_ids:
-                processed_ids.append(photo_id)
-            job["processed_photo_ids"] = processed_ids
-            job["processed_count"] = len(processed_ids)
+            cached = _species_batch_jobs.get(job_id)
+            processed_ids = list((cached or {}).get("processed_photo_ids") or [])
+        if cached is None:
+            record = _get_mobile_job(job_id, job_type=SPECIES_REVIEW_JOB_TYPE)
+            processed_ids = list((record.payload if record else {}).get("processed_photo_ids") or [])
+        if photo_id not in processed_ids:
+            processed_ids.append(photo_id)
+        _update_review_batch_job(
+            job_id,
+            processed_photo_ids=processed_ids,
+            processed_count=len(processed_ids),
+        )
 
     try:
         result = _process_species_batch_submission(
@@ -1718,10 +2424,40 @@ def _run_species_batch_job(
             on_photo_start=on_photo_start,
             on_photo_complete=on_photo_complete,
         )
+    except MobileJobLeaseLost:
+        return
     except Exception as error:
         processed_ids = _get_review_batch_job(job_id).get("processed_photo_ids") or []
         refreshed_queue = _review_queue_payload(svc)
         processed_set = set(processed_ids)
+        record = _get_mobile_job(job_id, job_type=SPECIES_REVIEW_JOB_TYPE)
+        retry_delay = _species_review_retry_delay(
+            error,
+            attempt_count=record.attempt_count if record else 1,
+        )
+        if record and retry_delay is not None and record.attempt_count < record.max_attempts:
+            retryable = _mobile_job_store().mark_retryable(
+                job_id,
+                error=str(error),
+                retry_after_seconds=retry_delay,
+                expected_lease_owner=_current_mobile_job_lease_owner(),
+            )
+            if retryable:
+                _clear_mobile_job_lease_owner()
+                _cache_mobile_job(retryable)
+                _update_review_batch_job(
+                    job_id,
+                    current_photo_id=None,
+                    items=[
+                        item
+                        for item in refreshed_queue
+                        if str(item.get("id") or "") in processed_set
+                    ],
+                )
+                return
+            if _current_mobile_job_lease_owner():
+                _clear_mobile_job_lease_owner()
+                return
         _update_review_batch_job(
             job_id,
             state="failed",
@@ -1731,17 +2467,24 @@ def _run_species_batch_job(
         )
         return
 
+    processed_ids = list(dict.fromkeys([*baseline_processed_ids, *result["processed_photo_ids"]]))
+    items_by_id = {
+        str(item.get("id") or ""): item
+        for item in [*baseline_items, *result["items"]]
+        if item.get("id")
+    }
     _update_review_batch_job(
         job_id,
         state="completed",
-        processed_photo_ids=result["processed_photo_ids"],
-        processed_count=len(result["processed_photo_ids"]),
+        processed_photo_ids=processed_ids,
+        processed_count=len(processed_ids),
         current_photo_id=None,
         current_photo_number=total_photos,
-        grouped_count=result["grouped_count"],
-        individual_count=result["individual_count"],
-        warnings=result["warnings"],
-        items=result["items"],
+        grouped_count=baseline_grouped_count + result["grouped_count"],
+        individual_count=baseline_individual_count + result["individual_count"],
+        warnings=list(dict.fromkeys([*baseline_warnings, *result["warnings"]])),
+        items=list(items_by_id.values()),
+        error=None,
     )
 
 
@@ -1762,6 +2505,18 @@ def start_species_batch_recommendation(
 ) -> dict[str, Any]:
     owner_context = _user_context()
     if payload.client_request_id:
+        # Check the durable ledger first even when this process has a cached
+        # copy. The ledger owns the request fingerprint, so a reused request ID
+        # with different work must not bypass the conflict check via the cache.
+        persisted = _find_mobile_job_by_request(
+            job_type=SPECIES_REVIEW_JOB_TYPE,
+            owner_context=owner_context,
+            client_request_id=payload.client_request_id,
+            request_payload=payload.model_dump(mode="json"),
+        )
+        if persisted:
+            return _review_batch_job_payload(persisted.payload)
+
         with _species_batch_jobs_lock:
             existing = next(
                 (
@@ -1773,6 +2528,12 @@ def start_species_batch_recommendation(
                 None,
             )
             if existing:
+                _validate_cached_mobile_job_request(
+                    existing,
+                    payload.model_dump(mode="json"),
+                )
+                # Fingerprinted cache entries were validated above. An older
+                # entry with no hash remains reusable for local compatibility.
                 return _review_batch_job_payload(dict(existing))
 
     svc, groups, full_photos_by_id, inat_client, requested_ids = _prepare_species_batch_submission(payload)
@@ -1795,19 +2556,17 @@ def start_species_batch_recommendation(
         "owner_context": owner_context,
         "client_request_id": payload.client_request_id,
     }
+    persisted_job, created = _create_mobile_job(
+        job_type=SPECIES_REVIEW_JOB_TYPE,
+        owner_context=owner_context,
+        client_request_id=payload.client_request_id,
+        job=job,
+        request_payload=payload.model_dump(mode="json"),
+    )
+    if not created:
+        return _review_batch_job_payload(persisted_job.payload)
+    job = persisted_job.payload
     with _species_batch_jobs_lock:
-        if payload.client_request_id:
-            existing = next(
-                (
-                    existing
-                    for existing in _species_batch_jobs.values()
-                    if existing.get("owner_context") == owner_context
-                    and existing.get("client_request_id") == payload.client_request_id
-                ),
-                None,
-            )
-            if existing:
-                return _review_batch_job_payload(dict(existing))
         finished_ids = [
             existing_id
             for existing_id, existing in _species_batch_jobs.items()
@@ -1815,7 +2574,10 @@ def start_species_batch_recommendation(
         ]
         for existing_id in finished_ids[:-50]:
             _species_batch_jobs.pop(existing_id, None)
-        _species_batch_jobs[job_id] = job
+        cached_job = dict(job)
+        if persisted_job.request_fingerprint:
+            cached_job[MOBILE_JOB_CACHE_FINGERPRINT_KEY] = persisted_job.request_fingerprint
+        _species_batch_jobs[job_id] = cached_job
     background_tasks.add_task(
         _run_species_batch_job,
         job_id,
@@ -1830,6 +2592,7 @@ def start_species_batch_recommendation(
 
 @app.get("/v1/species/review/batch-recommendation/{job_id}", dependencies=[Depends(require_mobile_key)])
 def get_species_batch_recommendation_status(job_id: str) -> dict[str, Any]:
+    _dispatch_recoverable_mobile_jobs(job_id=job_id)
     return _get_review_batch_job(job_id)
 
 
@@ -2012,19 +2775,32 @@ def _publish_batch_job_payload(job: dict[str, Any]) -> dict[str, Any]:
     return {
         key: value
         for key, value in job.items()
-        if key not in {"owner_context", "created_at", "client_request_id"}
+        if key not in {
+            "owner_context",
+            "created_at",
+            "client_request_id",
+            MOBILE_JOB_CACHE_FINGERPRINT_KEY,
+        }
     }
 
 
 def _get_species_publish_batch_job(job_id: str) -> dict[str, Any]:
-    with _species_publish_jobs_lock:
-        job = dict(_species_publish_jobs.get(job_id) or {})
-    if not job or job.get("owner_context") != _user_context():
+    record = _get_mobile_job(job_id, job_type=SPECIES_PUBLISH_JOB_TYPE)
+    job = dict(record.payload) if record else {}
+    if not job:
+        with _species_publish_jobs_lock:
+            job = dict(_species_publish_jobs.get(job_id) or {})
+    if (
+        not job
+        or mobile_job_owner_key(job.get("owner_context") or {})
+        != mobile_job_owner_key(_user_context())
+    ):
         raise HTTPException(status_code=404, detail="iNaturalist publish batch not found.")
     return _publish_batch_job_payload(job)
 
 
 def _update_species_publish_batch_job(job_id: str, **updates: Any) -> None:
+    _persist_mobile_job_update(job_id, **updates)
     with _species_publish_jobs_lock:
         if job_id in _species_publish_jobs:
             _species_publish_jobs[job_id].update(updates)
@@ -2041,8 +2817,14 @@ def _run_species_publish_batch_job(
     tags: list[str],
     geoprivacy: str,
     captive: bool,
+    lease_already_claimed: bool = False,
 ) -> None:
     global _species_data_cache
+    if lease_already_claimed:
+        if not _current_mobile_job_lease_owner():
+            raise MobileJobLeaseLost(job_id)
+    elif not _claim_mobile_job(job_id, job_type=SPECIES_PUBLISH_JOB_TYPE):
+        return
     _update_species_publish_batch_job(job_id, state="running")
     processed_observation_ids: list[str] = []
     processed_photo_ids: list[str] = []
@@ -2123,6 +2905,9 @@ def _run_species_publish_batch_job(
             processed_photo_ids=list(processed_photo_ids),
             errors=list(errors),
         )
+    except MobileJobLeaseLost:
+        logger.warning("Stopped stale iNaturalist publishing worker for job %s", job_id)
+        return
     except Exception as exc:  # pragma: no cover - defensive background-job guard
         logger.exception("Mobile grouped iNaturalist publish batch failed")
         _update_species_publish_batch_job(
@@ -2145,6 +2930,15 @@ def start_species_publish_batch(
 ) -> dict[str, Any]:
     owner_context = _user_context()
     if payload.client_request_id:
+        persisted = _find_mobile_job_by_request(
+            job_type=SPECIES_PUBLISH_JOB_TYPE,
+            owner_context=owner_context,
+            client_request_id=payload.client_request_id,
+            request_payload=payload.model_dump(mode="json"),
+        )
+        if persisted:
+            return _publish_batch_job_payload(persisted.payload)
+
         with _species_publish_jobs_lock:
             existing = next(
                 (
@@ -2156,6 +2950,12 @@ def start_species_publish_batch(
                 None,
             )
             if existing:
+                _validate_cached_mobile_job_request(
+                    existing,
+                    payload.model_dump(mode="json"),
+                )
+                # Fingerprinted cache entries were validated above. An older
+                # entry with no hash remains reusable for local compatibility.
                 return _publish_batch_job_payload(dict(existing))
     svc, records_by_group, inat_client, owner = _prepare_species_publish_batch(payload)
     job_id = str(uuid4())
@@ -2179,19 +2979,17 @@ def start_species_publish_batch(
         "owner_context": owner,
         "client_request_id": payload.client_request_id,
     }
+    persisted_job, created = _create_mobile_job(
+        job_type=SPECIES_PUBLISH_JOB_TYPE,
+        owner_context=owner_context,
+        client_request_id=payload.client_request_id,
+        job=job,
+        request_payload=payload.model_dump(mode="json"),
+    )
+    if not created:
+        return _publish_batch_job_payload(persisted_job.payload)
+    job = persisted_job.payload
     with _species_publish_jobs_lock:
-        if payload.client_request_id:
-            existing = next(
-                (
-                    existing
-                    for existing in _species_publish_jobs.values()
-                    if existing.get("owner_context") == owner_context
-                    and existing.get("client_request_id") == payload.client_request_id
-                ),
-                None,
-            )
-            if existing:
-                return _publish_batch_job_payload(dict(existing))
         finished_ids = [
             existing_id
             for existing_id, existing in _species_publish_jobs.items()
@@ -2199,7 +2997,10 @@ def start_species_publish_batch(
         ]
         for existing_id in finished_ids[:-50]:
             _species_publish_jobs.pop(existing_id, None)
-        _species_publish_jobs[job_id] = job
+        cached_job = dict(job)
+        if persisted_job.request_fingerprint:
+            cached_job[MOBILE_JOB_CACHE_FINGERPRINT_KEY] = persisted_job.request_fingerprint
+        _species_publish_jobs[job_id] = cached_job
     background_tasks.add_task(
         _run_species_publish_batch_job,
         job_id,
@@ -2217,6 +3018,7 @@ def start_species_publish_batch(
 
 @app.get("/v1/species/publish/batch/{job_id}", dependencies=[Depends(require_mobile_key)])
 def get_species_publish_batch_status(job_id: str) -> dict[str, Any]:
+    _dispatch_recoverable_mobile_jobs(job_id=job_id)
     return _get_species_publish_batch_job(job_id)
 
 
@@ -2879,13 +3681,23 @@ def update_photo_caption(photo_id: str, payload: CaptionInput) -> dict[str, Any]
 
 @app.delete("/v1/photos/{photo_id}", dependencies=[Depends(require_mobile_key)])
 def delete_photo(photo_id: str) -> dict[str, bool]:
-    svc, photo = _get_visible_photo(photo_id)
+    try:
+        svc, photo = _get_visible_photo(photo_id)
+    except HTTPException as exc:
+        # Missing and non-visible resources remain indistinguishable, while a
+        # retry after a committed delete returns the original logical success.
+        if exc.status_code == 404:
+            return {"deleted": True}
+        raise
     storage_path = str(photo.get("storage_path") or "")
-    svc.repository.delete_photo(photo_id)
     if storage_path:
         try:
             svc.storage.delete_file(storage_path)
-        except Exception:
-            pass
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="The photo is still in your journal because its stored file could not be removed.",
+            ) from exc
+    svc.repository.delete_photo(photo_id)
     _invalidate_species_data_cache()
     return {"deleted": True}

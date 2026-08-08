@@ -16,12 +16,13 @@ import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.io.IOException
+import java.net.URI
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.TimeUnit
 
 class HikeJournalApi(private val context: Context) {
-    private val preferences = context.getSharedPreferences("hikejournal", Context.MODE_PRIVATE)
+    private val connectionPreferences = ConnectionPreferences(context)
     private val client = OkHttpClient.Builder()
         .connectTimeout(12, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
@@ -30,20 +31,23 @@ class HikeJournalApi(private val context: Context) {
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
 
     var serverUrl: String
-        get() = preferences.getString("server_url", BuildConfig.DEFAULT_API_URL)
-            ?.trim()?.trimEnd('/') ?: BuildConfig.DEFAULT_API_URL
+        get() = connectionPreferences.serverUrl(BuildConfig.DEFAULT_API_URL)
         set(value) {
-            preferences.edit().putString("server_url", normalizeServerUrl(value)).apply()
+            connectionPreferences.setServerUrl(normalizeServerUrl(value))
         }
 
     var pairingKey: String
-        get() = preferences.getString("pairing_key", BuildConfig.MOBILE_API_TOKEN)
-            ?.trim() ?: BuildConfig.MOBILE_API_TOKEN
+        get() = connectionPreferences.pairingKey(BuildConfig.MOBILE_API_TOKEN)
         set(value) {
-            preferences.edit().putString("pairing_key", value.trim()).apply()
+            connectionPreferences.setPairingKey(value.trim())
         }
 
     suspend fun getHikesJson(): String = request("/v1/hikes")
+
+    suspend fun getCompanionConfig(): CompanionConfig = parseCompanionConfig(
+        json = request("/v1/config"),
+        fallbackWebUrl = BuildConfig.DEFAULT_WEB_URL,
+    )
 
     suspend fun getHikeJson(hikeId: String): String =
         request("/v1/hikes/$hikeId?include_photos=false&include_route=false")
@@ -482,12 +486,69 @@ class HikeJournalApi(private val context: Context) {
 
     private fun normalizeServerUrl(value: String): String {
         val clean = value.trim().trimEnd('/')
-        if (clean.startsWith("http://") || clean.startsWith("https://")) return clean
+        if (
+            clean.startsWith("http://", ignoreCase = true) ||
+            clean.startsWith("https://", ignoreCase = true)
+        ) {
+            val schemeLength = clean.indexOf(":")
+            return clean.replaceRange(0, schemeLength, clean.substring(0, schemeLength).lowercase())
+        }
         return "http://$clean"
     }
 }
 
 class ApiException(message: String, val statusCode: Int) : IOException(message)
+
+data class CompanionConfig(
+    val webUrl: String,
+    val apiVersion: String? = null,
+    val capabilities: Set<String> = emptySet(),
+    val contractVersion: String? = null,
+    val minimumAndroidVersion: String? = null,
+    val recommendedAndroidVersion: String? = null,
+)
+
+internal fun parseCompanionConfig(json: String, fallbackWebUrl: String): CompanionConfig {
+    val payload = JSONObject(json)
+    val compatibility = payload.optJSONObject("compatibility")
+    val capabilitiesJson = payload.optJSONArray("capabilities")
+    val capabilities = buildSet {
+        for (index in 0 until (capabilitiesJson?.length() ?: 0)) {
+            capabilitiesJson?.optString(index)
+                ?.trim()
+                ?.takeIf(String::isNotBlank)
+                ?.let(::add)
+        }
+    }
+    val webUrl = validHttpUrl(payload.optString("web_url"))
+        ?: validHttpUrl(fallbackWebUrl)
+        .orEmpty()
+    return CompanionConfig(
+        webUrl = webUrl,
+        apiVersion = payload.optionalString("api_version"),
+        capabilities = capabilities,
+        contractVersion = payload.optionalString("contract_version"),
+        minimumAndroidVersion = compatibility?.optionalString("minimum_android_version"),
+        recommendedAndroidVersion = compatibility?.optionalString("recommended_android_version"),
+    )
+}
+
+private fun JSONObject.optionalString(key: String): String? = takeUnless { isNull(key) }
+    ?.optString(key)
+    ?.trim()
+    ?.takeIf(String::isNotBlank)
+
+internal fun validHttpUrl(value: String): String? {
+    val clean = value.trim().trimEnd('/')
+    val uri = runCatching { URI(clean) }.getOrNull() ?: return null
+    return clean.takeIf {
+        uri.scheme?.lowercase() in setOf("http", "https") &&
+            !uri.host.isNullOrBlank() &&
+            uri.userInfo == null &&
+            uri.rawQuery == null &&
+            uri.rawFragment == null
+    }
+}
 
 private fun HikeDraft.toJson(): JSONObject = JSONObject()
     .put("title", title)

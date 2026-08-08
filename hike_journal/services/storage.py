@@ -37,6 +37,22 @@ class StorageService:
             raise RuntimeError("Supabase client is required for Supabase storage.")
         return self.client.storage.from_(self.supabase_bucket).get_public_url(path)
 
+    def check_health(self) -> None:
+        """Verify that the configured object store is reachable.
+
+        This intentionally performs no writes and returns no bucket contents, so
+        it is safe for readiness checks and operational diagnostics.
+        """
+
+        if self.backend == "r2":
+            if self._r2_client is None:
+                raise RuntimeError("R2 storage client is not configured.")
+            self._r2_client.head_bucket(Bucket=self.r2_bucket)
+            return
+        if not self.client:
+            raise RuntimeError("Supabase client is required for Supabase storage.")
+        self.client.storage.get_bucket(self.supabase_bucket)
+
     def _upload_bytes(self, path: str, file_bytes: bytes, content_type: str) -> tuple[str, str]:
         if self.backend == "r2":
             self._r2_client.put_object(

@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import asyncio
 from datetime import date
+import logging
 
 import pytest
 from fastapi import BackgroundTasks, HTTPException
 from fastapi.testclient import TestClient
 
+import mobile_api
 from hike_journal.models import PhotoMetadata, ProcessedImage, SpeciesCandidate
 from mobile_api import (
     CoverPhotoInput,
@@ -58,6 +60,31 @@ from mobile_api import (
 )
 
 
+def test_request_log_message_contains_correlation_and_timing_fields(
+    monkeypatch,
+    caplog,
+):
+    monkeypatch.setattr(mobile_api, "services", None)
+    caplog.set_level(logging.INFO, logger="mobile_api")
+
+    response = TestClient(app).get(
+        "/health",
+        headers={"X-Request-ID": "personal-apk-request-1"},
+    )
+
+    assert response.status_code == 200
+    message = next(
+        record.getMessage()
+        for record in caplog.records
+        if record.name == "mobile_api" and "request completed" in record.getMessage()
+    )
+    assert "request_id=personal-apk-request-1" in message
+    assert "method=GET" in message
+    assert "route=/health" in message
+    assert "status=200" in message
+    assert "latency_ms=" in message
+
+
 def test_mobile_token_is_deterministic_without_exposing_source(monkeypatch):
     monkeypatch.delenv("MOBILE_API_TOKEN", raising=False)
     source = "server-secret-value"
@@ -79,6 +106,32 @@ def test_hosted_mobile_api_requires_an_explicit_pairing_token(monkeypatch):
     monkeypatch.setenv("MOBILE_REQUIRE_EXPLICIT_TOKEN", "true")
 
     assert derive_mobile_api_token("must-not-be-derived-in-production") == ""
+
+
+def test_hosted_mobile_api_rejects_weak_or_unscoped_configuration(monkeypatch):
+    monkeypatch.setenv("MOBILE_REQUIRE_EXPLICIT_TOKEN", "true")
+    monkeypatch.setenv("MOBILE_API_TOKEN", "too-short")
+    monkeypatch.delenv("MOBILE_OWNER_EMAIL", raising=False)
+    monkeypatch.delenv("MOBILE_OWNER_SUBJECT", raising=False)
+
+    with pytest.raises(RuntimeError, match="MOBILE_API_TOKEN") as failure:
+        mobile_api._validate_hosted_mobile_configuration()
+
+    assert "MOBILE_OWNER_EMAIL" in str(failure.value)
+    assert "MOBILE_OWNER_SUBJECT" in str(failure.value)
+    assert "too-short" not in str(failure.value)
+
+
+def test_hosted_mobile_api_accepts_strong_owner_scoped_configuration(monkeypatch):
+    monkeypatch.setenv("MOBILE_REQUIRE_EXPLICIT_TOKEN", "true")
+    monkeypatch.setenv(
+        "MOBILE_API_TOKEN",
+        "qA7-random-personal-pairing-key_92vX5mN3z",
+    )
+    monkeypatch.setenv("MOBILE_OWNER_EMAIL", "owner@example.com")
+    monkeypatch.setenv("MOBILE_OWNER_SUBJECT", "personal-owner-2026")
+
+    mobile_api._validate_hosted_mobile_configuration()
 
 
 def test_photo_payload_uses_mobile_contract_names():
@@ -851,6 +904,65 @@ def test_mobile_review_batch_status_reports_completion_after_background_work(mon
     assert status["state"] == "completed"
     assert status["processed_photo_ids"] == ["photo-a", "photo-b"]
     assert status["current_photo_number"] == 2
+
+
+@pytest.mark.parametrize(
+    ("path", "expected_detail"),
+    [
+        (
+            "/v1/species/review/batch-recommendation/not-a-uuid",
+            "Species identification batch not found.",
+        ),
+        (
+            "/v1/species/publish/batch/not-a-uuid",
+            "iNaturalist publish batch not found.",
+        ),
+    ],
+)
+def test_malformed_job_status_id_returns_404_without_querying_durable_uuid_store(
+    monkeypatch,
+    path,
+    expected_detail,
+):
+    class GuardStore(mobile_api.InMemoryMobileJobStore):
+        def get(self, _job_id):
+            raise AssertionError("a malformed UUID must not reach durable lookup")
+
+        def list_recoverable(self, *, job_types=None):
+            raise AssertionError("a single status lookup must not scan the queue")
+
+    monkeypatch.setattr(mobile_api, "services", None)
+    monkeypatch.setattr(mobile_api, "_local_mobile_job_store", GuardStore())
+    monkeypatch.setattr(mobile_api, "_species_batch_jobs", {})
+    monkeypatch.setattr(mobile_api, "_species_publish_jobs", {})
+    app.dependency_overrides[require_mobile_key] = lambda: None
+    try:
+        response = TestClient(app).get(path)
+    finally:
+        app.dependency_overrides.pop(require_mobile_key, None)
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": expected_detail}
+
+
+def test_legacy_process_local_status_id_remains_pollable(monkeypatch):
+    owner = {"subject": "subject-1", "email": "owner@example.com"}
+    cached = {
+        "job_id": "legacy-job-1",
+        "state": "running",
+        "processed_photo_ids": [],
+        "warnings": [],
+        "items": [],
+        "owner_context": owner,
+    }
+    monkeypatch.setattr(mobile_api, "services", None)
+    monkeypatch.setattr(mobile_api, "_species_batch_jobs", {"legacy-job-1": cached})
+    monkeypatch.setattr(mobile_api, "_user_context", lambda: owner)
+
+    status = get_species_batch_recommendation_status("legacy-job-1")
+
+    assert status["job_id"] == "legacy-job-1"
+    assert status["state"] == "running"
 
 
 def test_mobile_review_batch_start_reuses_a_client_request_after_a_lost_response(monkeypatch):

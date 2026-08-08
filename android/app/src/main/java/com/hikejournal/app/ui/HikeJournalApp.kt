@@ -181,6 +181,7 @@ import com.hikejournal.app.ui.theme.Parchment
 import com.hikejournal.app.ui.theme.Trail
 import com.hikejournal.app.ui.theme.TrailText
 import java.time.LocalDate
+import java.net.URI
 import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
 import java.util.Locale
@@ -207,7 +208,7 @@ private enum class TrackingPreflightIssue {
 fun HikeJournalApp(viewModel: AppViewModel) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
-    var destination by remember { mutableStateOf(TopDestination.Archive) }
+    var destination by rememberSaveable { mutableStateOf(TopDestination.Archive) }
     var editingHike by remember { mutableStateOf<Hike?>(null) }
     var creatingHike by remember { mutableStateOf(false) }
     var createEntryOpen by remember { mutableStateOf(false) }
@@ -930,6 +931,8 @@ fun HikeJournalApp(viewModel: AppViewModel) {
         SettingsDialog(
             currentUrl = viewModel.serverUrl,
             currentKey = viewModel.pairingKey,
+            webUrl = state.companionConfig.webUrl,
+            companionVersion = state.companionConfig.apiVersion,
             inatConnected = state.publishQueue.connected,
             onDismiss = { settingsOpen = false },
             onSave = { url, key ->
@@ -964,14 +967,26 @@ private fun LibraryScreen(
     onRetrySync: () -> Unit,
     onShowSyncAttention: () -> Unit,
 ) {
-    var query by remember { mutableStateOf("") }
-    var showArchived by remember { mutableStateOf(false) }
-    val everyday = state.hikes.firstOrNull { it.isStandalone }?.takeIf { hike ->
-        query.isBlank() || listOf(hike.title, hike.notes).any { it.contains(query, ignoreCase = true) }
+    var query by rememberSaveable { mutableStateOf("") }
+    var showArchived by rememberSaveable { mutableStateOf(false) }
+    val everyday = remember(state.hikes, query) {
+        state.hikes.firstOrNull { it.isStandalone }?.takeIf { hike ->
+            query.isBlank() || listOf(hike.title, hike.notes).any { it.contains(query, ignoreCase = true) }
+        }
     }
-    val visibleHikes = state.hikes.filterNot { it.isStandalone }.filter { hike ->
-        (showArchived || !hike.isArchived) && listOf(hike.title, hike.locationName, hike.notes)
-            .any { it.contains(query, ignoreCase = true) }
+    val visibleHikes = remember(state.hikes, query, showArchived) {
+        state.hikes.filterNot { it.isStandalone }.filter { hike ->
+            (showArchived || !hike.isArchived) && listOf(hike.title, hike.locationName, hike.notes)
+                .any { it.contains(query, ignoreCase = true) }
+        }
+    }
+    val currentHikeCount = remember(state.hikes) {
+        state.hikes.count { !it.isArchived && !it.isStandalone }
+    }
+    val totalMiles = remember(state.hikes) {
+        state.hikes
+            .filterNot { it.isStandalone }
+            .sumOf { (it.distanceMiles ?: 0.0).coerceAtLeast(0.0) }
     }
     val featured = visibleHikes.firstOrNull()
     val remaining = visibleHikes.drop(1)
@@ -994,10 +1009,8 @@ private fun LibraryScreen(
         ) {
             item {
                 LibraryHeader(
-                    hikeCount = state.hikes.count { !it.isArchived && !it.isStandalone },
-                    totalMiles = state.hikes
-                        .filterNot { it.isStandalone }
-                        .sumOf { (it.distanceMiles ?: 0.0).coerceAtLeast(0.0) },
+                    hikeCount = currentHikeCount,
+                    totalMiles = totalMiles,
                     offline = state.isOffline,
                     refreshing = state.isRefreshing,
                     onRefresh = onRefresh,
@@ -2922,6 +2935,8 @@ private fun VideoPlayer(url: String, contentDescription: String) {
 private fun SettingsDialog(
     currentUrl: String,
     currentKey: String,
+    webUrl: String,
+    companionVersion: String?,
     inatConnected: Boolean,
     onDismiss: () -> Unit,
     onSave: (String, String) -> Unit,
@@ -2931,6 +2946,7 @@ private fun SettingsDialog(
     var key by remember(currentKey) { mutableStateOf(currentKey) }
     var validation by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
+    val openWebUrl = remember(webUrl) { validSettingsWebUrl(webUrl) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Companion connection", style = MaterialTheme.typography.headlineMedium) },
@@ -2954,13 +2970,15 @@ private fun SettingsDialog(
                         modifier = Modifier.padding(top = 8.dp),
                     )
                 }
-                TextButton(
-                    onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(BuildConfig.DEFAULT_WEB_URL))) },
-                    modifier = Modifier.padding(top = 8.dp),
-                ) {
-                    Icon(Icons.AutoMirrored.Rounded.OpenInNew, null)
-                    Spacer(Modifier.width(7.dp))
-                    Text("Open HikeJournal on the web")
+                if (openWebUrl != null) {
+                    TextButton(
+                        onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(openWebUrl))) },
+                        modifier = Modifier.padding(top = 8.dp),
+                    ) {
+                        Icon(Icons.AutoMirrored.Rounded.OpenInNew, null)
+                        Spacer(Modifier.width(7.dp))
+                        Text("Open HikeJournal on the web")
+                    }
                 }
                 HorizontalDivider(Modifier.padding(top = 12.dp))
                 Text("iNaturalist", style = MaterialTheme.typography.titleMedium, color = Ink, modifier = Modifier.padding(top = 16.dp))
@@ -2980,7 +2998,10 @@ private fun SettingsDialog(
                     }
                 }
                 Text(
-                    "HikeJournal ${BuildConfig.VERSION_NAME}",
+                    buildString {
+                        append("HikeJournal ${BuildConfig.VERSION_NAME}")
+                        companionVersion?.takeIf(String::isNotBlank)?.let { append(" · Companion $it") }
+                    },
                     style = MaterialTheme.typography.labelSmall,
                     color = InkMuted,
                     modifier = Modifier.fillMaxWidth().padding(top = 20.dp),
@@ -2992,13 +3013,13 @@ private fun SettingsDialog(
             TextButton(
                 onClick = {
                     val cleanUrl = url.trim()
-                    when {
-                        cleanUrl.isBlank() -> validation = "Enter the HikeJournal connection address."
-                        !cleanUrl.startsWith("https://", ignoreCase = true) &&
-                            !cleanUrl.startsWith("http://", ignoreCase = true) ->
-                            validation = "Start the address with https:// or http://."
-                        key.isBlank() -> validation = "Enter the pairing key."
-                        else -> onSave(cleanUrl, key.trim())
+                    when (val urlError = connectionUrlError(cleanUrl, allowCleartext = BuildConfig.DEBUG)) {
+                        null -> if (key.isBlank()) {
+                            validation = "Enter the pairing key."
+                        } else {
+                            onSave(cleanUrl, key.trim())
+                        }
+                        else -> validation = urlError
                     }
                 },
             ) {
@@ -3007,6 +3028,38 @@ private fun SettingsDialog(
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
+}
+
+internal fun connectionUrlError(value: String, allowCleartext: Boolean): String? {
+    val clean = value.trim()
+    if (clean.isBlank()) return "Enter the HikeJournal connection address."
+    val uri = runCatching { URI(clean) }.getOrNull()
+    val scheme = uri?.scheme?.lowercase()
+    if (
+        scheme !in setOf("http", "https") ||
+        uri?.host.isNullOrBlank() ||
+        uri?.userInfo != null ||
+        uri?.rawQuery != null ||
+        uri?.rawFragment != null
+    ) {
+        return "Enter a complete https:// base address without credentials, a query, or a fragment."
+    }
+    if (!allowCleartext && scheme != "https") {
+        return "Personal releases require an https:// companion address."
+    }
+    return null
+}
+
+internal fun validSettingsWebUrl(value: String): String? {
+    val clean = value.trim().trimEnd('/')
+    val uri = runCatching { URI(clean) }.getOrNull()
+    return clean.takeIf {
+        uri?.scheme?.lowercase() in setOf("http", "https") &&
+            !uri?.host.isNullOrBlank() &&
+            uri?.userInfo == null &&
+            uri?.rawQuery == null &&
+            uri?.rawFragment == null
+    }
 }
 
 @Composable
