@@ -260,7 +260,7 @@ class SpeciesQuestInput(BaseModel):
     area_id: str = Field(min_length=1, max_length=64)
     target_date: date
     radius_km: Literal[5, 10, 25] = 10
-    iconic_taxon: str | None = Field(default=None, max_length=40)
+    iconic_taxon: str | None = Field(default=None, max_length=160)
     title: str = Field(default="", max_length=160)
     linked_hike_id: str | None = Field(default=None, max_length=36)
     result_limit: Literal[50, 100] = 50
@@ -1911,7 +1911,7 @@ def get_nearby_species(
     area_id: str | None = Query(default=None, max_length=64),
     target_date: date = Query(alias="date"),
     radius_km: int = Query(default=10),
-    iconic_taxon: str | None = Query(default=None, max_length=40),
+    iconic_taxon: str | None = Query(default=None, max_length=160),
     lat: float | None = Query(default=None, ge=-90, le=90),
     lng: float | None = Query(default=None, ge=-180, le=180),
     area_name: str | None = Query(default=None, max_length=160),

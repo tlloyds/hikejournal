@@ -151,7 +151,7 @@ fun SpeciesIndexScreen(
     questMapNotice: String?,
     onRefresh: () -> Unit,
     onRefreshDiscovery: () -> Unit,
-    onLoadNearby: (String?, String, Int, String?, Double?, Double?, Int) -> Unit,
+    onLoadNearby: (String?, String, Int, List<String>, Double?, Double?, Int) -> Unit,
     onSaveQuest: (String, String?, List<Long>, (FieldQuest) -> Unit) -> Unit,
     onSaveQuestFocus: (FieldQuest, List<Long>) -> Unit,
     onRenameQuest: (FieldQuest, String) -> Unit,
@@ -178,7 +178,7 @@ fun SpeciesIndexScreen(
     var selectedAreaId by remember { mutableStateOf<String?>(null) }
     var targetDate by remember { mutableStateOf(LocalDate.now().toString()) }
     var radiusKm by remember { mutableIntStateOf(10) }
-    var iconicTaxon by remember { mutableStateOf<String?>(null) }
+    var iconicTaxa by remember { mutableStateOf(emptyList<String>()) }
     var nearbyLifeFilterOpen by remember { mutableStateOf(false) }
     var focusTaxonIds by remember { mutableStateOf(emptyList<Long>()) }
     var linkedQuestHikeId by remember { mutableStateOf<String?>(null) }
@@ -236,7 +236,7 @@ fun SpeciesIndexScreen(
                         null,
                         targetDate,
                         radiusKm,
-                        iconicTaxon,
+                        iconicTaxa,
                         location.latitude,
                         location.longitude,
                         nearbyResultLimit,
@@ -442,7 +442,7 @@ fun SpeciesIndexScreen(
                     selectedArea = selectedArea,
                     targetDate = targetDate,
                     radiusKm = radiusKm,
-                    iconicTaxon = iconicTaxon,
+                    iconicTaxa = iconicTaxa,
                     locationNotice = locationNotice,
                     loading = discoveryLoading,
                     onAreaSearch = {
@@ -463,7 +463,7 @@ fun SpeciesIndexScreen(
                                 it.id,
                                 targetDate,
                                 radiusKm,
-                                iconicTaxon,
+                                iconicTaxa,
                                 null,
                                 null,
                                 StandardNearbyLimit,
@@ -485,7 +485,7 @@ fun SpeciesIndexScreen(
                                         null,
                                         targetDate,
                                         radiusKm,
-                                        iconicTaxon,
+                                        iconicTaxa,
                                         location.latitude,
                                         location.longitude,
                                         StandardNearbyLimit,
@@ -550,7 +550,7 @@ fun SpeciesIndexScreen(
                                         nearby.areaId.takeIf { it.isNotBlank() },
                                         nearby.targetDate,
                                         nearby.radiusKm,
-                                        nearby.iconicTaxon,
+                                        iconicTaxaForFilter(nearby.iconicTaxon),
                                         nearby.latitude,
                                         nearby.longitude,
                                         ExpandedNearbyLimit,
@@ -845,9 +845,9 @@ fun SpeciesIndexScreen(
     }
     if (nearbyLifeFilterOpen) {
         NearbyLifeFilterSheet(
-            selectedGroup = iconicTaxon,
-            onSelect = {
-                iconicTaxon = it
+            selectedGroups = iconicTaxa,
+            onApply = {
+                iconicTaxa = it
                 nearbyLifeFilterOpen = false
             },
             onDismiss = { nearbyLifeFilterOpen = false },
@@ -1060,7 +1060,7 @@ private fun NearbyControls(
     selectedArea: DiscoveryArea?,
     targetDate: String,
     radiusKm: Int,
-    iconicTaxon: String?,
+    iconicTaxa: List<String>,
     locationNotice: String?,
     loading: Boolean,
     onAreaSearch: (String) -> Unit,
@@ -1127,7 +1127,7 @@ private fun NearbyControls(
         ) {
             TextButton(onClick = onRadius) { Text("$radiusKm km radius") }
             TextButton(onClick = onGroup) {
-                Text(iconicTaxonLabel(iconicTaxon))
+                Text(iconicTaxonLabel(iconicTaxa))
                 Spacer(Modifier.width(2.dp))
                 Icon(
                     Icons.Rounded.KeyboardArrowDown,
@@ -1459,17 +1459,18 @@ private val NearbyLifeGroups = listOf<String?>(
 
 @Composable
 private fun NearbyLifeFilterSheet(
-    selectedGroup: String?,
-    onSelect: (String?) -> Unit,
+    selectedGroups: List<String>,
+    onApply: (List<String>) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    var draftSelectedGroups by remember(selectedGroups) { mutableStateOf(selectedGroups) }
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Paper) {
         Column(Modifier.fillMaxWidth().navigationBarsPadding()) {
             Column(Modifier.padding(horizontal = 20.dp)) {
                 Text("NEARBY SPECIES", style = MaterialTheme.typography.labelSmall, color = TrailText)
-                Text("Choose a life group", style = MaterialTheme.typography.headlineLarge, color = Ink)
+                Text("Choose life groups", style = MaterialTheme.typography.headlineLarge, color = Ink)
                 Text(
-                    "Narrow the nearby field list to one branch of life.",
+                    "Select as many branches of life as you want.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = InkMuted,
                     modifier = Modifier.padding(top = 4.dp),
@@ -1480,7 +1481,15 @@ private fun NearbyLifeFilterSheet(
                     Row(
                         Modifier
                             .fillMaxWidth()
-                            .clickable { onSelect(group) }
+                            .clickable {
+                                draftSelectedGroups = if (group == null) {
+                                    emptyList()
+                                } else if (group in draftSelectedGroups) {
+                                    draftSelectedGroups.filterNot { it == group }
+                                } else {
+                                    draftSelectedGroups + group
+                                }
+                            }
                             .padding(horizontal = 20.dp, vertical = 15.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -1491,7 +1500,8 @@ private fun NearbyLifeFilterSheet(
                             modifier = Modifier.weight(1f),
                         )
                         androidx.compose.animation.AnimatedVisibility(
-                            visible = group == selectedGroup,
+                            visible = (group == null && draftSelectedGroups.isEmpty()) ||
+                                (group != null && group in draftSelectedGroups),
                         ) {
                             Icon(Icons.Rounded.Check, "Selected", tint = Moss, modifier = Modifier.size(22.dp))
                         }
@@ -1500,12 +1510,26 @@ private fun NearbyLifeFilterSheet(
                 }
                 item { Spacer(Modifier.height(14.dp)) }
             }
+            Button(
+                onClick = { onApply(draftSelectedGroups) },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp),
+                shape = RoundedCornerShape(4.dp),
+            ) {
+                Text("Apply filters")
+            }
         }
     }
 }
 
-internal fun iconicTaxonLabel(value: String?): String = when (value) {
-    null -> "All life"
+internal fun iconicTaxonLabel(value: String?): String = iconicTaxonLabel(iconicTaxaForFilter(value))
+
+internal fun iconicTaxonLabel(values: List<String>): String = when (values.size) {
+    0 -> "All life"
+    1 -> iconicTaxonNameLabel(values.first())
+    else -> "${values.size} life groups"
+}
+
+private fun iconicTaxonNameLabel(value: String): String = when (value) {
     "Plantae" -> "Plants"
     "Aves" -> "Birds"
     "Mammalia" -> "Mammals"
@@ -1518,6 +1542,12 @@ internal fun iconicTaxonLabel(value: String?): String = when (value) {
     "Mollusca" -> "Mollusks"
     else -> value
 }
+
+private fun iconicTaxaForFilter(value: String?): List<String> = value
+    ?.split(",")
+    ?.map(String::trim)
+    ?.filter(String::isNotBlank)
+    .orEmpty()
 
 @Suppress("MissingPermission")
 internal fun requestOneShotLocation(

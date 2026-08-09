@@ -1,5 +1,6 @@
 from datetime import UTC, date, datetime, timedelta
 
+from hike_journal.domain.discovery import normalize_iconic_taxon
 from hike_journal.services.discovery import InatDiscoveryClient, SpeciesDiscoveryService
 
 
@@ -40,6 +41,11 @@ class InatClient:
                 }
             ]
         }
+
+
+def test_normalize_iconic_taxon_accepts_multiple_groups() -> None:
+    assert normalize_iconic_taxon("Birds,Plantae,Birds") == "Plantae,Aves"
+    assert normalize_iconic_taxon("Plantae,Aves") == "Plantae,Aves"
 
 
 def test_list_areas_requires_coordinates_and_supports_search() -> None:

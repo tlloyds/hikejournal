@@ -39,5 +39,6 @@ class SpeciesNearbyUiTest {
         assertEquals("Plants", iconicTaxonLabel("Plantae"))
         assertEquals("Birds", iconicTaxonLabel("Aves"))
         assertEquals("Fish", iconicTaxonLabel("Actinopterygii"))
+        assertEquals("2 life groups", iconicTaxonLabel(listOf("Plantae", "Aves")))
     }
 }

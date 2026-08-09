@@ -73,7 +73,7 @@ class HikeJournalApi(private val context: Context) {
         areaId: String?,
         targetDate: String,
         radiusKm: Int,
-        iconicTaxon: String?,
+        iconicTaxa: List<String>,
         latitude: Double? = null,
         longitude: Double? = null,
         limit: Int = 50,
@@ -84,7 +84,9 @@ class HikeJournalApi(private val context: Context) {
             "limit=$limit",
         )
         if (!areaId.isNullOrBlank()) params += "area_id=${areaId.urlEncoded()}"
-        if (!iconicTaxon.isNullOrBlank()) params += "iconic_taxon=${iconicTaxon.urlEncoded()}"
+        if (iconicTaxa.isNotEmpty()) {
+            params += "iconic_taxon=${iconicTaxa.joinToString(",").urlEncoded()}"
+        }
         if (latitude != null && longitude != null) {
             params += "lat=${roundedDiscoveryCoordinate(latitude)}"
             params += "lng=${roundedDiscoveryCoordinate(longitude)}"

@@ -90,13 +90,26 @@ def normalize_discovery_limit(value: int | float) -> int:
 
 
 def normalize_iconic_taxon(value: str | None) -> str | None:
-    if not value or value == "All Life":
+    if not value or value.strip() == "All Life":
         return None
-    if value in DISCOVERY_GROUPS:
-        return DISCOVERY_GROUPS[value]
-    if value in {item for item in DISCOVERY_GROUPS.values() if item}:
-        return value
-    raise ValueError("Unknown species group.")
+    groups_by_value = {item: item for item in DISCOVERY_GROUPS.values() if item}
+    groups_by_value.update(
+        {label: iconic_taxon for label, iconic_taxon in DISCOVERY_GROUPS.items() if iconic_taxon}
+    )
+    normalized: list[str] = []
+    for group in value.split(","):
+        candidate = group.strip()
+        if not candidate:
+            continue
+        iconic_taxon = groups_by_value.get(candidate)
+        if iconic_taxon is None:
+            raise ValueError("Unknown species group.")
+        if iconic_taxon not in normalized:
+            normalized.append(iconic_taxon)
+    if not normalized:
+        return None
+    group_order = {iconic_taxon: index for index, iconic_taxon in enumerate(groups_by_value.values())}
+    return ",".join(sorted(normalized, key=lambda item: group_order[item]))
 
 
 def discovery_cache_key(
