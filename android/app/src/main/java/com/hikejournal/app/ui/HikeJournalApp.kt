@@ -53,6 +53,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -76,6 +77,7 @@ import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Fullscreen
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.LocationOn
+import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.Map
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PlayCircle
@@ -117,6 +119,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -186,6 +189,7 @@ import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
 import java.util.Locale
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 private data class HikeMapRequest(
     val hike: Hike?,
@@ -229,6 +233,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
     var speciesEntryAreaName by remember { mutableStateOf<String?>(null) }
     var hikeMapRequest by remember { mutableStateOf<HikeMapRequest?>(null) }
     var openingPhotoMapId by remember { mutableStateOf<String?>(null) }
+    var openingMapPhotoId by remember { mutableStateOf<String?>(null) }
     var selectedRouteUri by remember { mutableStateOf<Uri?>(null) }
     var pendingHikeDelete by remember { mutableStateOf<Hike?>(null) }
     var speciesBrowseContext by remember { mutableStateOf<SpeciesBrowseContext?>(null) }
@@ -258,6 +263,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
     LaunchedEffect(state.error) {
         if (state.error != null) {
             openingPhotoMapId = null
+            openingMapPhotoId = null
         }
     }
     LaunchedEffect(selectedPhoto?.id) {
@@ -595,8 +601,18 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                     sightings = state.sightings,
                     routeSegments = state.mapRouteSegments,
                     loading = state.isMapLoading,
+                    openingPhotoId = openingMapPhotoId,
                     onRefresh = { viewModel.loadSightings(force = true) },
                     onOpenHike = viewModel::openEncounterHike,
+                    onOpenPhoto = { sighting ->
+                        openingMapPhotoId = sighting.id
+                        viewModel.openEncounterPhoto(sighting.hikeId, sighting.id) { photo ->
+                            if (openingMapPhotoId == sighting.id) {
+                                openingMapPhotoId = null
+                                selectedPhoto = photo
+                            }
+                        }
+                    },
                 )
                 else -> LibraryScreen(
                     state = state,
@@ -1415,7 +1431,11 @@ private fun FeaturedHike(hike: Hike, opening: Boolean, onOpen: (String) -> Unit)
             if (hike.syncState != "synced") {
                 Text("SAVED ON PHONE", style = MaterialTheme.typography.labelSmall, color = TrailText)
             }
-            Text(formatDate(hike.hikeDate).uppercase(Locale.US), style = MaterialTheme.typography.labelSmall, color = Color(0xFFD7DFD2))
+            Text(
+                formatDate(hike.hikeDate).uppercase(Locale.US),
+                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                color = Color(0xFFF1F3EE),
+            )
             Text(
                 hike.title,
                 style = MaterialTheme.typography.headlineLarge,
@@ -1506,6 +1526,8 @@ private fun JournalScreen(
     val opening = state.openingHikeId == hike.id
     var selectingForReview by remember(hike.id) { mutableStateOf(false) }
     var selectedReviewIds by remember(hike.id) { mutableStateOf<Set<String>>(emptySet()) }
+    val journalListState = rememberLazyListState()
+    val journalScrollScope = rememberCoroutineScope()
     val reviewEligiblePhotos = hike.photos.filter { !it.isVideo && it.processingStatus != "in_review" }
     LaunchedEffect(hike.photos) {
         val availableIds = reviewEligiblePhotos.mapTo(hashSetOf()) { it.id }
@@ -1515,6 +1537,7 @@ private fun JournalScreen(
     Box(Modifier.fillMaxSize().background(Parchment)) {
         LazyColumn(
             Modifier.fillMaxSize(),
+            state = journalListState,
             contentPadding = androidx.compose.foundation.layout.PaddingValues(
                 bottom = if (selectingForReview) 142.dp else 64.dp,
             ),
@@ -1684,6 +1707,23 @@ private fun JournalScreen(
                         )
                     }
                     if (rowPhotos.size == 1) Spacer(Modifier.weight(1f))
+                }
+            }
+        }
+        if (!opening && hike.photos.isNotEmpty()) {
+            item(key = "journal-back-to-top") {
+                OutlinedButton(
+                    onClick = {
+                        journalScrollScope.launch { journalListState.animateScrollToItem(0) }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 20.dp, end = 20.dp, top = 24.dp, bottom = 12.dp)
+                        .height(50.dp),
+                ) {
+                    Icon(Icons.Rounded.KeyboardArrowUp, null, Modifier.size(20.dp))
+                    Spacer(Modifier.width(7.dp))
+                    Text("Back to top")
                 }
             }
         }

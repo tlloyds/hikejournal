@@ -303,14 +303,14 @@ def test_hike_photo_page_is_bounded_for_large_hikes(monkeypatch):
 
 def test_main_map_routes_include_visible_hike_tracks(monkeypatch):
     class Repository:
-        def get_hike_route_import(self, hike_id):
-            assert hike_id == "hike-1"
-            return {
+        def list_hike_route_imports(self):
+            return [{
+                "hike_id": "hike-1",
                 "track_geojson": {
                     "type": "LineString",
                     "coordinates": [[-82.1, 28.1], [-82.2, 28.2]],
                 }
-            }
+            }]
 
     service = type("Service", (), {"repository": Repository()})()
     monkeypatch.setattr("mobile_api.get_services", lambda: service)

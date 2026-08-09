@@ -125,6 +125,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private var observedPublishBatchWorkId: UUID? = null
     private var handledSpeciesBatchWorkId: UUID? = null
     private var handledPublishBatchWorkId: UUID? = null
+    private var mapDataValidated = false
 
     val serverUrl: String get() = repository.serverUrl
     val pairingKey: String get() = repository.pairingKey
@@ -165,6 +166,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     _state.value.journal?.photos.orEmpty().any { photo ->
                         photo.syncState != "synced" || photo.url.startsWith("file:")
                     }
+                val archiveNeedsRemoteCoverUrls = syncStatus.connected &&
+                    syncStatus.pendingCount == 0 &&
+                    syncStatus.syncingCount == 0 &&
+                    _state.value.hikes.any { hike -> hike.coverUrl.startsWith("file:") }
                 _state.update {
                     it.copy(
                         syncStatus = syncStatus,
@@ -174,11 +179,17 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 if (journalNeedsRemoteUrls) {
                     refreshJournalAfterSync(_state.value.journal?.id ?: return@collect)
                 }
+                if (archiveNeedsRemoteCoverUrls) {
+                    // Successful upload sync removes its temporary local file. Replace any
+                    // archive covers that still point to that file with the permanent URL.
+                    refreshLibrary(showRefreshIndicator = false)
+                }
             }
         }
         observeSpeciesReviewBatchWork()
         observePublishBatchWork()
         refreshCompanionConfig()
+        primeMapData()
         loadInitialLibrary()
     }
 
@@ -475,6 +486,25 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             // Revalidate after the cached archive is on screen. Do not turn this background
             // refresh into a loading state; the existing archive remains useful meanwhile.
             refreshLibrary(initial = cachedHikes == null, showRefreshIndicator = false)
+        }
+    }
+
+    private fun primeMapData() {
+        viewModelScope.launch {
+            runCatching { repository.loadCachedMapData() }
+                .onSuccess { cached ->
+                    if (!cached.available) return@onSuccess
+                    _state.update { state ->
+                        if (state.sightings.isNotEmpty() || state.mapRouteSegments.isNotEmpty()) {
+                            state
+                        } else {
+                            state.copy(
+                                sightings = cached.sightings,
+                                mapRouteSegments = cached.routeSegments,
+                            )
+                        }
+                    }
+                }
         }
     }
 
@@ -989,6 +1019,49 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         openHike(hikeId)
     }
 
+    fun openEncounterPhoto(hikeId: String?, photoId: String, onLoaded: (Photo) -> Unit) {
+        val targetHikeId = hikeId ?: "everyday"
+        val summary = _state.value.hikes.firstOrNull { it.id == targetHikeId }
+        viewModelScope.launch {
+            _state.update { it.copy(openingHikeId = targetHikeId, error = null) }
+            var openedFromCache = false
+            val cached = repository.loadCachedHike(
+                hikeId = targetHikeId,
+                expectedPhotoCount = summary?.photoCount,
+            )
+            cached?.photos?.firstOrNull { it.id == photoId }?.let { photo ->
+                openedFromCache = true
+                _state.update {
+                    it.copy(journal = cached, openingHikeId = null, isOffline = true)
+                }
+                onLoaded(photo)
+            }
+            runCatching { repository.loadHike(targetHikeId) }
+                .onSuccess { result ->
+                    val photo = result.value.photos.firstOrNull { it.id == photoId }
+                    _state.update {
+                        it.copy(
+                            journal = result.value,
+                            openingHikeId = null,
+                            isOffline = result.fromCache,
+                        )
+                    }
+                    if (!openedFromCache) {
+                        if (photo != null) {
+                            onLoaded(photo)
+                        } else {
+                            _state.update { it.copy(error = "That photo is no longer in this journal.") }
+                        }
+                    }
+                }
+                .onFailure { error ->
+                    if (!openedFromCache) {
+                        _state.update { it.copy(openingHikeId = null, error = error.userMessage()) }
+                    }
+                }
+        }
+    }
+
     fun loadHikeForMap(hikeId: String, onLoaded: (Hike) -> Unit) {
         viewModelScope.launch {
             runCatching { repository.loadHike(hikeId).value }
@@ -1000,12 +1073,26 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun loadSightings(force: Boolean = false) {
-        if (_state.value.sightings.isNotEmpty() && !force) return
+        if ((mapDataValidated && !force) || _state.value.isMapLoading) return
         viewModelScope.launch {
+            if (_state.value.sightings.isEmpty() && _state.value.mapRouteSegments.isEmpty()) {
+                runCatching { repository.loadCachedMapData() }
+                    .onSuccess { cached ->
+                        if (cached.available) {
+                            _state.update {
+                                it.copy(
+                                    sightings = cached.sightings,
+                                    mapRouteSegments = cached.routeSegments,
+                                )
+                            }
+                        }
+                    }
+            }
             _state.update { it.copy(isMapLoading = true, error = null) }
             runCatching {
                 repository.loadSightings() to repository.loadMapRouteSegments()
             }.onSuccess { (sightings, routes) ->
+                    mapDataValidated = !sightings.fromCache && !routes.fromCache
                     _state.update {
                         it.copy(
                             sightings = sightings.value,
@@ -1826,6 +1913,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun updateConnection(serverUrl: String, pairingKey: String) {
         repository.updateConnection(serverUrl, pairingKey)
+        mapDataValidated = false
         _state.update { AppState() }
         refreshCompanionConfig()
         refreshLibrary(initial = true)
@@ -1907,19 +1995,34 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             fun updateSpecies(record: SpeciesRecord): SpeciesRecord = record.copy(
                 encounters = record.encounters.filterNot { it.photo.id == photoId },
             )
+            val journal = state.journal
+            val removedPhoto = journal?.photos?.firstOrNull { it.id == photoId }
+            val remainingPhotos = journal?.photos.orEmpty().filterNot { it.id == photoId }
+            val removedCover = journal?.coverPhotoId == photoId
+            val removedImplicitCover = journal?.coverPhotoId == null && journal?.coverUrl == removedPhoto?.url
+            val coverNeedsReplacement = removedCover || removedImplicitCover
+            val replacementCoverUrl = remainingPhotos.maxByOrNull {
+                "${it.takenAt.orEmpty()}|${it.createdAt.orEmpty()}"
+            }?.url.orEmpty()
             state.copy(
-                journal = state.journal?.let { journal ->
-                    val photos = journal.photos.filterNot { it.id == photoId }
+                journal = journal?.let {
                     journal.copy(
-                        photos = photos,
-                        photoCount = photos.size,
+                        photos = remainingPhotos,
+                        photoCount = remainingPhotos.size,
                         coverPhotoId = journal.coverPhotoId.takeUnless { it == photoId },
-                        coverUrl = if (journal.coverPhotoId == photoId) {
-                            photos.maxByOrNull { "${it.takenAt.orEmpty()}|${it.createdAt.orEmpty()}" }?.url.orEmpty()
-                        } else {
-                            journal.coverUrl
-                        },
+                        coverUrl = if (coverNeedsReplacement) replacementCoverUrl else journal.coverUrl,
                     )
+                },
+                hikes = state.hikes.map { hike ->
+                    if (hike.id == journal?.id) {
+                        hike.copy(
+                            photoCount = (hike.photoCount - 1).coerceAtLeast(0),
+                            coverPhotoId = hike.coverPhotoId.takeUnless { it == photoId },
+                            coverUrl = if (coverNeedsReplacement) replacementCoverUrl else hike.coverUrl,
+                        )
+                    } else {
+                        hike
+                    }
                 },
                 species = state.species.map(::updateSpecies),
                 speciesDetail = state.speciesDetail?.let(::updateSpecies),

@@ -10,6 +10,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -133,8 +134,10 @@ fun SightingsMapScreen(
     sightings: List<Sighting>,
     routeSegments: List<List<RoutePoint>>,
     loading: Boolean,
+    openingPhotoId: String?,
     onRefresh: () -> Unit,
     onOpenHike: (String) -> Unit,
+    onOpenPhoto: (Sighting) -> Unit,
 ) {
     var speciesOnly by remember { mutableStateOf(true) }
     var selected by remember { mutableStateOf<Sighting?>(null) }
@@ -223,8 +226,10 @@ fun SightingsMapScreen(
             selected?.let { sighting ->
                 SightingInspector(
                     sighting = sighting,
+                    openingPhoto = openingPhotoId == sighting.id,
                     onDismiss = { selected = null },
                     onOpenHike = { sighting.hikeId?.let(onOpenHike) },
+                    onOpenPhoto = { onOpenPhoto(sighting) },
                 )
             }
         }
@@ -348,19 +353,33 @@ private fun OfflineMapPacksSheet(
 @Composable
 private fun SightingInspector(
     sighting: Sighting,
+    openingPhoto: Boolean,
     onDismiss: () -> Unit,
     onOpenHike: () -> Unit,
+    onOpenPhoto: () -> Unit,
 ) {
     Row(
         Modifier.fillMaxWidth().background(Paper, RoundedCornerShape(8.dp)).padding(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        AsyncImage(
-            sighting.url,
-            sighting.speciesName.ifBlank { sighting.caption },
-            Modifier.size(94.dp).background(Moss),
-            contentScale = ContentScale.Crop,
-        )
+        Box(
+            Modifier
+                .size(94.dp)
+                .background(Moss)
+                .clickable(enabled = !openingPhoto, onClick = onOpenPhoto),
+            contentAlignment = Alignment.Center,
+        ) {
+            AsyncImage(
+                sighting.url,
+                "Open ${sighting.speciesName.ifBlank { sighting.caption.ifBlank { "field photograph" } }}",
+                Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+            )
+            if (openingPhoto) {
+                Box(Modifier.fillMaxSize().background(Color(0x99183A2D)))
+                CircularProgressIndicator(Modifier.size(24.dp), color = Paper, strokeWidth = 2.dp)
+            }
+        }
         Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
             Text(
                 sighting.speciesName.ifBlank { "Field photograph" },
@@ -371,7 +390,11 @@ private fun SightingInspector(
             Text(sighting.hikeTitle, style = MaterialTheme.typography.bodyMedium, color = InkMuted, maxLines = 1)
             Text(formatMapDate(sighting.takenAt ?: sighting.hikeDate), style = MaterialTheme.typography.labelMedium, color = TrailText)
             if (sighting.hikeId != null) {
-                Button(onClick = onOpenHike, modifier = Modifier.padding(top = 7.dp).height(38.dp)) {
+                Button(
+                    onClick = onOpenHike,
+                    enabled = !openingPhoto,
+                    modifier = Modifier.padding(top = 7.dp).height(38.dp),
+                ) {
                     Icon(Icons.Rounded.Route, null, Modifier.size(17.dp))
                     Spacer(Modifier.width(6.dp))
                     Text("Open journal")

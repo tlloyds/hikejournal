@@ -32,4 +32,12 @@ class SpeciesNearbyUiTest {
             discoveryStatusLabel(collected = false, frequencyBand = "Less often reported"),
         )
     }
+
+    @Test
+    fun `nearby life-group picker uses readable labels`() {
+        assertEquals("All life", iconicTaxonLabel(null))
+        assertEquals("Plants", iconicTaxonLabel("Plantae"))
+        assertEquals("Birds", iconicTaxonLabel("Aves"))
+        assertEquals("Fish", iconicTaxonLabel("Actinopterygii"))
+    }
 }

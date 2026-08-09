@@ -18,6 +18,12 @@ data class HikeDeletionResult(
     val warning: String? = null,
 )
 
+data class CachedMapData(
+    val sightings: List<Sighting>,
+    val routeSegments: List<List<RoutePoint>>,
+    val available: Boolean,
+)
+
 class HikeJournalRepository(context: Context) {
     private val appContext = context.applicationContext
     private val api = HikeJournalApi(appContext)
@@ -368,6 +374,34 @@ class HikeJournalRepository(context: Context) {
         return result.copy(value = result.value.filterNot { it.hikeId in deletedHikeIds })
     }
 
+    /**
+     * Reads the last complete map snapshot without waiting for the companion service.
+     * The caller can render this immediately and revalidate both feeds in the background.
+     */
+    suspend fun loadCachedMapData(): CachedMapData {
+        val (sightingsJson, routesJson) = journalCacheMutex.withLock {
+            withContext(Dispatchers.IO) {
+                File(cacheDirectory, "sightings.json").takeIf(File::exists)?.readText() to
+                    File(cacheDirectory, "map-routes.json").takeIf(File::exists)?.readText()
+            }
+        }
+        val deletedHikeIds = fieldQueue.deletedHikeIds()
+        val sightings = sightingsJson
+            ?.takeIf(String::isNotBlank)
+            ?.let { json -> withContext(Dispatchers.Default) { parseSightings(json) } }
+            .orEmpty()
+            .filterNot { it.hikeId in deletedHikeIds }
+        val cachedRoutes = routesJson
+            ?.takeIf(String::isNotBlank)
+            ?.let { json -> withContext(Dispatchers.Default) { parseMapRoutes(json) } }
+            .orEmpty()
+        return CachedMapData(
+            sightings = sightings,
+            routeSegments = overlayLocalMapRoutes(cachedRoutes, deletedHikeIds),
+            available = !sightingsJson.isNullOrBlank() || !routesJson.isNullOrBlank(),
+        )
+    }
+
     suspend fun loadMapRouteSegments(): LoadResult<List<List<RoutePoint>>> {
         val pendingRoutes = fieldQueue.pendingRoutesByHikeId()
         val retainedRoutes = trackingRepository.allFinishedRoutesByHikeId()
@@ -393,13 +427,38 @@ class HikeJournalRepository(context: Context) {
             return LoadResult(localRoutes, fromCache = true)
         }
 
-        val serverRoutes = result.value.associate { it.hikeId to it.segments }.toMutableMap()
-        retainedRoutes.forEach { (hikeId, segments) ->
-            if (serverRoutes[hikeId].isNullOrEmpty()) serverRoutes[hikeId] = segments
+        return LoadResult(
+            value = overlayLocalMapRoutes(
+                serverRoutes = result.value,
+                deletedHikeIds = deletedHikeIds,
+                retainedRoutes = retainedRoutes,
+                pendingRoutes = pendingRoutes,
+            ),
+            fromCache = result.fromCache,
+        )
+    }
+
+    private suspend fun overlayLocalMapRoutes(
+        serverRoutes: List<MapRoute>,
+        deletedHikeIds: Set<String>,
+        retainedRoutes: Map<String, List<List<RoutePoint>>>? = null,
+        pendingRoutes: Map<String, List<List<RoutePoint>>>? = null,
+    ): List<List<RoutePoint>> {
+        val localRetainedRoutes = retainedRoutes ?: trackingRepository.allFinishedRoutesByHikeId()
+            .mapValues { (_, segments) ->
+                segments.map { segment ->
+                    segment.map { point -> RoutePoint(point.latitude, point.longitude) }
+                }.filter { it.size >= 2 }
+            }
+            .filterValues { it.isNotEmpty() }
+        val localPendingRoutes = pendingRoutes ?: fieldQueue.pendingRoutesByHikeId()
+        val mergedRoutes = serverRoutes.associate { it.hikeId to it.segments }.toMutableMap()
+        localRetainedRoutes.forEach { (hikeId, segments) ->
+            if (mergedRoutes[hikeId].isNullOrEmpty()) mergedRoutes[hikeId] = segments
         }
-        pendingRoutes.forEach { (hikeId, segments) -> serverRoutes[hikeId] = segments }
-        deletedHikeIds.forEach(serverRoutes::remove)
-        return LoadResult(serverRoutes.values.flatten(), result.fromCache)
+        localPendingRoutes.forEach { (hikeId, segments) -> mergedRoutes[hikeId] = segments }
+        deletedHikeIds.forEach(mergedRoutes::remove)
+        return mergedRoutes.values.flatten()
     }
 
     suspend fun loadReviewQueue(): LoadResult<List<ReviewItem>> {

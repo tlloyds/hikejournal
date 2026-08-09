@@ -3216,11 +3216,18 @@ def list_sightings() -> list[dict[str, Any]]:
 def list_map_routes() -> list[dict[str, Any]]:
     """Return the visible hike tracks for the all-sightings map."""
     svc = get_services()
+    route_imports_by_hike: dict[str, dict[str, Any]] = {}
+    for route_import in svc.repository.list_hike_route_imports():
+        hike_id = str(route_import.get("hike_id") or "")
+        if hike_id:
+            # Imports are newest-first, so preserve the first record if legacy data
+            # contains more than one row for an outing.
+            route_imports_by_hike.setdefault(hike_id, route_import)
     return [
         {
             "hike_id": str(hike["id"]),
             "route_segments": route_import_to_route_groups(
-                svc.repository.get_hike_route_import(str(hike["id"]))
+                route_imports_by_hike.get(str(hike["id"]))
             ),
         }
         for hike in _visible_hikes(svc.repository)

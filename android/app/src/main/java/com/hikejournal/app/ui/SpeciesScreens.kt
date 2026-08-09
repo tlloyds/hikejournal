@@ -1,4 +1,7 @@
-@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@file:OptIn(
+    androidx.compose.foundation.ExperimentalFoundationApi::class,
+    androidx.compose.material3.ExperimentalMaterial3Api::class,
+)
 
 package com.hikejournal.app.ui
 
@@ -26,6 +29,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -39,6 +43,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.CloudOff
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Refresh
@@ -52,6 +57,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -173,6 +179,7 @@ fun SpeciesIndexScreen(
     var targetDate by remember { mutableStateOf(LocalDate.now().toString()) }
     var radiusKm by remember { mutableIntStateOf(10) }
     var iconicTaxon by remember { mutableStateOf<String?>(null) }
+    var nearbyLifeFilterOpen by remember { mutableStateOf(false) }
     var focusTaxonIds by remember { mutableStateOf(emptyList<Long>()) }
     var linkedQuestHikeId by remember { mutableStateOf<String?>(null) }
     var selectedQuestId by remember { mutableStateOf<String?>(null) }
@@ -448,10 +455,7 @@ fun SpeciesIndexScreen(
                     },
                     onDate = { targetDate = it },
                     onRadius = { radiusKm = when (radiusKm) { 5 -> 10; 10 -> 25; else -> 5 } },
-                    onGroup = {
-                        val groups = listOf<String?>(null, "Plantae", "Aves", "Mammalia", "Reptilia", "Amphibia", "Insecta", "Arachnida", "Fungi", "Actinopterygii", "Mollusca")
-                        iconicTaxon = groups[(groups.indexOf(iconicTaxon) + 1).mod(groups.size)]
-                    },
+                    onGroup = { nearbyLifeFilterOpen = true },
                     onExplore = {
                         selectedArea?.let {
                             nearbyResultLimit = StandardNearbyLimit
@@ -839,6 +843,16 @@ fun SpeciesIndexScreen(
             onDismiss = { speciesSortOpen = false },
         )
     }
+    if (nearbyLifeFilterOpen) {
+        NearbyLifeFilterSheet(
+            selectedGroup = iconicTaxon,
+            onSelect = {
+                iconicTaxon = it
+                nearbyLifeFilterOpen = false
+            },
+            onDismiss = { nearbyLifeFilterOpen = false },
+        )
+    }
     previewTaxon?.let { taxon ->
         val uriHandler = LocalUriHandler.current
         val mapQuest = selectedQuest?.takeIf { quest ->
@@ -1112,7 +1126,15 @@ private fun NearbyControls(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             TextButton(onClick = onRadius) { Text("$radiusKm km radius") }
-            TextButton(onClick = onGroup) { Text(iconicTaxonLabel(iconicTaxon)) }
+            TextButton(onClick = onGroup) {
+                Text(iconicTaxonLabel(iconicTaxon))
+                Spacer(Modifier.width(2.dp))
+                Icon(
+                    Icons.Rounded.KeyboardArrowDown,
+                    contentDescription = "Choose a life group",
+                    modifier = Modifier.size(18.dp),
+                )
+            }
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(
@@ -1421,7 +1443,68 @@ private fun toggleFocus(current: List<Long>, taxonId: Long): List<Long> =
     if (taxonId in current) current.filterNot { it == taxonId }
     else if (current.size >= QuestFocusLimit) current else current + taxonId
 
-private fun iconicTaxonLabel(value: String?): String = when (value) {
+private val NearbyLifeGroups = listOf<String?>(
+    null,
+    "Plantae",
+    "Aves",
+    "Mammalia",
+    "Reptilia",
+    "Amphibia",
+    "Insecta",
+    "Arachnida",
+    "Fungi",
+    "Actinopterygii",
+    "Mollusca",
+)
+
+@Composable
+private fun NearbyLifeFilterSheet(
+    selectedGroup: String?,
+    onSelect: (String?) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Paper) {
+        Column(Modifier.fillMaxWidth().navigationBarsPadding()) {
+            Column(Modifier.padding(horizontal = 20.dp)) {
+                Text("NEARBY SPECIES", style = MaterialTheme.typography.labelSmall, color = TrailText)
+                Text("Choose a life group", style = MaterialTheme.typography.headlineLarge, color = Ink)
+                Text(
+                    "Narrow the nearby field list to one branch of life.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = InkMuted,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
+            LazyColumn(Modifier.fillMaxWidth().heightIn(max = 520.dp).padding(top = 10.dp)) {
+                items(NearbyLifeGroups, key = { it ?: "all-life" }) { group ->
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable { onSelect(group) }
+                            .padding(horizontal = 20.dp, vertical = 15.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            iconicTaxonLabel(group),
+                            style = MaterialTheme.typography.titleMedium,
+                            color = Ink,
+                            modifier = Modifier.weight(1f),
+                        )
+                        androidx.compose.animation.AnimatedVisibility(
+                            visible = group == selectedGroup,
+                        ) {
+                            Icon(Icons.Rounded.Check, "Selected", tint = Moss, modifier = Modifier.size(22.dp))
+                        }
+                    }
+                    HorizontalDivider(color = Line, modifier = Modifier.padding(start = 20.dp))
+                }
+                item { Spacer(Modifier.height(14.dp)) }
+            }
+        }
+    }
+}
+
+internal fun iconicTaxonLabel(value: String?): String = when (value) {
     null -> "All life"
     "Plantae" -> "Plants"
     "Aves" -> "Birds"
