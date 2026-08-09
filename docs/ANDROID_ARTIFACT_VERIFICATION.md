@@ -63,7 +63,9 @@ data transition, Play-generated artifact checks where applicable,
 install/upgrade and device smoke tests, and archived release evidence. The
 personal build command separately verifies the AAB's JAR signature and requires
 its certificate digest to match the APK's expected signer before copying either
-canonical artifact. A
+canonical artifact. The configured Android keystore is supplied as the trust
+source for strict JAR verification so the owner's self-signed app certificate
+is validated without weakening the signature checks. A
 personal release build also requires an owner-supplied HTTPS
 `MOBILE_TRAIL_MAP_STYLE_URL`; the debug MapLibre demo default is not an accepted
 production provider. Live satellite views also reference Esri World Imagery,

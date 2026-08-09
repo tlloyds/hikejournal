@@ -123,8 +123,11 @@ values, never compiles a pairing key, and produces a minified APK plus an AAB.
 Debug builds retain the MapLibre demo-style fallback; personal-release builds
 do not. With all four `ANDROID_KEYSTORE_*` values plus the recorded public
 `ANDROID_EXPECTED_SIGNER_SHA256` digest, the command verifies the signed APK
-and AAB signer identity before promoting canonical artifacts. Without signing
-inputs it creates clearly named `-unsigned` artifacts for inspection only.
+and AAB signer identity before promoting canonical artifacts. Strict AAB
+verification uses the configured Android keystore as the trust source because
+owner-managed Android signing certificates are intentionally self-signed.
+Without signing inputs it creates clearly named `-unsigned` artifacts for
+inspection only.
 Signed files are staged and promoted with atomic per-file renames only after
 the APK and strict AAB signature gates pass.
 Partial signing configuration,

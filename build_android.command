@@ -24,18 +24,31 @@ mkdir -p "$ROOT/dist"
 VERSION_NAME="$(tr -d '[:space:]' < "$ROOT/VERSION")"
 
 EXPECTED_SIGNER_SHA256="${ANDROID_EXPECTED_SIGNER_SHA256:-}"
-if [ -z "$EXPECTED_SIGNER_SHA256" ] && [ -f "$ROOT/.env" ]; then
-  EXPECTED_SIGNER_SHA256="$(python3 -c '
+read_dotenv_value() {
+  local requested_key="$1"
+  if [ ! -f "$ROOT/.env" ]; then
+    return
+  fi
+  python3 -c '
 import pathlib, sys
 value = ""
 for raw_line in pathlib.Path(sys.argv[1]).read_text(encoding="utf-8").splitlines():
     line = raw_line.strip()
     if line and not line.startswith("#") and "=" in line:
         key, candidate = line.split("=", 1)
-        if key.strip() == "ANDROID_EXPECTED_SIGNER_SHA256":
+        if key.strip() == sys.argv[2]:
             value = candidate.strip().strip("\"\x27")
 print(value)
-' "$ROOT/.env")"
+' "$ROOT/.env" "$requested_key"
+}
+
+if [ -z "$EXPECTED_SIGNER_SHA256" ]; then
+  EXPECTED_SIGNER_SHA256="$(read_dotenv_value ANDROID_EXPECTED_SIGNER_SHA256)"
+fi
+AAB_TRUSTSTORE_PATH="${ANDROID_KEYSTORE_PATH:-$(read_dotenv_value ANDROID_KEYSTORE_PATH)}"
+AAB_TRUSTSTORE_PASSWORD="${ANDROID_KEYSTORE_PASSWORD:-$(read_dotenv_value ANDROID_KEYSTORE_PASSWORD)}"
+if [ -n "$AAB_TRUSTSTORE_PATH" ] && [[ "$AAB_TRUSTSTORE_PATH" != /* ]]; then
+  AAB_TRUSTSTORE_PATH="$ROOT/$AAB_TRUSTSTORE_PATH"
 fi
 
 atomic_copy() {
@@ -78,8 +91,12 @@ case "$BUILD_MODE" in
         echo "ANDROID_EXPECTED_SIGNER_SHA256 is required before a signed personal release can be promoted."
         exit 1
       fi
-      if ! AAB_SIGNATURE_OUTPUT="$(LC_ALL=C "$JAVA_HOME/bin/jarsigner" \
-        -verify -strict -verbose -certs "$RELEASE_AAB" 2>&1)"; then
+      if ! AAB_SIGNATURE_OUTPUT="$(LC_ALL=C \
+        HIKEJOURNAL_AAB_STORE_PASSWORD="$AAB_TRUSTSTORE_PASSWORD" \
+        "$JAVA_HOME/bin/jarsigner" -verify -strict -verbose -certs \
+        -keystore "$AAB_TRUSTSTORE_PATH" \
+        -storepass:env HIKEJOURNAL_AAB_STORE_PASSWORD \
+        "$RELEASE_AAB" 2>&1)"; then
         echo "The release AAB did not pass strict JAR signature verification."
         exit 1
       fi

@@ -41,7 +41,16 @@ def test_build_reads_public_signer_pin_from_process_or_dotenv() -> None:
     script = (ROOT / "build_android.command").read_text(encoding="utf-8")
 
     assert 'EXPECTED_SIGNER_SHA256="${ANDROID_EXPECTED_SIGNER_SHA256:-}"' in script
-    assert 'key.strip() == "ANDROID_EXPECTED_SIGNER_SHA256"' in script
+    assert "read_dotenv_value ANDROID_EXPECTED_SIGNER_SHA256" in script
+
+
+def test_strict_aab_verification_trusts_the_configured_android_signer() -> None:
+    script = (ROOT / "build_android.command").read_text(encoding="utf-8")
+
+    assert 'read_dotenv_value ANDROID_KEYSTORE_PATH' in script
+    assert 'read_dotenv_value ANDROID_KEYSTORE_PASSWORD' in script
+    assert '-keystore "$AAB_TRUSTSTORE_PATH"' in script
+    assert '-storepass:env HIKEJOURNAL_AAB_STORE_PASSWORD' in script
 
 
 def test_personal_release_requires_a_configured_trail_map_provider() -> None:
