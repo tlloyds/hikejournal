@@ -12,6 +12,12 @@
   `./build_android.command personal`. Verify the canonical APK and AAB are named
   `dist/HikeJournal-v<VERSION>.apk` and `.aab`, pass the release verifier, strict
   AAB signature verification, and match the expected signer before publishing.
+- While upgrades from the historical debug-signed APK remain supported, retain
+  the previous keystore plus `ANDROID_SIGNING_LINEAGE_PATH` and the
+  `ANDROID_PREVIOUS_*` inputs. Personal APKs must include the tested signing
+  lineage, preserve installed app data during an in-place upgrade, and still
+  report the permanent certificate as the current signer. The AAB remains
+  signed only by the permanent key.
 - Commit and push the change to `main`, then create the matching GitHub release
   tag `v<VERSION>` with title `HikeJournal v<VERSION>` and attach only that
   verified, permanently signed canonical APK (and AAB where the release process

@@ -134,16 +134,18 @@ Partial signing configuration,
 missing production URLs, signer mismatch, and release-policy failures stop the
 build.
 
-The permanent key is an identity, not a disposable build input. Android cannot
-upgrade the currently installed debug-signed package with a differently signed
-personal release. Before that one-time transition, sync or export every local
-hike, route, photo, edit, review action, and publishing item; then uninstall the
-debug build, install the permanently signed APK, and pair it again. Never create
-a throwaway release key. Pairing credentials use Android Keystore-backed AES-GCM
-when the device supports it. Legacy plaintext preferences migrate best-effort
-on an in-place, same-signature upgrade; a compatibility fallback remains for
-Keystore failure, so migration/key-invalidation device tests are still required
-before this is a strict release guarantee.
+The permanent key is an identity, not a disposable build input. For the
+debug-to-permanent transition, configure `ANDROID_SIGNING_LINEAGE_PATH` plus
+the four `ANDROID_PREVIOUS_*` values. The personal build then signs the APK with
+an APK Signature Scheme v3 proof-of-rotation: Android 9 and newer recognize the
+permanent signer while trusting installed data from the previous certificate;
+Android 8.x receives the previous signer for compatibility. Keep the previous
+key and lineage backed up while API 26-27 upgrades remain supported. The AAB is
+signed only by the permanent key. Never create a throwaway release key.
+Pairing credentials use Android Keystore-backed AES-GCM when the device supports
+it. Legacy plaintext preferences migrate best-effort on an in-place upgrade; a
+compatibility fallback remains for Keystore failure, so migration/key-
+invalidation device tests are still required before this is a strict guarantee.
 
 Before treating any APK as release-safe, run
 `python3 scripts/verify_android_artifact.py <apk> --mode release

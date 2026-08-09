@@ -47,9 +47,28 @@ if [ -z "$EXPECTED_SIGNER_SHA256" ]; then
 fi
 AAB_TRUSTSTORE_PATH="${ANDROID_KEYSTORE_PATH:-$(read_dotenv_value ANDROID_KEYSTORE_PATH)}"
 AAB_TRUSTSTORE_PASSWORD="${ANDROID_KEYSTORE_PASSWORD:-$(read_dotenv_value ANDROID_KEYSTORE_PASSWORD)}"
-if [ -n "$AAB_TRUSTSTORE_PATH" ] && [[ "$AAB_TRUSTSTORE_PATH" != /* ]]; then
-  AAB_TRUSTSTORE_PATH="$ROOT/$AAB_TRUSTSTORE_PATH"
-fi
+CURRENT_KEY_ALIAS="${ANDROID_KEY_ALIAS:-$(read_dotenv_value ANDROID_KEY_ALIAS)}"
+CURRENT_KEY_PASSWORD="${ANDROID_KEY_PASSWORD:-$(read_dotenv_value ANDROID_KEY_PASSWORD)}"
+SIGNING_LINEAGE_PATH="${ANDROID_SIGNING_LINEAGE_PATH:-$(read_dotenv_value ANDROID_SIGNING_LINEAGE_PATH)}"
+PREVIOUS_KEYSTORE_PATH="${ANDROID_PREVIOUS_KEYSTORE_PATH:-$(read_dotenv_value ANDROID_PREVIOUS_KEYSTORE_PATH)}"
+PREVIOUS_KEYSTORE_PASSWORD="${ANDROID_PREVIOUS_KEYSTORE_PASSWORD:-$(read_dotenv_value ANDROID_PREVIOUS_KEYSTORE_PASSWORD)}"
+PREVIOUS_KEY_ALIAS="${ANDROID_PREVIOUS_KEY_ALIAS:-$(read_dotenv_value ANDROID_PREVIOUS_KEY_ALIAS)}"
+PREVIOUS_KEY_PASSWORD="${ANDROID_PREVIOUS_KEY_PASSWORD:-$(read_dotenv_value ANDROID_PREVIOUS_KEY_PASSWORD)}"
+SIGNING_ROTATION_MIN_SDK="${ANDROID_SIGNING_ROTATION_MIN_SDK:-$(read_dotenv_value ANDROID_SIGNING_ROTATION_MIN_SDK)}"
+SIGNING_ROTATION_MIN_SDK="${SIGNING_ROTATION_MIN_SDK:-28}"
+
+resolve_root_relative_path() {
+  local configured_path="$1"
+  if [ -n "$configured_path" ] && [[ "$configured_path" != /* ]]; then
+    printf '%s/%s\n' "$ROOT" "$configured_path"
+  else
+    printf '%s\n' "$configured_path"
+  fi
+}
+
+AAB_TRUSTSTORE_PATH="$(resolve_root_relative_path "$AAB_TRUSTSTORE_PATH")"
+SIGNING_LINEAGE_PATH="$(resolve_root_relative_path "$SIGNING_LINEAGE_PATH")"
+PREVIOUS_KEYSTORE_PATH="$(resolve_root_relative_path "$PREVIOUS_KEYSTORE_PATH")"
 
 atomic_copy() {
   local source_path="$1"
@@ -119,13 +138,56 @@ case "$BUILD_MODE" in
       PROMOTION_DIR="$(mktemp -d "$ROOT/dist/.hikejournal-release.XXXXXX")"
       STAGED_APK="$PROMOTION_DIR/HikeJournal-v${VERSION_NAME}.apk"
       STAGED_AAB="$PROMOTION_DIR/HikeJournal-v${VERSION_NAME}.aab"
+      STAGED_APK_IDSIG="$STAGED_APK.idsig"
       cleanup_promotion_artifacts() {
         unlink -- "$STAGED_APK" 2>/dev/null || true
+        unlink -- "$STAGED_APK_IDSIG" 2>/dev/null || true
         unlink -- "$STAGED_AAB" 2>/dev/null || true
         rmdir -- "$PROMOTION_DIR" 2>/dev/null || true
       }
       trap cleanup_promotion_artifacts EXIT
-      cp "$RELEASE_APK" "$STAGED_APK"
+      if [ -n "$SIGNING_LINEAGE_PATH" ]; then
+        if [ ! -f "$SIGNING_LINEAGE_PATH" ] || [ ! -f "$PREVIOUS_KEYSTORE_PATH" ]; then
+          echo "Android signing rotation requires existing lineage and previous-keystore files."
+          exit 1
+        fi
+        if [ -z "$PREVIOUS_KEYSTORE_PASSWORD" ] || [ -z "$PREVIOUS_KEY_ALIAS" ] || \
+          [ -z "$PREVIOUS_KEY_PASSWORD" ] || [ -z "$CURRENT_KEY_ALIAS" ] || \
+          [ -z "$CURRENT_KEY_PASSWORD" ]; then
+          echo "Android signing rotation configuration is incomplete."
+          exit 1
+        fi
+        if ! [[ "$SIGNING_ROTATION_MIN_SDK" =~ ^[0-9]+$ ]] || [ "$SIGNING_ROTATION_MIN_SDK" -lt 28 ]; then
+          echo "ANDROID_SIGNING_ROTATION_MIN_SDK must be an integer of at least 28."
+          exit 1
+        fi
+        APK_SIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -1)"
+        if [ ! -x "$APK_SIGNER" ]; then
+          echo "apksigner is required to apply the configured Android signing lineage."
+          exit 1
+        fi
+        HIKEJOURNAL_PREVIOUS_STORE_PASSWORD="$PREVIOUS_KEYSTORE_PASSWORD" \
+        HIKEJOURNAL_PREVIOUS_KEY_PASSWORD="$PREVIOUS_KEY_PASSWORD" \
+        HIKEJOURNAL_CURRENT_STORE_PASSWORD="$AAB_TRUSTSTORE_PASSWORD" \
+        HIKEJOURNAL_CURRENT_KEY_PASSWORD="$CURRENT_KEY_PASSWORD" \
+        "$APK_SIGNER" sign \
+          --in "$RELEASE_APK" \
+          --out "$STAGED_APK" \
+          --lineage "$SIGNING_LINEAGE_PATH" \
+          --rotation-min-sdk-version "$SIGNING_ROTATION_MIN_SDK" \
+          --v4-signing-enabled false \
+          --ks "$PREVIOUS_KEYSTORE_PATH" \
+          --ks-key-alias "$PREVIOUS_KEY_ALIAS" \
+          --ks-pass env:HIKEJOURNAL_PREVIOUS_STORE_PASSWORD \
+          --key-pass env:HIKEJOURNAL_PREVIOUS_KEY_PASSWORD \
+          --next-signer \
+          --ks "$AAB_TRUSTSTORE_PATH" \
+          --ks-key-alias "$CURRENT_KEY_ALIAS" \
+          --ks-pass env:HIKEJOURNAL_CURRENT_STORE_PASSWORD \
+          --key-pass env:HIKEJOURNAL_CURRENT_KEY_PASSWORD
+      else
+        cp "$RELEASE_APK" "$STAGED_APK"
+      fi
       cp "$RELEASE_AAB" "$STAGED_AAB"
       chmod 0644 "$STAGED_APK" "$STAGED_AAB"
       if ! python3 "$ARTIFACT_VERIFIER" \

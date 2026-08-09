@@ -53,6 +53,25 @@ def test_strict_aab_verification_trusts_the_configured_android_signer() -> None:
     assert '-storepass:env HIKEJOURNAL_AAB_STORE_PASSWORD' in script
 
 
+def test_personal_apk_can_apply_a_verified_signing_rotation_lineage() -> None:
+    script = (ROOT / "build_android.command").read_text(encoding="utf-8")
+
+    lineage_signing = script.index('--lineage "$SIGNING_LINEAGE_PATH"')
+    release_verifier = script.index(
+        '--expected-signer-sha256 "$EXPECTED_SIGNER_SHA256"'
+    )
+    canonical_promotion = script.index(
+        'mv -f "$STAGED_APK" "$OUTPUT_APK"', release_verifier
+    )
+
+    assert 'read_dotenv_value ANDROID_PREVIOUS_KEYSTORE_PATH' in script
+    assert '--ks "$PREVIOUS_KEYSTORE_PATH"' in script
+    assert '--next-signer' in script
+    assert '--ks "$AAB_TRUSTSTORE_PATH"' in script
+    assert '--rotation-min-sdk-version "$SIGNING_ROTATION_MIN_SDK"' in script
+    assert lineage_signing < release_verifier < canonical_promotion
+
+
 def test_personal_release_requires_a_configured_trail_map_provider() -> None:
     gradle = (ROOT / "android/app/build.gradle.kts").read_text(encoding="utf-8")
     sightings = (
