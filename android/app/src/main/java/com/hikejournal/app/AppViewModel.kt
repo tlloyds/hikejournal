@@ -11,6 +11,7 @@ import com.hikejournal.app.data.HikeDraft
 import com.hikejournal.app.data.HikeDeletionResult
 import com.hikejournal.app.data.HikeJournalRepository
 import com.hikejournal.app.data.HikeLocation
+import com.hikejournal.app.data.HikeLocationSuggestion
 import com.hikejournal.app.data.MediaLocationSummary
 import com.hikejournal.app.data.BadgeMetric
 import com.hikejournal.app.data.CompanionConfig
@@ -46,6 +47,7 @@ import com.hikejournal.app.data.SyncScheduler
 import com.hikejournal.app.data.calculateTrailBadges
 import com.hikejournal.app.data.speciesTypeCounts
 import com.hikejournal.app.data.withoutHikes
+import com.hikejournal.app.data.suggestHikeLocation
 import com.hikejournal.app.tracking.HikeTrackingService
 import com.hikejournal.app.tracking.TrackingRepository
 import com.hikejournal.app.tracking.TrackingSnapshot
@@ -563,7 +565,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun loadHikeLocations() {
-        if (_state.value.hikeLocations.isNotEmpty()) return
+        if (_state.value.hikeLocations.any { it.latitude != null && it.longitude != null }) return
         viewModelScope.launch {
             runCatching { repository.loadHikeLocations() }
                 .onSuccess { result ->
@@ -1461,6 +1463,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun startTracking() {
+        loadHikeLocations()
         viewModelScope.launch {
             _state.update { it.copy(error = null, trackingMarks = emptyList()) }
             runCatching {
@@ -1707,7 +1710,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun finishTracking(onFinished: (Hike) -> Unit) {
+    fun finishTracking(onFinished: (Hike, HikeLocationSuggestion?) -> Unit) {
         viewModelScope.launch {
             _state.update { it.copy(isFinalizingTracking = true, error = null) }
             runCatching {
@@ -1720,11 +1723,24 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 } else {
                     null
                 }
-                val routeSegments = finalizing.routeSegments
-                    .map { segment ->
-                        segment.map { point -> RoutePoint(point.latitude, point.longitude) }
-                    }
+                val allRouteSegments = finalizing.routeSegments.map { segment ->
+                    segment.map { point -> RoutePoint(point.latitude, point.longitude) }
+                }
+                val routeSegments = allRouteSegments
                     .filter { it.size >= 2 }
+                val cachedLocations = _state.value.hikeLocations
+                val locations = if (cachedLocations.any { it.latitude != null && it.longitude != null }) {
+                    cachedLocations
+                } else {
+                    runCatching { repository.loadHikeLocations() }
+                        .getOrNull()
+                        ?.also { result ->
+                            _state.update { it.copy(hikeLocations = result.value, isOffline = result.fromCache) }
+                        }
+                        ?.value
+                        .orEmpty()
+                }
+                val locationSuggestion = suggestHikeLocation(allRouteSegments, locations)
                 val durationSeconds = ((finalizing.activeElapsedMs + 500L) / 1_000L).coerceAtLeast(0L)
                 val distanceMiles = (finalizing.distanceMeters / 1_609.344).coerceAtLeast(0.0)
                 val startedAt = Instant.ofEpochMilli(finalizing.startedAtEpochMs).toString()
@@ -1755,8 +1771,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 )
                 trackingRepository.markFinished(tcxFile?.absolutePath)
                 if (tcxFile == null) trackingRepository.clearFinished(finalizing.hikeId)
-                created
-            }.onSuccess { created ->
+                created to locationSuggestion
+            }.onSuccess { (created, locationSuggestion) ->
                 _state.update { state ->
                     state.copy(
                         hikes = listOf(created) + state.hikes.filterNot { it.id == created.id },
@@ -1769,7 +1785,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 }
                 loadHikeLocations()
-                onFinished(created)
+                onFinished(created, locationSuggestion)
             }.onFailure { error ->
                 runCatching { trackingRepository.failFinalization(error.userMessage()) }
                 _state.update {

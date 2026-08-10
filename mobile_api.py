@@ -2138,10 +2138,20 @@ def list_hike_locations() -> list[dict[str, Any]]:
         {
             "id": str(location.get("id") or ""),
             "name": str(location.get("name") or ""),
+            "lat": _library_coordinate(location.get("lat"), minimum=-90.0, maximum=90.0),
+            "lng": _library_coordinate(location.get("lng"), minimum=-180.0, maximum=180.0),
         }
         for location in get_services().repository.list_hike_locations()
         if location.get("id") and str(location.get("name") or "").strip()
     ]
+
+
+def _library_coordinate(value: Any, *, minimum: float, maximum: float) -> float | None:
+    try:
+        coordinate = float(value)
+    except (TypeError, ValueError):
+        return None
+    return coordinate if math.isfinite(coordinate) and minimum <= coordinate <= maximum else None
 
 
 def _analytics_hikes(svc: Services) -> list[dict[str, Any]]:

@@ -167,6 +167,7 @@ import com.hikejournal.app.BuildConfig
 import com.hikejournal.app.data.Hike
 import com.hikejournal.app.data.HikeDraft
 import com.hikejournal.app.data.HikeLocation
+import com.hikejournal.app.data.HikeLocationSuggestion
 import com.hikejournal.app.data.LocalMediaAccess
 import com.hikejournal.app.data.MediaLocationSummary
 import com.hikejournal.app.data.Photo
@@ -221,6 +222,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
     val context = LocalContext.current
     var destination by rememberSaveable { mutableStateOf(TopDestination.Archive) }
     var editingHike by remember { mutableStateOf<Hike?>(null) }
+    var trackedHikeLocationSuggestion by remember { mutableStateOf<HikeLocationSuggestion?>(null) }
     var creatingHike by remember { mutableStateOf(false) }
     var createEntryOpen by remember { mutableStateOf(false) }
     var pendingEverydayUpload by remember { mutableStateOf(false) }
@@ -402,6 +404,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
             creatingHike || editingHike != null -> {
                 creatingHike = false
                 editingHike = null
+                trackedHikeLocationSuggestion = null
                 selectedRouteUri = null
             }
             badgesOpen -> badgesOpen = false
@@ -467,10 +470,11 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                             if (issue == null) viewModel.resumeTracking() else trackingIssue = issue
                         },
                         onEnd = {
-                            viewModel.finishTracking { finishedHike ->
+                            viewModel.finishTracking { finishedHike, locationSuggestion ->
                                 trackingVisible = false
                                 trackingEndConfirmationRequested = false
                                 viewModel.loadHikeLocations()
+                                trackedHikeLocationSuggestion = locationSuggestion
                                 editingHike = finishedHike
                             }
                         },
@@ -543,6 +547,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                         onBack = viewModel::closeJournal,
                         onEdit = if (journal.isStandalone) null else ({
                             viewModel.loadHikeLocations()
+                            trackedHikeLocationSuggestion = null
                             editingHike = journal
                         }),
                         onArchive = if (journal.isStandalone) null else ({ viewModel.setArchived(journal) }),
@@ -760,18 +765,21 @@ fun HikeJournalApp(viewModel: AppViewModel) {
         HikeEditorSheet(
             hike = editingHike,
             locations = state.hikeLocations,
+            suggestedLocation = trackedHikeLocationSuggestion,
             saving = state.isRefreshing,
             routeUri = selectedRouteUri,
             onChooseRoute = { routePicker.launch(arrayOf("application/vnd.garmin.tcx+xml", "application/xml", "text/xml", "text/plain")) },
             onDismiss = {
                 creatingHike = false
                 editingHike = null
+                trackedHikeLocationSuggestion = null
                 selectedRouteUri = null
             },
             onSave = { draft ->
                 viewModel.saveHike(draft, selectedRouteUri.takeIf { editingHike == null }, editingHike?.id) {
                     creatingHike = false
                     editingHike = null
+                    trackedHikeLocationSuggestion = null
                     selectedRouteUri = null
                 }
             },
@@ -789,6 +797,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
             onCreateManualHike = {
                 createEntryOpen = false
                 viewModel.loadHikeLocations()
+                trackedHikeLocationSuggestion = null
                 creatingHike = true
             },
             onCreateEverydaySighting = {
@@ -830,6 +839,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                 viewModel.deleteHike(hike) {
                     pendingHikeDelete = null
                     editingHike = null
+                    trackedHikeLocationSuggestion = null
                     selectedRouteUri = null
                 }
             },
@@ -2421,6 +2431,7 @@ private fun trackingPreflightIssue(context: Context): TrackingPreflightIssue? {
 private fun HikeEditorSheet(
     hike: Hike?,
     locations: List<HikeLocation>,
+    suggestedLocation: HikeLocationSuggestion?,
     saving: Boolean,
     routeUri: Uri?,
     onChooseRoute: () -> Unit,
@@ -2437,7 +2448,8 @@ private fun HikeEditorSheet(
     var notes by remember(hike?.id) { mutableStateOf(hike?.notes.orEmpty()) }
     var validation by remember { mutableStateOf<String?>(null) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val matchingLocations = locations
+    val selectableLocations = (locations + listOfNotNull(suggestedLocation?.location)).distinctBy(HikeLocation::id)
+    val matchingLocations = selectableLocations
         .filter { location.isBlank() || it.name.contains(location, ignoreCase = true) }
         .take(6)
 
@@ -2494,6 +2506,26 @@ private fun HikeEditorSheet(
                 color = InkMuted,
                 modifier = Modifier.padding(top = 5.dp),
             )
+            AnimatedVisibility(visible = suggestedLocation != null && location.isBlank()) {
+                Row(
+                    Modifier.fillMaxWidth().padding(top = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Rounded.LocationOn, contentDescription = null, tint = Trail)
+                    Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
+                        Text("SUGGESTED FROM YOUR START", style = MaterialTheme.typography.labelSmall, color = TrailText)
+                        Text(suggestedLocation?.location?.name.orEmpty(), style = MaterialTheme.typography.titleMedium, color = Ink)
+                        Text(
+                            "${formatLocationSuggestionDistance(suggestedLocation?.distanceMeters ?: 0.0)} from the first GPS point",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = InkMuted,
+                        )
+                    }
+                    TextButton(onClick = { location = suggestedLocation?.location?.name.orEmpty() }) {
+                        Text("Use")
+                    }
+                }
+            }
             Spacer(Modifier.height(12.dp))
             OutlinedTextField(
                 distance,
@@ -2528,7 +2560,7 @@ private fun HikeEditorSheet(
                         distance.isNotBlank() && (distance.toDoubleOrNull()?.takeIf { it.isFinite() && it >= 0.0 } == null) ->
                             validation = "Enter a distance like 3.5, or leave it blank."
                         else -> {
-                            val selectedLocation = locations.firstOrNull {
+                            val selectedLocation = selectableLocations.firstOrNull {
                                 it.name.equals(location.trim(), ignoreCase = true)
                             }
                             onSave(
@@ -2552,6 +2584,11 @@ private fun HikeEditorSheet(
             }
         }
     }
+}
+
+private fun formatLocationSuggestionDistance(distanceMeters: Double): String {
+    val miles = (distanceMeters / 1_609.344).coerceAtLeast(0.0)
+    return if (miles < 0.1) "Less than 0.1 mi" else String.format(Locale.US, "%.1f mi", miles)
 }
 
 @Composable

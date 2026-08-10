@@ -1386,7 +1386,12 @@ def test_native_hike_locations_returns_imported_library(monkeypatch):
         (),
         {
             "list_hike_locations": lambda _self: [
-                {"id": "location-1", "name": "Alafia Scrub Preserve"},
+                {
+                    "id": "location-1",
+                    "name": "Alafia Scrub Preserve",
+                    "lat": 27.8609,
+                    "lng": -82.3359,
+                },
                 {"id": "", "name": "Ignored"},
             ]
         },
@@ -1397,7 +1402,12 @@ def test_native_hike_locations_returns_imported_library(monkeypatch):
     )
 
     assert list_hike_locations() == [
-        {"id": "location-1", "name": "Alafia Scrub Preserve"},
+        {
+            "id": "location-1",
+            "name": "Alafia Scrub Preserve",
+            "lat": 27.8609,
+            "lng": -82.3359,
+        },
     ]
 
 
