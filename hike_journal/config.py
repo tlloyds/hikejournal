@@ -266,6 +266,20 @@ class Settings:
         "SPECIES_DISCOVERY_ENABLED",
         "true",
     ).strip().lower() in {"1", "true", "yes", "on"}
+    weather_enrichment_enabled: bool = os.getenv(
+        "WEATHER_ENRICHMENT_ENABLED",
+        "true",
+    ).strip().lower() in {"1", "true", "yes", "on"}
+    open_meteo_forecast_url: str = os.getenv(
+        "OPEN_METEO_FORECAST_URL",
+        "https://api.open-meteo.com/v1/forecast",
+    ).rstrip("/")
+    open_meteo_archive_url: str = os.getenv(
+        "OPEN_METEO_ARCHIVE_URL",
+        "https://archive-api.open-meteo.com/v1/archive",
+    ).rstrip("/")
+    open_meteo_api_key: str = os.getenv("OPEN_METEO_API_KEY", "")
+    weather_request_timeout_seconds: float = float(os.getenv("WEATHER_REQUEST_TIMEOUT_SECONDS", "20"))
 
     @property
     def supabase_configured(self) -> bool:

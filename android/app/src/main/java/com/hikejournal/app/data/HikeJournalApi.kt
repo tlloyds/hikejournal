@@ -70,6 +70,11 @@ class HikeJournalApi(private val context: Context) {
         "/v1/hikes/${hikeId.urlEncoded()}/comparison?other_hike_id=${otherHikeId.urlEncoded()}",
     )
 
+    suspend fun enrichHikeWeatherJson(hikeId: String, force: Boolean = false): String = request(
+        path = "/v1/hikes/${hikeId.urlEncoded()}/weather?force=$force",
+        method = "POST",
+    )
+
     suspend fun getSpeciesJson(): String = request("/v1/species")
 
     suspend fun getSpeciesDetailJson(key: String): String = request(

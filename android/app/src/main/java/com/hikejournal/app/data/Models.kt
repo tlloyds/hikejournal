@@ -25,6 +25,24 @@ data class Hike(
     val primaryLocationId: String? = null,
     val primaryLocationName: String = "",
     val fieldMarks: List<FieldMark> = emptyList(),
+    val weather: WeatherSnapshot? = null,
+)
+
+data class WeatherSnapshot(
+    val provider: String,
+    val providerDataset: String,
+    val algorithmVersion: String,
+    val intervalStartedAt: String?,
+    val intervalEndedAt: String?,
+    val temperatureMinC: Double?,
+    val temperatureMeanC: Double?,
+    val temperatureMaxC: Double?,
+    val apparentTemperatureMeanC: Double?,
+    val precipitationTotalMm: Double?,
+    val relativeHumidityMeanPercent: Double?,
+    val cloudCoverMeanPercent: Double?,
+    val windSpeedMeanKph: Double?,
+    val conditionLabel: String,
 )
 
 data class RoutePoint(
@@ -174,6 +192,22 @@ data class PlaceVisit(
     val coverUrl: String,
 )
 
+data class PlaceSpecies(
+    val key: String,
+    val taxonId: Long?,
+    val commonName: String,
+    val scientificName: String,
+    val iconicTaxonName: String,
+    val encounterCount: Int,
+    val referencePhotoUrl: String,
+)
+
+data class PlaceTaxonGroup(
+    val name: String,
+    val count: Int,
+    val species: List<PlaceSpecies>,
+)
+
 data class PlaceProfile(
     val locationId: String,
     val name: String,
@@ -185,6 +219,7 @@ data class PlaceProfile(
     val observationCount: Int,
     val speciesCount: Int,
     val taxonCounts: List<Pair<String, Int>>,
+    val taxonGroups: List<PlaceTaxonGroup>,
     val seasonalHistory: SeasonalHistory,
     val visits: List<PlaceVisit>,
     val guidance: String,
@@ -216,6 +251,8 @@ data class HikeComparison(
     val shared: List<ComparisonSpecies>,
     val onlyA: List<ComparisonSpecies>,
     val onlyB: List<ComparisonSpecies>,
+    val weatherA: WeatherSnapshot?,
+    val weatherB: WeatherSnapshot?,
     val guidance: String,
 )
 
@@ -228,13 +265,20 @@ data class BriefingItem(
     val section: String,
     val reasons: List<String>,
     val referencePhotoUrl: String,
+    val referencePhotoAttribution: String,
+    val referencePhotoLicenseCode: String,
 )
 
 data class BriefingSection(val title: String, val items: List<BriefingItem>)
 
 data class FieldBriefing(
+    val areaId: String,
     val areaName: String,
+    val latitude: Double?,
+    val longitude: Double?,
+    val radiusKm: Int,
     val targetDate: String,
+    val periodLabel: String,
     val sections: List<BriefingSection>,
     val guidance: String,
 )
@@ -837,6 +881,27 @@ private fun parseHike(json: JSONObject): Hike {
         primaryLocationId = json.optNullableString("primary_location_id"),
         primaryLocationName = json.optString("primary_location_name"),
         fieldMarks = List(fieldMarksJson.length()) { index -> parseFieldMark(fieldMarksJson.getJSONObject(index)) },
+        weather = parseWeatherSnapshot(json.optJSONObject("weather")),
+    )
+}
+
+fun parseWeatherSnapshot(json: JSONObject?): WeatherSnapshot? {
+    if (json == null || json.length() == 0) return null
+    return WeatherSnapshot(
+        provider = json.optString("provider"),
+        providerDataset = json.optString("provider_dataset"),
+        algorithmVersion = json.optString("algorithm_version"),
+        intervalStartedAt = json.optNullableString("interval_started_at"),
+        intervalEndedAt = json.optNullableString("interval_ended_at"),
+        temperatureMinC = json.optNullableDouble("temperature_min_c"),
+        temperatureMeanC = json.optNullableDouble("temperature_mean_c"),
+        temperatureMaxC = json.optNullableDouble("temperature_max_c"),
+        apparentTemperatureMeanC = json.optNullableDouble("apparent_temperature_mean_c"),
+        precipitationTotalMm = json.optNullableDouble("precipitation_total_mm"),
+        relativeHumidityMeanPercent = json.optNullableDouble("relative_humidity_mean_percent"),
+        cloudCoverMeanPercent = json.optNullableDouble("cloud_cover_mean_percent"),
+        windSpeedMeanKph = json.optNullableDouble("wind_speed_mean_kph"),
+        conditionLabel = json.optString("condition_label", "Conditions recorded"),
     )
 }
 
@@ -986,6 +1051,7 @@ fun parsePlaceProfile(json: String): PlaceProfile {
     val location = root.optJSONObject("location") ?: JSONObject()
     val summary = root.optJSONObject("summary") ?: JSONObject()
     val taxonCounts = root.optJSONArray("taxon_counts") ?: JSONArray()
+    val taxonGroups = root.optJSONArray("taxon_groups") ?: JSONArray()
     val visits = root.optJSONArray("visits") ?: JSONArray()
     return PlaceProfile(
         locationId = location.optString("id"),
@@ -1000,6 +1066,26 @@ fun parsePlaceProfile(json: String): PlaceProfile {
         taxonCounts = List(taxonCounts.length()) { index ->
             val item = taxonCounts.getJSONObject(index)
             item.optString("name", "Other") to item.optInt("count")
+        },
+        taxonGroups = List(taxonGroups.length()) { groupIndex ->
+            val group = taxonGroups.getJSONObject(groupIndex)
+            val species = group.optJSONArray("species") ?: JSONArray()
+            PlaceTaxonGroup(
+                name = group.optString("name", "Other"),
+                count = group.optInt("count"),
+                species = List(species.length()) { speciesIndex ->
+                    val item = species.getJSONObject(speciesIndex)
+                    PlaceSpecies(
+                        key = item.optString("key"),
+                        taxonId = item.optNullableLong("taxon_id"),
+                        commonName = item.optString("common_name", "Unknown species"),
+                        scientificName = item.optString("scientific_name"),
+                        iconicTaxonName = item.optString("iconic_taxon_name", "Other"),
+                        encounterCount = item.optInt("encounter_count"),
+                        referencePhotoUrl = item.optString("reference_photo_url"),
+                    )
+                },
+            )
         },
         seasonalHistory = parseSeasonalHistory(root.optJSONObject("seasonal_history")),
         visits = List(visits.length()) { index ->
@@ -1047,12 +1133,15 @@ private fun parseComparisonSpecies(items: JSONArray): List<ComparisonSpecies> =
 fun parseHikeComparison(json: String): HikeComparison {
     val root = JSONObject(json)
     val species = root.optJSONObject("species") ?: JSONObject()
+    val weather = root.optJSONObject("weather") ?: JSONObject()
     return HikeComparison(
         hikeA = parseComparisonHike(root.optJSONObject("hike_a") ?: JSONObject()),
         hikeB = parseComparisonHike(root.optJSONObject("hike_b") ?: JSONObject()),
         shared = parseComparisonSpecies(species.optJSONArray("shared") ?: JSONArray()),
         onlyA = parseComparisonSpecies(species.optJSONArray("only_a") ?: JSONArray()),
         onlyB = parseComparisonSpecies(species.optJSONArray("only_b") ?: JSONArray()),
+        weatherA = parseWeatherSnapshot(weather.optJSONObject("hike_a")),
+        weatherB = parseWeatherSnapshot(weather.optJSONObject("hike_b")),
         guidance = root.optString("guidance"),
     )
 }
@@ -1060,10 +1149,16 @@ fun parseHikeComparison(json: String): HikeComparison {
 fun parseFieldBriefing(json: String): FieldBriefing {
     val root = JSONObject(json)
     val area = root.optJSONObject("area") ?: JSONObject()
+    val period = root.optJSONObject("period") ?: JSONObject()
     val sections = root.optJSONArray("sections") ?: JSONArray()
     return FieldBriefing(
+        areaId = area.optString("id"),
         areaName = area.optString("name", "Selected place"),
+        latitude = area.optNullableDouble("lat"),
+        longitude = area.optNullableDouble("lng"),
+        radiusKm = area.optInt("radius_km", 10),
         targetDate = root.optString("target_date"),
+        periodLabel = period.optString("label"),
         sections = List(sections.length()) { sectionIndex ->
             val section = sections.getJSONObject(sectionIndex)
             val items = section.optJSONArray("items") ?: JSONArray()
@@ -1081,6 +1176,8 @@ fun parseFieldBriefing(json: String): FieldBriefing {
                         section = item.optString("section"),
                         reasons = List(reasons.length()) { index -> reasons.optString(index) },
                         referencePhotoUrl = item.optJSONObject("reference_photo")?.optString("url").orEmpty(),
+                        referencePhotoAttribution = item.optJSONObject("reference_photo")?.optString("attribution").orEmpty(),
+                        referencePhotoLicenseCode = item.optJSONObject("reference_photo")?.optString("license_code").orEmpty(),
                     )
                 },
             )

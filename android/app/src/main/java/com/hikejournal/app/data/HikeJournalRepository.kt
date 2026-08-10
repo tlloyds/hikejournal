@@ -130,6 +130,25 @@ class HikeJournalRepository(context: Context) {
             parse = ::parseHikeComparison,
         )
 
+    suspend fun enrichHikeWeather(hikeId: String, force: Boolean = false): WeatherSnapshot {
+        val weatherJson = JSONObject(api.enrichHikeWeatherJson(hikeId, force))
+        val weather = parseWeatherSnapshot(weatherJson)
+            ?: throw IllegalStateException("The companion returned no weather summary.")
+        journalCacheMutex.withLock {
+            withContext(Dispatchers.IO) {
+                val cacheFile = File(cacheDirectory, "hike-$hikeId.json")
+                if (cacheFile.exists()) {
+                    val payload = runCatching { JSONObject(cacheFile.readText()) }.getOrNull()
+                    if (payload != null) {
+                        payload.put("weather", weatherJson)
+                        writeJsonAtomically(cacheFile, payload)
+                    }
+                }
+            }
+        }
+        return weather
+    }
+
     suspend fun createFieldMark(mark: FieldMark): FieldMark = fieldQueue.queueFieldMark(mark)
 
     suspend fun loadLocalFieldMarks(hikeId: String): List<FieldMark> = fieldQueue.localFieldMarks(hikeId)

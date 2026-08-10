@@ -58,8 +58,9 @@ versioned APK is written to `dist/`. The shared release version lives in
 `VERSION` and is used by both Android and the mobile API. Installation, first-recording permissions,
 and companion pairing are documented in [android/README.md](android/README.md).
 
-Version 0.7 adds Place Profiles, personal seasonal history, deterministic Field
-Briefings, durable offline Field Marks, hike comparison, and observation
+Version 0.7 adds photo-led Place Profiles, personal seasonal history, deterministic
+Field Briefings with public-sightings maps, durable offline Field Marks, hike
+comparison, historical Open-Meteo enrichment, and observation
 confidence/provenance/history across Android and web. See
 [docs/longitudinal-intelligence.md](docs/longitudinal-intelligence.md).
 
@@ -97,6 +98,10 @@ Needed later for species scoring:
 - `INAT_CV_REQUEST_INTERVAL_SECONDS` defaults to `2.5` for slower image-ID requests
 - `SPECIES_DISCOVERY_ENABLED` defaults to `true`; set it to `false` to hide
   Nearby and Field Quests during a rollout
+- `WEATHER_ENRICHMENT_ENABLED` defaults to `true`; personal/non-commercial use
+  calls Open-Meteo without an API key after a route upload and on Journal retry
+- `OPEN_METEO_FORECAST_URL` and `OPEN_METEO_ARCHIVE_URL` can point to paid or
+  self-hosted compatible endpoints; set `OPEN_METEO_API_KEY` when required
 
 ## Google Auth
 

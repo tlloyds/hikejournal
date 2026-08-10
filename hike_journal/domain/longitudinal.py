@@ -45,6 +45,11 @@ def _species_snapshot(observation: dict[str, Any]) -> dict[str, Any]:
         "common_name": str(observation.get("common_name") or "Unknown species"),
         "scientific_name": str(observation.get("scientific_name") or ""),
         "iconic_taxon_name": str(observation.get("iconic_taxon_name") or "Other"),
+        "reference_photo_url": str(
+            observation.get("reference_photo_url")
+            or observation.get("collection_photo_url")
+            or ""
+        ),
     }
 
 
@@ -110,6 +115,15 @@ def build_place_profile(
         str(items[0].get("iconic_taxon_name") or "Other")
         for items in by_species.values()
     )
+    taxon_groups = []
+    for group_name, count in sorted(taxon_counts.items(), key=lambda item: (-item[1], item[0])):
+        species = [
+            {**_species_snapshot(items[0]), "encounter_count": len(items)}
+            for items in by_species.values()
+            if str(items[0].get("iconic_taxon_name") or "Other") == group_name
+        ]
+        species.sort(key=lambda item: (item["common_name"].casefold(), item["scientific_name"].casefold()))
+        taxon_groups.append({"name": group_name, "count": count, "species": species})
     seen: set[str] = set()
     visits = []
     for hike in sorted(hikes, key=lambda item: str(item.get("hike_date") or "")):
@@ -155,6 +169,7 @@ def build_place_profile(
             {"name": name, "count": count}
             for name, count in sorted(taxon_counts.items(), key=lambda item: (-item[1], item[0]))
         ],
+        "taxon_groups": taxon_groups,
         "seasonal_history": build_seasonal_history(place_observations),
         "visits": visits,
         "frequent_species": [

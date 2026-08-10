@@ -463,6 +463,35 @@ def test_mobile_route_upload_accepts_only_native_gps_source(monkeypatch):
     assert invalid_response.status_code == 422
 
 
+def test_mobile_weather_endpoint_returns_persisted_summary(monkeypatch):
+    service = type("Service", (), {"repository": object()})()
+    monkeypatch.setattr("mobile_api.get_services", lambda: service)
+    monkeypatch.setattr(
+        "mobile_api._get_visible_hike",
+        lambda *_args: {"id": "hike-1", "hike_date": "2026-08-09"},
+    )
+    monkeypatch.setattr(
+        "mobile_api._enrich_weather_for_hike",
+        lambda _service, hike, force=False: {
+            "hike_id": hike["id"],
+            "provider": "open-meteo",
+            "condition_label": "Rain",
+            "temperature_min_c": 25.0,
+            "temperature_max_c": 29.0,
+            "force": force,
+        },
+    )
+    app.dependency_overrides[require_mobile_key] = lambda: None
+    try:
+        response = TestClient(app).post("/v1/hikes/hike-1/weather?force=true")
+    finally:
+        app.dependency_overrides.pop(require_mobile_key, None)
+
+    assert response.status_code == 200
+    assert response.json()["provider"] == "open-meteo"
+    assert response.json()["force"] is True
+
+
 def test_picker_metadata_fallback_parses_capture_time_and_coordinates():
     taken_at = _parse_picker_taken_at("2026-07-19T14:32:10Z")
 

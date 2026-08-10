@@ -8,6 +8,19 @@ from hike_journal.domain.longitudinal import build_hike_comparison, build_place_
 from hike_journal.services.repositories import HikeJournalRepository
 
 
+LIFE_GROUP_ICONS = {
+    "plantae": "🌿",
+    "aves": "🪶",
+    "mammalia": "🐾",
+    "fungi": "🍄",
+    "insecta": "🦋",
+    "arachnida": "🕸️",
+    "reptilia": "🦎",
+    "amphibia": "🐸",
+    "actinopterygii": "🐟",
+}
+
+
 def render_places_view(
     repository: HikeJournalRepository,
     hikes: list[dict[str, Any]],
@@ -45,6 +58,20 @@ def render_places_view(
         if not hike.get("is_archived")
         and any(str(tag.get("id") or "") == location_id for tag in hike.get("location_tags") or [])
     ]
+    for hike in place_hikes:
+        photos = repository.list_photos(str(hike.get("id") or ""))
+        cover_id = str(hike.get("cover_photo_id") or "")
+        cover = next((photo for photo in photos if str(photo.get("id") or "") == cover_id), None)
+        if cover is None:
+            cover = next(
+                (
+                    photo
+                    for photo in reversed(photos)
+                    if not str(photo.get("content_type") or "").lower().startswith("video/")
+                ),
+                None,
+            )
+        hike["cover_url"] = str((cover or {}).get("public_url") or "")
     profile = build_place_profile(location, place_hikes, confirmed_observations)
     summary = profile["summary"]
     columns = st.columns(5)
@@ -76,23 +103,31 @@ def render_places_view(
             y_label="Cumulative species",
         )
 
+    st.subheader("Life recorded")
+    st.caption("Open a life group to browse every distinct confirmed species you have recorded here.")
+    for group in profile["taxon_groups"]:
+        icon = LIFE_GROUP_ICONS.get(str(group["name"]).lower(), "◌")
+        with st.expander(f"{icon} {group['name']} · {group['count']}"):
+            for species in group["species"]:
+                st.markdown(
+                    f"**{species['common_name']}**  \n"
+                    f"*{species['scientific_name']}* · {species['encounter_count']} encounter"
+                    f"{'s' if species['encounter_count'] != 1 else ''}"
+                )
+
     st.subheader("Visit history")
-    st.dataframe(
-        [
-            {
-                "Date": visit["hike_date"],
-                "Journal": visit["title"],
-                "Distance (mi)": visit["distance_miles"],
-                "Observations": visit["observation_count"],
-                "Species": visit["species_count"],
-                "New then": visit["new_species_count"],
-                "Cumulative": visit["cumulative_species_count"],
-            }
-            for visit in profile["visits"]
-        ],
-        use_container_width=True,
-        hide_index=True,
-    )
+    for visit in profile["visits"]:
+        image, detail = st.columns([0.2, 0.8], vertical_alignment="center")
+        if visit["cover_url"]:
+            image.image(visit["cover_url"], width="stretch")
+        else:
+            image.caption("No cover photo")
+        detail.markdown(f"**{visit['hike_date']} · {visit['title']}**")
+        detail.caption(
+            f"{visit['species_count']} species · {visit['observation_count']} observations · "
+            f"{visit['new_species_count']} new then · {visit['cumulative_species_count']} cumulative"
+        )
+        st.divider()
 
     st.divider()
     st.subheader("Compare two field journals")

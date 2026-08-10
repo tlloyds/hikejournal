@@ -27,6 +27,7 @@
     "POST /v1/hikes/{hike_id}/photos",
     "GET /v1/hikes/{hike_id}/route",
     "POST /v1/hikes/{hike_id}/route",
+    "POST /v1/hikes/{hike_id}/weather",
     "GET /v1/inat/oauth/callback",
     "GET /v1/inat/oauth/start",
     "GET /v1/operations/health",

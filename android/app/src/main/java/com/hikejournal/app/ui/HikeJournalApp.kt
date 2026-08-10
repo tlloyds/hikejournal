@@ -73,6 +73,7 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.CloudOff
 import androidx.compose.material.icons.rounded.CloudQueue
 import androidx.compose.material.icons.rounded.CloudSync
+import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Fullscreen
@@ -87,6 +88,8 @@ import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Unarchive
 import androidx.compose.material.icons.rounded.WorkspacePremium
+import androidx.compose.material.icons.rounded.WaterDrop
+import androidx.compose.material.icons.rounded.WbSunny
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -172,6 +175,7 @@ import com.hikejournal.app.data.ReviewItem
 import com.hikejournal.app.data.SpeciesRecord
 import com.hikejournal.app.data.SpeciesLabel
 import com.hikejournal.app.data.SyncAttention
+import com.hikejournal.app.data.WeatherSnapshot
 import com.hikejournal.app.data.localMediaAccess
 import com.hikejournal.app.data.requiredLocalMediaPermissions
 import com.hikejournal.app.tracking.TrackingStatus
@@ -190,6 +194,7 @@ import java.net.URI
 import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
 import java.util.Locale
+import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -400,6 +405,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                 selectedRouteUri = null
             }
             badgesOpen -> badgesOpen = false
+            state.questMapQuest != null -> viewModel.closeQuestSightingsMap()
             state.hikeComparison != null -> viewModel.closeHikeComparison()
             state.fieldBriefing != null -> viewModel.closeFieldBriefing()
             state.placeProfile != null -> viewModel.closePlaceProfile()
@@ -408,7 +414,6 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                 speciesBrowseContext = null
                 viewModel.closeSpecies()
             }
-            state.questMapQuest != null -> viewModel.closeQuestSightingsMap()
         }
     }
 
@@ -428,6 +433,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
     val screenKey = when {
         trackingVisible && trackingUi != null -> "tracking:${trackingUi.sessionId}"
         hikeMapRequest != null -> "hike-map:${hikeMapRequest?.hike?.id}:${hikeMapRequest?.focusedPhoto?.id}"
+        state.questMapQuest != null && state.questMapTaxon != null -> "quest-map:${state.questMapTaxon?.taxonId}"
         state.hikeComparison != null || state.isLongitudinalLoading && comparisonBaseHike != null -> "comparison"
         state.fieldBriefing != null -> "briefing:${state.fieldBriefing?.targetDate}"
         state.placeProfile != null -> "place:${state.placeProfile?.locationId}"
@@ -491,6 +497,17 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                         },
                     )
                 }
+                key.startsWith("quest-map:") && state.questMapQuest != null && state.questMapTaxon != null -> {
+                    QuestSightingsMapScreen(
+                        quest = state.questMapQuest!!,
+                        taxon = state.questMapTaxon!!,
+                        mapData = state.questSightingsMap,
+                        loading = state.isQuestMapLoading,
+                        notice = state.questMapNotice,
+                        onBack = viewModel::closeQuestSightingsMap,
+                        onRefresh = viewModel::refreshQuestSightingsMap,
+                    )
+                }
                 key == "comparison" -> HikeComparisonScreen(
                     comparison = state.hikeComparison,
                     loading = state.isLongitudinalLoading,
@@ -507,6 +524,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                         viewModel.closeFieldBriefing()
                         viewModel.openSpecies(key)
                     },
+                    onOpenSightings = viewModel::openBriefingSightingsMap,
                 )
                 key.startsWith("place:") -> PlaceProfileScreen(
                     profile = state.placeProfile,
@@ -545,6 +563,9 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                             { viewModel.openFieldBriefing(locationId) }
                         },
                         onCompare = if (journal.isStandalone) null else ({ comparisonBaseHike = journal }),
+                        onRefreshWeather = if (journal.isStandalone) null else ({
+                            viewModel.enrichHikeWeather(journal.id, force = journal.weather != null)
+                        }),
                         onPhoto = { selectedPhoto = it },
                         onQueueReview = viewModel::queuePhotosForSpeciesReview,
                     )
@@ -1640,6 +1661,7 @@ private fun JournalScreen(
     onOpenPlace: (() -> Unit)?,
     onOpenBriefing: (() -> Unit)?,
     onCompare: (() -> Unit)?,
+    onRefreshWeather: (() -> Unit)?,
     onPhoto: (Photo) -> Unit,
     onQueueReview: (List<Photo>) -> Unit,
 ) {
@@ -1689,6 +1711,13 @@ private fun JournalScreen(
                         style = MaterialTheme.typography.bodyLarge,
                         color = Ink,
                         modifier = Modifier.padding(top = 22.dp),
+                    )
+                }
+                if (onRefreshWeather != null) {
+                    JournalWeather(
+                        weather = hike.weather,
+                        loading = state.weatherUpdateId == hike.id,
+                        onRefresh = onRefreshWeather,
                     )
                 }
                 AnimatedVisibility(visible = opening) {
@@ -1911,6 +1940,82 @@ private fun JournalScreen(
             }
         }
     }
+}
+
+@Composable
+private fun JournalWeather(
+    weather: WeatherSnapshot?,
+    loading: Boolean,
+    onRefresh: () -> Unit,
+) {
+    val uriHandler = LocalUriHandler.current
+    Column(
+        Modifier.fillMaxWidth().padding(top = 22.dp).background(Color(0xFFE2E9DC)).padding(16.dp),
+    ) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                when {
+                    weather?.conditionLabel?.contains("Clear", ignoreCase = true) == true -> Icons.Rounded.WbSunny
+                    weather?.precipitationTotalMm?.let { it > 0.05 } == true -> Icons.Rounded.WaterDrop
+                    else -> Icons.Rounded.Cloud
+                },
+                contentDescription = null,
+                tint = Trail,
+                modifier = Modifier.size(28.dp),
+            )
+            Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                Text("CONDITIONS", style = MaterialTheme.typography.labelSmall, color = TrailText)
+                Text(
+                    weather?.let(::weatherHeadline) ?: "Add historical weather",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = Ink,
+                )
+            }
+            if (loading) {
+                CircularProgressIndicator(Modifier.size(22.dp), color = Trail, strokeWidth = 2.dp)
+            } else {
+                TextButton(onClick = onRefresh) { Text(if (weather == null) "Add" else "Refresh") }
+            }
+        }
+        if (weather != null) {
+            val details = buildList {
+                weather.precipitationTotalMm?.let { add("${String.format(Locale.US, "%.2f", it / 25.4)} in rain") }
+                weather.relativeHumidityMeanPercent?.let { add("${it.roundToInt()}% humidity") }
+                weather.windSpeedMeanKph?.let { add("${(it / 1.609344).roundToInt()} mph wind") }
+                weather.cloudCoverMeanPercent?.let { add("${it.roundToInt()}% cloud cover") }
+            }
+            if (details.isNotEmpty()) {
+                Text(details.joinToString(" · "), style = MaterialTheme.typography.bodyMedium, color = InkMuted, modifier = Modifier.padding(top = 7.dp))
+            }
+            Text(
+                "Hike time/place summary · Open-Meteo weather data (CC BY 4.0)",
+                style = MaterialTheme.typography.labelSmall,
+                color = InkMuted,
+                modifier = Modifier.padding(top = 9.dp).clickable {
+                    uriHandler.openUri("https://open-meteo.com/")
+                },
+            )
+        } else {
+            Text(
+                "Uses the route interval when available, otherwise the saved place and local hike date. Saving never waits for weather.",
+                style = MaterialTheme.typography.bodySmall,
+                color = InkMuted,
+                modifier = Modifier.padding(top = 6.dp),
+            )
+        }
+    }
+}
+
+private fun weatherHeadline(weather: WeatherSnapshot): String {
+    fun fahrenheit(value: Double): Int = (value * 9 / 5 + 32).roundToInt()
+    val temperatures = when {
+        weather.temperatureMinC != null && weather.temperatureMaxC != null ->
+            "${fahrenheit(weather.temperatureMinC)}–${fahrenheit(weather.temperatureMaxC)}°F"
+        weather.temperatureMeanC != null -> "${fahrenheit(weather.temperatureMeanC)}°F"
+        else -> ""
+    }
+    return listOf(temperatures, weather.conditionLabel).filter(String::isNotBlank).joinToString(" · ")
+        .ifBlank { "Historical conditions" }
 }
 
 @Composable

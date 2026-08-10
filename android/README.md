@@ -19,20 +19,24 @@ and replace the server address. The API always uses port `8506`.
 Native hike recording does not need the companion or a network connection.
 Pairing is needed when queued hikes, routes, and photos are ready to sync.
 
-## Included in v0.7.0
+## Included in v0.7.1
 
 - A large offline `MARK` action during recording for Wildlife, Plant, Trail
   condition, Water, Campsite, Hazard, and Note; marks retain GPS/time/accuracy,
   survive restart, sync in hike dependency order, and appear on route maps
 - Place Profiles from a Journal’s canonical location, including visit history,
-  biodiversity progression, taxon mix, distance, and personal seasonality
+  hike-cover thumbnails, life-group icons and full species drill-downs,
+  biodiversity progression, distance, and personal seasonality
 - Twelve-month personal seasonal history on Field Guide species detail
 - A calm, deterministic Field Briefing built from Nearby reports, missing
-  collection taxa, personal seasonal returns, place history, quests, and old finds
+  collection taxa, personal seasonal returns, place history, quests, and old
+  finds, with reference photos and the existing public-sightings map
 - Two-journal species comparison from the Journal action area
 - Observation confidence, provenance, plant phenophases, and identification
   history, with offline-safe edits
 - Disk-cached Place Profiles, briefings, and comparisons for repeat offline viewing
+- Best-effort Open-Meteo historical conditions summarized over the route centroid
+  and recorded hike interval, with Journal retry, comparison, and source attribution
 
 Run `sql/longitudinal_intelligence_migration.sql` once in Supabase before Field
 Marks or natural-history edits can sync.

@@ -2,7 +2,10 @@ package com.hikejournal.app.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -19,32 +22,53 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.rounded.ArrowForward
+import androidx.compose.material.icons.automirrored.rounded.ArrowForward
+import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.CalendarMonth
+import androidx.compose.material.icons.rounded.Cloud
+import androidx.compose.material.icons.rounded.Explore
+import androidx.compose.material.icons.rounded.FlutterDash
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.LocalFlorist
 import androidx.compose.material.icons.rounded.LocationOn
+import androidx.compose.material.icons.rounded.Map
+import androidx.compose.material.icons.rounded.Park
+import androidx.compose.material.icons.rounded.Pets
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import coil.compose.AsyncImage
 import com.hikejournal.app.data.BriefingItem
 import com.hikejournal.app.data.ComparisonHike
 import com.hikejournal.app.data.ComparisonSpecies
 import com.hikejournal.app.data.FieldBriefing
 import com.hikejournal.app.data.HikeComparison
 import com.hikejournal.app.data.PlaceProfile
+import com.hikejournal.app.data.PlaceTaxonGroup
 import com.hikejournal.app.data.SeasonalHistory
+import com.hikejournal.app.data.WeatherSnapshot
 import com.hikejournal.app.ui.theme.Fern
 import com.hikejournal.app.ui.theme.Ink
 import com.hikejournal.app.ui.theme.InkMuted
@@ -55,6 +79,7 @@ import com.hikejournal.app.ui.theme.Parchment
 import com.hikejournal.app.ui.theme.Trail
 import com.hikejournal.app.ui.theme.TrailText
 import java.util.Locale
+import kotlin.math.roundToInt
 
 @Composable
 internal fun PlaceProfileScreen(
@@ -106,11 +131,12 @@ internal fun PlaceProfileScreen(
             }
             if (profile.taxonCounts.isNotEmpty()) {
                 item {
-                    FieldSection("LIFE RECORDED", "Distinct confirmed taxa in your journal.") {
-                        profile.taxonCounts.forEach { (name, count) ->
-                            Row(Modifier.fillMaxWidth().padding(vertical = 7.dp)) {
-                                Text(friendlyTaxon(name), style = MaterialTheme.typography.bodyLarge, color = Ink, modifier = Modifier.weight(1f))
-                                Text(count.toString(), style = MaterialTheme.typography.titleMedium, color = Fern)
+                    FieldSection("LIFE RECORDED", "Open a life group to browse every distinct confirmed species recorded here.") {
+                        if (profile.taxonGroups.isNotEmpty()) {
+                            LifeRecordedGroups(profile.taxonGroups)
+                        } else {
+                            profile.taxonCounts.forEach { (name, count) ->
+                                LifeGroupHeader(name = name, count = count, expanded = false, onClick = {})
                             }
                         }
                     }
@@ -130,7 +156,24 @@ internal fun PlaceProfileScreen(
                         .padding(horizontal = 20.dp, vertical = 15.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Column(Modifier.weight(1f)) {
+                    Box(Modifier.width(92.dp).height(72.dp).background(Color(0xFFD0CFBD))) {
+                        if (visit.coverUrl.isNotBlank()) {
+                            AsyncImage(
+                                model = visit.coverUrl,
+                                contentDescription = "Cover photo for ${visit.title}",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop,
+                            )
+                        } else {
+                            Icon(
+                                Icons.Rounded.Park,
+                                contentDescription = null,
+                                tint = Moss.copy(alpha = 0.55f),
+                                modifier = Modifier.align(Alignment.Center).size(30.dp),
+                            )
+                        }
+                    }
+                    Column(Modifier.weight(1f).padding(start = 14.dp)) {
                         Text(visit.hikeDate, style = MaterialTheme.typography.labelSmall, color = TrailText)
                         Text(visit.title, style = MaterialTheme.typography.titleLarge, color = Ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(
@@ -139,7 +182,7 @@ internal fun PlaceProfileScreen(
                             color = InkMuted,
                         )
                     }
-                    Icon(Icons.Rounded.ArrowForward, contentDescription = "Open journal", tint = Fern)
+                    Icon(Icons.AutoMirrored.Rounded.ArrowForward, contentDescription = "Open journal", tint = Fern)
                 }
                 HorizontalDivider(color = Line, modifier = Modifier.padding(start = 20.dp))
             }
@@ -154,6 +197,7 @@ internal fun FieldBriefingScreen(
     loading: Boolean,
     onBack: () -> Unit,
     onOpenSpecies: (String) -> Unit,
+    onOpenSightings: (BriefingItem) -> Unit,
 ) {
     BackHandler(onBack = onBack)
     LazyColumn(Modifier.fillMaxSize().background(Parchment)) {
@@ -191,7 +235,11 @@ internal fun FieldBriefingScreen(
                     )
                 }
                 items(section.items, key = { "${section.title}:${it.key}" }) { item ->
-                    BriefingRow(item = item, onClick = { onOpenSpecies(item.key) })
+                    BriefingRow(
+                        item = item,
+                        onOpenSpecies = { onOpenSpecies(item.key) },
+                        onOpenSightings = { onOpenSightings(item) },
+                    )
                 }
             }
             item { Spacer(Modifier.height(60.dp)) }
@@ -200,24 +248,148 @@ internal fun FieldBriefingScreen(
 }
 
 @Composable
-private fun BriefingRow(item: BriefingItem, onClick: () -> Unit) {
+private fun BriefingRow(
+    item: BriefingItem,
+    onOpenSpecies: () -> Unit,
+    onOpenSightings: () -> Unit,
+) {
     Column(
-        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 20.dp, vertical = 15.dp),
+        Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 15.dp),
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
+            Box(
+                Modifier.size(94.dp).background(Color(0xFFD0CFBD)).clickable(
+                    enabled = item.referencePhotoUrl.isNotBlank(),
+                    onClick = onOpenSpecies,
+                ),
+            ) {
+                if (item.referencePhotoUrl.isNotBlank()) {
+                    AsyncImage(
+                        model = item.referencePhotoUrl,
+                        contentDescription = item.commonName,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop,
+                    )
+                } else {
+                    Icon(
+                        lifeGroupIcon(item.iconicTaxonName),
+                        contentDescription = null,
+                        tint = Moss.copy(alpha = 0.55f),
+                        modifier = Modifier.align(Alignment.Center).size(34.dp),
+                    )
+                }
+            }
+            Column(Modifier.weight(1f).padding(start = 14.dp).clickable(onClick = onOpenSpecies)) {
                 Text(item.commonName, style = MaterialTheme.typography.titleLarge, color = Ink)
                 if (item.scientificName.isNotBlank()) {
                     Text(item.scientificName, style = MaterialTheme.typography.bodyMedium, color = Fern, fontStyle = FontStyle.Italic)
                 }
+                val credit = listOf(item.referencePhotoAttribution, item.referencePhotoLicenseCode)
+                    .filter(String::isNotBlank)
+                    .joinToString(" · ")
+                if (credit.isNotBlank()) {
+                    Text(
+                        credit,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = InkMuted,
+                        modifier = Modifier.padding(top = 4.dp),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
-            Icon(Icons.Rounded.ArrowForward, contentDescription = "Open species", tint = Fern)
         }
         item.reasons.forEach { reason ->
             Text("· $reason", style = MaterialTheme.typography.bodyMedium, color = InkMuted, modifier = Modifier.padding(top = 4.dp))
         }
+        Row(Modifier.fillMaxWidth().padding(top = 7.dp), horizontalArrangement = Arrangement.End) {
+            TextButton(onClick = onOpenSpecies) { Text("Field Guide") }
+            if (item.taxonId != null) {
+                TextButton(onClick = onOpenSightings) {
+                    Icon(Icons.Rounded.Map, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Text("Map sightings", modifier = Modifier.padding(start = 6.dp))
+                }
+            }
+        }
     }
     HorizontalDivider(color = Line, modifier = Modifier.padding(start = 20.dp))
+}
+
+@Composable
+private fun LifeRecordedGroups(groups: List<PlaceTaxonGroup>) {
+    var expanded by remember(groups) { mutableStateOf(setOf<String>()) }
+    groups.forEach { group ->
+        val isExpanded = group.name in expanded
+        LifeGroupHeader(
+            name = group.name,
+            count = group.count,
+            expanded = isExpanded,
+            onClick = {
+                expanded = if (isExpanded) expanded - group.name else expanded + group.name
+            },
+        )
+        AnimatedVisibility(
+            visible = isExpanded,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically(),
+        ) {
+            Column(Modifier.fillMaxWidth().padding(start = 50.dp, bottom = 10.dp)) {
+                group.species.forEach { species ->
+                    Row(Modifier.fillMaxWidth().padding(vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(42.dp).background(Color(0xFFD0CFBD), CircleShape)) {
+                            if (species.referencePhotoUrl.isNotBlank()) {
+                                AsyncImage(
+                                    model = species.referencePhotoUrl,
+                                    contentDescription = species.commonName,
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Crop,
+                                )
+                            } else {
+                                Icon(
+                                    lifeGroupIcon(group.name),
+                                    contentDescription = null,
+                                    tint = Moss.copy(alpha = 0.55f),
+                                    modifier = Modifier.align(Alignment.Center).size(20.dp),
+                                )
+                            }
+                        }
+                        Column(Modifier.weight(1f).padding(start = 11.dp)) {
+                            Text(species.commonName, style = MaterialTheme.typography.bodyLarge, color = Ink)
+                            Text(
+                                listOf(
+                                    species.scientificName,
+                                    "${species.encounterCount} encounter${if (species.encounterCount == 1) "" else "s"}",
+                                ).filter(String::isNotBlank).joinToString(" · "),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = InkMuted,
+                                fontStyle = FontStyle.Italic,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LifeGroupHeader(name: String, count: Int, expanded: Boolean, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(38.dp).background(Color(0xFFE0E7D8), CircleShape), contentAlignment = Alignment.Center) {
+            Icon(lifeGroupIcon(name), contentDescription = null, tint = Moss, modifier = Modifier.size(22.dp))
+        }
+        Text(friendlyTaxon(name), style = MaterialTheme.typography.bodyLarge, color = Ink, modifier = Modifier.weight(1f).padding(start = 12.dp))
+        Text(count.toString(), style = MaterialTheme.typography.titleMedium, color = Fern)
+        Icon(
+            Icons.Rounded.KeyboardArrowDown,
+            contentDescription = if (expanded) "Collapse" else "Expand",
+            tint = InkMuted,
+            modifier = Modifier.padding(start = 6.dp).rotate(if (expanded) 180f else 0f),
+        )
+    }
 }
 
 @Composable
@@ -259,11 +431,67 @@ internal fun HikeComparisonScreen(
                     modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
                 )
             }
+            if (comparison.weatherA != null || comparison.weatherB != null) {
+                item {
+                    FieldSection("CONDITIONS", "Historical weather summarized over each recorded hike interval.") {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                            ComparisonWeatherColumn(
+                                label = comparison.hikeA.hikeDate,
+                                weather = comparison.weatherA,
+                                modifier = Modifier.weight(1f),
+                            )
+                            ComparisonWeatherColumn(
+                                label = comparison.hikeB.hikeDate,
+                                weather = comparison.weatherB,
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                        Text(
+                            "Open-Meteo weather data · CC BY 4.0",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = InkMuted,
+                            modifier = Modifier.padding(top = 14.dp),
+                        )
+                    }
+                }
+            }
             item { SpeciesDifference("RECORDED ON BOTH", comparison.shared) }
             item { SpeciesDifference("ONLY ON ${comparison.hikeA.hikeDate}", comparison.onlyA) }
             item { SpeciesDifference("ONLY ON ${comparison.hikeB.hikeDate}", comparison.onlyB) }
             item { Spacer(Modifier.height(60.dp)) }
         }
+    }
+}
+
+@Composable
+private fun ComparisonWeatherColumn(label: String, weather: WeatherSnapshot?, modifier: Modifier = Modifier) {
+    Column(modifier) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Rounded.Cloud, contentDescription = null, tint = Trail, modifier = Modifier.size(20.dp))
+            Text(label, style = MaterialTheme.typography.labelSmall, color = TrailText, modifier = Modifier.padding(start = 6.dp))
+        }
+        if (weather == null) {
+            Text("Not enriched", style = MaterialTheme.typography.bodyMedium, color = InkMuted, modifier = Modifier.padding(top = 8.dp))
+        } else {
+            Text(weatherTemperature(weather), style = MaterialTheme.typography.titleLarge, color = Ink, modifier = Modifier.padding(top = 7.dp))
+            Text(weather.conditionLabel, style = MaterialTheme.typography.bodyMedium, color = Fern)
+            weather.precipitationTotalMm?.let {
+                Text("${String.format(Locale.US, "%.2f", it / 25.4)} in rain", style = MaterialTheme.typography.bodySmall, color = InkMuted)
+            }
+            weather.relativeHumidityMeanPercent?.let {
+                Text("${it.roundToInt()}% avg humidity", style = MaterialTheme.typography.bodySmall, color = InkMuted)
+            }
+        }
+    }
+}
+
+private fun weatherTemperature(weather: WeatherSnapshot): String {
+    fun fahrenheit(value: Double): Int = (value * 9 / 5 + 32).roundToInt()
+    return when {
+        weather.temperatureMinC != null && weather.temperatureMaxC != null ->
+            "${fahrenheit(weather.temperatureMinC)}–${fahrenheit(weather.temperatureMaxC)}°F"
+        weather.temperatureMeanC != null -> "${fahrenheit(weather.temperatureMeanC)}°F"
+        else -> "Temperature unavailable"
     }
 }
 
@@ -372,5 +600,20 @@ private fun friendlyTaxon(value: String): String = when (value.lowercase(Locale.
     "mammalia" -> "Mammals"
     "fungi" -> "Fungi"
     "insecta" -> "Insects"
+    "arachnida" -> "Arachnids"
+    "reptilia" -> "Reptiles"
+    "amphibia" -> "Amphibians"
+    "actinopterygii" -> "Fish"
+    "mollusca" -> "Mollusks"
+    "animalia" -> "Other animals"
     else -> value.ifBlank { "Other" }
+}
+
+private fun lifeGroupIcon(value: String): ImageVector = when (value.lowercase(Locale.US)) {
+    "plantae" -> Icons.Rounded.LocalFlorist
+    "aves" -> Icons.Rounded.FlutterDash
+    "mammalia", "reptilia", "amphibia", "actinopterygii", "mollusca", "animalia" -> Icons.Rounded.Pets
+    "fungi" -> Icons.Rounded.Park
+    "insecta", "arachnida" -> Icons.Rounded.BugReport
+    else -> Icons.Rounded.Explore
 }

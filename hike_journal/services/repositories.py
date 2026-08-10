@@ -1180,6 +1180,21 @@ class HikeJournalRepository:
         rows = response.data or []
         return rows[0] if rows else None
 
+    def upsert_hike_weather_snapshot(self, payload: dict[str, Any]) -> dict[str, Any]:
+        try:
+            response = self.client.table("hike_weather_snapshots").upsert(
+                payload,
+                on_conflict="hike_id,provider,algorithm_version",
+            ).execute()
+        except Exception as exc:
+            raise RuntimeError(
+                "Weather history needs sql/longitudinal_intelligence_migration.sql before it can be saved."
+            ) from exc
+        rows = response.data or []
+        if not rows:
+            raise RuntimeError("The weather summary could not be saved.")
+        return rows[0]
+
     def list_species_log_photo_preferences(self, observation_ids: list[str]) -> list[dict[str, Any]]:
         normalized_ids = [str(observation_id) for observation_id in observation_ids if str(observation_id).strip()]
         if not normalized_ids:

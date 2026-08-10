@@ -37,6 +37,10 @@ deployable from a GitHub connection in Cloud Run:
    storage settings (`STORAGE_BACKEND` and either the R2 or Supabase values),
    `SPECIES_DISCOVERY_ENABLED=true`, and
    `INAT_DISCOVERY_BASE_URL=https://api.inaturalist.org/v2`.
+   Historical weather is enabled by default through Open-Meteo's free
+   non-commercial endpoint. Set `WEATHER_ENRICHMENT_ENABLED=false` to disable
+   it, or configure `OPEN_METEO_FORECAST_URL`, `OPEN_METEO_ARCHIVE_URL`, and
+   `OPEN_METEO_API_KEY` for a paid/customer-compatible endpoint.
    `INAT_ACCESS_TOKEN` is only needed if iNaturalist publishing is enabled; the
    Nearby species list itself uses public iNaturalist data. To allow
    Android to connect iNaturalist itself, also add `INAT_OAUTH_CLIENT_ID`,

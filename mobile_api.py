@@ -88,6 +88,11 @@ from hike_journal.services.repositories import HikeJournalRepository
 from hike_journal.services.discovery import SpeciesDiscoveryService
 from hike_journal.services.storage import StorageService
 from hike_journal.services.taxonomy import ensure_observation_taxonomy
+from hike_journal.services.weather import (
+    OpenMeteoWeatherProvider,
+    WeatherProviderError,
+    enrich_hike_weather,
+)
 
 
 MAX_UPLOAD_BYTES = 30 * 1024 * 1024
@@ -1028,6 +1033,41 @@ def _weather_payload(repository: HikeJournalRepository, hike_id: str) -> dict[st
     return getter(hike_id) if getter else None
 
 
+def _primary_hike_location(
+    repository: HikeJournalRepository,
+    hike: dict[str, Any],
+) -> dict[str, Any] | None:
+    tags = hike.get("location_tags") or []
+    primary = next((tag for tag in tags if tag.get("is_primary")), tags[0] if tags else None)
+    location_id = str((primary or {}).get("id") or "")
+    return repository.get_hike_location(location_id) if location_id else None
+
+
+def _enrich_weather_for_hike(
+    svc: Services,
+    hike: dict[str, Any],
+    *,
+    force: bool = False,
+) -> dict[str, Any]:
+    if not settings.weather_enrichment_enabled:
+        raise WeatherProviderError("Weather enrichment is disabled on the companion service.")
+    hike_id = str(hike.get("id") or "")
+    provider = OpenMeteoWeatherProvider(
+        forecast_url=settings.open_meteo_forecast_url,
+        archive_url=settings.open_meteo_archive_url,
+        api_key=settings.open_meteo_api_key,
+        timeout_seconds=settings.weather_request_timeout_seconds,
+    )
+    return enrich_hike_weather(
+        repository=svc.repository,
+        hike=hike,
+        route_import=svc.repository.get_hike_route_import(hike_id),
+        location=_primary_hike_location(svc.repository, hike),
+        provider=provider,
+        force=force,
+    )
+
+
 def _normalize_client_uuid(value: str | None, *, field_name: str) -> str | None:
     if not value:
         return None
@@ -1230,6 +1270,9 @@ def _dated_visible_observations(svc: Services) -> list[dict[str, Any]]:
             ),
             "hike_date": str(
                 hikes_by_id.get(str(observation.get("hike_id") or ""), {}).get("hike_date") or ""
+            ),
+            "reference_photo_url": str(
+                photos_by_id.get(str(observation.get("photo_id") or ""), {}).get("public_url") or ""
             ),
         }
         for observation in observations
@@ -2059,14 +2102,21 @@ def _analytics_hikes(svc: Services) -> list[dict[str, Any]]:
         for item in svc.repository.list_hike_route_imports()
         if item.get("hike_id")
     }
-    return [
-        {
-            **hike,
-            "duration_seconds": route_by_hike.get(str(hike.get("id") or ""), {}).get("duration_seconds"),
-        }
-        for hike in _visible_hikes(svc.repository)
-        if not hike.get("is_archived")
-    ]
+    results = []
+    for hike in _visible_hikes(svc.repository):
+        if hike.get("is_archived"):
+            continue
+        hike_id = str(hike.get("id") or "")
+        photos = svc.repository.list_photos(hike_id)
+        cover_url = _hike_payload(hike, photos=photos).get("cover_url")
+        results.append(
+            {
+                **hike,
+                "duration_seconds": route_by_hike.get(hike_id, {}).get("duration_seconds"),
+                "cover_url": str(cover_url or ""),
+            }
+        )
+    return results
 
 
 @app.get("/v1/places/{location_id}/profile", dependencies=[Depends(require_mobile_key)])
@@ -3761,7 +3811,7 @@ async def upload_hike_route(
 ) -> dict[str, Any]:
     """Save a TCX track for a hike so the native map can render its route."""
     svc = get_services()
-    _get_visible_hike(svc.repository, hike_id)
+    hike = _get_visible_hike(svc.repository, hike_id)
     filename = (file.filename or "route.tcx").strip() or "route.tcx"
     if not filename.lower().endswith((".tcx", ".tcx.txt", ".xml")):
         raise HTTPException(status_code=400, detail="Choose a TCX file.")
@@ -3780,10 +3830,31 @@ async def upload_hike_route(
     )
     if error:
         raise HTTPException(status_code=400, detail=error)
+    try:
+        await asyncio.to_thread(_enrich_weather_for_hike, svc, hike)
+    except Exception as exc:
+        # Route persistence is the completion boundary. Weather is best-effort
+        # enrichment and can always be retried from the Journal.
+        logger.info("weather_enrichment hike_id=%s deferred=%s", hike_id, exc)
     return {
         "route_segments": route_import_to_route_groups(route_import),
         "track_point_count": (route_import or {}).get("track_point_count", 0),
     }
+
+
+@app.post("/v1/hikes/{hike_id}/weather", dependencies=[Depends(require_mobile_key)])
+async def enrich_hike_weather_endpoint(
+    hike_id: str,
+    force: bool = Query(default=False),
+) -> dict[str, Any]:
+    svc = get_services()
+    hike = _get_visible_hike(svc.repository, hike_id)
+    try:
+        return await asyncio.to_thread(_enrich_weather_for_hike, svc, hike, force=force)
+    except WeatherProviderError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @app.put("/v1/hikes/{hike_id}/archive", dependencies=[Depends(require_mobile_key)])

@@ -15,7 +15,9 @@ import com.hikejournal.app.data.MediaLocationSummary
 import com.hikejournal.app.data.BadgeMetric
 import com.hikejournal.app.data.CompanionConfig
 import com.hikejournal.app.data.DiscoveryArea
+import com.hikejournal.app.data.DiscoveryProgress
 import com.hikejournal.app.data.DiscoveryTaxon
+import com.hikejournal.app.data.BriefingItem
 import com.hikejournal.app.data.FieldQuest
 import com.hikejournal.app.data.FieldBriefing
 import com.hikejournal.app.data.FieldMark
@@ -108,6 +110,7 @@ data class AppState(
     val reviewUpdateId: String? = null,
     val speciesAssignmentId: String? = null,
     val coverUpdateId: String? = null,
+    val weatherUpdateId: String? = null,
     val deletingHikeId: String? = null,
     val isPublishLoading: Boolean = false,
     val publishingId: String? = null,
@@ -636,6 +639,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                             it
                         }
                     }
+                    if (!result.fromCache && result.value.weather == null && result.value.routeSegments.isNotEmpty()) {
+                        enrichHikeWeather(hikeId)
+                    }
                 }
                 .onFailure { error ->
                     _state.update {
@@ -656,6 +662,34 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun closeJournal() {
         _state.update { it.copy(journal = null, openingHikeId = null, error = null) }
         refreshLibrary()
+    }
+
+    fun enrichHikeWeather(hikeId: String, force: Boolean = false) {
+        if (_state.value.weatherUpdateId == hikeId) return
+        if (_state.value.isOffline) {
+            _state.update { it.copy(notice = "Weather enrichment needs a connection.") }
+            return
+        }
+        viewModelScope.launch {
+            _state.update { it.copy(weatherUpdateId = hikeId, notice = null) }
+            runCatching { repository.enrichHikeWeather(hikeId, force) }
+                .onSuccess { weather ->
+                    _state.update { current ->
+                        current.copy(
+                            journal = current.journal?.let { hike ->
+                                if (hike.id == hikeId) hike.copy(weather = weather) else hike
+                            },
+                            weatherUpdateId = null,
+                            notice = "Historical conditions added from Open-Meteo.",
+                        )
+                    }
+                }
+                .onFailure { error ->
+                    _state.update {
+                        it.copy(weatherUpdateId = null, notice = error.userMessage())
+                    }
+                }
+        }
     }
 
     fun loadSpecies(force: Boolean = false) {
@@ -1554,6 +1588,47 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun closeFieldBriefing() {
         _state.update { it.copy(fieldBriefing = null) }
+    }
+
+    fun openBriefingSightingsMap(item: BriefingItem) {
+        val briefing = _state.value.fieldBriefing ?: return
+        val taxonId = item.taxonId ?: return
+        val nearby = NearbySpecies(
+            areaId = briefing.areaId,
+            areaName = briefing.areaName,
+            latitude = briefing.latitude,
+            longitude = briefing.longitude,
+            radiusKm = briefing.radiusKm,
+            targetDate = briefing.targetDate,
+            periodLabel = briefing.periodLabel,
+            iconicTaxon = null,
+            resultLimit = 50,
+            dataDensity = "",
+            dataDensityMessage = "",
+            sourceGuidance = "Reporting frequency is not a probability of encounter.",
+            fromCache = false,
+            progress = DiscoveryProgress(0, 0, 0),
+            taxa = emptyList(),
+        )
+        val taxon = DiscoveryTaxon(
+            taxonId = taxonId,
+            commonName = item.commonName,
+            scientificName = item.scientificName,
+            iconicTaxonName = item.iconicTaxonName,
+            observationCount = 0,
+            nearbyRank = 0,
+            frequencyBand = "",
+            referencePhoto = null,
+            collected = false,
+            collectedAt = null,
+            collectionPhotoUrl = null,
+            wikipediaUrl = "",
+            wikipediaSummary = "",
+            matchReason = item.reasons.firstOrNull().orEmpty(),
+            focusOrder = null,
+            pendingCredit = false,
+        )
+        openNearbySightingsMap(nearby, taxon)
     }
 
     fun openHikeComparison(hikeId: String, otherHikeId: String) {
