@@ -384,9 +384,20 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 current.copy(
                     isBatchIdentifying = false,
                     batchProgress = terminalStatus.copy(state = "failed"),
+                    isReviewLoading = true,
                     error = terminalStatus.error
                         ?: "The species review batch could not complete. Refresh the review queue to see any IDs that were saved.",
                 )
+            }
+            viewModelScope.launch {
+                val reviewResult = runCatching { repository.loadReviewQueue() }.getOrNull()
+                _state.update { current ->
+                    current.copy(
+                        reviewQueue = reviewResult?.value ?: current.reviewQueue,
+                        isReviewLoading = false,
+                        isOffline = reviewResult?.fromCache ?: current.isOffline,
+                    )
+                }
             }
         }
     }

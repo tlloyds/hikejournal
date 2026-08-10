@@ -1,6 +1,8 @@
 package com.hikejournal.app.ui
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ReviewNavigationTest {
@@ -10,5 +12,12 @@ class ReviewNavigationTest {
         assertEquals(ReviewBackAction.CloseBatch, reviewBackAction(batchMode = true, batchIdentifying = false, index = 4))
         assertEquals(ReviewBackAction.PreviousPhoto, reviewBackAction(batchMode = false, batchIdentifying = false, index = 4))
         assertEquals(ReviewBackAction.LeaveReview, reviewBackAction(batchMode = false, batchIdentifying = false, index = 0))
+    }
+
+    @Test
+    fun `only a completed batch closes automatically`() {
+        assertTrue(shouldAutoCloseReviewBatch(batchIdentifying = false, state = "completed"))
+        assertFalse(shouldAutoCloseReviewBatch(batchIdentifying = false, state = "failed"))
+        assertFalse(shouldAutoCloseReviewBatch(batchIdentifying = true, state = "completed"))
     }
 }

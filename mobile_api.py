@@ -739,6 +739,23 @@ def _resume_mobile_job(record: MobileJobRecord) -> None:
         logger.warning("Stopped stale worker for mobile job %s", record.job_id)
     except Exception as error:
         logger.exception("Could not recover durable mobile job %s", record.job_id)
+        current_record = _mobile_job_store().get(record.job_id)
+        if current_record and current_record.job_type == SPECIES_REVIEW_JOB_TYPE:
+            retry_delay = _species_review_retry_delay(
+                error,
+                attempt_count=current_record.attempt_count,
+            )
+            if retry_delay is not None and current_record.attempt_count < current_record.max_attempts:
+                retryable = _mobile_job_store().mark_retryable(
+                    record.job_id,
+                    error=_species_review_error_message(error, retrying=True),
+                    retry_after_seconds=retry_delay,
+                    expected_lease_owner=_current_mobile_job_lease_owner(),
+                )
+                if retryable:
+                    _clear_mobile_job_lease_owner()
+                    _cache_mobile_job(retryable)
+                    return
         if not _current_mobile_job_lease_owner():
             # Preparation can fail before the normal worker claims the row.
             # Atomically claim it now; if another worker already did, leave
@@ -757,10 +774,15 @@ def _resume_mobile_job(record: MobileJobRecord) -> None:
                 return
             _mobile_job_worker.lease_owner = failure_owner
         try:
+            terminal_error = (
+                _species_review_error_message(error, retrying=False)
+                if record.job_type == SPECIES_REVIEW_JOB_TYPE
+                else str(error) or "HikeJournal could not recover this background job."
+            )
             _persist_mobile_job_update(
                 record.job_id,
                 state="failed",
-                error=str(error) or "HikeJournal could not recover this background job.",
+                error=terminal_error,
             )
         except MobileJobLeaseLost:
             logger.warning(
@@ -2681,7 +2703,77 @@ def _species_review_retry_delay(error: Exception, *, attempt_count: int) -> int 
         return 300
     if isinstance(error, InatRequestError):
         return min(30 * (2 ** max(0, attempt_count - 1)), 300)
+    if isinstance(error, HTTPException):
+        if error.status_code == 429:
+            return 60
+        if error.status_code in {408, 425} or error.status_code >= 500:
+            return min(30 * (2 ** max(0, attempt_count - 1)), 300)
+    if _is_transient_transport_error(error):
+        return min(15 * (2 ** max(0, attempt_count - 1)), 300)
     return None
+
+
+def _exception_chain(error: BaseException):
+    seen: set[int] = set()
+    current: BaseException | None = error
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        yield current
+        current = current.__cause__ or current.__context__
+
+
+def _is_transient_transport_error(error: BaseException) -> bool:
+    transient_modules = ("requests", "urllib3", "httpx", "httpcore", "h2")
+    transient_names = {
+        "ConnectionError",
+        "ConnectError",
+        "ConnectTimeout",
+        "ConnectionTerminated",
+        "ProtocolError",
+        "ReadError",
+        "ReadTimeout",
+        "RemoteProtocolError",
+        "SSLError",
+        "Timeout",
+    }
+    message_markers = (
+        "connection reset",
+        "connection terminated",
+        "connectionterminated",
+        "max retries exceeded",
+        "remote protocol error",
+        "server disconnected",
+        "temporarily unavailable",
+        "unexpected eof",
+        "unexpected_eof",
+    )
+    for cause in _exception_chain(error):
+        module_name = cause.__class__.__module__.lower()
+        class_name = cause.__class__.__name__
+        message = str(cause).lower()
+        if class_name in transient_names and module_name.startswith(transient_modules):
+            return True
+        if any(marker in message for marker in message_markers):
+            return True
+    return False
+
+
+def _species_review_error_message(error: Exception, *, retrying: bool) -> str:
+    if isinstance(error, InatRequestError):
+        return str(error)
+    if isinstance(error, HTTPException):
+        if error.status_code in {408, 425, 429} or error.status_code >= 500:
+            if retrying:
+                return "The connection was interrupted. HikeJournal is retrying this batch automatically."
+            return "The connection was interrupted repeatedly. Refresh and retry the remaining photos."
+        return str(error.detail)
+    if _is_transient_transport_error(error):
+        if retrying:
+            return "The connection was interrupted. HikeJournal is retrying this batch automatically."
+        return "The connection was interrupted repeatedly. Refresh and retry the remaining photos."
+    if isinstance(error, (InatAuthError, InatConfigurationError)):
+        return str(error)
+    return "Species identification could not complete. Refresh and retry the remaining photos."
 
 
 def _review_batch_job_payload(job: dict[str, Any]) -> dict[str, Any]:
@@ -2801,7 +2893,7 @@ def _run_species_batch_job(
         if record and retry_delay is not None and record.attempt_count < record.max_attempts:
             retryable = _mobile_job_store().mark_retryable(
                 job_id,
-                error=str(error),
+                error=_species_review_error_message(error, retrying=True),
                 retry_after_seconds=retry_delay,
                 expected_lease_owner=_current_mobile_job_lease_owner(),
             )
@@ -2824,7 +2916,7 @@ def _run_species_batch_job(
         _update_review_batch_job(
             job_id,
             state="failed",
-            error=str(error),
+            error=_species_review_error_message(error, retrying=False),
             current_photo_id=None,
             items=[item for item in refreshed_queue if str(item.get("id") or "") in processed_set],
         )

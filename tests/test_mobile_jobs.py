@@ -585,6 +585,20 @@ def test_transient_review_failure_uses_durable_backoff_and_stays_pollable(
     assert retryable.next_attempt_at == now + timedelta(seconds=30)
 
 
+def test_raw_http2_disconnect_is_retryable_and_has_safe_user_message() -> None:
+    class ConnectionTerminated(Exception):
+        pass
+
+    ConnectionTerminated.__module__ = "h2.exceptions"
+    error = ConnectionTerminated("<ConnectionTerminated error_code:1, last_stream_id:167>")
+
+    assert mobile_api._species_review_retry_delay(error, attempt_count=1) == 15
+    assert mobile_api._species_review_error_message(error, retrying=True) == (
+        "The connection was interrupted. HikeJournal is retrying this batch automatically."
+    )
+    assert "last_stream_id" not in mobile_api._species_review_error_message(error, retrying=True)
+
+
 def test_job_metrics_distinguish_retry_wait_from_needs_attention(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -761,6 +775,37 @@ def test_recovery_claims_lease_before_any_resume_work(
 
     assert len(observed) == 1
     assert observed[0].attempt_count == 1
+
+
+def test_recovery_preparation_disconnect_returns_review_job_to_retry_queue(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    now = datetime(2026, 8, 7, 12, 0, tzinfo=UTC)
+    monkeypatch.setattr(mobile_jobs, "utc_now", lambda: now)
+    store = InMemoryMobileJobStore()
+    record, _ = create_job(store, request_id="recovery-transport-retry")
+    monkeypatch.setattr(mobile_api, "services", None)
+    monkeypatch.setattr(mobile_api, "_local_mobile_job_store", store)
+    monkeypatch.setattr(mobile_api, "_mobile_jobs_dispatching", {record.job_id})
+    monkeypatch.setattr(
+        mobile_api,
+        "_resume_species_review_job",
+        lambda _record, **_kwargs: (_ for _ in ()).throw(
+            HTTPException(status_code=502, detail="The connection to iNaturalist was interrupted.")
+        ),
+    )
+
+    mobile_api._resume_mobile_job(record)
+    retryable = store.get(record.job_id)
+
+    assert retryable is not None
+    assert retryable.state == "failed"
+    assert retryable.payload["state"] == "queued"
+    assert retryable.payload["error"] == (
+        "The connection was interrupted. HikeJournal is retrying this batch automatically."
+    )
+    assert retryable.next_attempt_at == now + timedelta(seconds=30)
+    assert record.job_id not in mobile_api._mobile_jobs_dispatching
 
 
 def test_dispatch_rolls_back_slot_when_thread_start_fails(

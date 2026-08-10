@@ -2,15 +2,104 @@ from datetime import UTC, datetime, timedelta
 import base64
 import json
 
+import pytest
+
 from hike_journal.services import inat
 from hike_journal.services.inat import (
     InatClient,
+    InatRequestError,
     build_observation_sync_candidate,
     extract_observation_taxon_snapshot,
     extract_taxon_enrichment,
     parse_candidate,
     resolve_access_token_for_user,
 )
+
+
+def test_get_retries_temporary_transport_failures(monkeypatch) -> None:
+    attempts = []
+
+    class Response:
+        status_code = 200
+
+    def fake_request(*_args, **_kwargs):
+        attempts.append(1)
+        if len(attempts) < 3:
+            raise inat.requests.ConnectionError("server disconnected")
+        return Response()
+
+    monkeypatch.setattr(inat.requests, "request", fake_request)
+    monkeypatch.setattr(inat.time, "sleep", lambda *_args: None)
+    client = InatClient(access_token="token", base_url="https://api.example/v1")
+    client.request_interval_seconds = 0
+
+    response = client._request("get", "https://api.example/v1/taxa/1")
+
+    assert response.status_code == 200
+    assert len(attempts) == 3
+
+
+def test_post_does_not_retry_unless_call_is_explicitly_safe(monkeypatch) -> None:
+    attempts = []
+
+    def fake_request(*_args, **_kwargs):
+        attempts.append(1)
+        raise inat.requests.ConnectionError("server disconnected")
+
+    monkeypatch.setattr(inat.requests, "request", fake_request)
+    monkeypatch.setattr(inat.time, "sleep", lambda *_args: None)
+    client = InatClient(access_token="token", base_url="https://api.example/v1")
+    client.request_interval_seconds = 0
+
+    with pytest.raises(InatRequestError, match="connection to iNaturalist was interrupted"):
+        client._request("post", "https://api.example/v1/observations")
+
+    assert len(attempts) == 1
+
+
+def test_computer_vision_post_retries_temporary_transport_failure(monkeypatch) -> None:
+    attempts = []
+
+    class Response:
+        status_code = 200
+        text = ""
+
+        @staticmethod
+        def json():
+            return {
+                "results": [
+                    {
+                        "score": 0.9,
+                        "taxon": {
+                            "id": 1,
+                            "name": "Quercus virginiana",
+                            "preferred_common_name": "Live Oak",
+                        },
+                    }
+                ]
+            }
+
+    def fake_request(*_args, **_kwargs):
+        attempts.append(1)
+        if len(attempts) == 1:
+            raise inat.requests.ConnectionError("server disconnected")
+        return Response()
+
+    monkeypatch.setattr(inat.requests, "request", fake_request)
+    monkeypatch.setattr(inat.time, "sleep", lambda *_args: None)
+    client = InatClient(access_token="token", base_url="https://api.example/v1")
+    client.cv_request_interval_seconds = 0
+
+    candidates, _payload = client.score_species_candidates(
+        image_bytes=b"image",
+        filename="photo.jpg",
+        lat=None,
+        lng=None,
+        observed_on=None,
+    )
+
+    assert candidates[0].taxon_id == 1
+    assert len(attempts) == 2
 
 
 def test_parse_candidate_prefers_highest_score() -> None:

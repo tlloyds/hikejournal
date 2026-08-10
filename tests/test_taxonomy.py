@@ -1,3 +1,4 @@
+from hike_journal.services.inat import InatRequestError
 from hike_journal.services.taxonomy import (
     ensure_observation_taxonomy,
     preferred_current_enrichment,
@@ -176,3 +177,22 @@ def test_ensure_taxonomy_uses_wikipedia_when_inaturalist_has_no_summary(monkeypa
 
     assert ensure_observation_taxonomy(repository, Client(), observation)
     assert repository.raw_payload["taxon_enrichment"]["wikipedia_summary"] == "A tree squirrel."
+
+
+def test_ensure_taxonomy_treats_transport_failure_as_optional_enrichment() -> None:
+    class Repository:
+        def update_observation_taxon_resolution(self, *_args, **_kwargs):
+            raise AssertionError("taxonomy should not be updated after a failed lookup")
+
+    class Client:
+        def fetch_taxon_enrichment(self, _taxon_id):
+            raise InatRequestError("The connection to iNaturalist was interrupted. Please try again.")
+
+    observation = {
+        "id": "observation-1",
+        "taxon_id": 47126,
+        "scientific_name": "Sciurus carolinensis",
+        "common_name": "Eastern gray squirrel",
+    }
+
+    assert ensure_observation_taxonomy(Repository(), Client(), observation) is False

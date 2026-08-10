@@ -106,7 +106,7 @@ fun SpeciesReviewScreen(
         if (queue.isEmpty()) index = 0 else index = index.coerceIn(0, queue.lastIndex)
     }
     LaunchedEffect(batchProgress?.jobId, batchProgress?.state, batchIdentifying) {
-        if (!batchIdentifying && batchProgress?.state in setOf("completed", "failed")) {
+        if (shouldAutoCloseReviewBatch(batchIdentifying, batchProgress?.state)) {
             onBatchFinished()
             batchMode = false
         }
@@ -118,7 +118,10 @@ fun SpeciesReviewScreen(
     BackHandler {
         when (reviewBackAction(batchMode, batchIdentifying, index)) {
             ReviewBackAction.Wait -> Unit
-            ReviewBackAction.CloseBatch -> batchMode = false
+            ReviewBackAction.CloseBatch -> {
+                if (batchProgress?.state == "failed") onBatchFinished()
+                batchMode = false
+            }
             ReviewBackAction.PreviousPhoto -> index -= 1
             ReviewBackAction.LeaveReview -> onNavigateBack()
         }
@@ -172,9 +175,15 @@ fun SpeciesReviewScreen(
             batchMode -> SpeciesBatchIdentificationContent(
                 queue = waitingItems,
                 submitting = batchIdentifying,
+                refreshing = loading,
                 progress = batchProgress,
                 offline = offline,
-                onBack = { if (!batchIdentifying) batchMode = false },
+                onBack = {
+                    if (!batchIdentifying) {
+                        if (batchProgress?.state == "failed") onBatchFinished()
+                        batchMode = false
+                    }
+                },
                 onSubmit = onSubmitBatch,
             )
             loading && queue.isEmpty() -> ReviewLoading()
@@ -234,6 +243,7 @@ fun SpeciesReviewScreen(
 private fun SpeciesBatchIdentificationContent(
     queue: List<ReviewItem>,
     submitting: Boolean,
+    refreshing: Boolean,
     progress: ReviewBatchStatus?,
     offline: Boolean,
     onBack: () -> Unit,
@@ -260,7 +270,7 @@ private fun SpeciesBatchIdentificationContent(
         item {
             Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 20.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(onClick = onBack, enabled = !submitting) { Text("Back") }
+                    TextButton(onClick = onBack, enabled = !submitting && !refreshing) { Text("Back") }
                     Spacer(Modifier.width(4.dp))
                     Text("Plan batch IDs", style = MaterialTheme.typography.headlineMedium, color = Ink)
                 }
@@ -276,7 +286,7 @@ private fun SpeciesBatchIdentificationContent(
                 ) {
                     OutlinedButton(
                         onClick = { selectedIds = queue.map { it.id }.toSet() },
-                        enabled = !submitting && selectedIds.size != queue.size,
+                        enabled = !submitting && !refreshing && selectedIds.size != queue.size,
                         modifier = Modifier.weight(1f),
                     ) { Text("Select waiting") }
                     OutlinedButton(
@@ -284,7 +294,7 @@ private fun SpeciesBatchIdentificationContent(
                             selectedIds = emptySet()
                             separatePhotoIds = emptySet()
                         },
-                        enabled = !submitting && selectedIds.isNotEmpty(),
+                        enabled = !submitting && !refreshing && selectedIds.isNotEmpty(),
                         modifier = Modifier.weight(1f),
                     ) { Text("Clear") }
                 }
@@ -345,7 +355,7 @@ private fun SpeciesBatchIdentificationContent(
                     group = group,
                     selectedIds = selectedIds,
                     separatePhotoIds = separatePhotoIds,
-                    enabled = !submitting,
+                    enabled = !submitting && !refreshing,
                     onSelectedChange = { photoId, selected ->
                         selectedIds = if (selected) selectedIds + photoId else selectedIds - photoId
                         separatePhotoIds = separatePhotoIds - photoId
@@ -365,13 +375,19 @@ private fun SpeciesBatchIdentificationContent(
                 )
                 Button(
                     onClick = { onSubmit(plannedGroups.map { it.photoIds }) },
-                    enabled = plannedGroups.isNotEmpty() && !submitting && !offline,
+                    enabled = plannedGroups.isNotEmpty() && !submitting && !refreshing && !offline,
                     modifier = Modifier.fillMaxWidth().padding(top = 14.dp).height(52.dp),
                 ) {
-                    if (submitting) CircularProgressIndicator(Modifier.size(19.dp), color = Paper, strokeWidth = 2.dp)
+                    if (submitting || refreshing) CircularProgressIndicator(Modifier.size(19.dp), color = Paper, strokeWidth = 2.dp)
                     else Icon(Icons.Rounded.Refresh, null)
                     Spacer(Modifier.width(8.dp))
-                    Text(if (submitting) "Submitting ID requests…" else "Submit ${plannedGroups.size} ID request${if (plannedGroups.size == 1) "" else "s"}")
+                    Text(
+                        when {
+                            submitting -> "Submitting ID requests…"
+                            refreshing -> "Refreshing remaining photos…"
+                            else -> "Submit ${plannedGroups.size} ID request${if (plannedGroups.size == 1) "" else "s"}"
+                        },
+                    )
                 }
             }
         }
@@ -614,6 +630,9 @@ internal fun reviewBackAction(
     index > 0 -> ReviewBackAction.PreviousPhoto
     else -> ReviewBackAction.LeaveReview
 }
+
+internal fun shouldAutoCloseReviewBatch(batchIdentifying: Boolean, state: String?): Boolean =
+    !batchIdentifying && state == "completed"
 
 internal fun reviewPhotoIsSynced(item: ReviewItem): Boolean =
     item.photo.syncState == "synced" && !item.photo.url.startsWith("file:")
