@@ -9,7 +9,7 @@ This roadmap is the practical bridge between "great home-built app" and "stable,
 - Refactor along real seams, not theoretical purity.
 - Keep HikeJournal centered on the archive -> review -> field guide loop.
 
-## Shipped longitudinal layer (v0.7.1)
+## Shipped longitudinal layer (v0.7.2)
 
 Photo-led Place Profiles with life-group drill-downs, personal seasonal history,
 Field Briefing with public-sightings maps, offline Field Marks, hike comparison,
@@ -17,6 +17,8 @@ historical Open-Meteo enrichment, and observation confidence/provenance/history
 now share one longitudinal domain layer across Android, the mobile API, and web.
 Voice notes and geospatial route-overlap scoring remain future work; see
 `docs/longitudinal-intelligence.md` for the exact boundary.
+The v0.7.2 patch fixes Android's bodyless weather-enrichment request so the
+Journal Add Weather action reaches the companion instead of failing locally.
 
 ## Phase 1: Flagship Archive
 

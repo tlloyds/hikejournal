@@ -7,11 +7,13 @@ import android.provider.OpenableColumns
 import com.hikejournal.app.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.MediaType
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
@@ -20,6 +22,9 @@ import java.net.URI
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.TimeUnit
+
+internal fun postBodyOrEmpty(body: RequestBody?, jsonMediaType: MediaType): RequestBody =
+    body ?: "{}".toRequestBody(jsonMediaType)
 
 class HikeJournalApi(private val context: Context) {
     private val connectionPreferences = ConnectionPreferences(context)
@@ -512,14 +517,14 @@ class HikeJournalApi(private val context: Context) {
     private suspend fun request(
         path: String,
         method: String = "GET",
-        body: okhttp3.RequestBody? = null,
+        body: RequestBody? = null,
     ): String = withContext(Dispatchers.IO) {
         val builder = Request.Builder()
             .url("${serverUrl}$path")
             .header("X-HikeJournal-Key", pairingKey)
             .header("Accept", "application/json")
         when (method) {
-            "POST" -> builder.post(requireNotNull(body))
+            "POST" -> builder.post(postBodyOrEmpty(body, jsonMediaType))
             "PUT" -> builder.put(requireNotNull(body))
             "PATCH" -> builder.patch(requireNotNull(body))
             "DELETE" -> builder.delete(body)
