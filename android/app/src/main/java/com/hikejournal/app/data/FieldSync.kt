@@ -108,13 +108,25 @@ internal fun selectNextSyncOperation(
     val pendingCreateHikeIds = operations
         .filter { it.kind == OperationKind.CreateHike }
         .mapTo(mutableSetOf()) { it.entityId }
+    val pendingPhotoIds = operations
+        .filter { it.kind == OperationKind.UploadPhoto }
+        .mapTo(mutableSetOf()) { it.entityId }
     fun eligible(operation: PendingOperationEntity): Boolean {
         val targetHikeId = operation.targetHikeId()
         val waitingForRecordedHike = operation.kind == OperationKind.CreateFieldMark &&
             runCatching { JSONObject(operation.payloadJson).optBoolean("wait_for_hike_create") }
                 .getOrDefault(false)
+        val waitingForCoverPhoto = operation.kind == OperationKind.SetHikeCover &&
+            runCatching {
+                val payload = JSONObject(operation.payloadJson)
+                payload.optString("photo_id")
+                    .takeUnless { payload.isNull("photo_id") }
+                    ?.let(pendingPhotoIds::contains)
+                    ?: false
+            }.getOrDefault(false)
         return operation.state in setOf("queued", "syncing") &&
             !(waitingForRecordedHike && targetHikeId !in pendingCreateHikeIds) &&
+            !waitingForCoverPhoto &&
             (operation.kind == OperationKind.DeleteHike || targetHikeId !in deletingHikeIds) &&
             (operation.kind in setOf(OperationKind.CreateHike, OperationKind.DeleteHike) || targetHikeId !in pendingCreateHikeIds)
     }
@@ -1477,10 +1489,21 @@ class FieldSyncEngine(private val context: Context) {
                     )
                 }
             }
-            OperationKind.SetHikeCover -> api.setHikeCover(
-                operation.entityId,
-                payload.optString("photo_id").takeUnless { payload.isNull("photo_id") },
-            )
+            OperationKind.SetHikeCover -> {
+                val response = JSONObject(
+                    api.setHikeCover(
+                        operation.entityId,
+                        payload.optString("photo_id").takeUnless { payload.isNull("photo_id") },
+                    ),
+                )
+                cacheHikeCover(
+                    context = context,
+                    hikeId = operation.entityId,
+                    photoId = response.optString("cover_photo_id")
+                        .takeUnless { response.isNull("cover_photo_id") || it.isBlank() },
+                    coverUrl = response.optString("cover_url"),
+                )
+            }
             OperationKind.UploadPhoto -> api.uploadPhotoFile(
                 hikeId = requireNotNull(operation.parentId),
                 photoId = operation.entityId,

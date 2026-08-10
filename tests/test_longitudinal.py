@@ -81,7 +81,17 @@ def test_hike_comparison_uses_species_set_math():
 
 def test_field_briefing_is_deterministic_and_explains_personal_reasons():
     nearby = [
-        {"taxon_id": 2, "common_name": "Return", "nearby_rank": 1},
+        {
+            "taxon_id": 2,
+            "common_name": "Return",
+            "nearby_rank": 1,
+            "frequency_band": "Often reported",
+            "wikipedia_url": "https://en.wikipedia.org/wiki/Return",
+            "wikipedia_summary": "A seasonal species.",
+            "collected": True,
+            "collected_at": "2025-08-12",
+            "collection_photo_url": "https://images.example/return.jpg",
+        },
         {"taxon_id": 1, "common_name": "New", "nearby_rank": 2},
         {"taxon_id": 2, "common_name": "Duplicate", "nearby_rank": 3},
     ]
@@ -98,4 +108,7 @@ def test_field_briefing_is_deterministic_and_explains_personal_reasons():
     assert first["recommendation_count"] == 2
     assert first["sections"][0]["title"] == "Seasonal returns"
     assert "2024, 2025" in first["sections"][0]["items"][0]["reasons"][0]
+    assert first["sections"][0]["items"][0]["frequency_band"] == "Often reported"
+    assert first["sections"][0]["items"][0]["wikipedia_summary"] == "A seasonal species."
+    assert first["sections"][0]["items"][0]["collection_photo_url"].endswith("return.jpg")
     assert any(section["title"] == "Missing from your Field Guide" for section in first["sections"])

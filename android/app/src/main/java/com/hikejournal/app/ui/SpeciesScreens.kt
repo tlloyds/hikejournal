@@ -854,130 +854,20 @@ fun SpeciesIndexScreen(
         )
     }
     previewTaxon?.let { taxon ->
-        val uriHandler = LocalUriHandler.current
         val mapQuest = selectedQuest?.takeIf { quest ->
             mode == SpeciesMode.Quests && quest.taxa.any { it.taxonId == taxon.taxonId }
         }
         val mapNearby = nearbySpecies?.takeIf { nearby ->
             mode == SpeciesMode.Nearby && nearby.taxa.any { it.taxonId == taxon.taxonId }
         }
-        val previewImageUrl = taxon.collectionPhotoUrl
-            .takeIf { taxon.collected && !it.isNullOrBlank() }
-            ?: taxon.referencePhoto?.url.orEmpty()
-        AlertDialog(
-            onDismissRequest = { previewTaxon = null },
-            title = {
-                Column {
-                    Text(
-                        if (taxon.collected && !taxon.collectionPhotoUrl.isNullOrBlank()) {
-                            "YOUR OBSERVATION"
-                        } else {
-                            "REFERENCE SPECIMEN"
-                        },
-                        style = MaterialTheme.typography.labelSmall,
-                        color = TrailText,
-                    )
-                    Text(taxon.commonName, style = MaterialTheme.typography.headlineMedium, color = Ink)
-                    Text(
-                        taxon.scientificName,
-                        style = MaterialTheme.typography.bodyMedium.copy(fontStyle = FontStyle.Italic),
-                        color = InkMuted,
-                    )
-                }
+        DiscoveryTaxonPreviewDialog(
+            taxon = taxon,
+            onMap = when {
+                mapQuest != null -> ({ onOpenQuestMap(mapQuest, taxon) })
+                mapNearby != null -> ({ onOpenNearbyMap(mapNearby, taxon) })
+                else -> null
             },
-            text = {
-                Column(Modifier.verticalScroll(rememberScrollState())) {
-                    AsyncImage(
-                        model = ImageRequest.Builder(LocalContext.current)
-                            .data(previewImageUrl)
-                            .crossfade(true)
-                            .build(),
-                        contentDescription = "${taxon.commonName} in color",
-                        modifier = Modifier.fillMaxWidth().height(320.dp),
-                        contentScale = ContentScale.Crop,
-                    )
-                    if (taxon.collected && !taxon.collectionPhotoUrl.isNullOrBlank()) {
-                        Text(
-                            listOf(
-                                "Your HikeJournal observation",
-                                taxon.collectedAt?.take(10).orEmpty(),
-                            )
-                                .filter { it.isNotBlank() }
-                                .joinToString(" · "),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = InkMuted,
-                            modifier = Modifier.padding(top = 9.dp),
-                        )
-                    } else {
-                        taxon.referencePhoto?.let { photo ->
-                            Text(
-                                listOf(photo.attribution, photo.licenseCode)
-                                    .filter { it.isNotBlank() }
-                                    .joinToString(" · "),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = InkMuted,
-                                modifier = Modifier.padding(top = 9.dp),
-                            )
-                        }
-                    }
-                    Text(
-                        "WHY IT’S HERE",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = TrailText,
-                        modifier = Modifier.padding(top = 18.dp),
-                    )
-                    Text(
-                        taxon.matchReason.ifBlank {
-                            "This species matched both the selected location and seasonal date window."
-                        },
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Ink,
-                        modifier = Modifier.padding(top = 4.dp),
-                    )
-                    if (taxon.wikipediaSummary.isNotBlank()) {
-                        Text(
-                            "FROM WIKIPEDIA",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = TrailText,
-                            modifier = Modifier.padding(top = 18.dp),
-                        )
-                        Text(
-                            taxon.wikipediaSummary,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = Ink,
-                            modifier = Modifier.padding(top = 4.dp),
-                        )
-                    }
-                    if (taxon.wikipediaUrl.isNotBlank()) {
-                        TextButton(
-                            onClick = { uriHandler.openUri(taxon.wikipediaUrl) },
-                            modifier = Modifier.padding(top = 2.dp),
-                        ) {
-                            Text("Read on Wikipedia")
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                Row {
-                    if (mapQuest != null || mapNearby != null) {
-                        Button(
-                            onClick = {
-                                previewTaxon = null
-                                if (mapQuest != null) {
-                                    onOpenQuestMap(mapQuest, taxon)
-                                } else if (mapNearby != null) {
-                                    onOpenNearbyMap(mapNearby, taxon)
-                                }
-                            },
-                        ) {
-                            Text("Map sightings")
-                        }
-                    }
-                    TextButton(onClick = { previewTaxon = null }) { Text("Close") }
-                }
-            },
-            containerColor = Paper,
+            onDismiss = { previewTaxon = null },
         )
     }
     pendingDeleteQuest?.let { quest ->
@@ -1033,6 +923,129 @@ fun SpeciesIndexScreen(
             containerColor = Paper,
         )
     }
+}
+
+@Composable
+internal fun DiscoveryTaxonPreviewDialog(
+    taxon: DiscoveryTaxon,
+    onMap: (() -> Unit)?,
+    onDismiss: () -> Unit,
+) {
+    val uriHandler = LocalUriHandler.current
+    val previewImageUrl = taxon.collectionPhotoUrl
+        .takeIf { taxon.collected && !it.isNullOrBlank() }
+        ?: taxon.referencePhoto?.url.orEmpty()
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column {
+                Text(
+                    if (taxon.collected && !taxon.collectionPhotoUrl.isNullOrBlank()) {
+                        "YOUR OBSERVATION"
+                    } else {
+                        "REFERENCE SPECIMEN"
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = TrailText,
+                )
+                Text(taxon.commonName, style = MaterialTheme.typography.headlineMedium, color = Ink)
+                Text(
+                    taxon.scientificName,
+                    style = MaterialTheme.typography.bodyMedium.copy(fontStyle = FontStyle.Italic),
+                    color = InkMuted,
+                )
+            }
+        },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                AsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(previewImageUrl)
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = "${taxon.commonName} in color",
+                    modifier = Modifier.fillMaxWidth().height(320.dp),
+                    contentScale = ContentScale.Crop,
+                )
+                if (taxon.collected && !taxon.collectionPhotoUrl.isNullOrBlank()) {
+                    Text(
+                        listOf(
+                            "Your HikeJournal observation",
+                            taxon.collectedAt?.take(10).orEmpty(),
+                        )
+                            .filter { it.isNotBlank() }
+                            .joinToString(" · "),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = InkMuted,
+                        modifier = Modifier.padding(top = 9.dp),
+                    )
+                } else {
+                    taxon.referencePhoto?.let { photo ->
+                        Text(
+                            listOf(photo.attribution, photo.licenseCode)
+                                .filter { it.isNotBlank() }
+                                .joinToString(" · "),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = InkMuted,
+                            modifier = Modifier.padding(top = 9.dp),
+                        )
+                    }
+                }
+                Text(
+                    "WHY IT’S HERE",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = TrailText,
+                    modifier = Modifier.padding(top = 18.dp),
+                )
+                Text(
+                    taxon.matchReason.ifBlank {
+                        "This species matched both the selected location and seasonal date window."
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Ink,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+                if (taxon.wikipediaSummary.isNotBlank()) {
+                    Text(
+                        "FROM WIKIPEDIA",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = TrailText,
+                        modifier = Modifier.padding(top = 18.dp),
+                    )
+                    Text(
+                        taxon.wikipediaSummary,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Ink,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                }
+                if (taxon.wikipediaUrl.isNotBlank()) {
+                    TextButton(
+                        onClick = { uriHandler.openUri(taxon.wikipediaUrl) },
+                        modifier = Modifier.padding(top = 2.dp),
+                    ) {
+                        Text("Read on Wikipedia")
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Row {
+                if (onMap != null) {
+                    Button(
+                        onClick = {
+                            onDismiss()
+                            onMap()
+                        },
+                    ) {
+                        Text("Map sightings")
+                    }
+                }
+                TextButton(onClick = onDismiss) { Text("Close") }
+            }
+        },
+        containerColor = Paper,
+    )
 }
 
 @Composable

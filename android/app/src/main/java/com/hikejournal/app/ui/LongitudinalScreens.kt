@@ -69,6 +69,7 @@ import com.hikejournal.app.data.PlaceProfile
 import com.hikejournal.app.data.PlaceTaxonGroup
 import com.hikejournal.app.data.SeasonalHistory
 import com.hikejournal.app.data.WeatherSnapshot
+import com.hikejournal.app.data.toDiscoveryTaxon
 import com.hikejournal.app.ui.theme.Fern
 import com.hikejournal.app.ui.theme.Ink
 import com.hikejournal.app.ui.theme.InkMuted
@@ -196,9 +197,9 @@ internal fun FieldBriefingScreen(
     briefing: FieldBriefing?,
     loading: Boolean,
     onBack: () -> Unit,
-    onOpenSpecies: (String) -> Unit,
     onOpenSightings: (BriefingItem) -> Unit,
 ) {
+    var previewItem by remember { mutableStateOf<BriefingItem?>(null) }
     BackHandler(onBack = onBack)
     LazyColumn(Modifier.fillMaxSize().background(Parchment)) {
         item {
@@ -237,13 +238,20 @@ internal fun FieldBriefingScreen(
                 items(section.items, key = { "${section.title}:${it.key}" }) { item ->
                     BriefingRow(
                         item = item,
-                        onOpenSpecies = { onOpenSpecies(item.key) },
+                        onOpenSpecies = { previewItem = item },
                         onOpenSightings = { onOpenSightings(item) },
                     )
                 }
             }
             item { Spacer(Modifier.height(60.dp)) }
         }
+    }
+    previewItem?.let { item ->
+        DiscoveryTaxonPreviewDialog(
+            taxon = item.toDiscoveryTaxon(),
+            onMap = item.taxonId?.let { { onOpenSightings(item) } },
+            onDismiss = { previewItem = null },
+        )
     }
 }
 
@@ -303,7 +311,7 @@ private fun BriefingRow(
             Text("· $reason", style = MaterialTheme.typography.bodyMedium, color = InkMuted, modifier = Modifier.padding(top = 4.dp))
         }
         Row(Modifier.fillMaxWidth().padding(top = 7.dp), horizontalArrangement = Arrangement.End) {
-            TextButton(onClick = onOpenSpecies) { Text("Field Guide") }
+            TextButton(onClick = onOpenSpecies) { Text("Species details") }
             if (item.taxonId != null) {
                 TextButton(onClick = onOpenSightings) {
                     Icon(Icons.Rounded.Map, contentDescription = null, modifier = Modifier.size(18.dp))

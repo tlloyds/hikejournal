@@ -1183,10 +1183,13 @@ def _hike_payload(
     *,
     photos: list[dict[str, Any]],
     species_count: int = 0,
+    cover_photo: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     cover_id = str(hike.get("cover_photo_id") or "")
-    cover = next((photo for photo in photos if str(photo.get("id")) == cover_id), None)
-    if cover is None and photos:
+    cover = cover_photo if str((cover_photo or {}).get("id") or "") == cover_id else None
+    if cover is None and cover_id:
+        cover = next((photo for photo in photos if str(photo.get("id")) == cover_id), None)
+    if cover is None and not cover_id and photos:
         cover = max(
             photos,
             key=lambda photo: (
@@ -3620,8 +3623,19 @@ def get_hike(
     hike = _get_visible_hike(svc.repository, hike_id)
     if not include_photos:
         # The Android client loads photos separately in small pages. Do not scan
-        # the complete photo/observation history just to render this header.
-        payload = _hike_payload(hike, photos=[])
+        # the complete photo/observation history just to render this header. Resolve
+        # an explicitly selected cover directly so pagination can never substitute a
+        # different photo while the journal is opening.
+        cover_id = str(hike.get("cover_photo_id") or "")
+        selected_cover = next(
+            (
+                photo
+                for photo in svc.repository.list_photo_records_for_ids([cover_id])
+                if str(photo.get("hike_id") or "") == hike_id
+            ),
+            None,
+        ) if cover_id else None
+        payload = _hike_payload(hike, photos=[], cover_photo=selected_cover)
         if include_route:
             payload["route_segments"] = route_import_to_route_groups(
                 svc.repository.get_hike_route_import(hike_id)

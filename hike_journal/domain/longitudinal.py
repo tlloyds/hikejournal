@@ -50,6 +50,15 @@ def _species_snapshot(observation: dict[str, Any]) -> dict[str, Any]:
             or observation.get("collection_photo_url")
             or ""
         ),
+        "observation_count": int(observation.get("observation_count") or 0),
+        "nearby_rank": int(observation.get("nearby_rank") or 0),
+        "frequency_band": str(observation.get("frequency_band") or ""),
+        "collected": bool(observation.get("collected")),
+        "collected_at": observation.get("collected_at"),
+        "collection_photo_url": observation.get("collection_photo_url"),
+        "wikipedia_url": str(observation.get("wikipedia_url") or ""),
+        "wikipedia_summary": str(observation.get("wikipedia_summary") or ""),
+        "pending_credit": bool(observation.get("pending_credit")),
     }
 
 

@@ -269,6 +269,40 @@ data class BriefingItem(
     val referencePhotoUrl: String,
     val referencePhotoAttribution: String,
     val referencePhotoLicenseCode: String,
+    val observationCount: Int,
+    val nearbyRank: Int,
+    val frequencyBand: String,
+    val collected: Boolean,
+    val collectedAt: String?,
+    val collectionPhotoUrl: String?,
+    val wikipediaUrl: String,
+    val wikipediaSummary: String,
+    val pendingCredit: Boolean,
+)
+
+fun BriefingItem.toDiscoveryTaxon(): DiscoveryTaxon = DiscoveryTaxon(
+    taxonId = taxonId ?: 0,
+    commonName = commonName,
+    scientificName = scientificName,
+    iconicTaxonName = iconicTaxonName,
+    observationCount = observationCount,
+    nearbyRank = nearbyRank,
+    frequencyBand = frequencyBand,
+    referencePhoto = referencePhotoUrl.takeIf(String::isNotBlank)?.let { url ->
+        DiscoveryPhoto(
+            url = url,
+            attribution = referencePhotoAttribution,
+            licenseCode = referencePhotoLicenseCode,
+        )
+    },
+    collected = collected,
+    collectedAt = collectedAt,
+    collectionPhotoUrl = collectionPhotoUrl,
+    wikipediaUrl = wikipediaUrl,
+    wikipediaSummary = wikipediaSummary,
+    matchReason = reasons.joinToString("\n\n"),
+    focusOrder = null,
+    pendingCredit = pendingCredit,
 )
 
 data class BriefingSection(val title: String, val items: List<BriefingItem>)
@@ -1182,6 +1216,15 @@ fun parseFieldBriefing(json: String): FieldBriefing {
                         referencePhotoUrl = item.optJSONObject("reference_photo")?.optString("url").orEmpty(),
                         referencePhotoAttribution = item.optJSONObject("reference_photo")?.optString("attribution").orEmpty(),
                         referencePhotoLicenseCode = item.optJSONObject("reference_photo")?.optString("license_code").orEmpty(),
+                        observationCount = item.optInt("observation_count"),
+                        nearbyRank = item.optInt("nearby_rank", itemIndex + 1),
+                        frequencyBand = item.optString("frequency_band", "Nearby record"),
+                        collected = item.optBoolean("collected"),
+                        collectedAt = item.optNullableString("collected_at"),
+                        collectionPhotoUrl = item.optNullableString("collection_photo_url"),
+                        wikipediaUrl = item.optString("wikipedia_url"),
+                        wikipediaSummary = item.optString("wikipedia_summary"),
+                        pendingCredit = item.optBoolean("pending_credit"),
                     )
                 },
             )

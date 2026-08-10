@@ -164,6 +164,7 @@ import androidx.media3.ui.PlayerView
 import com.hikejournal.app.AppState
 import com.hikejournal.app.AppViewModel
 import com.hikejournal.app.BuildConfig
+import com.hikejournal.app.LongitudinalDestination
 import com.hikejournal.app.data.Hike
 import com.hikejournal.app.data.HikeDraft
 import com.hikejournal.app.data.HikeLocation
@@ -385,7 +386,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
         enabled = (trackingVisible && activeTracking != null) || hikeMapRequest != null || selectedPhoto != null || syncAttentionOpen || settingsOpen ||
             pendingUpload.isNotEmpty() ||
             pendingHikeDelete != null || createEntryOpen || creatingHike || editingHike != null || badgesOpen || state.journal != null ||
-            state.speciesDetail != null || state.questMapQuest != null,
+            state.speciesDetail != null || state.questMapQuest != null || state.longitudinalDestination != null,
     ) {
         when {
             trackingVisible && activeTracking != null -> {
@@ -409,6 +410,12 @@ fun HikeJournalApp(viewModel: AppViewModel) {
             }
             badgesOpen -> badgesOpen = false
             state.questMapQuest != null -> viewModel.closeQuestSightingsMap()
+            state.longitudinalDestination == LongitudinalDestination.Comparison -> {
+                comparisonBaseHike = null
+                viewModel.closeHikeComparison()
+            }
+            state.longitudinalDestination == LongitudinalDestination.FieldBriefing -> viewModel.closeFieldBriefing()
+            state.longitudinalDestination == LongitudinalDestination.PlaceProfile -> viewModel.closePlaceProfile()
             state.hikeComparison != null -> viewModel.closeHikeComparison()
             state.fieldBriefing != null -> viewModel.closeFieldBriefing()
             state.placeProfile != null -> viewModel.closePlaceProfile()
@@ -437,9 +444,11 @@ fun HikeJournalApp(viewModel: AppViewModel) {
         trackingVisible && trackingUi != null -> "tracking:${trackingUi.sessionId}"
         hikeMapRequest != null -> "hike-map:${hikeMapRequest?.hike?.id}:${hikeMapRequest?.focusedPhoto?.id}"
         state.questMapQuest != null && state.questMapTaxon != null -> "quest-map:${state.questMapTaxon?.taxonId}"
-        state.hikeComparison != null || state.isLongitudinalLoading && comparisonBaseHike != null -> "comparison"
-        state.fieldBriefing != null -> "briefing:${state.fieldBriefing?.targetDate}"
-        state.placeProfile != null -> "place:${state.placeProfile?.locationId}"
+        state.hikeComparison != null || state.longitudinalDestination == LongitudinalDestination.Comparison -> "comparison"
+        state.fieldBriefing != null || state.longitudinalDestination == LongitudinalDestination.FieldBriefing ->
+            "briefing:${state.fieldBriefing?.targetDate ?: "loading"}"
+        state.placeProfile != null || state.longitudinalDestination == LongitudinalDestination.PlaceProfile ->
+            "place:${state.placeProfile?.locationId ?: "loading"}"
         state.journal != null -> "journal:${state.journal?.id}"
         state.speciesDetail != null -> "species:${state.speciesDetail?.key}"
         badgesOpen -> "badges"
@@ -524,10 +533,6 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                     briefing = state.fieldBriefing,
                     loading = state.isLongitudinalLoading,
                     onBack = viewModel::closeFieldBriefing,
-                    onOpenSpecies = { key ->
-                        viewModel.closeFieldBriefing()
-                        viewModel.openSpecies(key)
-                    },
                     onOpenSightings = viewModel::openBriefingSightingsMap,
                 )
                 key.startsWith("place:") -> PlaceProfileScreen(

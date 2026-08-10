@@ -64,6 +64,24 @@ class FieldSyncOrderingTest {
     }
 
     @Test
+    fun `selected cover waits for its pending photo upload even when ordering ties`() {
+        val cover = operation(
+            id = "cover",
+            kind = OperationKind.SetHikeCover,
+            entityId = "hike-1",
+            payloadJson = """{"photo_id":"photo-1"}""",
+        )
+        val photo = operation(
+            id = "photo",
+            kind = OperationKind.UploadPhoto,
+            entityId = "photo-1",
+            parentId = "hike-1",
+        )
+
+        assertEquals(photo, selectNextSyncOperation(listOf(cover, photo)))
+    }
+
+    @Test
     fun `offline pending create is cancelled locally without an API requirement`() {
         val create = operation("create", OperationKind.CreateHike, "hike-1")
 

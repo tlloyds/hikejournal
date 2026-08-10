@@ -47,6 +47,7 @@ import com.hikejournal.app.data.SyncScheduler
 import com.hikejournal.app.data.calculateTrailBadges
 import com.hikejournal.app.data.speciesTypeCounts
 import com.hikejournal.app.data.withoutHikes
+import com.hikejournal.app.data.toDiscoveryTaxon
 import com.hikejournal.app.data.suggestHikeLocation
 import com.hikejournal.app.tracking.HikeTrackingService
 import com.hikejournal.app.tracking.TrackingRepository
@@ -61,6 +62,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+
+enum class LongitudinalDestination { PlaceProfile, FieldBriefing, Comparison }
 
 data class AppState(
     val hikes: List<Hike> = emptyList(),
@@ -124,6 +127,7 @@ data class AppState(
     val tracking: TrackingSnapshot? = null,
     val trackingMarks: List<FieldMark> = emptyList(),
     val isLongitudinalLoading: Boolean = false,
+    val longitudinalDestination: LongitudinalDestination? = null,
     val trackingOpenRequestToken: Long = 0L,
     val trackingEndRequestToken: Long = 0L,
     val isFinalizingTracking: Boolean = false,
@@ -1558,49 +1562,91 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun openPlaceProfile(locationId: String) {
         viewModelScope.launch {
             _state.update {
-                it.copy(isLongitudinalLoading = true, placeProfile = null, fieldBriefing = null, error = null)
+                it.copy(
+                    isLongitudinalLoading = true,
+                    longitudinalDestination = LongitudinalDestination.PlaceProfile,
+                    placeProfile = null,
+                    fieldBriefing = null,
+                    error = null,
+                )
             }
             runCatching { repository.loadPlaceProfile(locationId) }
                 .onSuccess { result ->
-                    _state.update {
-                        it.copy(
+                    _state.update { current ->
+                        if (current.longitudinalDestination != LongitudinalDestination.PlaceProfile) current else current.copy(
                             placeProfile = result.value,
                             isLongitudinalLoading = false,
+                            longitudinalDestination = null,
                             isOffline = result.fromCache,
                         )
                     }
                 }
                 .onFailure { error ->
-                    _state.update { it.copy(isLongitudinalLoading = false, error = error.userMessage()) }
+                    _state.update { current ->
+                        if (current.longitudinalDestination != LongitudinalDestination.PlaceProfile) current else current.copy(
+                            isLongitudinalLoading = false,
+                            longitudinalDestination = null,
+                            error = error.userMessage(),
+                        )
+                    }
                 }
         }
     }
 
     fun closePlaceProfile() {
-        _state.update { it.copy(placeProfile = null, fieldBriefing = null) }
+        _state.update {
+            it.copy(
+                placeProfile = null,
+                fieldBriefing = null,
+                isLongitudinalLoading = if (it.longitudinalDestination == LongitudinalDestination.PlaceProfile) false else it.isLongitudinalLoading,
+                longitudinalDestination = it.longitudinalDestination
+                    .takeUnless { target -> target == LongitudinalDestination.PlaceProfile },
+            )
+        }
     }
 
     fun openFieldBriefing(locationId: String) {
         viewModelScope.launch {
-            _state.update { it.copy(isLongitudinalLoading = true, fieldBriefing = null, error = null) }
+            _state.update {
+                it.copy(
+                    isLongitudinalLoading = true,
+                    longitudinalDestination = LongitudinalDestination.FieldBriefing,
+                    fieldBriefing = null,
+                    error = null,
+                )
+            }
             runCatching { repository.loadFieldBriefing(locationId) }
                 .onSuccess { result ->
-                    _state.update {
-                        it.copy(
+                    _state.update { current ->
+                        if (current.longitudinalDestination != LongitudinalDestination.FieldBriefing) current else current.copy(
                             fieldBriefing = result.value,
                             isLongitudinalLoading = false,
+                            longitudinalDestination = null,
                             isOffline = result.fromCache,
                         )
                     }
                 }
                 .onFailure { error ->
-                    _state.update { it.copy(isLongitudinalLoading = false, error = error.userMessage()) }
+                    _state.update { current ->
+                        if (current.longitudinalDestination != LongitudinalDestination.FieldBriefing) current else current.copy(
+                            isLongitudinalLoading = false,
+                            longitudinalDestination = null,
+                            error = error.userMessage(),
+                        )
+                    }
                 }
         }
     }
 
     fun closeFieldBriefing() {
-        _state.update { it.copy(fieldBriefing = null) }
+        _state.update {
+            it.copy(
+                fieldBriefing = null,
+                isLongitudinalLoading = if (it.longitudinalDestination == LongitudinalDestination.FieldBriefing) false else it.isLongitudinalLoading,
+                longitudinalDestination = it.longitudinalDestination
+                    .takeUnless { target -> target == LongitudinalDestination.FieldBriefing },
+            )
+        }
     }
 
     fun openBriefingSightingsMap(item: BriefingItem) {
@@ -1623,48 +1669,52 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             progress = DiscoveryProgress(0, 0, 0),
             taxa = emptyList(),
         )
-        val taxon = DiscoveryTaxon(
-            taxonId = taxonId,
-            commonName = item.commonName,
-            scientificName = item.scientificName,
-            iconicTaxonName = item.iconicTaxonName,
-            observationCount = 0,
-            nearbyRank = 0,
-            frequencyBand = "",
-            referencePhoto = null,
-            collected = false,
-            collectedAt = null,
-            collectionPhotoUrl = null,
-            wikipediaUrl = "",
-            wikipediaSummary = "",
-            matchReason = item.reasons.firstOrNull().orEmpty(),
-            focusOrder = null,
-            pendingCredit = false,
-        )
+        val taxon = item.toDiscoveryTaxon().copy(taxonId = taxonId)
         openNearbySightingsMap(nearby, taxon)
     }
 
     fun openHikeComparison(hikeId: String, otherHikeId: String) {
         viewModelScope.launch {
-            _state.update { it.copy(isLongitudinalLoading = true, hikeComparison = null, error = null) }
+            _state.update {
+                it.copy(
+                    isLongitudinalLoading = true,
+                    longitudinalDestination = LongitudinalDestination.Comparison,
+                    hikeComparison = null,
+                    error = null,
+                )
+            }
             runCatching { repository.loadHikeComparison(hikeId, otherHikeId) }
                 .onSuccess { result ->
-                    _state.update {
-                        it.copy(
+                    _state.update { current ->
+                        if (current.longitudinalDestination != LongitudinalDestination.Comparison) current else current.copy(
                             hikeComparison = result.value,
                             isLongitudinalLoading = false,
+                            longitudinalDestination = null,
                             isOffline = result.fromCache,
                         )
                     }
                 }
                 .onFailure { error ->
-                    _state.update { it.copy(isLongitudinalLoading = false, error = error.userMessage()) }
+                    _state.update { current ->
+                        if (current.longitudinalDestination != LongitudinalDestination.Comparison) current else current.copy(
+                            isLongitudinalLoading = false,
+                            longitudinalDestination = null,
+                            error = error.userMessage(),
+                        )
+                    }
                 }
         }
     }
 
     fun closeHikeComparison() {
-        _state.update { it.copy(hikeComparison = null) }
+        _state.update {
+            it.copy(
+                hikeComparison = null,
+                isLongitudinalLoading = if (it.longitudinalDestination == LongitudinalDestination.Comparison) false else it.isLongitudinalLoading,
+                longitudinalDestination = it.longitudinalDestination
+                    .takeUnless { target -> target == LongitudinalDestination.Comparison },
+            )
+        }
     }
 
     fun pauseTracking() {

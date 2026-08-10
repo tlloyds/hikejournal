@@ -218,11 +218,14 @@ class HikeJournalRepository(context: Context) {
             payload.put("photo_count", photos.length())
             if (payload.optString("cover_url").isBlank()) {
                 val coverId = payload.optString("cover_photo_id")
-                val cover = (0 until photos.length())
-                    .asSequence()
-                    .map { photos.getJSONObject(it) }
-                    .firstOrNull { it.optString("id") == coverId }
-                    ?: (if (photos.length() > 0) photos.getJSONObject(photos.length() - 1) else null)
+                val cover = if (coverId.isNotBlank()) {
+                    (0 until photos.length())
+                        .asSequence()
+                        .map { photos.getJSONObject(it) }
+                        .firstOrNull { it.optString("id") == coverId }
+                } else {
+                    if (photos.length() > 0) photos.getJSONObject(photos.length() - 1) else null
+                }
                 payload.put("cover_url", cover?.optString("url").orEmpty())
             }
             payload.put("route_segments", routePayload.optJSONArray("route_segments") ?: JSONArray())
@@ -796,18 +799,7 @@ class HikeJournalRepository(context: Context) {
 
     suspend fun setHikeCover(hikeId: String, photoId: String?, coverUrl: String) {
         fieldQueue.queueHikeCover(hikeId, photoId, coverUrl)
-        journalCacheMutex.withLock {
-            withContext(Dispatchers.IO) {
-                val cacheFile = File(cacheDirectory, "hike-$hikeId.json")
-                runCatching {
-                    if (!cacheFile.exists()) return@runCatching
-                    val payload = JSONObject(cacheFile.readText())
-                        .put("cover_photo_id", photoId ?: JSONObject.NULL)
-                        .put("cover_url", coverUrl)
-                    writeJsonAtomically(cacheFile, payload)
-                }
-            }
-        }
+        cacheHikeCover(appContext, hikeId, photoId, coverUrl)
     }
 
     suspend fun uploadPhoto(
@@ -916,6 +908,39 @@ private data class CachedHikeFile(
     val isLocalDraft: Boolean,
 )
 
+internal suspend fun cacheHikeCover(
+    context: Context,
+    hikeId: String,
+    photoId: String?,
+    coverUrl: String,
+) = journalCacheMutex.withLock {
+    withContext(Dispatchers.IO) {
+        val cacheDirectory = File(context.filesDir, "journal-cache")
+        val detailCache = File(cacheDirectory, "hike-$hikeId.json")
+        runCatching {
+            if (detailCache.exists()) {
+                val payload = JSONObject(detailCache.readText())
+                    .put("cover_photo_id", photoId ?: JSONObject.NULL)
+                    .put("cover_url", coverUrl)
+                writeJsonAtomically(detailCache, payload)
+            }
+        }
+        val archiveCache = File(cacheDirectory, "hikes.json")
+        runCatching {
+            if (archiveCache.exists()) {
+                val payload = JSONArray(archiveCache.readText())
+                for (index in 0 until payload.length()) {
+                    payload.optJSONObject(index)
+                        ?.takeIf { it.optString("id") == hikeId }
+                        ?.put("cover_photo_id", photoId ?: JSONObject.NULL)
+                        ?.put("cover_url", coverUrl)
+                }
+                writeJsonAtomically(archiveCache, payload)
+            }
+        }
+    }
+}
+
 private fun Hike.toLocalDraftJson(): JSONObject = JSONObject()
     .put("id", id)
     .put("title", title)
@@ -949,11 +974,17 @@ private fun Hike.toLocalDraftJson(): JSONObject = JSONObject()
     )
     .put(LOCAL_DRAFT_MARKER, true)
 
-private fun writeJsonAtomically(destination: File, payload: JSONObject) {
+private fun writeJsonAtomically(destination: File, payload: JSONObject) =
+    writeJsonAtomically(destination, payload.toString())
+
+private fun writeJsonAtomically(destination: File, payload: JSONArray) =
+    writeJsonAtomically(destination, payload.toString())
+
+private fun writeJsonAtomically(destination: File, payload: String) {
     destination.parentFile?.mkdirs()
     val temporary = File(destination.parentFile, ".${destination.name}.${System.nanoTime()}.tmp")
     try {
-        temporary.writeText(payload.toString())
+        temporary.writeText(payload)
         try {
             java.nio.file.Files.move(
                 temporary.toPath(),

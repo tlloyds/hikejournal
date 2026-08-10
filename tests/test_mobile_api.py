@@ -19,6 +19,7 @@ from mobile_api import (
     ReviewQueueInput,
     SpeciesQuestInput,
     _build_species_payloads,
+    _hike_payload,
     _photo_payload,
     _mobile_inat_client,
     _publish_item_payload,
@@ -1322,6 +1323,54 @@ def test_hike_cover_can_be_selected_from_the_same_hike(monkeypatch):
     assert repository.selected_cover == (hike_id, photo_id)
     assert result["cover_photo_id"] == photo_id
     assert result["cover_url"] == "https://img/cover.jpg"
+
+
+def test_explicit_hike_cover_never_falls_back_to_a_different_photo():
+    payload = _hike_payload(
+        {"id": "hike-1", "cover_photo_id": "selected-photo"},
+        photos=[
+            {
+                "id": "latest-photo",
+                "public_url": "https://img/latest.jpg",
+                "taken_at": "2026-08-10T12:00:00Z",
+            }
+        ],
+    )
+
+    assert payload["cover_photo_id"] == "selected-photo"
+    assert payload["cover_url"] == ""
+
+
+def test_lightweight_hike_header_resolves_the_selected_cover(monkeypatch):
+    hike_id = "11111111-1111-4111-8111-111111111111"
+    photo_id = "22222222-2222-4222-8222-222222222222"
+
+    class Repository:
+        def list_photo_records_for_ids(self, photo_ids):
+            assert photo_ids == [photo_id]
+            return [{"id": photo_id, "hike_id": hike_id, "public_url": "https://img/selected.jpg"}]
+
+        def get_hike_route_import(self, _hike_id):
+            return None
+
+        def list_field_marks(self, _hike_id):
+            return []
+
+        def get_hike_weather_snapshot(self, _hike_id):
+            return None
+
+    repository = Repository()
+    service = type("Service", (), {"repository": repository})()
+    monkeypatch.setattr("mobile_api.get_services", lambda: service)
+    monkeypatch.setattr(
+        "mobile_api._get_visible_hike",
+        lambda _repository, _hike_id: {"id": hike_id, "cover_photo_id": photo_id},
+    )
+
+    payload = get_hike(hike_id, include_photos=False, include_route=False)
+
+    assert payload["cover_photo_id"] == photo_id
+    assert payload["cover_url"] == "https://img/selected.jpg"
 
 
 def test_everyday_journal_includes_standalone_photos_and_species(monkeypatch):

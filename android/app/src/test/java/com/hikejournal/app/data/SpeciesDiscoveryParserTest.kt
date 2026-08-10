@@ -98,6 +98,46 @@ class SpeciesDiscoveryParserTest {
     }
 
     @Test
+    fun `field briefing species retain nearby preview details`() {
+        val briefing = parseFieldBriefing(
+            """
+            {
+              "area":{"id":"trail-1","name":"Florida Trail","radius_km":10},
+              "target_date":"2026-08-10",
+              "period":{"label":"Jul · Aug · Sep"},
+              "sections":[{
+                "title":"Worth watching for",
+                "items":[{
+                  "key":"taxon:123",
+                  "taxon_id":123,
+                  "common_name":"Florida Scrub-Jay",
+                  "scientific_name":"Aphelocoma coerulescens",
+                  "iconic_taxon_name":"Aves",
+                  "reasons":["Often reported here."],
+                  "nearby_rank":2,
+                  "frequency_band":"Often reported",
+                  "reference_photo":{"url":"https://example.test/jay.jpg","attribution":"© Naturalist","license_code":"cc-by"},
+                  "wikipedia_url":"https://en.wikipedia.org/wiki/Florida_scrub_jay",
+                  "wikipedia_summary":"A Florida endemic bird.",
+                  "collected":true,
+                  "collected_at":"2026-07-20",
+                  "collection_photo_url":"https://example.test/my-jay.jpg"
+                }]
+              }]
+            }
+            """.trimIndent(),
+        )
+
+        val taxon = briefing.sections.single().items.single().toDiscoveryTaxon()
+
+        assertEquals(123L, taxon.taxonId)
+        assertEquals("Often reported", taxon.frequencyBand)
+        assertEquals("A Florida endemic bird.", taxon.wikipediaSummary)
+        assertEquals("https://example.test/my-jay.jpg", taxon.collectionPhotoUrl)
+        assertTrue(taxon.collected)
+    }
+
+    @Test
     fun `quest sightings response preserves coordinates and privacy`() {
         val map = parseQuestSightingsMap(
             """
