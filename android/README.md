@@ -19,8 +19,11 @@ and replace the server address. The API always uses port `8506`.
 Native hike recording does not need the companion or a network connection.
 Pairing is needed when queued hikes, routes, and photos are ready to sync.
 
-## Included in v0.7.2
+## Included in v0.7.3
 
+- Saved weather appears with the lightweight Journal header instead of waiting
+  for every photo; photo-heavy Journals render their first page progressively,
+  use fewer page requests, and fetch route data in parallel
 - The Journal Add Weather action sends a valid empty JSON request instead of
   failing locally with a null-body error
 - A large offline `MARK` action during recording for Wildlife, Plant, Trail

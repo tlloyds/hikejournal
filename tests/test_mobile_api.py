@@ -39,6 +39,7 @@ from mobile_api import (
     get_hike_photos,
     get_hike_route,
     list_discovery_areas,
+    list_hikes,
     list_hike_locations,
     list_map_routes,
     decide_species_review,
@@ -299,6 +300,40 @@ def test_hike_photo_page_is_bounded_for_large_hikes(monkeypatch):
     assert first_page["next_offset"] == 50
     assert len(final_page["photos"]) == 6
     assert final_page["next_offset"] is None
+
+
+def test_hike_list_hydrates_saved_weather_in_one_batch(monkeypatch):
+    class Repository:
+        def _select_all_rows(self, _query_factory):
+            return []
+
+        def list_hike_weather_snapshots(self):
+            return [
+                {
+                    "hike_id": "hike-1",
+                    "provider": "open-meteo",
+                    "condition_label": "Partly cloudy",
+                    "enriched_at": "2026-08-10T03:00:00Z",
+                }
+            ]
+
+    service = type("Service", (), {"repository": Repository(), "client": object()})()
+    monkeypatch.setattr("mobile_api.get_services", lambda: service)
+    monkeypatch.setattr(
+        "mobile_api._visible_hikes",
+        lambda _repository: [{"id": "hike-1", "title": "Pine Loop"}],
+    )
+    monkeypatch.setattr("mobile_api._visible_species_data", lambda _service: ([], {}, {}))
+    monkeypatch.setattr(
+        "mobile_api._standalone_hike_payload",
+        lambda _service: {"id": "everyday", "title": "Everyday sightings"},
+    )
+
+    payload = list_hikes()
+
+    assert payload[0]["weather"]["condition_label"] == "Partly cloudy"
+    assert "owner_email" not in payload[0]["weather"]
+    assert payload[1]["id"] == "everyday"
 
 
 def test_main_map_routes_include_visible_hike_tracks(monkeypatch):

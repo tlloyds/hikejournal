@@ -1732,12 +1732,16 @@ private fun JournalScreen(
                         )
                         Column(Modifier.padding(start = 12.dp)) {
                             Text(
-                                "Opening journal",
+                                "Loading journal photos",
                                 style = MaterialTheme.typography.titleMedium,
                                 color = Ink,
                             )
                             Text(
-                                "Loading ${hike.photoCount} photo${if (hike.photoCount == 1) "" else "s"}…",
+                                if (hike.photos.isEmpty()) {
+                                    "Loading ${hike.photoCount} photo${if (hike.photoCount == 1) "" else "s"}…"
+                                } else {
+                                    "${hike.photos.size} of ${hike.photoCount} ready"
+                                },
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = InkMuted,
                             )
@@ -1830,7 +1834,11 @@ private fun JournalScreen(
                     Text("Field journal", style = MaterialTheme.typography.headlineMedium, color = Ink)
                 }
                 Text(
-                    "${if (opening) hike.photoCount else hike.photos.size} photos",
+                    if (opening && hike.photos.isNotEmpty()) {
+                        "${hike.photos.size} of ${hike.photoCount} photos"
+                    } else {
+                        "${if (opening) hike.photoCount else hike.photos.size} photos"
+                    },
                     style = MaterialTheme.typography.bodyMedium,
                     color = InkMuted,
                 )
@@ -1849,9 +1857,9 @@ private fun JournalScreen(
                 }
             }
         }
-        if (opening) {
+        if (opening && hike.photos.isEmpty()) {
             item { Spacer(Modifier.height(12.dp)) }
-        } else if (hike.photos.isEmpty()) {
+        } else if (!opening && hike.photos.isEmpty()) {
             item { EmptyPhotos(onAddPhotos) }
         } else {
             items(hike.photos.chunked(2), key = { row -> row.joinToString { it.id } }) { rowPhotos ->

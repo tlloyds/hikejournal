@@ -1180,6 +1180,21 @@ class HikeJournalRepository:
         rows = response.data or []
         return rows[0] if rows else None
 
+    def list_hike_weather_snapshots(self) -> list[dict[str, Any]]:
+        """Return newest snapshots first for lightweight archive hydration."""
+        try:
+            return self._select_all_rows(
+                lambda: (
+                    self.client.table("hike_weather_snapshots")
+                    .select("*")
+                    .order("enriched_at", desc=True)
+                )
+            )
+        except Exception:
+            # Keep the archive available before the additive longitudinal
+            # migration has been applied.
+            return []
+
     def upsert_hike_weather_snapshot(self, payload: dict[str, Any]) -> dict[str, Any]:
         try:
             response = self.client.table("hike_weather_snapshots").upsert(

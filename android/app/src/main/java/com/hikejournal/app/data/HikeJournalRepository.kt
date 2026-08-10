@@ -4,6 +4,8 @@ import android.content.Context
 import android.net.Uri
 import com.hikejournal.app.tracking.TrackingRepository
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -24,6 +26,14 @@ data class CachedMapData(
     val routeSegments: List<List<RoutePoint>>,
     val available: Boolean,
 )
+
+private const val HIKE_PHOTO_PAGE_SIZE = 100
+
+internal fun expectedPhotoPageOffsets(expectedPhotoCount: Int?): List<Int> =
+    expectedPhotoCount
+        ?.takeIf { it > 0 }
+        ?.let { count -> (0 until count step HIKE_PHOTO_PAGE_SIZE).toList() }
+        .orEmpty()
 
 class HikeJournalRepository(context: Context) {
     private val appContext = context.applicationContext
@@ -162,19 +172,48 @@ class HikeJournalRepository(context: Context) {
         phenophases: List<String>,
     ) = fieldQueue.queueNaturalHistory(observationId, hikeId, confidence, phenophases)
 
-    suspend fun loadHike(hikeId: String): LoadResult<Hike> = journalCacheMutex.withLock {
+    suspend fun loadHike(
+        hikeId: String,
+        expectedPhotoCount: Int? = null,
+        onProgress: ((Hike) -> Unit)? = null,
+    ): LoadResult<Hike> = journalCacheMutex.withLock {
         val cacheFile = File(cacheDirectory, "hike-$hikeId.json")
         try {
             val json = api.getHikeJson(hikeId)
             val payload = JSONObject(json)
+            val localMarks = fieldQueue.localFieldMarks(hikeId)
+            onProgress?.invoke(hydrateHikePayload(payload, hikeId, localMarks))
             val photos = JSONArray()
-            var offset = 0
-            do {
-                val page = JSONObject(api.getHikePhotosJson(hikeId, offset))
-                val pagePhotos = page.optJSONArray("photos") ?: JSONArray()
-                for (index in 0 until pagePhotos.length()) photos.put(pagePhotos.getJSONObject(index))
-                offset = if (page.isNull("next_offset")) -1 else page.optInt("next_offset", -1)
-            } while (offset >= 0)
+            val routePayload = coroutineScope {
+                val routeRequest = async { JSONObject(api.getHikeRouteJson(hikeId)) }
+
+                suspend fun appendPage(page: JSONObject): Int {
+                    val pagePhotos = page.optJSONArray("photos") ?: JSONArray()
+                    for (index in 0 until pagePhotos.length()) photos.put(pagePhotos.getJSONObject(index))
+                    payload.put("photos", photos)
+                    payload.put("photo_count", photos.length())
+                    onProgress?.invoke(hydrateHikePayload(payload, hikeId, localMarks))
+                    return if (page.isNull("next_offset")) -1 else page.optInt("next_offset", -1)
+                }
+
+                val expectedOffsets = expectedPhotoPageOffsets(expectedPhotoCount)
+                var offset = if (expectedOffsets.isEmpty()) {
+                    appendPage(JSONObject(api.getHikePhotosJson(hikeId, 0)))
+                } else {
+                    val pageRequests = expectedOffsets.map { pageOffset ->
+                        pageOffset to async {
+                            JSONObject(api.getHikePhotosJson(hikeId, pageOffset))
+                        }
+                    }
+                    var nextOffset = -1
+                    pageRequests.forEach { (_, request) -> nextOffset = appendPage(request.await()) }
+                    nextOffset
+                }
+                while (offset >= 0 && offset !in expectedOffsets) {
+                    offset = appendPage(JSONObject(api.getHikePhotosJson(hikeId, offset)))
+                }
+                routeRequest.await()
+            }
             payload.put("photos", photos)
             payload.put("photo_count", photos.length())
             if (payload.optString("cover_url").isBlank()) {
@@ -186,7 +225,6 @@ class HikeJournalRepository(context: Context) {
                     ?: (if (photos.length() > 0) photos.getJSONObject(photos.length() - 1) else null)
                 payload.put("cover_url", cover?.optString("url").orEmpty())
             }
-            val routePayload = JSONObject(api.getHikeRouteJson(hikeId))
             payload.put("route_segments", routePayload.optJSONArray("route_segments") ?: JSONArray())
             if (!routePayload.isNull("duration_seconds")) {
                 payload.put("duration_seconds", routePayload.optLong("duration_seconds"))
@@ -204,13 +242,9 @@ class HikeJournalRepository(context: Context) {
                 if (preserveLocalDraft) payload.put(LOCAL_DRAFT_MARKER, true)
                 writeJsonAtomically(cacheFile, payload)
             }
-            val completeJson = payload.toString()
-            val parsed = withContext(Dispatchers.Default) { parseHike(completeJson) }
-            val withMarks = overlayFieldMarks(parsed, fieldQueue.localFieldMarks(hikeId))
-            if (parsed.routeSegments.isNotEmpty()) trackingRepository.clearFinished(hikeId)
-            val overlay = fieldQueue.overlayHike(withMarks, hikeId)
-                ?: throw IllegalStateException("Hike not found.")
-            LoadResult(overlayRetainedTrackingRoute(overlay, hikeId), fromCache = false)
+            val hydrated = hydrateHikePayload(payload, hikeId, localMarks)
+            if (hydrated.routeSegments.isNotEmpty()) trackingRepository.clearFinished(hikeId)
+            LoadResult(hydrated, fromCache = false)
         } catch (networkError: Exception) {
             val cached = withContext(Dispatchers.IO) { cacheFile.takeIf { it.exists() }?.readText() }
             val parsed = withContext(Dispatchers.Default) { cached?.let(::parseHike) }
@@ -218,6 +252,18 @@ class HikeJournalRepository(context: Context) {
             if (overlay == null) throw networkError
             LoadResult(overlayRetainedTrackingRoute(overlay, hikeId), fromCache = true)
         }
+    }
+
+    private suspend fun hydrateHikePayload(
+        payload: JSONObject,
+        hikeId: String,
+        localMarks: List<FieldMark>,
+    ): Hike {
+        val parsed = withContext(Dispatchers.Default) { parseHike(payload.toString()) }
+        val withMarks = overlayFieldMarks(parsed, localMarks)
+        val overlay = fieldQueue.overlayHike(withMarks, hikeId)
+            ?: throw IllegalStateException("Hike not found.")
+        return overlayRetainedTrackingRoute(overlay, hikeId)
     }
 
     suspend fun loadCachedHike(hikeId: String, expectedPhotoCount: Int? = null): Hike? = journalCacheMutex.withLock {

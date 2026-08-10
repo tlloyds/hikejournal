@@ -1028,9 +1028,54 @@ def _field_mark_payloads(repository: HikeJournalRepository, hike_id: str) -> lis
         return []
 
 
+MOBILE_WEATHER_FIELDS = (
+    "provider",
+    "provider_dataset",
+    "algorithm_version",
+    "interval_started_at",
+    "interval_ended_at",
+    "temperature_min_c",
+    "temperature_mean_c",
+    "temperature_max_c",
+    "apparent_temperature_mean_c",
+    "precipitation_total_mm",
+    "relative_humidity_mean_percent",
+    "cloud_cover_mean_percent",
+    "wind_speed_mean_kph",
+    "condition_label",
+)
+
+
+def _mobile_weather_payload(snapshot: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not snapshot:
+        return None
+    return {field: snapshot.get(field) for field in MOBILE_WEATHER_FIELDS}
+
+
 def _weather_payload(repository: HikeJournalRepository, hike_id: str) -> dict[str, Any] | None:
     getter = getattr(repository, "get_hike_weather_snapshot", None)
-    return getter(hike_id) if getter else None
+    return _mobile_weather_payload(getter(hike_id)) if getter else None
+
+
+def _weather_payloads(repository: HikeJournalRepository, hike_ids: list[str]) -> dict[str, dict[str, Any]]:
+    getter = getattr(repository, "list_hike_weather_snapshots", None)
+    if not getter or not hike_ids:
+        return {}
+    try:
+        rows = getter()
+    except Exception:
+        return {}
+    visible_ids = set(hike_ids)
+    snapshots: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        hike_id = str(row.get("hike_id") or "")
+        if hike_id in visible_ids:
+            # Repository ordering is newest-first, so retain the first row if
+            # an older weather algorithm also exists for this hike.
+            compact = _mobile_weather_payload(row)
+            if compact is not None:
+                snapshots.setdefault(hike_id, compact)
+    return snapshots
 
 
 def _primary_hike_location(
@@ -2050,6 +2095,7 @@ def list_hikes() -> list[dict[str, Any]]:
     svc = get_services()
     hikes = _visible_hikes(svc.repository)
     hike_ids = [str(hike["id"]) for hike in hikes]
+    weather_by_hike = _weather_payloads(svc.repository, hike_ids)
     photo_rows = (
         svc.repository._select_all_rows(
             lambda: (
@@ -2072,14 +2118,16 @@ def list_hikes() -> list[dict[str, Any]]:
         hike_id = str((photo or {}).get("hike_id") or observation.get("hike_id") or "")
         if hike_id:
             species_by_hike[hike_id].add(_species_key(observation))
-    outing_payloads = [
-        _hike_payload(
+    outing_payloads = []
+    for hike in hikes:
+        hike_id = str(hike["id"])
+        payload = _hike_payload(
             hike,
-            photos=photos_by_hike.get(str(hike["id"]), []),
-            species_count=len(species_by_hike.get(str(hike["id"]), set())),
+            photos=photos_by_hike.get(hike_id, []),
+            species_count=len(species_by_hike.get(hike_id, set())),
         )
-        for hike in hikes
-    ]
+        payload["weather"] = weather_by_hike.get(hike_id)
+        outing_payloads.append(payload)
     return outing_payloads + [_standalone_hike_payload(svc)]
 
 

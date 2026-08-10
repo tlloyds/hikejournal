@@ -58,7 +58,7 @@ class HikeJournalApi(private val context: Context) {
         request("/v1/hikes/$hikeId?include_photos=false&include_route=false")
 
     suspend fun getHikePhotosJson(hikeId: String, offset: Int): String =
-        request("/v1/hikes/$hikeId/photos?offset=$offset&limit=50")
+        request("/v1/hikes/$hikeId/photos?offset=$offset&limit=100")
 
     suspend fun getHikeRouteJson(hikeId: String): String = request("/v1/hikes/$hikeId/route")
 

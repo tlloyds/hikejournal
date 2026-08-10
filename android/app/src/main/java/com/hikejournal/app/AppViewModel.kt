@@ -626,7 +626,17 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
             }
-            runCatching { repository.loadHike(hikeId) }
+            runCatching {
+                repository.loadHike(hikeId, expectedPhotoCount = summary?.photoCount) { progress ->
+                    _state.update {
+                        if (it.openingHikeId == hikeId || it.journal?.id == hikeId) {
+                            it.copy(journal = mergeHikeLoadProgress(it.journal, progress))
+                        } else {
+                            it
+                        }
+                    }
+                }
+            }
                 .onSuccess { result ->
                     _state.update {
                         if (it.openingHikeId == hikeId || it.journal?.id == hikeId) {
@@ -2293,6 +2303,20 @@ private fun fieldMarkLabel(markType: String): String = when (markType) {
 
 private fun Throwable?.userMessage(): String =
     this?.message?.takeIf { it.isNotBlank() } ?: "HikeJournal could not complete that request."
+
+internal fun mergeHikeLoadProgress(current: Hike?, incoming: Hike): Hike {
+    if (current == null || current.id != incoming.id) return incoming
+    return incoming.copy(
+        durationSeconds = incoming.durationSeconds ?: current.durationSeconds,
+        routeStartedAt = incoming.routeStartedAt ?: current.routeStartedAt,
+        coverUrl = incoming.coverUrl.ifBlank { current.coverUrl },
+        coverPhotoId = incoming.coverPhotoId ?: current.coverPhotoId,
+        photoCount = maxOf(current.photoCount, incoming.photoCount),
+        speciesCount = maxOf(current.speciesCount, incoming.speciesCount),
+        photos = if (incoming.photos.size >= current.photos.size) incoming.photos else current.photos,
+        routeSegments = incoming.routeSegments.ifEmpty { current.routeSegments },
+    )
+}
 
 private fun NearbySpecies.asMapContext(): FieldQuest = FieldQuest(
     id = "",
