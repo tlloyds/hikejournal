@@ -22,6 +22,7 @@ import com.hikejournal.app.data.BriefingItem
 import com.hikejournal.app.data.FieldQuest
 import com.hikejournal.app.data.FieldBriefing
 import com.hikejournal.app.data.FieldMark
+import com.hikejournal.app.data.FieldCelebration
 import com.hikejournal.app.data.HikeComparison
 import com.hikejournal.app.data.NearbySpecies
 import com.hikejournal.app.data.Photo
@@ -45,6 +46,10 @@ import com.hikejournal.app.data.SpeciesReviewBatchWork
 import com.hikejournal.app.data.SyncStatus
 import com.hikejournal.app.data.SyncScheduler
 import com.hikejournal.app.data.calculateTrailBadges
+import com.hikejournal.app.data.buildConfirmedSpeciesCelebration
+import com.hikejournal.app.data.buildHikeMilestoneCelebration
+import com.hikejournal.app.data.buildKnownSpeciesRediscoveryCelebration
+import com.hikejournal.app.data.buildReviewBatchCelebration
 import com.hikejournal.app.data.speciesTypeCounts
 import com.hikejournal.app.data.withoutHikes
 import com.hikejournal.app.data.toDiscoveryTaxon
@@ -102,6 +107,7 @@ data class AppState(
     val isOffline: Boolean = false,
     val error: String? = null,
     val notice: String? = null,
+    val celebration: FieldCelebration? = null,
     val uploadCurrent: Int = 0,
     val uploadTotal: Int = 0,
     val isSpeciesLoading: Boolean = false,
@@ -365,16 +371,27 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     ?.size
                 _state.update { current ->
                     val refreshedSpecies = updatedSpecies ?: current.species
+                    val celebrationStatus = terminalStatus.copy(
+                        items = updatedReviewQueue
+                            ?.filter { it.id in batchPhotoIds }
+                            ?.takeIf { it.isNotEmpty() }
+                            ?: terminalStatus.items,
+                    )
+                    val celebration = buildReviewBatchCelebration(
+                        status = celebrationStatus,
+                        existingSpecies = refreshedSpecies,
+                    )
                     current.copy(
                         species = refreshedSpecies,
                         reviewQueue = updatedReviewQueue ?: current.reviewQueue,
                         isOffline = speciesResult?.fromCache ?: reviewResult?.fromCache ?: current.isOffline,
                         badgesHydrated = if (updatedSpecies != null) false else current.badgesHydrated,
-                        notice = buildSpeciesReviewBatchNotice(
+                        notice = if (celebration != null) null else buildSpeciesReviewBatchNotice(
                             status = terminalStatus,
                             species = refreshedSpecies,
                             suggestionCount = suggestionCount,
                         ),
+                        celebration = celebration ?: current.celebration,
                     )
                 }
                 if (updatedReviewQueue == null) loadReviewQueue(force = true)
@@ -1237,6 +1254,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun decideReview(item: ReviewItem, action: String, candidate: ReviewCandidate?) {
         viewModelScope.launch {
             _state.update { it.copy(decidingReviewId = item.id, error = null) }
+            val speciesBaseline = if (action == "confirm" && candidate != null) {
+                _state.value.species.takeIf(List<SpeciesRecord>::isNotEmpty)
+                    ?: runCatching { repository.loadSpecies().value }.getOrNull()
+            } else {
+                null
+            }
             runCatching {
                 repository.decideReview(item, action, candidate)
                 repository.loadReviewQueue()
@@ -1261,8 +1284,18 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         else -> photo
                     }
                 }
-                _state.update {
-                    it.copy(
+                _state.update { state ->
+                    val celebration = speciesBaseline?.let { existingSpecies ->
+                        candidate?.let { confirmed ->
+                            buildConfirmedSpeciesCelebration(
+                                candidate = confirmed,
+                                photo = item.photo,
+                                observedOn = item.photo.takenAt ?: item.hikeDate,
+                                existingSpecies = existingSpecies,
+                            )
+                        }
+                    }
+                    state.copy(
                         reviewQueue = result.value,
                         decidingReviewId = null,
                         resolvingSpeciesInfoPhotoId = item.id.takeIf { action == "confirm" },
@@ -1270,6 +1303,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         species = emptyList(),
                         sightings = emptyList(),
                         badgesHydrated = false,
+                        celebration = celebration ?: state.celebration,
                     )
                 }
             }.onFailure { error ->
@@ -1861,14 +1895,23 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 created to locationSuggestion
             }.onSuccess { (created, locationSuggestion) ->
                 _state.update { state ->
+                    val updatedHikes = listOf(created) + state.hikes.filterNot { it.id == created.id }
+                    val celebration = buildHikeMilestoneCelebration(
+                        previousHikes = state.hikes,
+                        updatedHikes = updatedHikes,
+                        savedHike = created,
+                    )
                     state.copy(
-                        hikes = listOf(created) + state.hikes.filterNot { it.id == created.id },
+                        hikes = updatedHikes,
                         isFinalizingTracking = false,
-                        notice = if (created.routeSegments.isEmpty()) {
+                        notice = if (celebration != null) {
+                            null
+                        } else if (created.routeSegments.isEmpty()) {
                             "Hike saved. GPS did not collect enough points to draw a route."
                         } else {
                             "Hike saved on this phone. Give it a name and location."
                         },
+                        celebration = celebration ?: state.celebration,
                     )
                 }
                 loadHikeLocations()
@@ -1943,15 +1986,27 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     val updatedHikes = saved?.let { hike ->
                         listOf(hike) + state.hikes.filterNot { it.id == hike.id }
                     } ?: state.hikes
+                    val celebration = saved?.let { hike ->
+                        buildHikeMilestoneCelebration(
+                            previousHikes = state.hikes,
+                            updatedHikes = updatedHikes,
+                            savedHike = hike,
+                        )
+                    }
                     state.copy(
                         hikes = updatedHikes,
                         journal = saved?.let { hike ->
                             if (state.journal?.id == hike.id) hike else state.journal
                         } ?: state.journal,
                         isRefreshing = false,
-                        notice = saved?.let { hike ->
-                            buildHikeSaveNotice(hike, updatedHikes, state.species, state.speciesQuests)
-                        } ?: state.notice,
+                        notice = if (celebration != null) {
+                            null
+                        } else {
+                            saved?.let { hike ->
+                                buildHikeSaveNotice(hike, updatedHikes, state.species, state.speciesQuests)
+                            } ?: state.notice
+                        },
+                        celebration = celebration ?: state.celebration,
                     )
                 }
                 onSaved()
@@ -2201,12 +2256,18 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         )
                     }
                     _state.update { state ->
+                        val celebration = buildKnownSpeciesRediscoveryCelebration(species, photo)
                         state.copy(
                             reviewQueue = state.reviewQueue.filterNot { it.photo.id == photo.id },
                             speciesAssignmentId = null,
                             badgesHydrated = false,
-                            notice = "Assigned ${species.commonName.ifBlank { species.scientificName }}. " +
-                                if (state.isOffline) "Saved for sync." else "Ready to publish.",
+                            notice = if (celebration != null) {
+                                null
+                            } else {
+                                "Assigned ${species.commonName.ifBlank { species.scientificName }}. " +
+                                    if (state.isOffline) "Saved for sync." else "Ready to publish."
+                            },
+                            celebration = celebration ?: state.celebration,
                         )
                     }
                     onAssigned()
@@ -2320,6 +2381,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun clearNotice() {
         _state.update { it.copy(notice = null) }
+    }
+
+    fun dismissCelebration() {
+        _state.update { it.copy(celebration = null) }
     }
 
     private fun updatePhotoState(photoId: String, update: (Photo) -> Photo) {

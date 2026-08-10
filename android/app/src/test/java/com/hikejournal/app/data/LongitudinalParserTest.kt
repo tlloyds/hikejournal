@@ -77,4 +77,15 @@ class LongitudinalParserTest {
         assertEquals("Overcast", comparison.weatherA?.conditionLabel)
         assertEquals(null, comparison.weatherB)
     }
+
+    @Test
+    fun `comparison species keep their encounter thumbnails`() {
+        val comparison = parseHikeComparison(
+            """
+            {"hike_a":{"id":"a"},"hike_b":{"id":"b"},"species":{"shared":[{"key":"taxon:1","taxon_id":1,"common_name":"Sundew","reference_photo_url":"https://example.test/sundew.jpg"}],"only_a":[],"only_b":[]}}
+            """.trimIndent(),
+        )
+
+        assertEquals("https://example.test/sundew.jpg", comparison.shared.single().referencePhotoUrl)
+    }
 }

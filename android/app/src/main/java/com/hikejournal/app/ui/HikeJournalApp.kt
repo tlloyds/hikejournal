@@ -758,6 +758,13 @@ fun HikeJournalApp(viewModel: AppViewModel) {
         }
     }
 
+    state.celebration?.let { celebration ->
+        FieldCelebrationDialog(
+            celebration = celebration,
+            onDismiss = viewModel::dismissCelebration,
+        )
+    }
+
     comparisonBaseHike?.takeIf { state.hikeComparison == null && !state.isLongitudinalLoading }?.let { base ->
         HikeComparisonPickerDialog(
             base = base,

@@ -233,6 +233,7 @@ data class ComparisonSpecies(
     val commonName: String,
     val scientificName: String,
     val iconicTaxonName: String,
+    val referencePhotoUrl: String,
 )
 
 data class ComparisonHike(
@@ -470,6 +471,7 @@ data class ReviewCandidate(
     val commonName: String,
     val scientificName: String,
     val confidence: Double?,
+    val iconicTaxonName: String = "Other",
 )
 
 /**
@@ -818,6 +820,7 @@ private fun parseReviewItem(json: JSONObject): ReviewItem {
                 commonName = candidate.optString("common_name", "Unknown species"),
                 scientificName = candidate.optString("scientific_name"),
                 confidence = candidate.optNullableDouble("confidence"),
+                iconicTaxonName = candidate.optString("iconic_taxon_name", "Other"),
             )
         },
     )
@@ -1165,6 +1168,7 @@ private fun parseComparisonSpecies(items: JSONArray): List<ComparisonSpecies> =
             commonName = item.optString("common_name", "Unknown species"),
             scientificName = item.optString("scientific_name"),
             iconicTaxonName = item.optString("iconic_taxon_name", "Other"),
+            referencePhotoUrl = item.optString("reference_photo_url"),
         )
     }
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from html import unescape
 from typing import Any
 from urllib.parse import quote
@@ -104,3 +105,43 @@ def fill_missing_wikipedia_summary(enrichment: dict[str, Any]) -> tuple[dict[str
     updated.update(wikipedia)
     updated["wikipedia_summary_source"] = "wikipedia"
     return updated, True
+
+
+def enrich_missing_wikipedia_summaries(
+    taxa: list[dict[str, Any]],
+    *,
+    max_workers: int = 4,
+) -> list[dict[str, Any]]:
+    """Fill absent field-guide blurbs without serially delaying a briefing.
+
+    iNaturalist species-count responses do not consistently include the requested
+    Wikipedia fields. Keep the existing copy when it is present and use a small,
+    bounded pool only for the missing entries.
+    """
+    results = [dict(taxon) for taxon in taxa]
+    missing = [
+        index
+        for index, taxon in enumerate(results)
+        if not _plain_text(taxon.get("wikipedia_summary"))
+    ]
+    if not missing:
+        return results
+
+    def enrich(index: int) -> tuple[int, dict[str, Any]]:
+        updated, _ = fill_missing_wikipedia_summary(
+            {
+                **results[index],
+                "preferred_common_name": results[index].get("common_name"),
+            }
+        )
+        return index, updated
+
+    with ThreadPoolExecutor(max_workers=max(1, min(max_workers, len(missing)))) as executor:
+        futures = [executor.submit(enrich, index) for index in missing]
+        for future in as_completed(futures):
+            try:
+                index, updated = future.result()
+            except Exception:
+                continue
+            results[index] = updated
+    return results

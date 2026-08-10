@@ -79,6 +79,21 @@ def test_hike_comparison_uses_species_set_math():
     assert [item["taxon_id"] for item in comparison["species"]["only_b"]] == [3]
 
 
+def test_hike_comparison_keeps_a_thumbnail_for_every_species():
+    comparison = build_hike_comparison(
+        {"id": "a", "title": "A"},
+        {"id": "b", "title": "B"},
+        [
+            observation(1, "2025-01-01", "a", reference_photo_url="one.jpg"),
+            observation(1, "2025-02-01", "b", reference_photo_url="one-return.jpg"),
+            observation(2, "2025-02-01", "b", reference_photo_url="two.jpg"),
+        ],
+    )
+
+    assert comparison["species"]["shared"][0]["reference_photo_url"] == "one.jpg"
+    assert comparison["species"]["only_b"][0]["reference_photo_url"] == "two.jpg"
+
+
 def test_field_briefing_is_deterministic_and_explains_personal_reasons():
     nearby = [
         {

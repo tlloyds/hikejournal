@@ -6,7 +6,7 @@ from typing import Any, Iterable
 
 
 MONTH_LABELS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
-BRIEFING_ALGORITHM_VERSION = "personal-season-v1"
+BRIEFING_ALGORITHM_VERSION = "personal-season-v2"
 
 
 def species_key(observation: dict[str, Any]) -> str:

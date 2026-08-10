@@ -30,7 +30,10 @@ private val animalIconicTaxa = setOf(
 
 private val knownIconicTaxa = animalIconicTaxa + setOf("plantae", "fungi")
 
-fun SpeciesRecord.matchesObservationType(filter: ObservationTypeFilter): Boolean {
+fun iconicTaxonMatchesObservationType(
+    iconicTaxonName: String,
+    filter: ObservationTypeFilter,
+): Boolean {
     val iconicTaxon = iconicTaxonName.trim().lowercase()
     return when (filter) {
         ObservationTypeFilter.All -> true
@@ -48,6 +51,9 @@ fun SpeciesRecord.matchesObservationType(filter: ObservationTypeFilter): Boolean
         ObservationTypeFilter.OtherLife -> iconicTaxon !in knownIconicTaxa
     }
 }
+
+fun SpeciesRecord.matchesObservationType(filter: ObservationTypeFilter): Boolean =
+    iconicTaxonMatchesObservationType(iconicTaxonName, filter)
 
 fun filterSpeciesByObservationType(
     species: List<SpeciesRecord>,

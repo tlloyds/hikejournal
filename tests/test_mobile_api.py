@@ -19,6 +19,7 @@ from mobile_api import (
     ReviewQueueInput,
     SpeciesQuestInput,
     _build_species_payloads,
+    _active_quest_focus_taxon_ids,
     _hike_payload,
     _photo_payload,
     _mobile_inat_client,
@@ -60,6 +61,22 @@ from mobile_api import (
     ReviewBatchInput,
     ReviewBatchGroupInput,
 )
+
+
+def test_field_briefing_uses_only_focused_targets_from_active_quests():
+    quests = [
+        {
+            "status": "active",
+            "taxa": [
+                {"taxon_id": 1, "focus_order": 1},
+                {"taxon_id": 2, "focus_order": None},
+            ],
+        },
+        {"status": "archived", "taxa": [{"taxon_id": 3, "focus_order": 1}]},
+        {"status": "active", "taxa": [{"taxon_id": "4", "focus_order": 2}]},
+    ]
+
+    assert _active_quest_focus_taxon_ids(quests) == {1, 4}
 
 
 def test_request_log_message_contains_correlation_and_timing_fields(

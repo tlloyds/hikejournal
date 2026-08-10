@@ -93,6 +93,7 @@ from hike_journal.services.weather import (
     WeatherProviderError,
     enrich_hike_weather,
 )
+from hike_journal.services.wikipedia import enrich_missing_wikipedia_summaries
 
 
 MAX_UPLOAD_BYTES = 30 * 1024 * 1024
@@ -1501,13 +1502,17 @@ def _candidate_payload(
     common_name: str,
     scientific_name: str,
     confidence: float | None,
+    iconic_taxon_name: str = "Other",
 ) -> dict[str, Any]:
-    return {
+    payload = {
         "taxon_id": taxon_id,
         "common_name": common_name or scientific_name or "Unknown species",
         "scientific_name": scientific_name,
         "confidence": confidence,
     }
+    if iconic_taxon_name and iconic_taxon_name.casefold() != "other":
+        payload["iconic_taxon_name"] = iconic_taxon_name
+    return payload
 
 
 def _review_candidates(observation: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1516,6 +1521,7 @@ def _review_candidates(observation: dict[str, Any]) -> list[dict[str, Any]]:
         common_name=str(observation.get("common_name") or ""),
         scientific_name=str(observation.get("scientific_name") or ""),
         confidence=observation.get("confidence"),
+        iconic_taxon_name=str(observation.get("iconic_taxon_name") or "Other"),
     )
     candidates = [current]
     raw_payload = observation.get("raw_response_json")
@@ -2251,16 +2257,11 @@ def get_field_briefing(
         if any(str(tag.get("id") or "") == location_id for tag in hike.get("location_tags") or [])
     }
     context = _user_context()
-    active_quest_taxon_ids: set[int] = set()
-    for quest in svc.repository.list_species_quests(
+    quests = svc.repository.list_species_quests(
         owner_subject=context.get("subject"),
         owner_email=context.get("email"),
-    ):
-        if quest.get("status") != "active":
-            continue
-        for taxon in quest.get("taxa") or []:
-            if taxon.get("taxon_id") not in (None, ""):
-                active_quest_taxon_ids.add(int(taxon["taxon_id"]))
+    )
+    active_quest_taxon_ids = _active_quest_focus_taxon_ids(quests)
     briefing = build_field_briefing(
         target_date=target_date,
         nearby_taxa=nearby.get("taxa") or [],
@@ -2269,12 +2270,42 @@ def get_field_briefing(
         active_quest_taxon_ids=active_quest_taxon_ids,
         limit=limit,
     )
+    briefing_items = [
+        item
+        for section in briefing.get("sections") or []
+        for item in section.get("items") or []
+    ]
+    enriched_by_key = {
+        str(item.get("key") or ""): item
+        for item in enrich_missing_wikipedia_summaries(briefing_items)
+    }
+    for section in briefing.get("sections") or []:
+        section["items"] = [
+            enriched_by_key.get(str(item.get("key") or ""), item)
+            for item in section.get("items") or []
+        ]
     return {
         **briefing,
         "area": nearby.get("area") or area,
         "period": nearby.get("period") or {},
         "source": nearby.get("source") or {},
     }
+
+
+def _active_quest_focus_taxon_ids(quests: list[dict[str, Any]]) -> set[int]:
+    """Return only the deliberately selected targets in visible active quests."""
+    result: set[int] = set()
+    for quest in quests:
+        if str(quest.get("status") or "").casefold() != "active":
+            continue
+        for taxon in quest.get("taxa") or []:
+            if taxon.get("focus_order") in (None, ""):
+                continue
+            try:
+                result.add(int(taxon["taxon_id"]))
+            except (KeyError, TypeError, ValueError):
+                continue
+    return result
 
 
 @app.get("/v1/species", dependencies=[Depends(require_mobile_key)])

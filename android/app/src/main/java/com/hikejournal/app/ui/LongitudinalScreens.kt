@@ -48,9 +48,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
@@ -200,6 +202,16 @@ internal fun FieldBriefingScreen(
     onOpenSightings: (BriefingItem) -> Unit,
 ) {
     var previewItem by remember { mutableStateOf<BriefingItem?>(null) }
+    var selectedLifeGroups by rememberSaveable { mutableStateOf(emptyList<String>()) }
+    var lifeFilterOpen by remember { mutableStateOf(false) }
+    val visibleSections = briefing?.sections.orEmpty().mapNotNull { section ->
+        val visibleItems = section.items.filter { item ->
+            selectedLifeGroups.isEmpty() || selectedLifeGroups.any {
+                it.equals(item.iconicTaxonName, ignoreCase = true)
+            }
+        }
+        section.copy(items = visibleItems).takeIf { visibleItems.isNotEmpty() }
+    }
     BackHandler(onBack = onBack)
     LazyColumn(Modifier.fillMaxSize().background(Parchment)) {
         item {
@@ -226,13 +238,42 @@ internal fun FieldBriefingScreen(
                     modifier = Modifier.padding(20.dp),
                 )
             }
-            briefing.sections.forEach { section ->
+            item {
+                Row(
+                    Modifier.fillMaxWidth().background(Paper).padding(horizontal = 20.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("LIFE GROUP", style = MaterialTheme.typography.labelSmall, color = TrailText)
+                        Text(
+                            if (selectedLifeGroups.isEmpty()) "Every recommendation" else "Filtered briefing",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = InkMuted,
+                        )
+                    }
+                    TextButton(onClick = { lifeFilterOpen = true }) {
+                        Text(iconicTaxonLabel(selectedLifeGroups))
+                        Icon(
+                            Icons.Rounded.KeyboardArrowDown,
+                            contentDescription = "Choose a life group",
+                            modifier = Modifier.padding(start = 3.dp).size(18.dp),
+                        )
+                    }
+                }
+            }
+            visibleSections.forEach { section ->
                 item {
                     Text(
-                        section.title.uppercase(Locale.US),
-                        style = MaterialTheme.typography.labelSmall,
+                        section.title,
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = Ink,
+                        modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 28.dp, bottom = 4.dp),
+                    )
+                    Text(
+                        "${section.items.size} field note${if (section.items.size == 1) "" else "s"}",
+                        style = MaterialTheme.typography.labelMedium,
                         color = TrailText,
-                        modifier = Modifier.padding(start = 20.dp, top = 22.dp, bottom = 4.dp),
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp),
                     )
                 }
                 items(section.items, key = { "${section.title}:${it.key}" }) { item ->
@@ -240,6 +281,16 @@ internal fun FieldBriefingScreen(
                         item = item,
                         onOpenSpecies = { previewItem = item },
                         onOpenSightings = { onOpenSightings(item) },
+                    )
+                }
+            }
+            if (visibleSections.isEmpty()) {
+                item {
+                    Text(
+                        "No ${iconicTaxonLabel(selectedLifeGroups).lowercase(Locale.US)} appear in today’s briefing.",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = InkMuted,
+                        modifier = Modifier.padding(20.dp),
                     )
                 }
             }
@@ -251,6 +302,16 @@ internal fun FieldBriefingScreen(
             taxon = item.toDiscoveryTaxon(),
             onMap = item.taxonId?.let { { onOpenSightings(item) } },
             onDismiss = { previewItem = null },
+        )
+    }
+    if (lifeFilterOpen) {
+        NearbyLifeFilterSheet(
+            selectedGroups = selectedLifeGroups,
+            onApply = {
+                selectedLifeGroups = it
+                lifeFilterOpen = false
+            },
+            onDismiss = { lifeFilterOpen = false },
         )
     }
 }
@@ -525,8 +586,24 @@ private fun SpeciesDifference(title: String, species: List<ComparisonSpecies>) {
         } else {
             species.forEach { item ->
                 Row(Modifier.fillMaxWidth().padding(vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(6.dp).background(Trail))
-                    Column(Modifier.padding(start = 11.dp)) {
+                    Box(Modifier.size(54.dp).clip(CircleShape).background(Color(0xFFD0CFBD))) {
+                        if (item.referencePhotoUrl.isNotBlank()) {
+                            AsyncImage(
+                                model = item.referencePhotoUrl,
+                                contentDescription = item.commonName,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop,
+                            )
+                        } else {
+                            Icon(
+                                lifeGroupIcon(item.iconicTaxonName),
+                                contentDescription = null,
+                                tint = Moss.copy(alpha = 0.55f),
+                                modifier = Modifier.align(Alignment.Center).size(24.dp),
+                            )
+                        }
+                    }
+                    Column(Modifier.padding(start = 12.dp)) {
                         Text(item.commonName, style = MaterialTheme.typography.bodyLarge, color = Ink)
                         Text(item.scientificName, style = MaterialTheme.typography.bodySmall, color = InkMuted, fontStyle = FontStyle.Italic)
                     }

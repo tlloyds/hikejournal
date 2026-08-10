@@ -1471,7 +1471,7 @@ private val NearbyLifeGroups = listOf<String?>(
 )
 
 @Composable
-private fun NearbyLifeFilterSheet(
+internal fun NearbyLifeFilterSheet(
     selectedGroups: List<String>,
     onApply: (List<String>) -> Unit,
     onDismiss: () -> Unit,
