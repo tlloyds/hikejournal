@@ -1694,6 +1694,27 @@ fun SpeciesDetailScreen(
                 }
             }
         }
+        if (species.seasonalHistory.observationCount > 0) {
+            item {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 24.dp)) {
+                    Text("YOUR SEASONAL HISTORY", style = MaterialTheme.typography.labelSmall, color = TrailText)
+                    Text(
+                        "When this species appears in your journal",
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = Ink,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                    SeasonalBand(species.seasonalHistory, Modifier.padding(top = 20.dp))
+                    Text(
+                        species.seasonalHistory.guidance,
+                        style = MaterialTheme.typography.bodySmall.copy(fontStyle = FontStyle.Italic),
+                        color = InkMuted,
+                        modifier = Modifier.padding(top = 12.dp),
+                    )
+                }
+                HorizontalDivider(color = Line)
+            }
+        }
         item {
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),

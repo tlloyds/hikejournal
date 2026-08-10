@@ -66,6 +66,7 @@ import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Archive
 import androidx.compose.material.icons.rounded.CameraAlt
+import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Close
@@ -169,6 +170,7 @@ import com.hikejournal.app.data.Photo
 import com.hikejournal.app.data.ReviewCandidate
 import com.hikejournal.app.data.ReviewItem
 import com.hikejournal.app.data.SpeciesRecord
+import com.hikejournal.app.data.SpeciesLabel
 import com.hikejournal.app.data.SyncAttention
 import com.hikejournal.app.data.localMediaAccess
 import com.hikejournal.app.data.requiredLocalMediaPermissions
@@ -219,6 +221,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
     var pendingEverydayUpload by remember { mutableStateOf(false) }
     var settingsOpen by remember { mutableStateOf(false) }
     var badgesOpen by remember { mutableStateOf(false) }
+    var comparisonBaseHike by remember { mutableStateOf<Hike?>(null) }
     var selectedPhoto by remember { mutableStateOf<Photo?>(null) }
     var directReviewItem by remember { mutableStateOf<ReviewItem?>(null) }
     var identifyAfterUpload by remember { mutableStateOf(false) }
@@ -397,6 +400,9 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                 selectedRouteUri = null
             }
             badgesOpen -> badgesOpen = false
+            state.hikeComparison != null -> viewModel.closeHikeComparison()
+            state.fieldBriefing != null -> viewModel.closeFieldBriefing()
+            state.placeProfile != null -> viewModel.closePlaceProfile()
             state.journal != null -> viewModel.closeJournal()
             state.speciesDetail != null -> {
                 speciesBrowseContext = null
@@ -422,6 +428,9 @@ fun HikeJournalApp(viewModel: AppViewModel) {
     val screenKey = when {
         trackingVisible && trackingUi != null -> "tracking:${trackingUi.sessionId}"
         hikeMapRequest != null -> "hike-map:${hikeMapRequest?.hike?.id}:${hikeMapRequest?.focusedPhoto?.id}"
+        state.hikeComparison != null || state.isLongitudinalLoading && comparisonBaseHike != null -> "comparison"
+        state.fieldBriefing != null -> "briefing:${state.fieldBriefing?.targetDate}"
+        state.placeProfile != null -> "place:${state.placeProfile?.locationId}"
         state.journal != null -> "journal:${state.journal?.id}"
         state.speciesDetail != null -> "species:${state.speciesDetail?.key}"
         badgesOpen -> "badges"
@@ -441,6 +450,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                 key.startsWith("tracking:") && trackingUi != null -> {
                     HikeTrackingScreen(
                         tracking = trackingUi,
+                        fieldMarks = state.trackingMarks,
                         onBack = {
                             trackingVisible = false
                             trackingEndConfirmationRequested = false
@@ -464,6 +474,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                                 trackingEndConfirmationRequested = false
                             }
                         },
+                        onAddFieldMark = viewModel::addFieldMark,
                         requestEndConfirmation = trackingEndConfirmationRequested,
                         onEndConfirmationShown = { trackingEndConfirmationRequested = false },
                     )
@@ -480,6 +491,32 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                         },
                     )
                 }
+                key == "comparison" -> HikeComparisonScreen(
+                    comparison = state.hikeComparison,
+                    loading = state.isLongitudinalLoading,
+                    onBack = {
+                        comparisonBaseHike = null
+                        viewModel.closeHikeComparison()
+                    },
+                )
+                key.startsWith("briefing:") -> FieldBriefingScreen(
+                    briefing = state.fieldBriefing,
+                    loading = state.isLongitudinalLoading,
+                    onBack = viewModel::closeFieldBriefing,
+                    onOpenSpecies = { key ->
+                        viewModel.closeFieldBriefing()
+                        viewModel.openSpecies(key)
+                    },
+                )
+                key.startsWith("place:") -> PlaceProfileScreen(
+                    profile = state.placeProfile,
+                    loading = state.isLongitudinalLoading,
+                    onBack = viewModel::closePlaceProfile,
+                    onOpenHike = { hikeId ->
+                        viewModel.closePlaceProfile()
+                        viewModel.openHike(hikeId)
+                    },
+                )
                 key.startsWith("journal:") && state.journal != null -> {
                     val journal = state.journal!!
                     JournalScreen(
@@ -501,6 +538,13 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                         onViewMap = {
                             hikeMapRequest = HikeMapRequest(hike = journal)
                         },
+                        onOpenPlace = journal.primaryLocationId?.let { locationId ->
+                            { viewModel.openPlaceProfile(locationId) }
+                        },
+                        onOpenBriefing = journal.primaryLocationId?.let { locationId ->
+                            { viewModel.openFieldBriefing(locationId) }
+                        },
+                        onCompare = if (journal.isStandalone) null else ({ comparisonBaseHike = journal }),
                         onPhoto = { selectedPhoto = it },
                         onQueueReview = viewModel::queuePhotosForSpeciesReview,
                     )
@@ -680,6 +724,15 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                 NoticeBanner(message = state.publishNotice.orEmpty(), onDismiss = viewModel::clearPublishNotice)
             }
         }
+    }
+
+    comparisonBaseHike?.takeIf { state.hikeComparison == null && !state.isLongitudinalLoading }?.let { base ->
+        HikeComparisonPickerDialog(
+            base = base,
+            hikes = state.hikes.filterNot { it.id == base.id || it.isStandalone || it.isArchived },
+            onDismiss = { comparisonBaseHike = null },
+            onSelect = { other -> viewModel.openHikeComparison(base.id, other.id) },
+        )
     }
 
     if (creatingHike || editingHike != null) {
@@ -882,6 +935,16 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                 { speciesAssignmentPhoto = photo }
             } else {
                 null
+            },
+            onEditNaturalHistory = photo.species.firstOrNull { it.isPrimary }?.observationId?.let { observationId ->
+                { confidence, phenophases ->
+                    viewModel.updateObservationNaturalHistory(
+                        photo,
+                        observationId,
+                        confidence,
+                        phenophases,
+                    )
+                }
             },
             onViewMap = if (photo.latitude != null && photo.longitude != null) {
                 {
@@ -1510,6 +1573,60 @@ private fun HikeRow(hike: Hike, opening: Boolean, onOpen: (String) -> Unit) {
 }
 
 @Composable
+private fun HikeComparisonPickerDialog(
+    base: Hike,
+    hikes: List<Hike>,
+    onDismiss: () -> Unit,
+    onSelect: (Hike) -> Unit,
+) {
+    val ordered = hikes.sortedWith(
+        compareByDescending<Hike> {
+            base.primaryLocationId != null && it.primaryLocationId == base.primaryLocationId
+        }.thenByDescending { it.hikeDate },
+    )
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Compare field journals") },
+        text = {
+            if (ordered.isEmpty()) {
+                Text("Record another hike before comparing visits.")
+            } else {
+                LazyColumn(Modifier.fillMaxWidth().heightIn(max = 420.dp)) {
+                    item {
+                        Text(
+                            "Choose an outing to compare with ${base.title}.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = InkMuted,
+                            modifier = Modifier.padding(bottom = 10.dp),
+                        )
+                    }
+                    items(ordered, key = { it.id }) { hike ->
+                        Row(
+                            Modifier.fillMaxWidth().clickable { onSelect(hike) }.padding(vertical = 13.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text(hike.hikeDate, style = MaterialTheme.typography.labelSmall, color = TrailText)
+                                Text(hike.title, style = MaterialTheme.typography.titleMedium, color = Ink)
+                                Text(
+                                    hike.primaryLocationName.ifBlank { hike.locationName },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = InkMuted,
+                                )
+                            }
+                            Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = Fern)
+                        }
+                        HorizontalDivider(color = Line)
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@Composable
 private fun JournalScreen(
     hike: Hike,
     state: AppState,
@@ -1520,6 +1637,9 @@ private fun JournalScreen(
     onExploreSpecies: (() -> Unit)?,
     onAddPhotos: () -> Unit,
     onViewMap: () -> Unit,
+    onOpenPlace: (() -> Unit)?,
+    onOpenBriefing: (() -> Unit)?,
+    onCompare: (() -> Unit)?,
     onPhoto: (Photo) -> Unit,
     onQueueReview: (List<Photo>) -> Unit,
 ) {
@@ -1621,6 +1741,31 @@ private fun JournalScreen(
                     Icon(Icons.Rounded.Map, null, Modifier.size(18.dp))
                     Spacer(Modifier.width(7.dp))
                     Text("View map")
+                }
+                if (onOpenPlace != null || onOpenBriefing != null || onCompare != null) {
+                    Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                        onOpenPlace?.let { action ->
+                            TextButton(onClick = action) {
+                                Icon(Icons.Rounded.LocationOn, null, Modifier.size(18.dp))
+                                Spacer(Modifier.width(7.dp))
+                                Text("Open Place Profile")
+                            }
+                        }
+                        onOpenBriefing?.let { action ->
+                            TextButton(onClick = action) {
+                                Icon(Icons.AutoMirrored.Rounded.FactCheck, null, Modifier.size(18.dp))
+                                Spacer(Modifier.width(7.dp))
+                                Text("Field Briefing for today")
+                            }
+                        }
+                        onCompare?.let { action ->
+                            TextButton(onClick = action) {
+                                Icon(Icons.Rounded.CalendarMonth, null, Modifier.size(18.dp))
+                                Spacer(Modifier.width(7.dp))
+                                Text("Compare with another hike")
+                            }
+                        }
+                    }
                 }
                 if (onExploreSpecies != null) {
                     TextButton(onClick = onExploreSpecies, modifier = Modifier.padding(top = 6.dp)) {
@@ -2440,6 +2585,7 @@ private fun PhotoViewer(
     onRequestRecommendation: () -> Unit,
     onSetCover: ((Boolean) -> Unit)?,
     onAssignSpecies: (() -> Unit)?,
+    onEditNaturalHistory: ((String, List<String>) -> Unit)?,
     onViewMap: (() -> Unit)?,
 ) {
     val identifiedSpecies = photo.species.firstOrNull { it.isPrimary }
@@ -2449,6 +2595,7 @@ private fun PhotoViewer(
     var photoFullscreen by remember { mutableStateOf(false) }
     var videoFullscreen by remember(photo.id) { mutableStateOf(false) }
     var horizontalDragDistance by remember(photo.id) { mutableFloatStateOf(0f) }
+    var editingNaturalHistory by remember(photo.id) { mutableStateOf(false) }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Column(Modifier.fillMaxSize().background(Color(0xFF101511)).statusBarsPadding()) {
             Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -2505,6 +2652,49 @@ private fun PhotoViewer(
                 ) {
                 identifiedSpecies?.let { species ->
                     Text(species.commonName.ifBlank { species.scientificName }, style = MaterialTheme.typography.titleMedium, color = Color(0xFFBFD2B9))
+                    if (species.observationId != null) {
+                        Text(
+                            "${friendlyConfidence(species.confidence)} · ${friendlyProvenance(species.provenance)}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color(0xFF91AA8C),
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                        if (species.phenophases.isNotEmpty()) {
+                            Text(
+                                species.phenophases.joinToString(" · ") { it.replace('_', ' ').replaceFirstChar(Char::uppercase) },
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = Paper,
+                                modifier = Modifier.padding(top = 5.dp),
+                            )
+                        }
+                        if (species.identificationHistory.isNotEmpty()) {
+                            Text(
+                                "IDENTIFICATION HISTORY",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color(0xFF91AA8C),
+                                modifier = Modifier.padding(top = 14.dp),
+                            )
+                            species.identificationHistory.take(3).forEach { event ->
+                                Text(
+                                    "${event.createdAt?.take(10).orEmpty()} · ${friendlyProvenance(event.source)} → " +
+                                        event.commonName.ifBlank { event.scientificName },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color(0xFFBFD2B9),
+                                    modifier = Modifier.padding(top = 3.dp),
+                                )
+                            }
+                        }
+                        if (onEditNaturalHistory != null) {
+                            OutlinedButton(
+                                onClick = { editingNaturalHistory = true },
+                                modifier = Modifier.fillMaxWidth().padding(top = 12.dp).height(46.dp),
+                                border = BorderStroke(1.dp, Color(0xFF91AA8C)),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Paper),
+                            ) {
+                                Text("Confidence & phenophase")
+                            }
+                        }
+                    }
                 }
                 if (onViewMap != null) {
                     OutlinedButton(
@@ -2685,6 +2875,92 @@ private fun PhotoViewer(
             dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Keep $mediaName") } },
         )
     }
+    if (editingNaturalHistory && identifiedSpecies != null && onEditNaturalHistory != null) {
+        NaturalHistoryDialog(
+            species = identifiedSpecies,
+            onDismiss = { editingNaturalHistory = false },
+            onSave = { confidence, phenophases ->
+                editingNaturalHistory = false
+                onEditNaturalHistory(confidence, phenophases)
+            },
+        )
+    }
+}
+
+@Composable
+private fun NaturalHistoryDialog(
+    species: SpeciesLabel,
+    onDismiss: () -> Unit,
+    onSave: (String, List<String>) -> Unit,
+) {
+    var confidence by remember(species.observationId) { mutableStateOf(species.confidence) }
+    var phenophases by remember(species.observationId) { mutableStateOf(species.phenophases.toSet()) }
+    val confidenceOptions = listOf(
+        "tentative" to "Tentative",
+        "likely" to "Likely",
+        "confident" to "Confident",
+        "externally_confirmed" to "Externally confirmed",
+    )
+    val phenophaseOptions = listOf(
+        "vegetative" to "Vegetative",
+        "budding" to "Budding",
+        "flowering" to "Flowering",
+        "fruiting" to "Fruiting",
+        "senescent" to "Senescent",
+    )
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Natural-history detail") },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                Text("IDENTIFICATION CONFIDENCE", style = MaterialTheme.typography.labelSmall, color = TrailText)
+                confidenceOptions.forEach { (value, label) ->
+                    Row(
+                        Modifier.fillMaxWidth().clickable { confidence = value }.padding(vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(selected = confidence == value, onClick = { confidence = value })
+                        Text(label, style = MaterialTheme.typography.bodyLarge, color = Ink)
+                    }
+                }
+                if (species.iconicTaxonName == "Plantae") {
+                    Text(
+                        "PLANT PHENOPHASE · OPTIONAL",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = TrailText,
+                        modifier = Modifier.padding(top = 12.dp),
+                    )
+                    phenophaseOptions.forEach { (value, label) ->
+                        Row(
+                            Modifier.fillMaxWidth().clickable {
+                                phenophases = if (value in phenophases) phenophases - value else phenophases + value
+                            }.padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Checkbox(
+                                checked = value in phenophases,
+                                onCheckedChange = { checked ->
+                                    phenophases = if (checked) phenophases + value else phenophases - value
+                                },
+                            )
+                            Text(label, style = MaterialTheme.typography.bodyLarge, color = Ink)
+                        }
+                    }
+                }
+                Text(
+                    "These labels describe your observation; they do not claim a species-wide season.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = InkMuted,
+                    fontStyle = FontStyle.Italic,
+                    modifier = Modifier.padding(top = 10.dp),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onSave(confidence, phenophases.sorted()) }) { Text("Save") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 @Composable
@@ -3236,6 +3512,23 @@ private fun formatDate(raw: String): String = try {
     LocalDate.parse(raw).format(DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.US))
 } catch (_: Exception) {
     raw
+}
+
+private fun friendlyConfidence(value: String): String = when (value) {
+    "externally_confirmed" -> "Externally confirmed"
+    "confident" -> "Confident"
+    "likely" -> "Likely"
+    else -> "Tentative"
+}
+
+private fun friendlyProvenance(value: String): String = when (value) {
+    "user" -> "You"
+    "inat_computer_vision" -> "iNaturalist suggestion"
+    "inat_lookup" -> "iNaturalist taxon lookup"
+    "inat_community" -> "iNaturalist community"
+    "external_expert" -> "External expert"
+    "imported_record" -> "Imported record"
+    else -> "Legacy record"
 }
 
 private fun formatTakenAt(raw: String?): String {

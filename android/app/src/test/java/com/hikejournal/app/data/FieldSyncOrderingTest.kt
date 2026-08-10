@@ -24,6 +24,21 @@ class FieldSyncOrderingTest {
     }
 
     @Test
+    fun `field mark waits for its offline hike to exist`() {
+        val mark = operation(
+            id = "mark",
+            kind = OperationKind.CreateFieldMark,
+            entityId = "mark-1",
+            parentId = "hike-1",
+            payloadJson = "{\"wait_for_hike_create\":true}",
+        )
+        val create = operation("create", OperationKind.CreateHike, "hike-1")
+
+        assertEquals(create, selectNextSyncOperation(listOf(mark, create)))
+        assertNull(selectNextSyncOperation(listOf(mark)))
+    }
+
+    @Test
     fun `failed create blocks route photos and edits`() {
         val create = operation(
             id = "create",
@@ -100,12 +115,13 @@ class FieldSyncOrderingTest {
         entityId: String,
         parentId: String? = null,
         state: String = "queued",
+        payloadJson: String = "{}",
     ) = PendingOperationEntity(
         id = id,
         kind = kind,
         entityId = entityId,
         parentId = parentId,
-        payloadJson = "{}",
+        payloadJson = payloadJson,
         localFilePath = null,
         contentType = null,
         fileName = null,

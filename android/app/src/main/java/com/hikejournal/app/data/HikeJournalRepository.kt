@@ -12,6 +12,7 @@ import java.io.File
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.StandardCopyOption
 import java.time.Instant
+import java.time.LocalDate
 
 data class HikeDeletionResult(
     val notice: String? = null,
@@ -107,6 +108,41 @@ class HikeJournalRepository(context: Context) {
         parse = ::parseHikeLocations,
     )
 
+    suspend fun loadPlaceProfile(locationId: String): LoadResult<PlaceProfile> = loadWithCache(
+        cacheFile = File(cacheDirectory, "place-${locationId.hashCode()}.json"),
+        fetch = { api.getPlaceProfileJson(locationId) },
+        parse = ::parsePlaceProfile,
+    )
+
+    suspend fun loadFieldBriefing(
+        locationId: String,
+        targetDate: String = LocalDate.now().toString(),
+    ): LoadResult<FieldBriefing> = loadWithCache(
+        cacheFile = File(cacheDirectory, "briefing-${"$locationId|$targetDate".hashCode()}.json"),
+        fetch = { api.getFieldBriefingJson(locationId, targetDate) },
+        parse = ::parseFieldBriefing,
+    )
+
+    suspend fun loadHikeComparison(hikeId: String, otherHikeId: String): LoadResult<HikeComparison> =
+        loadWithCache(
+            cacheFile = File(cacheDirectory, "comparison-${"$hikeId|$otherHikeId".hashCode()}.json"),
+            fetch = { api.getHikeComparisonJson(hikeId, otherHikeId) },
+            parse = ::parseHikeComparison,
+        )
+
+    suspend fun createFieldMark(mark: FieldMark): FieldMark = fieldQueue.queueFieldMark(mark)
+
+    suspend fun loadLocalFieldMarks(hikeId: String): List<FieldMark> = fieldQueue.localFieldMarks(hikeId)
+
+    suspend fun discardRecordingFieldMarks(hikeId: String) = fieldQueue.discardRecordingFieldMarks(hikeId)
+
+    suspend fun updateObservationNaturalHistory(
+        observationId: String,
+        hikeId: String?,
+        confidence: String,
+        phenophases: List<String>,
+    ) = fieldQueue.queueNaturalHistory(observationId, hikeId, confidence, phenophases)
+
     suspend fun loadHike(hikeId: String): LoadResult<Hike> = journalCacheMutex.withLock {
         val cacheFile = File(cacheDirectory, "hike-$hikeId.json")
         try {
@@ -151,8 +187,9 @@ class HikeJournalRepository(context: Context) {
             }
             val completeJson = payload.toString()
             val parsed = withContext(Dispatchers.Default) { parseHike(completeJson) }
+            val withMarks = overlayFieldMarks(parsed, fieldQueue.localFieldMarks(hikeId))
             if (parsed.routeSegments.isNotEmpty()) trackingRepository.clearFinished(hikeId)
-            val overlay = fieldQueue.overlayHike(parsed, hikeId)
+            val overlay = fieldQueue.overlayHike(withMarks, hikeId)
                 ?: throw IllegalStateException("Hike not found.")
             LoadResult(overlayRetainedTrackingRoute(overlay, hikeId), fromCache = false)
         } catch (networkError: Exception) {
@@ -173,10 +210,20 @@ class HikeJournalRepository(context: Context) {
                 ?.takeIf { it.isNotBlank() }
                 ?.let(::parseHike)
         }
-        val cached = fieldQueue.overlayHike(parsed, hikeId)?.let {
+        val cached = fieldQueue.overlayHike(
+            parsed?.let { overlayFieldMarks(it, fieldQueue.localFieldMarks(hikeId)) },
+            hikeId,
+        )?.let {
             overlayRetainedTrackingRoute(it, hikeId)
         }
         if (expectedPhotoCount != null && cached?.photoCount != expectedPhotoCount) null else cached
+    }
+
+    private fun overlayFieldMarks(hike: Hike, local: List<FieldMark>): Hike {
+        if (local.isEmpty()) return hike
+        val merged = hike.fieldMarks.associateBy(FieldMark::id).toMutableMap()
+        local.forEach { mark -> merged[mark.id] = mark }
+        return hike.copy(fieldMarks = merged.values.sortedBy(FieldMark::markedAt))
     }
 
     suspend fun loadSpecies(): LoadResult<List<SpeciesRecord>> {

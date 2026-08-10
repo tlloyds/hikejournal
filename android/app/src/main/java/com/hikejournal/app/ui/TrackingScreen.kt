@@ -31,6 +31,7 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.GpsFixed
 import androidx.compose.material.icons.rounded.GpsNotFixed
 import androidx.compose.material.icons.rounded.Layers
+import androidx.compose.material.icons.rounded.AddLocationAlt
 import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -46,6 +47,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -60,6 +62,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.hikejournal.app.data.RoutePoint
+import com.hikejournal.app.data.FieldMark
+import com.hikejournal.app.data.Sighting
 import com.hikejournal.app.tracking.TrackingSnapshot
 import com.hikejournal.app.tracking.TrackingStatus
 import com.hikejournal.app.ui.theme.Moss
@@ -123,17 +127,20 @@ internal fun TrackingSnapshot.toTrackingUiModel(nowEpochMs: Long = System.curren
 @Composable
 internal fun HikeTrackingScreen(
     tracking: TrackingUiModel,
+    fieldMarks: List<FieldMark>,
     onBack: () -> Unit,
     onPause: () -> Unit,
     onResume: () -> Unit,
     onEnd: () -> Unit,
     onDiscard: () -> Unit,
+    onAddFieldMark: (String, String) -> Unit,
     requestEndConfirmation: Boolean = false,
     onEndConfirmationShown: () -> Unit = {},
 ) {
     var layerMode by remember { mutableStateOf(DEFAULT_TRACKING_MAP_LAYER) }
     var followPosition by rememberSaveable(tracking.sessionId) { mutableStateOf(true) }
     var confirmEnd by rememberSaveable(tracking.sessionId) { mutableStateOf(false) }
+    var markDialogOpen by rememberSaveable(tracking.sessionId) { mutableStateOf(false) }
 
     androidx.compose.runtime.LaunchedEffect(requestEndConfirmation, tracking.isPaused) {
         if (requestEndConfirmation && tracking.isPaused) {
@@ -145,7 +152,23 @@ internal fun HikeTrackingScreen(
 
     Box(Modifier.fillMaxSize().background(Moss)) {
         HikeJournalMap(
-            sightings = emptyList(),
+            sightings = fieldMarks.map { mark ->
+                Sighting(
+                    id = mark.id,
+                    hikeId = mark.hikeId,
+                    hikeTitle = "Current hike",
+                    hikeDate = "",
+                    locationName = "",
+                    url = "",
+                    caption = mark.note,
+                    takenAt = mark.markedAt,
+                    latitude = mark.latitude,
+                    longitude = mark.longitude,
+                    speciesName = fieldMarkLabel(mark.markType),
+                    scientificName = "Field Mark",
+                    confirmed = true,
+                )
+            },
             selectedSighting = null,
             layerMode = layerMode,
             onSelect = {},
@@ -199,7 +222,18 @@ internal fun HikeTrackingScreen(
             onPause = onPause,
             onResume = onResume,
             onRequestEnd = { confirmEnd = true },
+            onMark = { markDialogOpen = true },
             modifier = Modifier.align(Alignment.BottomCenter),
+        )
+    }
+
+    if (markDialogOpen) {
+        FieldMarkDialog(
+            onDismiss = { markDialogOpen = false },
+            onSave = { type, note ->
+                markDialogOpen = false
+                onAddFieldMark(type, note)
+            },
         )
     }
 
@@ -306,6 +340,7 @@ private fun TrackingControls(
     onPause: () -> Unit,
     onResume: () -> Unit,
     onRequestEnd: () -> Unit,
+    onMark: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -338,6 +373,21 @@ private fun TrackingControls(
             )
         }
 
+        Button(
+            onClick = onMark,
+            enabled = !tracking.isBusy && tracking.currentPoint != null,
+            modifier = Modifier.fillMaxWidth().padding(top = 14.dp).height(58.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Color(0xFFE7B868),
+                contentColor = Moss,
+            ),
+            shape = RoundedCornerShape(5.dp),
+        ) {
+            Icon(Icons.Rounded.AddLocationAlt, contentDescription = null)
+            Spacer(Modifier.width(9.dp))
+            Text("MARK", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        }
+
         AnimatedContent(
             targetState = tracking.status,
             transitionSpec = {
@@ -349,7 +399,7 @@ private fun TrackingControls(
             when (status) {
                 TrackingStatus.RECORDING -> Button(
                     onClick = onPause,
-                    modifier = Modifier.fillMaxWidth().padding(top = 16.dp).height(58.dp),
+                    modifier = Modifier.fillMaxWidth().padding(top = 10.dp).height(54.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Trail, contentColor = Paper),
                     shape = RoundedCornerShape(5.dp),
                 ) {
@@ -360,7 +410,7 @@ private fun TrackingControls(
                 TrackingStatus.PAUSED -> Column(Modifier.fillMaxWidth()) {
                     Button(
                         onClick = onResume,
-                        modifier = Modifier.fillMaxWidth().padding(top = 16.dp).height(58.dp),
+                        modifier = Modifier.fillMaxWidth().padding(top = 10.dp).height(54.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = Trail, contentColor = Paper),
                         shape = RoundedCornerShape(5.dp),
                     ) {
@@ -409,6 +459,80 @@ private fun TrackingControls(
             )
         }
     }
+}
+
+@Composable
+private fun FieldMarkDialog(
+    onDismiss: () -> Unit,
+    onSave: (String, String) -> Unit,
+) {
+    var selected by rememberSaveable { mutableStateOf("note") }
+    var note by rememberSaveable { mutableStateOf("") }
+    val types = listOf(
+        "wildlife" to "Wildlife",
+        "plant" to "Plant",
+        "trail_condition" to "Trail",
+        "water" to "Water",
+        "campsite" to "Campsite",
+        "hazard" to "Hazard",
+        "note" to "Note",
+    )
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Rounded.AddLocationAlt, contentDescription = null, tint = Trail) },
+        title = { Text("Mark this place") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                types.chunked(2).forEach { row ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        row.forEach { (value, label) ->
+                            if (selected == value) {
+                                Button(
+                                    onClick = { selected = value },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(5.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = Trail),
+                                ) { Text(label) }
+                            } else {
+                                OutlinedButton(
+                                    onClick = { selected = value },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(5.dp),
+                                ) { Text(label) }
+                            }
+                        }
+                        if (row.size == 1) Spacer(Modifier.weight(1f))
+                    }
+                }
+                OutlinedTextField(
+                    value = note,
+                    onValueChange = { note = it.take(500) },
+                    label = { Text("Optional note") },
+                    minLines = 2,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    "Saved with your current GPS position and synced when service returns.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onSave(selected, note) }) { Text("Save mark") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+private fun fieldMarkLabel(markType: String): String = when (markType) {
+    "wildlife" -> "Wildlife"
+    "plant" -> "Plant"
+    "trail_condition" -> "Trail condition"
+    "water" -> "Water"
+    "campsite" -> "Campsite"
+    "hazard" -> "Hazard"
+    else -> "Note"
 }
 
 @Composable

@@ -55,7 +55,44 @@ class OfflineDatabaseMigrationTest {
         }
     }
 
+    @Test
+    @Throws(IOException::class)
+    fun migration2To3PreservesTrackingAndCreatesDurableFieldMarks() {
+        helper.createDatabase(FIELD_MARK_DATABASE, 2).apply {
+            execSQL(
+                """
+                INSERT INTO tracking_sessions (
+                    sessionId, hikeId, activeSlot, status, startedAtEpochMs,
+                    startedAtElapsedRealtimeMs, hikeDate, bootCount, activeElapsedMs,
+                    activeSinceElapsedRealtimeMs, distanceMeters, currentSegment,
+                    segmentStartPending, nextPointSequence, lastFixEpochMs,
+                    lastFixElapsedRealtimeNanos, lastAccuracyMeters, finishedAtEpochMs,
+                    generatedTcxPath, recoveryReason, error, updatedAtEpochMs
+                ) VALUES ('session', 'hike', 1, 'RECORDING', 1, 1, '2026-08-09', 1,
+                    0, 1, 0, 0, 0, 0, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 1)
+                """.trimIndent(),
+            )
+            close()
+        }
+
+        helper.runMigrationsAndValidate(
+            FIELD_MARK_DATABASE,
+            3,
+            true,
+            OfflineDatabase.MIGRATION_2_3,
+        ).use { database ->
+            database.query("SELECT COUNT(*) FROM tracking_sessions").use { cursor ->
+                cursor.moveToFirst()
+                assertEquals(1, cursor.getInt(0))
+            }
+            database.query(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'field_marks'",
+            ).use { cursor -> assertEquals(1, cursor.count) }
+        }
+    }
+
     companion object {
         private const val TEST_DATABASE = "offline-migration-test"
+        private const val FIELD_MARK_DATABASE = "field-mark-migration-test"
     }
 }

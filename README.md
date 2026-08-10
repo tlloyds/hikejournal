@@ -58,12 +58,19 @@ versioned APK is written to `dist/`. The shared release version lives in
 `VERSION` and is used by both Android and the mobile API. Installation, first-recording permissions,
 and companion pairing are documented in [android/README.md](android/README.md).
 
+Version 0.7 adds Place Profiles, personal seasonal history, deterministic Field
+Briefings, durable offline Field Marks, hike comparison, and observation
+confidence/provenance/history across Android and web. See
+[docs/longitudinal-intelligence.md](docs/longitudinal-intelligence.md).
+
 If you already have a running project from the earlier single-observation version, also run:
 
 - [sql/multi_observations_migration.sql](sql/multi_observations_migration.sql)
 - [sql/auth_sharing_migration.sql](sql/auth_sharing_migration.sql) for hike ownership, archive state, and collaborators
 - `sql/species_discovery_migration.sql` for species-level collection credit,
   the 24-hour shared iNaturalist cache, and owner-scoped Field Quests
+- [sql/longitudinal_intelligence_migration.sql](sql/longitudinal_intelligence_migration.sql)
+  for Place/season analytics, Field Marks, phenophases, and identification history
 
 ## Environment
 

@@ -32,7 +32,13 @@ from hike_journal.domain.discovery import (
     plain_text,
 )
 from hike_journal.domain.library import filter_hikes_for_user, record_visible_for_user, user_owns_record
-from hike_journal.domain.locations import suggest_location_ids_for_hike
+from hike_journal.domain.locations import attach_location_tags_to_hikes, suggest_location_ids_for_hike
+from hike_journal.domain.longitudinal import (
+    build_field_briefing,
+    build_hike_comparison,
+    build_place_profile,
+    build_seasonal_history,
+)
 from hike_journal.domain.routes import (
     delete_hike_and_assets,
     route_import_to_route_groups,
@@ -272,6 +278,33 @@ class SpeciesQuestPatchInput(BaseModel):
     linked_hike_id: str | None = Field(default=None, max_length=36)
     set_linked_hike: bool = False
     focus_taxon_ids: list[int] | None = Field(default=None, min_length=1, max_length=10)
+
+
+class FieldMarkInput(BaseModel):
+    id: str = Field(min_length=36, max_length=36)
+    recording_session_id: str | None = Field(default=None, max_length=36)
+    marked_at: datetime
+    lat: float = Field(ge=-90, le=90)
+    lng: float = Field(ge=-180, le=180)
+    accuracy_meters: float | None = Field(default=None, ge=0, le=10_000)
+    mark_type: Literal[
+        "wildlife", "plant", "trail_condition", "water", "campsite", "hazard", "note"
+    ]
+    note: str = Field(default="", max_length=5_000)
+
+
+class PhenophaseInput(BaseModel):
+    code: Literal["vegetative", "budding", "flowering", "fruiting", "senescent"]
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ObservationNaturalHistoryInput(BaseModel):
+    confidence: Literal["tentative", "likely", "confident", "externally_confirmed"]
+    provenance: Literal[
+        "user", "inat_computer_vision", "inat_lookup", "inat_community",
+        "external_expert", "imported_record", "legacy_import", "migration",
+    ] = "user"
+    phenophases: list[PhenophaseInput] = Field(default_factory=list, max_length=8)
 
 
 class Services:
@@ -866,7 +899,12 @@ def _user_context() -> dict[str, Any]:
 
 
 def _visible_hikes(repository: HikeJournalRepository) -> list[dict[str, Any]]:
-    return filter_hikes_for_user(repository.list_hikes(), _user_context())
+    visible = filter_hikes_for_user(repository.list_hikes(), _user_context())
+    return attach_location_tags_to_hikes(
+        visible,
+        repository.list_hike_locations(),
+        repository.list_hike_location_tags(),
+    )
 
 
 def _visible_standalone_photos(svc: Services) -> list[dict[str, Any]]:
@@ -962,6 +1000,34 @@ def _get_visible_hike(repository: HikeJournalRepository, hike_id: str) -> dict[s
     return hike
 
 
+def _field_mark_payload(mark: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": str(mark.get("id") or ""),
+        "hike_id": str(mark.get("hike_id") or ""),
+        "recording_session_id": str(mark.get("recording_session_id") or "") or None,
+        "marked_at": mark.get("marked_at"),
+        "lat": mark.get("lat"),
+        "lng": mark.get("lng"),
+        "accuracy_meters": mark.get("accuracy_meters"),
+        "mark_type": str(mark.get("mark_type") or "note"),
+        "note": str(mark.get("note") or ""),
+        "created_at": mark.get("created_at"),
+        "updated_at": mark.get("updated_at"),
+    }
+
+
+def _field_mark_payloads(repository: HikeJournalRepository, hike_id: str) -> list[dict[str, Any]]:
+    try:
+        return [_field_mark_payload(mark) for mark in repository.list_field_marks(hike_id)]
+    except (AttributeError, RuntimeError):
+        return []
+
+
+def _weather_payload(repository: HikeJournalRepository, hike_id: str) -> dict[str, Any] | None:
+    getter = getattr(repository, "get_hike_weather_snapshot", None)
+    return getter(hike_id) if getter else None
+
+
 def _normalize_client_uuid(value: str | None, *, field_name: str) -> str | None:
     if not value:
         return None
@@ -987,6 +1053,22 @@ def _photo_payload(photo: dict[str, Any], species: list[dict[str, Any]] | None =
         "processing_status": photo.get("processing_status") or "ready",
         "species": [
             {
+                **(
+                    {
+                        "observation_id": str(observation.get("id") or ""),
+                        "confidence": observation.get("identification_confidence") or (
+                            "confident" if observation.get("status") == "confirmed" else "tentative"
+                        ),
+                        "provenance": observation.get("identification_provenance") or "legacy_import",
+                        "observed_on": observation.get("observed_on"),
+                        "occurrence_precision": observation.get("occurrence_precision") or "unknown",
+                        "phenophases": observation.get("phenophases") or [],
+                        "identification_history": observation.get("identification_history") or [],
+                        "iconic_taxon_name": observation.get("iconic_taxon_name"),
+                    }
+                    if observation.get("id")
+                    else {}
+                ),
                 "common_name": observation.get("common_name"),
                 "scientific_name": observation.get("scientific_name"),
                 "status": observation.get("status"),
@@ -1027,12 +1109,19 @@ def _hike_payload(
                 str(photo.get("created_at") or ""),
             ),
         )
+    location_tags = hike.get("location_tags") or []
+    primary_location = next(
+        (item for item in location_tags if item.get("is_primary")),
+        location_tags[0] if location_tags else None,
+    )
     return {
         "id": str(hike.get("id") or ""),
         "title": str(hike.get("title") or "Untitled hike"),
         "hike_date": str(hike.get("hike_date") or ""),
         "distance_miles": hike.get("distance_miles"),
         "location_name": str(hike.get("location_name") or ""),
+        "primary_location_id": str((primary_location or {}).get("id") or "") or None,
+        "primary_location_name": str((primary_location or {}).get("name") or ""),
         "notes": str(hike.get("notes") or ""),
         "is_archived": bool(hike.get("is_archived")),
         "is_standalone": bool(hike.get("is_standalone")),
@@ -1073,6 +1162,78 @@ def _observed_sort_key(value: str | None) -> float:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
     return parsed.astimezone(timezone.utc).timestamp()
+
+
+def _decorate_observation_history(
+    repository: HikeJournalRepository,
+    observations: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    observation_ids = [str(item.get("id") or "") for item in observations if item.get("id")]
+    if not observation_ids:
+        return observations
+    try:
+        annotations = repository.list_observation_annotations(observation_ids)
+        events = repository.list_identification_events(observation_ids)
+    except Exception:
+        # The release can be installed before its additive Supabase migration.
+        # Existing Journal and Field Guide reads must remain available in that window.
+        annotations = []
+        events = []
+    annotations_by_observation: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    events_by_observation: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for annotation in annotations:
+        annotations_by_observation[str(annotation.get("observation_id") or "")].append(
+            {
+                "category": str(annotation.get("category") or ""),
+                "code": str(annotation.get("code") or ""),
+                "metadata": annotation.get("metadata") or {},
+            }
+        )
+    for event in events:
+        events_by_observation[str(event.get("observation_id") or "")].append(
+            {
+                "id": str(event.get("id") or ""),
+                "taxon_id": event.get("species_taxon_id") or event.get("taxon_id"),
+                "scientific_name": str(event.get("scientific_name") or ""),
+                "common_name": str(event.get("common_name") or ""),
+                "source": str(event.get("source") or "legacy_import"),
+                "confidence": str(event.get("confidence") or "tentative"),
+                "actor": str(event.get("actor") or ""),
+                "note": str(event.get("note") or ""),
+                "became_current": bool(event.get("became_current")),
+                "created_at": event.get("created_at"),
+            }
+        )
+    return [
+        {
+            **item,
+            "phenophases": [
+                annotation
+                for annotation in annotations_by_observation.get(str(item.get("id") or ""), [])
+                if annotation["category"] == "phenophase"
+            ],
+            "identification_history": events_by_observation.get(str(item.get("id") or ""), []),
+        }
+        for item in observations
+    ]
+
+
+def _dated_visible_observations(svc: Services) -> list[dict[str, Any]]:
+    observations, photos_by_id, hikes_by_id = _visible_species_data(svc)
+    return [
+        {
+            **observation,
+            "observed_on": observation.get("observed_on")
+            or _observed_on(
+                photos_by_id.get(str(observation.get("photo_id") or ""), {}),
+                hikes_by_id.get(str(observation.get("hike_id") or "")),
+            ),
+            "hike_date": str(
+                hikes_by_id.get(str(observation.get("hike_id") or ""), {}).get("hike_date") or ""
+            ),
+        }
+        for observation in observations
+    ]
 
 
 def _visible_species_data(
@@ -1890,6 +2051,97 @@ def list_hike_locations() -> list[dict[str, Any]]:
         for location in get_services().repository.list_hike_locations()
         if location.get("id") and str(location.get("name") or "").strip()
     ]
+
+
+def _analytics_hikes(svc: Services) -> list[dict[str, Any]]:
+    route_by_hike = {
+        str(item.get("hike_id") or ""): item
+        for item in svc.repository.list_hike_route_imports()
+        if item.get("hike_id")
+    }
+    return [
+        {
+            **hike,
+            "duration_seconds": route_by_hike.get(str(hike.get("id") or ""), {}).get("duration_seconds"),
+        }
+        for hike in _visible_hikes(svc.repository)
+        if not hike.get("is_archived")
+    ]
+
+
+@app.get("/v1/places/{location_id}/profile", dependencies=[Depends(require_mobile_key)])
+def get_place_profile(location_id: str) -> dict[str, Any]:
+    svc = get_services()
+    location = svc.repository.get_hike_location(location_id)
+    if not location:
+        raise HTTPException(status_code=404, detail="Place not found.")
+    hikes = [
+        hike
+        for hike in _analytics_hikes(svc)
+        if any(str(tag.get("id") or "") == location_id for tag in hike.get("location_tags") or [])
+    ]
+    if not hikes:
+        raise HTTPException(status_code=404, detail="No visible visits were recorded for this place.")
+    return build_place_profile(location, hikes, _dated_visible_observations(svc))
+
+
+@app.get("/v1/field-briefing", dependencies=[Depends(require_mobile_key)])
+def get_field_briefing(
+    location_id: str = Query(min_length=1, max_length=64),
+    target_date: date = Query(alias="date"),
+    radius_km: int = Query(default=10),
+    limit: int = Query(default=18, ge=1, le=50),
+) -> dict[str, Any]:
+    _require_discovery_enabled()
+    svc = get_services()
+    try:
+        normalized_radius = normalize_radius(radius_km)
+        area = SpeciesDiscoveryService.resolve_area(svc.repository, location_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    observations, photos_by_id = _discovery_collection_data(svc)
+    try:
+        nearby = SpeciesDiscoveryService(svc.repository).nearby(
+            area=area,
+            target_date=target_date,
+            radius_km=normalized_radius,
+            iconic_taxon=None,
+            observations=observations,
+            photos_by_id=photos_by_id,
+            limit=50,
+        )
+    except (ValueError, InatRequestError, InatRateLimitError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    place_hike_ids = {
+        str(hike.get("id") or "")
+        for hike in _visible_hikes(svc.repository)
+        if any(str(tag.get("id") or "") == location_id for tag in hike.get("location_tags") or [])
+    }
+    context = _user_context()
+    active_quest_taxon_ids: set[int] = set()
+    for quest in svc.repository.list_species_quests(
+        owner_subject=context.get("subject"),
+        owner_email=context.get("email"),
+    ):
+        if quest.get("status") != "active":
+            continue
+        for taxon in quest.get("taxa") or []:
+            if taxon.get("taxon_id") not in (None, ""):
+                active_quest_taxon_ids.add(int(taxon["taxon_id"]))
+    briefing = build_field_briefing(
+        target_date=target_date,
+        nearby_taxa=nearby.get("taxa") or [],
+        observations=_dated_visible_observations(svc),
+        place_hike_ids=place_hike_ids,
+        active_quest_taxon_ids=active_quest_taxon_ids,
+        limit=limit,
+    )
+    return {
+        **briefing,
+        "area": nearby.get("area") or area,
+        "period": nearby.get("period") or {},
+        "source": nearby.get("source") or {},
+    }
 
 
 @app.get("/v1/species", dependencies=[Depends(require_mobile_key)])
@@ -3111,7 +3363,10 @@ def publish_species_observation(observation_id: str, payload: PublishInput) -> d
 def get_species_detail(key: str) -> dict[str, Any]:
     svc = get_services()
     observations, photos_by_id, hikes_by_id = _visible_species_data(svc)
-    matching = [observation for observation in observations if _species_key(observation) == key]
+    matching = _decorate_observation_history(
+        svc.repository,
+        [observation for observation in observations if _species_key(observation) == key],
+    )
     summaries = _build_species_payloads(matching, photos_by_id, hikes_by_id)
     if not summaries:
         raise HTTPException(status_code=404, detail="Species not found.")
@@ -3155,7 +3410,18 @@ def get_species_detail(key: str) -> dict[str, Any]:
             }
         )
     encounters.sort(key=lambda item: str(item.get("observed_on") or ""), reverse=True)
-    return {**summaries[0], "encounters": encounters}
+    dated_matching = []
+    for observation in matching:
+        photo = photos_by_id.get(str(observation.get("photo_id") or ""), {})
+        hike = hikes_by_id.get(str(photo.get("hike_id") or observation.get("hike_id") or ""))
+        dated_matching.append(
+            {**observation, "observed_on": observation.get("observed_on") or _observed_on(photo, hike)}
+        )
+    return {
+        **summaries[0],
+        "encounters": encounters,
+        "seasonal_history": build_seasonal_history(dated_matching),
+    }
 
 
 @app.get("/v1/sightings", dependencies=[Depends(require_mobile_key)])
@@ -3252,9 +3518,14 @@ def get_hike(
             payload["route_segments"] = route_import_to_route_groups(
                 svc.repository.get_hike_route_import(hike_id)
             )
+        payload["field_marks"] = _field_mark_payloads(svc.repository, hike_id)
+        payload["weather"] = _weather_payload(svc.repository, hike_id)
         return payload
     photos = svc.repository.list_photos(hike_id)
-    observations = svc.repository.list_observations(hike_id)
+    observations = _decorate_observation_history(
+        svc.repository,
+        svc.repository.list_observations(hike_id),
+    )
     observations_by_photo: dict[str, list[dict[str, Any]]] = defaultdict(list)
     confirmed_species: set[str] = set()
     for observation in observations:
@@ -3272,6 +3543,8 @@ def get_hike(
         payload["route_segments"] = route_import_to_route_groups(
             svc.repository.get_hike_route_import(hike_id)
         )
+    payload["field_marks"] = _field_mark_payloads(svc.repository, hike_id)
+    payload["weather"] = _weather_payload(svc.repository, hike_id)
     return payload
 
 
@@ -3289,9 +3562,13 @@ def get_hike_photos(
         _get_visible_hike(svc.repository, hike_id)
         page = svc.repository.list_photos_page(hike_id, offset=offset, limit=limit)
     observations_by_photo: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for observation in svc.repository.list_observations_for_photo_ids(
-        [str(photo.get("id") or "") for photo in page]
-    ):
+    page_observations = _decorate_observation_history(
+        svc.repository,
+        svc.repository.list_observations_for_photo_ids(
+            [str(photo.get("id") or "") for photo in page]
+        ),
+    )
+    for observation in page_observations:
         if observation.get("photo_id"):
             observations_by_photo[str(observation["photo_id"])].append(observation)
     next_offset = offset + len(page)
@@ -3320,6 +3597,98 @@ def get_hike_route(hike_id: str) -> dict[str, Any]:
         "distance_miles": route_import.get("distance_miles"),
         "track_point_count": route_import.get("track_point_count") or 0,
     }
+
+
+@app.get("/v1/hikes/{hike_id}/comparison", dependencies=[Depends(require_mobile_key)])
+def compare_hikes(
+    hike_id: str,
+    other_hike_id: str = Query(min_length=36, max_length=36),
+) -> dict[str, Any]:
+    svc = get_services()
+    hike_a = _get_visible_hike(svc.repository, hike_id)
+    hike_b = _get_visible_hike(svc.repository, other_hike_id)
+    observations = _dated_visible_observations(svc)
+    route_by_hike = {
+        str(item.get("hike_id") or ""): item
+        for item in svc.repository.list_hike_route_imports()
+        if str(item.get("hike_id") or "") in {hike_id, other_hike_id}
+    }
+    for hike in (hike_a, hike_b):
+        route = route_by_hike.get(str(hike.get("id") or ""), {})
+        hike["duration_seconds"] = route.get("duration_seconds")
+        hike["photo_count"] = len(svc.repository.list_photos(str(hike.get("id") or "")))
+    comparison = build_hike_comparison(hike_a, hike_b, observations)
+    comparison["weather"] = {
+        "hike_a": _weather_payload(svc.repository, hike_id),
+        "hike_b": _weather_payload(svc.repository, other_hike_id),
+    }
+    return comparison
+
+
+@app.post(
+    "/v1/hikes/{hike_id}/field-marks",
+    dependencies=[Depends(require_mobile_key)],
+    status_code=201,
+)
+def create_field_mark(hike_id: str, payload: FieldMarkInput) -> dict[str, Any]:
+    svc = get_services()
+    hike = _get_visible_hike(svc.repository, hike_id)
+    mark_id = _normalize_client_uuid(payload.id, field_name="Field mark ID")
+    session_id = _normalize_client_uuid(payload.recording_session_id, field_name="Recording session ID")
+    try:
+        existing = svc.repository.get_field_mark(str(mark_id))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if existing and str(existing.get("hike_id") or "") != hike_id:
+        raise HTTPException(status_code=409, detail="That Field Mark ID belongs to another hike.")
+    context = _user_context()
+    try:
+        saved = svc.repository.upsert_field_mark(
+            {
+                "id": mark_id,
+                "hike_id": hike_id,
+                "recording_session_id": session_id,
+                "owner_subject": hike.get("owner_subject") or context.get("subject"),
+                "owner_email": hike.get("owner_email") or context.get("email"),
+                "marked_at": payload.marked_at.isoformat(),
+                "lat": payload.lat,
+                "lng": payload.lng,
+                "accuracy_meters": payload.accuracy_meters,
+                "mark_type": payload.mark_type,
+                "note": payload.note.strip() or None,
+            }
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return _field_mark_payload(saved)
+
+
+@app.put(
+    "/v1/observations/{observation_id}/natural-history",
+    dependencies=[Depends(require_mobile_key)],
+)
+def update_observation_natural_history(
+    observation_id: str,
+    payload: ObservationNaturalHistoryInput,
+) -> dict[str, Any]:
+    svc = get_services()
+    matches = svc.repository.list_observations_by_ids([observation_id])
+    if not matches:
+        raise HTTPException(status_code=404, detail="Observation not found.")
+    observation = matches[0]
+    visible_hike_ids = {str(hike.get("id") or "") for hike in _visible_hikes(svc.repository)}
+    if not record_visible_for_user(observation, visible_hike_ids, _user_context()):
+        raise HTTPException(status_code=404, detail="Observation not found.")
+    try:
+        updated = svc.repository.set_observation_natural_history(
+            observation_id,
+            confidence=payload.confidence,
+            provenance=payload.provenance,
+            phenophases=[item.model_dump() for item in payload.phenophases],
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return _decorate_observation_history(svc.repository, [updated])[0]
 
 
 def _sync_hike_location_tags(

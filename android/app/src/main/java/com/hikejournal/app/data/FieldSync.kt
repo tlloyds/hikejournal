@@ -23,7 +23,9 @@ import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import androidx.room.withTransaction
 import com.hikejournal.app.data.local.OfflineDatabase
+import com.hikejournal.app.data.local.FieldMarkEntity
 import com.hikejournal.app.data.local.PendingOperationEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
@@ -62,6 +64,8 @@ object OperationKind {
     const val AssignKnownSpecies = "assign_known_species"
     const val ReviewDecision = "review_decision"
     const val UpdateSpeciesQuest = "update_species_quest"
+    const val CreateFieldMark = "create_field_mark"
+    const val UpdateNaturalHistory = "update_natural_history"
 }
 
 private const val MAX_LOCAL_MEDIA_BYTES = 30L * 1024L * 1024L
@@ -106,7 +110,11 @@ internal fun selectNextSyncOperation(
         .mapTo(mutableSetOf()) { it.entityId }
     fun eligible(operation: PendingOperationEntity): Boolean {
         val targetHikeId = operation.targetHikeId()
+        val waitingForRecordedHike = operation.kind == OperationKind.CreateFieldMark &&
+            runCatching { JSONObject(operation.payloadJson).optBoolean("wait_for_hike_create") }
+                .getOrDefault(false)
         return operation.state in setOf("queued", "syncing") &&
+            !(waitingForRecordedHike && targetHikeId !in pendingCreateHikeIds) &&
             (operation.kind == OperationKind.DeleteHike || targetHikeId !in deletingHikeIds) &&
             (operation.kind in setOf(OperationKind.CreateHike, OperationKind.DeleteHike) || targetHikeId !in pendingCreateHikeIds)
     }
@@ -187,7 +195,9 @@ private suspend fun invalidateRouteCaches(context: Context) = journalCacheMutex.
 }
 
 class FieldOperationQueue(private val context: Context) {
-    private val dao = OfflineDatabase.get(context).operations()
+    private val database = OfflineDatabase.get(context)
+    private val dao = database.operations()
+    private val fieldMarks = database.fieldMarks()
     private val preferences = context.getSharedPreferences("hikejournal_sync", Context.MODE_PRIVATE)
     private val photoDirectory = File(context.filesDir, "field-photos").apply { mkdirs() }
     private val routeDirectory = File(context.filesDir, "field-routes").apply { mkdirs() }
@@ -217,6 +227,88 @@ class FieldOperationQueue(private val context: Context) {
                 .mapTo(mutableSetOf()) { it.entityId },
         )
     }.distinctUntilChanged()
+
+    suspend fun queueFieldMark(mark: FieldMark): FieldMark {
+        val markedAtEpochMs = runCatching { Instant.parse(mark.markedAt).toEpochMilli() }
+            .getOrDefault(System.currentTimeMillis())
+        val now = System.currentTimeMillis()
+        val payload = JSONObject()
+            .put("recording_session_id", mark.recordingSessionId ?: JSONObject.NULL)
+            .put("marked_at", mark.markedAt)
+            .put("lat", mark.latitude)
+            .put("lng", mark.longitude)
+            .put("accuracy_meters", mark.accuracyMeters ?: JSONObject.NULL)
+            .put("mark_type", mark.markType)
+            .put("note", mark.note)
+            .put("wait_for_hike_create", true)
+        fieldSyncMutex.withLock {
+            database.withTransaction {
+                fieldMarks.upsert(
+                    FieldMarkEntity(
+                        id = mark.id,
+                        hikeId = mark.hikeId,
+                        recordingSessionId = mark.recordingSessionId,
+                        markedAtEpochMs = markedAtEpochMs,
+                        latitude = mark.latitude,
+                        longitude = mark.longitude,
+                        accuracyMeters = mark.accuracyMeters,
+                        markType = mark.markType,
+                        note = mark.note,
+                        syncState = "queued",
+                        createdAtEpochMs = now,
+                        updatedAtEpochMs = now,
+                    )
+                )
+                dao.upsert(
+                    PendingOperationEntity(
+                        id = UUID.randomUUID().toString(),
+                        kind = OperationKind.CreateFieldMark,
+                        entityId = mark.id,
+                        parentId = mark.hikeId,
+                        payloadJson = payload.toString(),
+                        localFilePath = null,
+                        contentType = null,
+                        fileName = null,
+                        state = "queued",
+                        attemptCount = 0,
+                        createdAt = now,
+                        updatedAt = now,
+                        lastError = null,
+                    )
+                )
+            }
+        }
+        SyncScheduler.schedule(context)
+        return mark.copy(syncState = "queued")
+    }
+
+    suspend fun localFieldMarks(hikeId: String): List<FieldMark> =
+        fieldMarks.listForHike(hikeId).map(FieldMarkEntity::toFieldMark)
+
+    suspend fun discardRecordingFieldMarks(hikeId: String) = fieldSyncMutex.withLock {
+        database.withTransaction {
+            dao.deleteChildrenByKind(OperationKind.CreateFieldMark, hikeId)
+            fieldMarks.deleteForHike(hikeId)
+        }
+    }
+
+    suspend fun queueNaturalHistory(
+        observationId: String,
+        hikeId: String?,
+        confidence: String,
+        phenophases: List<String>,
+    ) {
+        coalesce(OperationKind.UpdateNaturalHistory, observationId)
+        enqueue(
+            OperationKind.UpdateNaturalHistory,
+            observationId,
+            hikeId,
+            JSONObject()
+                .put("confidence", confidence)
+                .put("provenance", "user")
+                .put("phenophases", org.json.JSONArray(phenophases)),
+        )
+    }
 
     suspend fun queueCreateHike(
         draft: HikeDraft,
@@ -1146,7 +1238,9 @@ private fun JSONArray.toRouteSegments(): List<List<RoutePoint>> = List(length())
 }.filter { it.size >= 2 }
 
 class FieldSyncEngine(private val context: Context) {
-    private val dao = OfflineDatabase.get(context).operations()
+    private val database = OfflineDatabase.get(context)
+    private val dao = database.operations()
+    private val fieldMarks = database.fieldMarks()
     private val api = HikeJournalApi(context)
     private val preferences = context.getSharedPreferences("hikejournal_sync", Context.MODE_PRIVATE)
 
@@ -1163,7 +1257,22 @@ class FieldSyncEngine(private val context: Context) {
         operations
             .filterNot { it.localFilePath in cleanupFailures }
             .forEach { operation -> dao.delete(operation.id) }
+        fieldMarks.deleteForHike(hikeId)
         return cleanupFailures.toList()
+    }
+
+    private suspend fun releaseRecordedHikeChildren(hikeId: String) {
+        dao.listForHike(hikeId)
+            .filter { it.kind == OperationKind.CreateFieldMark }
+            .forEach { operation ->
+                val payload = JSONObject(operation.payloadJson).put("wait_for_hike_create", false)
+                dao.upsert(
+                    operation.copy(
+                        payloadJson = payload.toString(),
+                        updatedAt = System.currentTimeMillis(),
+                    )
+                )
+            }
     }
 
     suspend fun drain(prioritizedPhotoId: String? = null): Boolean = fieldSyncMutex.withLock {
@@ -1180,6 +1289,12 @@ class FieldSyncEngine(private val context: Context) {
             )
             try {
                 execute(operation)
+                if (operation.kind == OperationKind.CreateHike) {
+                    releaseRecordedHikeChildren(operation.entityId)
+                }
+                if (operation.kind == OperationKind.CreateFieldMark) {
+                    fieldMarks.updateSyncState(operation.entityId, "synced", System.currentTimeMillis())
+                }
                 if (operation.kind == OperationKind.UploadRoute) {
                     invalidateRouteCaches(context)
                 }
@@ -1208,6 +1323,13 @@ class FieldSyncEngine(private val context: Context) {
                     System.currentTimeMillis(),
                     error.message ?: "Sync failed.",
                 )
+                if (operation.kind == OperationKind.CreateFieldMark) {
+                    fieldMarks.updateSyncState(
+                        operation.entityId,
+                        if (needsAttention) "needs_attention" else "queued",
+                        System.currentTimeMillis(),
+                    )
+                }
                 if (!needsAttention) {
                     shouldRetry = true
                     break
@@ -1414,11 +1536,48 @@ class FieldSyncEngine(private val context: Context) {
                     focusTaxonIds = List(ids?.length() ?: 0) { index -> ids!!.optLong(index) },
                 )
             }
+            OperationKind.CreateFieldMark -> api.createFieldMark(
+                FieldMark(
+                    id = operation.entityId,
+                    hikeId = requireNotNull(operation.parentId),
+                    recordingSessionId = payload.optString("recording_session_id")
+                        .takeUnless { payload.isNull("recording_session_id") || it.isBlank() },
+                    markedAt = payload.optString("marked_at"),
+                    latitude = payload.getDouble("lat"),
+                    longitude = payload.getDouble("lng"),
+                    accuracyMeters = payload.optDouble("accuracy_meters")
+                        .takeUnless { it.isNaN() || payload.isNull("accuracy_meters") },
+                    markType = payload.optString("mark_type", "note"),
+                    note = payload.optString("note"),
+                    syncState = operation.state,
+                )
+            )
+            OperationKind.UpdateNaturalHistory -> api.updateObservationNaturalHistory(
+                observationId = operation.entityId,
+                confidence = payload.optString("confidence", "tentative"),
+                provenance = payload.optString("provenance", "user"),
+                phenophases = payload.optJSONArray("phenophases")?.let { values ->
+                    List(values.length()) { index -> values.optString(index) }
+                }.orEmpty(),
+            )
             else -> throw IOException("Unknown offline operation: ${operation.kind}")
         }
     }
 
 }
+
+private fun FieldMarkEntity.toFieldMark() = FieldMark(
+    id = id,
+    hikeId = hikeId,
+    recordingSessionId = recordingSessionId,
+    markedAt = Instant.ofEpochMilli(markedAtEpochMs).toString(),
+    latitude = latitude,
+    longitude = longitude,
+    accuracyMeters = accuracyMeters,
+    markType = markType,
+    note = note,
+    syncState = syncState,
+)
 
 private fun JSONObject.toHikeDraft() = HikeDraft(
     title = optString("title"),

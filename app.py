@@ -125,6 +125,7 @@ from hike_journal.ui.views.badges import render_badges_view
 from hike_journal.ui.views.library import render_library_view
 from hike_journal.ui.views.journal import JournalActions, render_journal_view, render_standalone_journal_view
 from hike_journal.ui.views.map import render_map_view
+from hike_journal.ui.views.places import render_places_view
 from hike_journal.ui.views.publishing import (
     PublishingActions,
     render_publish_state_chip,
@@ -269,6 +270,7 @@ def main() -> None:
             render_library_tab=render_library_tab,
             render_login_gate=render_login_gate,
             render_map_tab=render_map_tab,
+            render_places_tab=render_places_tab,
             render_mobile_shell=render_mobile_shell,
             render_photo_viewer=render_photo_viewer,
             render_setup_state=render_setup_state,
@@ -715,6 +717,7 @@ def render_sidebar(
     st.markdown("<div class='sidebar-section-label'>Navigate</div>", unsafe_allow_html=True)
     nav_items = [
         ("Library", "Library", "?view=Library"),
+        ("Places over time", "Places", "?view=Places"),
         ("Trail medals", "Trail Medals", "?view=Trail%20Medals"),
         ("Species review", "Species Review", "?view=Species%20Review"),
         ("Master map", "Map", "?view=Map&scope=global"),
@@ -1500,6 +1503,14 @@ def render_map_tab(
         selected_hike=selected_hike,
         format_confidence_label=format_confidence_label,
     )
+
+
+def render_places_tab(
+    repository: HikeJournalRepository,
+    visible_hikes: list[dict[str, Any]],
+    confirmed_observations: list[dict[str, Any]],
+) -> None:
+    render_places_view(repository, visible_hikes, confirmed_observations)
 
 def render_species_log_tab(
     repository: HikeJournalRepository,

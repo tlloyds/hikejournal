@@ -59,6 +59,17 @@ class HikeJournalApi(private val context: Context) {
 
     suspend fun getHikeLocationsJson(): String = request("/v1/hike-locations")
 
+    suspend fun getPlaceProfileJson(locationId: String): String =
+        request("/v1/places/${locationId.urlEncoded()}/profile")
+
+    suspend fun getFieldBriefingJson(locationId: String, targetDate: String): String = request(
+        "/v1/field-briefing?location_id=${locationId.urlEncoded()}&date=${targetDate.urlEncoded()}",
+    )
+
+    suspend fun getHikeComparisonJson(hikeId: String, otherHikeId: String): String = request(
+        "/v1/hikes/${hikeId.urlEncoded()}/comparison?other_hike_id=${otherHikeId.urlEncoded()}",
+    )
+
     suspend fun getSpeciesJson(): String = request("/v1/species")
 
     suspend fun getSpeciesDetailJson(key: String): String = request(
@@ -330,6 +341,43 @@ class HikeJournalApi(private val context: Context) {
         path = "/v1/hikes/$hikeId/cover",
         method = "PUT",
         body = JSONObject().put("photo_id", photoId ?: JSONObject.NULL).toString().toRequestBody(jsonMediaType),
+    )
+
+    suspend fun createFieldMark(mark: FieldMark): String = request(
+        path = "/v1/hikes/${mark.hikeId.urlEncoded()}/field-marks",
+        method = "POST",
+        body = JSONObject()
+            .put("id", mark.id)
+            .put("recording_session_id", mark.recordingSessionId ?: JSONObject.NULL)
+            .put("marked_at", mark.markedAt)
+            .put("lat", mark.latitude)
+            .put("lng", mark.longitude)
+            .put("accuracy_meters", mark.accuracyMeters ?: JSONObject.NULL)
+            .put("mark_type", mark.markType)
+            .put("note", mark.note)
+            .toString()
+            .toRequestBody(jsonMediaType),
+    )
+
+    suspend fun updateObservationNaturalHistory(
+        observationId: String,
+        confidence: String,
+        provenance: String,
+        phenophases: List<String>,
+    ): String = request(
+        path = "/v1/observations/${observationId.urlEncoded()}/natural-history",
+        method = "PUT",
+        body = JSONObject()
+            .put("confidence", confidence)
+            .put("provenance", provenance)
+            .put(
+                "phenophases",
+                org.json.JSONArray().apply {
+                    phenophases.forEach { code -> put(JSONObject().put("code", code)) }
+                },
+            )
+            .toString()
+            .toRequestBody(jsonMediaType),
     )
 
     suspend fun uploadRouteFile(

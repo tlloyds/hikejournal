@@ -62,6 +62,7 @@ class ApplicationActions:
     render_library_tab: Any
     render_login_gate: Any
     render_map_tab: Any
+    render_places_tab: Any
     render_mobile_shell: Any
     render_photo_viewer: Any
     render_setup_state: Any
@@ -121,13 +122,13 @@ def run_application(actions: ApplicationActions) -> None:
     hike_location_tags = fetch_hike_location_tags()
     hikes = attach_location_tags_to_hikes(hikes, hike_locations, hike_location_tags)
     visible_hikes = filter_hikes_for_user(hikes, user_context)
-    view_options = ["Library", "Journal", "Trail Medals", "Species Review", "Map", "Species Log"]
+    view_options = ["Library", "Journal", "Trail Medals", "Species Review", "Map", "Species Log", "Places"]
 
     query_hike_id = st.query_params.get("hike")
     query_photo_id = st.query_params.get("photo")
     requested_view = st.query_params.get("view")
     requested_scope = st.query_params.get("scope")
-    top_level_views = {"Library", "Trail Medals", "Species Review", "Map", "Species Log"}
+    top_level_views = {"Library", "Trail Medals", "Species Review", "Map", "Species Log", "Places"}
     if requested_view in view_options:
         st.session_state.active_view = str(requested_view)
         st.session_state.pending_view = str(requested_view)
@@ -442,6 +443,12 @@ def run_application(actions: ApplicationActions) -> None:
             inat_client,
             visible_hikes,
             species_log_context or {},
+        )
+    elif st.session_state.active_view == "Places":
+        actions.render_places_tab(
+            repository,
+            visible_hikes,
+            visible_confirmed_observations,
         )
 
     if st.session_state.inat_token_dialog_open:

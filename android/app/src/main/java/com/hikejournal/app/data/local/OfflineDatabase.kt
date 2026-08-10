@@ -54,6 +54,9 @@ interface PendingOperationDao {
     @Query("DELETE FROM pending_operations WHERE id = :id")
     suspend fun delete(id: String)
 
+    @Query("DELETE FROM pending_operations WHERE kind = :kind AND parentId = :hikeId")
+    suspend fun deleteChildrenByKind(kind: String, hikeId: String)
+
     @Query(
         "DELETE FROM pending_operations WHERE kind = :kind AND entityId = :entityId " +
             "AND state IN ('queued', 'needs_attention')",
@@ -144,6 +147,47 @@ data class TrackingPointEntity(
     val distanceFromPreviousMeters: Double,
 )
 
+@Entity(
+    tableName = "field_marks",
+    indices = [
+        Index(value = ["hikeId", "markedAtEpochMs"]),
+        Index(value = ["recordingSessionId"]),
+        Index(value = ["syncState"]),
+    ],
+)
+data class FieldMarkEntity(
+    @PrimaryKey val id: String,
+    val hikeId: String,
+    val recordingSessionId: String?,
+    val markedAtEpochMs: Long,
+    val latitude: Double,
+    val longitude: Double,
+    val accuracyMeters: Double?,
+    val markType: String,
+    val note: String,
+    val syncState: String,
+    val createdAtEpochMs: Long,
+    val updatedAtEpochMs: Long,
+)
+
+@Dao
+interface FieldMarkDao {
+    @Query("SELECT * FROM field_marks WHERE hikeId = :hikeId ORDER BY markedAtEpochMs ASC")
+    suspend fun listForHike(hikeId: String): List<FieldMarkEntity>
+
+    @Query("SELECT * FROM field_marks WHERE hikeId = :hikeId ORDER BY markedAtEpochMs ASC")
+    fun observeForHike(hikeId: String): Flow<List<FieldMarkEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(mark: FieldMarkEntity)
+
+    @Query("UPDATE field_marks SET syncState = :state, updatedAtEpochMs = :updatedAt WHERE id = :id")
+    suspend fun updateSyncState(id: String, state: String, updatedAt: Long)
+
+    @Query("DELETE FROM field_marks WHERE hikeId = :hikeId")
+    suspend fun deleteForHike(hikeId: String)
+}
+
 @Dao
 interface TrackingDao {
     @Query("SELECT * FROM tracking_sessions WHERE activeSlot = 1 LIMIT 1")
@@ -191,13 +235,15 @@ interface TrackingDao {
         PendingOperationEntity::class,
         TrackingSessionEntity::class,
         TrackingPointEntity::class,
+        FieldMarkEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 abstract class OfflineDatabase : RoomDatabase() {
     abstract fun operations(): PendingOperationDao
     abstract fun tracking(): TrackingDao
+    abstract fun fieldMarks(): FieldMarkDao
 
     companion object {
         @Volatile private var instance: OfflineDatabase? = null
@@ -271,12 +317,48 @@ abstract class OfflineDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `field_marks` (
+                        `id` TEXT NOT NULL,
+                        `hikeId` TEXT NOT NULL,
+                        `recordingSessionId` TEXT,
+                        `markedAtEpochMs` INTEGER NOT NULL,
+                        `latitude` REAL NOT NULL,
+                        `longitude` REAL NOT NULL,
+                        `accuracyMeters` REAL,
+                        `markType` TEXT NOT NULL,
+                        `note` TEXT NOT NULL,
+                        `syncState` TEXT NOT NULL,
+                        `createdAtEpochMs` INTEGER NOT NULL,
+                        `updatedAtEpochMs` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_field_marks_hikeId_markedAtEpochMs` " +
+                        "ON `field_marks` (`hikeId`, `markedAtEpochMs`)",
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_field_marks_recordingSessionId` " +
+                        "ON `field_marks` (`recordingSessionId`)",
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_field_marks_syncState` " +
+                        "ON `field_marks` (`syncState`)",
+                )
+            }
+        }
+
         fun get(context: Context): OfflineDatabase = instance ?: synchronized(this) {
             instance ?: Room.databaseBuilder(
                 context.applicationContext,
                 OfflineDatabase::class.java,
                 "hikejournal-field.db",
-            ).addMigrations(MIGRATION_1_2)
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                 .build()
                 .also { instance = it }
         }

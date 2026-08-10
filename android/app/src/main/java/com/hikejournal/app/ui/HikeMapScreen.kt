@@ -108,7 +108,11 @@ fun HikeMapScreen(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    hikeMapSummary(routeSegments.size, sightings.size),
+                    hikeMapSummary(
+                        routeSegments.size,
+                        sightings.count { it.url.isNotBlank() },
+                        sightings.count { it.url.isBlank() },
+                    ),
                     style = MaterialTheme.typography.labelSmall,
                     color = Color(0xFFB7C8B5),
                 )
@@ -189,12 +193,18 @@ private fun HikePhotoMapInspector(
             .padding(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        AsyncImage(
-            model = sighting.url,
-            contentDescription = sighting.caption.ifBlank { "Geotagged hike photo" },
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.size(88.dp).background(Moss),
-        )
+        if (sighting.url.isNotBlank()) {
+            AsyncImage(
+                model = sighting.url,
+                contentDescription = sighting.caption.ifBlank { "Geotagged hike photo" },
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.size(88.dp).background(Moss),
+            )
+        } else {
+            Box(Modifier.size(64.dp).background(Moss), contentAlignment = Alignment.Center) {
+                Text("MARK", style = MaterialTheme.typography.labelSmall, color = Paper)
+            }
+        }
         Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
             Text(
                 sighting.speciesName.ifBlank {
@@ -214,13 +224,17 @@ private fun HikePhotoMapInspector(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            Button(
-                onClick = onOpenPhoto,
-                modifier = Modifier.padding(top = 7.dp).height(38.dp),
-            ) {
-                Icon(Icons.Rounded.PhotoLibrary, null, Modifier.size(17.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("View photo")
+            if (sighting.url.isNotBlank()) {
+                Button(
+                    onClick = onOpenPhoto,
+                    modifier = Modifier.padding(top = 7.dp).height(38.dp),
+                ) {
+                    Icon(Icons.Rounded.PhotoLibrary, null, Modifier.size(17.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("View photo")
+                }
+            } else if (sighting.caption.isNotBlank()) {
+                Text(sighting.caption, style = MaterialTheme.typography.bodyMedium, color = InkMuted)
             }
         }
         TextButton(onClick = onDismiss) {
@@ -234,7 +248,7 @@ internal fun hikeMapSightings(hike: Hike?, focusedPhoto: Photo?): List<Sighting>
         addAll(hike?.photos.orEmpty())
         if (focusedPhoto != null && none { it.id == focusedPhoto.id }) add(focusedPhoto)
     }
-    return photos
+    val photoSightings = photos
         .asSequence()
         .filter { it.latitude != null && it.longitude != null }
         .distinctBy { it.id }
@@ -257,10 +271,37 @@ internal fun hikeMapSightings(hike: Hike?, focusedPhoto: Photo?): List<Sighting>
             )
         }
         .toList()
+    val markSightings = hike?.fieldMarks.orEmpty().map { mark ->
+        Sighting(
+            id = mark.id,
+            hikeId = mark.hikeId,
+            hikeTitle = hike?.title ?: "Field Mark",
+            hikeDate = hike?.hikeDate.orEmpty(),
+            locationName = hike?.locationName.orEmpty(),
+            url = "",
+            caption = mark.note,
+            takenAt = mark.markedAt,
+            latitude = mark.latitude,
+            longitude = mark.longitude,
+            speciesName = when (mark.markType) {
+                "wildlife" -> "Wildlife"
+                "plant" -> "Plant"
+                "trail_condition" -> "Trail condition"
+                "water" -> "Water"
+                "campsite" -> "Campsite"
+                "hazard" -> "Hazard"
+                else -> "Field note"
+            },
+            scientificName = "Field Mark",
+            confirmed = true,
+        )
+    }
+    return (photoSightings + markSightings).distinctBy(Sighting::id)
 }
 
-internal fun hikeMapSummary(routeCount: Int, photoCount: Int): String {
+internal fun hikeMapSummary(routeCount: Int, photoCount: Int, markCount: Int = 0): String {
     val routes = "$routeCount ROUTE${if (routeCount == 1) "" else "S"}"
     val photos = "$photoCount GEOTAGGED PHOTO${if (photoCount == 1) "" else "S"}"
-    return "$routes · $photos"
+    val marks = if (markCount > 0) " · $markCount FIELD MARK${if (markCount == 1) "" else "S"}" else ""
+    return "$routes · $photos$marks"
 }

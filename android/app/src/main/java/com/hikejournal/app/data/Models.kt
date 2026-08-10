@@ -22,6 +22,9 @@ data class Hike(
     val syncState: String = "synced",
     val photos: List<Photo> = emptyList(),
     val routeSegments: List<List<RoutePoint>> = emptyList(),
+    val primaryLocationId: String? = null,
+    val primaryLocationName: String = "",
+    val fieldMarks: List<FieldMark> = emptyList(),
 )
 
 data class RoutePoint(
@@ -67,6 +70,61 @@ data class SpeciesLabel(
     val taxonId: Long? = null,
     val wikipediaUrl: String = "",
     val wikipediaSummary: String = "",
+    val observationId: String? = null,
+    val confidence: String = "tentative",
+    val provenance: String = "legacy_import",
+    val observedOn: String? = null,
+    val phenophases: List<String> = emptyList(),
+    val identificationHistory: List<IdentificationEvent> = emptyList(),
+    val iconicTaxonName: String = "",
+)
+
+data class IdentificationEvent(
+    val id: String,
+    val commonName: String,
+    val scientificName: String,
+    val source: String,
+    val confidence: String,
+    val actor: String,
+    val note: String,
+    val becameCurrent: Boolean,
+    val createdAt: String?,
+)
+
+data class SeasonalMonth(
+    val month: Int,
+    val label: String,
+    val count: Int,
+    val relativeIntensity: Double,
+)
+
+data class SeasonalYear(
+    val year: Int,
+    val firstObservedOn: String,
+    val lastObservedOn: String,
+    val observationCount: Int,
+)
+
+data class SeasonalHistory(
+    val observationCount: Int = 0,
+    val firstObservedOn: String? = null,
+    val latestObservedOn: String? = null,
+    val months: List<SeasonalMonth> = emptyList(),
+    val years: List<SeasonalYear> = emptyList(),
+    val guidance: String = "",
+)
+
+data class FieldMark(
+    val id: String,
+    val hikeId: String,
+    val recordingSessionId: String?,
+    val markedAt: String,
+    val latitude: Double,
+    val longitude: Double,
+    val accuracyMeters: Double?,
+    val markType: String,
+    val note: String,
+    val syncState: String = "synced",
 )
 
 data class HikeDraft(
@@ -101,6 +159,84 @@ data class SpeciesRecord(
     val latestSeen: String?,
     val coverUrl: String,
     val encounters: List<Encounter> = emptyList(),
+    val seasonalHistory: SeasonalHistory = SeasonalHistory(),
+)
+
+data class PlaceVisit(
+    val hikeId: String,
+    val title: String,
+    val hikeDate: String,
+    val distanceMiles: Double?,
+    val observationCount: Int,
+    val speciesCount: Int,
+    val newSpeciesCount: Int,
+    val cumulativeSpeciesCount: Int,
+    val coverUrl: String,
+)
+
+data class PlaceProfile(
+    val locationId: String,
+    val name: String,
+    val firstVisit: String?,
+    val latestVisit: String?,
+    val outingCount: Int,
+    val totalDistanceMiles: Double,
+    val totalDurationSeconds: Long,
+    val observationCount: Int,
+    val speciesCount: Int,
+    val taxonCounts: List<Pair<String, Int>>,
+    val seasonalHistory: SeasonalHistory,
+    val visits: List<PlaceVisit>,
+    val guidance: String,
+)
+
+data class ComparisonSpecies(
+    val key: String,
+    val taxonId: Long?,
+    val commonName: String,
+    val scientificName: String,
+    val iconicTaxonName: String,
+)
+
+data class ComparisonHike(
+    val id: String,
+    val title: String,
+    val hikeDate: String,
+    val locationName: String,
+    val distanceMiles: Double?,
+    val durationSeconds: Long?,
+    val photoCount: Int,
+    val observationCount: Int,
+    val speciesCount: Int,
+)
+
+data class HikeComparison(
+    val hikeA: ComparisonHike,
+    val hikeB: ComparisonHike,
+    val shared: List<ComparisonSpecies>,
+    val onlyA: List<ComparisonSpecies>,
+    val onlyB: List<ComparisonSpecies>,
+    val guidance: String,
+)
+
+data class BriefingItem(
+    val key: String,
+    val taxonId: Long?,
+    val commonName: String,
+    val scientificName: String,
+    val iconicTaxonName: String,
+    val section: String,
+    val reasons: List<String>,
+    val referencePhotoUrl: String,
+)
+
+data class BriefingSection(val title: String, val items: List<BriefingItem>)
+
+data class FieldBriefing(
+    val areaName: String,
+    val targetDate: String,
+    val sections: List<BriefingSection>,
+    val guidance: String,
 )
 
 data class DiscoveryArea(
@@ -669,6 +805,7 @@ fun parsePublishBatchStatus(json: String): PublishBatchStatus {
 private fun parseHike(json: JSONObject): Hike {
     val photosJson = json.optJSONArray("photos") ?: JSONArray()
     val routeSegmentsJson = json.optJSONArray("route_segments") ?: JSONArray()
+    val fieldMarksJson = json.optJSONArray("field_marks") ?: JSONArray()
     return Hike(
         id = json.optString("id"),
         title = json.optString("title", "Untitled hike"),
@@ -697,6 +834,9 @@ private fun parseHike(json: JSONObject): Hike {
                 )
             }
         }.filter { it.size >= 2 },
+        primaryLocationId = json.optNullableString("primary_location_id"),
+        primaryLocationName = json.optString("primary_location_name"),
+        fieldMarks = List(fieldMarksJson.length()) { index -> parseFieldMark(fieldMarksJson.getJSONObject(index)) },
     )
 }
 
@@ -718,6 +858,8 @@ private fun parsePhoto(json: JSONObject): Photo {
         syncState = json.optString("sync_state", "synced"),
         species = List(speciesJson.length()) { index ->
             val item = speciesJson.getJSONObject(index)
+            val phenophases = item.optJSONArray("phenophases") ?: JSONArray()
+            val history = item.optJSONArray("identification_history") ?: JSONArray()
             SpeciesLabel(
                 commonName = item.optString("common_name"),
                 scientificName = item.optString("scientific_name"),
@@ -726,6 +868,29 @@ private fun parsePhoto(json: JSONObject): Photo {
                 taxonId = item.optNullableLong("taxon_id"),
                 wikipediaUrl = item.optString("wikipedia_url"),
                 wikipediaSummary = plainWikipediaSummary(item.optString("wikipedia_summary")),
+                observationId = item.optNullableString("observation_id"),
+                confidence = item.optString("confidence", "tentative"),
+                provenance = item.optString("provenance", "legacy_import"),
+                observedOn = item.optNullableString("observed_on"),
+                phenophases = List(phenophases.length()) { phenophaseIndex ->
+                    val value = phenophases.opt(phenophaseIndex)
+                    if (value is JSONObject) value.optString("code") else value?.toString().orEmpty()
+                }.filter(String::isNotBlank),
+                identificationHistory = List(history.length()) { eventIndex ->
+                    val event = history.getJSONObject(eventIndex)
+                    IdentificationEvent(
+                        id = event.optString("id"),
+                        commonName = event.optString("common_name"),
+                        scientificName = event.optString("scientific_name"),
+                        source = event.optString("source", "legacy_import"),
+                        confidence = event.optString("confidence", "tentative"),
+                        actor = event.optString("actor"),
+                        note = event.optString("note"),
+                        becameCurrent = event.optBoolean("became_current"),
+                        createdAt = event.optNullableString("created_at"),
+                    )
+                },
+                iconicTaxonName = item.optString("iconic_taxon_name"),
             )
         },
     )
@@ -769,6 +934,158 @@ private fun parseSpecies(json: JSONObject): SpeciesRecord {
                 observedOn = encounter.optNullableString("observed_on"),
             )
         },
+        seasonalHistory = parseSeasonalHistory(json.optJSONObject("seasonal_history")),
+    )
+}
+
+private fun parseFieldMark(item: JSONObject) = FieldMark(
+    id = item.optString("id"),
+    hikeId = item.optString("hike_id"),
+    recordingSessionId = item.optNullableString("recording_session_id"),
+    markedAt = item.optString("marked_at"),
+    latitude = item.optDouble("lat"),
+    longitude = item.optDouble("lng"),
+    accuracyMeters = item.optNullableDouble("accuracy_meters"),
+    markType = item.optString("mark_type", "note"),
+    note = item.optString("note"),
+    syncState = item.optString("sync_state", "synced"),
+)
+
+private fun parseSeasonalHistory(value: JSONObject?): SeasonalHistory {
+    val root = value ?: JSONObject()
+    val months = root.optJSONArray("months") ?: JSONArray()
+    val years = root.optJSONArray("years") ?: JSONArray()
+    return SeasonalHistory(
+        observationCount = root.optInt("observation_count"),
+        firstObservedOn = root.optNullableString("first_observed_on"),
+        latestObservedOn = root.optNullableString("latest_observed_on"),
+        months = List(months.length()) { index ->
+            val item = months.getJSONObject(index)
+            SeasonalMonth(
+                month = item.optInt("month", index + 1),
+                label = item.optString("label"),
+                count = item.optInt("count"),
+                relativeIntensity = item.optDouble("relative_intensity"),
+            )
+        },
+        years = List(years.length()) { index ->
+            val item = years.getJSONObject(index)
+            SeasonalYear(
+                year = item.optInt("year"),
+                firstObservedOn = item.optString("first_observed_on"),
+                lastObservedOn = item.optString("last_observed_on"),
+                observationCount = item.optInt("observation_count"),
+            )
+        },
+        guidance = root.optString("guidance"),
+    )
+}
+
+fun parsePlaceProfile(json: String): PlaceProfile {
+    val root = JSONObject(json)
+    val location = root.optJSONObject("location") ?: JSONObject()
+    val summary = root.optJSONObject("summary") ?: JSONObject()
+    val taxonCounts = root.optJSONArray("taxon_counts") ?: JSONArray()
+    val visits = root.optJSONArray("visits") ?: JSONArray()
+    return PlaceProfile(
+        locationId = location.optString("id"),
+        name = location.optString("name", "Unknown place"),
+        firstVisit = summary.optNullableString("first_visit"),
+        latestVisit = summary.optNullableString("latest_visit"),
+        outingCount = summary.optInt("outing_count"),
+        totalDistanceMiles = summary.optDouble("total_distance_miles"),
+        totalDurationSeconds = summary.optLong("total_duration_seconds"),
+        observationCount = summary.optInt("observation_count"),
+        speciesCount = summary.optInt("species_count"),
+        taxonCounts = List(taxonCounts.length()) { index ->
+            val item = taxonCounts.getJSONObject(index)
+            item.optString("name", "Other") to item.optInt("count")
+        },
+        seasonalHistory = parseSeasonalHistory(root.optJSONObject("seasonal_history")),
+        visits = List(visits.length()) { index ->
+            val item = visits.getJSONObject(index)
+            PlaceVisit(
+                hikeId = item.optString("hike_id"),
+                title = item.optString("title", "Untitled hike"),
+                hikeDate = item.optString("hike_date"),
+                distanceMiles = item.optNullableDouble("distance_miles"),
+                observationCount = item.optInt("observation_count"),
+                speciesCount = item.optInt("species_count"),
+                newSpeciesCount = item.optInt("new_species_count"),
+                cumulativeSpeciesCount = item.optInt("cumulative_species_count"),
+                coverUrl = item.optString("cover_url"),
+            )
+        },
+        guidance = root.optString("guidance"),
+    )
+}
+
+private fun parseComparisonHike(item: JSONObject) = ComparisonHike(
+    id = item.optString("id"),
+    title = item.optString("title", "Untitled hike"),
+    hikeDate = item.optString("hike_date"),
+    locationName = item.optString("location_name"),
+    distanceMiles = item.optNullableDouble("distance_miles"),
+    durationSeconds = item.optNullableLong("duration_seconds"),
+    photoCount = item.optInt("photo_count"),
+    observationCount = item.optInt("observation_count"),
+    speciesCount = item.optInt("species_count"),
+)
+
+private fun parseComparisonSpecies(items: JSONArray): List<ComparisonSpecies> =
+    List(items.length()) { index ->
+        val item = items.getJSONObject(index)
+        ComparisonSpecies(
+            key = item.optString("key"),
+            taxonId = item.optNullableLong("taxon_id"),
+            commonName = item.optString("common_name", "Unknown species"),
+            scientificName = item.optString("scientific_name"),
+            iconicTaxonName = item.optString("iconic_taxon_name", "Other"),
+        )
+    }
+
+fun parseHikeComparison(json: String): HikeComparison {
+    val root = JSONObject(json)
+    val species = root.optJSONObject("species") ?: JSONObject()
+    return HikeComparison(
+        hikeA = parseComparisonHike(root.optJSONObject("hike_a") ?: JSONObject()),
+        hikeB = parseComparisonHike(root.optJSONObject("hike_b") ?: JSONObject()),
+        shared = parseComparisonSpecies(species.optJSONArray("shared") ?: JSONArray()),
+        onlyA = parseComparisonSpecies(species.optJSONArray("only_a") ?: JSONArray()),
+        onlyB = parseComparisonSpecies(species.optJSONArray("only_b") ?: JSONArray()),
+        guidance = root.optString("guidance"),
+    )
+}
+
+fun parseFieldBriefing(json: String): FieldBriefing {
+    val root = JSONObject(json)
+    val area = root.optJSONObject("area") ?: JSONObject()
+    val sections = root.optJSONArray("sections") ?: JSONArray()
+    return FieldBriefing(
+        areaName = area.optString("name", "Selected place"),
+        targetDate = root.optString("target_date"),
+        sections = List(sections.length()) { sectionIndex ->
+            val section = sections.getJSONObject(sectionIndex)
+            val items = section.optJSONArray("items") ?: JSONArray()
+            BriefingSection(
+                title = section.optString("title"),
+                items = List(items.length()) { itemIndex ->
+                    val item = items.getJSONObject(itemIndex)
+                    val reasons = item.optJSONArray("reasons") ?: JSONArray()
+                    BriefingItem(
+                        key = item.optString("key"),
+                        taxonId = item.optNullableLong("taxon_id"),
+                        commonName = item.optString("common_name", "Unknown species"),
+                        scientificName = item.optString("scientific_name"),
+                        iconicTaxonName = item.optString("iconic_taxon_name", "Other"),
+                        section = item.optString("section"),
+                        reasons = List(reasons.length()) { index -> reasons.optString(index) },
+                        referencePhotoUrl = item.optJSONObject("reference_photo")?.optString("url").orEmpty(),
+                    )
+                },
+            )
+        },
+        guidance = root.optString("guidance"),
     )
 }
 

@@ -21,7 +21,8 @@ from hike_journal.domain.map_data import (
 LIGHTWEIGHT_OBSERVATION_COLUMNS = (
     "id,photo_id,hike_id,owner_subject,owner_email,taxon_id,species_taxon_id,rank,iconic_taxon_name,"
     "common_name,scientific_name,"
-    "confidence,status,is_primary,identified_at,source,inat_observation_id,inat_observation_url,"
+    "confidence,status,is_primary,identified_at,source,observed_on,occurrence_precision,"
+    "identification_confidence,identification_provenance,inat_observation_id,inat_observation_url,"
     "inat_posted_at,inat_photo_attached,"
     "species_log_main_photo:raw_response_json->species_log_main_photo,"
     "wikipedia_url:raw_response_json->taxon_enrichment->>wikipedia_url,"
@@ -30,12 +31,34 @@ LIGHTWEIGHT_OBSERVATION_COLUMNS = (
 LEGACY_LIGHTWEIGHT_OBSERVATION_COLUMNS = LIGHTWEIGHT_OBSERVATION_COLUMNS.replace(
     "species_taxon_id,rank,iconic_taxon_name,",
     "",
+).replace(
+    "observed_on,occurrence_precision,identification_confidence,identification_provenance,",
+    "",
 )
 
 
 def _slugify_location_name(value: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", value.lower().strip())
     return re.sub(r"-+", "-", slug).strip("-") or "location"
+
+
+def _identification_confidence(value: float | None, *, confirmed: bool = False) -> str:
+    if confirmed and value is not None and value >= 0.9:
+        return "confident"
+    if value is not None and value >= 0.65:
+        return "likely"
+    return "tentative"
+
+
+def _identification_provenance(source: str | None) -> str:
+    normalized = str(source or "").strip().lower()
+    if normalized in {"inaturalist_cv", "inat_cv", "inaturalist_computer_vision"}:
+        return "inat_computer_vision"
+    if normalized in {"manual", "manual_override", "known_species", "user"}:
+        return "user"
+    if normalized in {"community_id_request", "inat_community"}:
+        return "inat_community"
+    return "imported_record"
 
 
 class HikeJournalRepository:
@@ -1038,6 +1061,125 @@ class HikeJournalRepository:
             rows.extend(response.data or [])
         return rows
 
+    def list_identification_events(self, observation_ids: list[str]) -> list[dict[str, Any]]:
+        normalized_ids = [str(value) for value in observation_ids if str(value).strip()]
+        if not normalized_ids:
+            return []
+        rows: list[dict[str, Any]] = []
+        for chunk_ids in self._chunks(normalized_ids, size=200):
+            response = (
+                self.client.table("identification_events")
+                .select("*")
+                .in_("observation_id", chunk_ids)
+                .order("created_at", desc=True)
+                .execute()
+            )
+            rows.extend(response.data or [])
+        return rows
+
+    def list_observation_annotations(self, observation_ids: list[str]) -> list[dict[str, Any]]:
+        normalized_ids = [str(value) for value in observation_ids if str(value).strip()]
+        if not normalized_ids:
+            return []
+        rows: list[dict[str, Any]] = []
+        for chunk_ids in self._chunks(normalized_ids, size=200):
+            response = (
+                self.client.table("observation_annotations")
+                .select("*")
+                .in_("observation_id", chunk_ids)
+                .order("created_at")
+                .execute()
+            )
+            rows.extend(response.data or [])
+        return rows
+
+    def set_observation_natural_history(
+        self,
+        observation_id: str,
+        *,
+        confidence: str,
+        provenance: str,
+        phenophases: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        try:
+            response = self.client.rpc(
+                "set_observation_natural_history",
+                {
+                    "p_observation_id": observation_id,
+                    "p_confidence": confidence,
+                    "p_provenance": provenance,
+                    "p_phenophases": phenophases,
+                },
+            ).execute()
+        except Exception as exc:
+            raise RuntimeError(
+                "Observation history needs sql/longitudinal_intelligence_migration.sql before it can be edited."
+            ) from exc
+        rows = response.data or []
+        if isinstance(rows, dict):
+            return rows
+        if not rows:
+            raise RuntimeError("The observation could not be updated.")
+        return rows[0]
+
+    def list_field_marks(self, hike_id: str) -> list[dict[str, Any]]:
+        try:
+            response = (
+                self.client.table("field_marks")
+                .select("*")
+                .eq("hike_id", hike_id)
+                .order("marked_at")
+                .execute()
+            )
+        except Exception as exc:
+            raise RuntimeError(
+                "Field Marks need sql/longitudinal_intelligence_migration.sql before they can sync."
+            ) from exc
+        return response.data or []
+
+    def get_field_mark(self, mark_id: str) -> dict[str, Any] | None:
+        try:
+            response = (
+                self.client.table("field_marks")
+                .select("*")
+                .eq("id", mark_id)
+                .limit(1)
+                .execute()
+            )
+        except Exception as exc:
+            raise RuntimeError(
+                "Field Marks need sql/longitudinal_intelligence_migration.sql before they can sync."
+            ) from exc
+        rows = response.data or []
+        return rows[0] if rows else None
+
+    def upsert_field_mark(self, payload: dict[str, Any]) -> dict[str, Any]:
+        try:
+            response = self.client.table("field_marks").upsert(payload, on_conflict="id").execute()
+        except Exception as exc:
+            raise RuntimeError(
+                "Field Marks need sql/longitudinal_intelligence_migration.sql before they can sync."
+            ) from exc
+        rows = response.data or []
+        if not rows:
+            raise RuntimeError("The field mark could not be saved.")
+        return rows[0]
+
+    def get_hike_weather_snapshot(self, hike_id: str) -> dict[str, Any] | None:
+        try:
+            response = (
+                self.client.table("hike_weather_snapshots")
+                .select("*")
+                .eq("hike_id", hike_id)
+                .order("enriched_at", desc=True)
+                .limit(1)
+                .execute()
+            )
+        except Exception:
+            return None
+        rows = response.data or []
+        return rows[0] if rows else None
+
     def list_species_log_photo_preferences(self, observation_ids: list[str]) -> list[dict[str, Any]]:
         normalized_ids = [str(observation_id) for observation_id in observation_ids if str(observation_id).strip()]
         if not normalized_ids:
@@ -1097,6 +1239,8 @@ class HikeJournalRepository:
             "status": "pending",
             "is_primary": True,
             "source": "inaturalist_cv",
+            "identification_confidence": _identification_confidence(candidate.confidence),
+            "identification_provenance": "inat_computer_vision",
             "raw_response_json": candidate.raw_payload,
         }
         try:
@@ -1118,7 +1262,10 @@ class HikeJournalRepository:
             legacy_payload = {
                 key: value
                 for key, value in payload.items()
-                if key not in {"is_primary", "species_taxon_id"}
+                if key not in {
+                    "is_primary", "species_taxon_id", "identification_confidence",
+                    "identification_provenance",
+                }
             }
             response = self.client.table("species_observations").upsert(legacy_payload, on_conflict="photo_id").execute()
             return response.data[0]
@@ -1160,6 +1307,8 @@ class HikeJournalRepository:
             "status": status,
             "is_primary": is_primary,
             "source": source,
+            "identification_confidence": "confident" if status == "confirmed" else "tentative",
+            "identification_provenance": _identification_provenance(source),
             "raw_response_json": raw_payload,
         }
         try:
@@ -1167,6 +1316,8 @@ class HikeJournalRepository:
             return response.data[0]
         except Exception:
             payload.pop("species_taxon_id", None)
+            payload.pop("identification_confidence", None)
+            payload.pop("identification_provenance", None)
             try:
                 response = self.client.table("species_observations").insert(payload).execute()
                 return response.data[0]
@@ -1198,6 +1349,11 @@ class HikeJournalRepository:
             "scientific_name": candidate.scientific_name,
             "confidence": round(candidate.confidence, 4),
             "source": "inaturalist_cv",
+            "identification_confidence": _identification_confidence(
+                candidate.confidence,
+                confirmed=status == "confirmed",
+            ),
+            "identification_provenance": "inat_computer_vision",
             "raw_response_json": candidate.raw_payload,
             "is_primary": is_primary,
         }
@@ -1207,6 +1363,8 @@ class HikeJournalRepository:
             response = self.client.table("species_observations").update(payload).eq("id", observation_id).execute()
         except Exception:
             payload.pop("species_taxon_id", None)
+            payload.pop("identification_confidence", None)
+            payload.pop("identification_provenance", None)
             response = self.client.table("species_observations").update(payload).eq("id", observation_id).execute()
         return response.data[0]
 
@@ -1242,6 +1400,7 @@ class HikeJournalRepository:
             payload["status"] = status
         if source is not None:
             payload["source"] = source
+            payload["identification_provenance"] = _identification_provenance(source)
         if clear_confidence:
             payload["confidence"] = None
         if taxon_id is not None or (taxon_id is None and source in {"manual_override", "community_id_request"}):
@@ -1253,7 +1412,11 @@ class HikeJournalRepository:
         try:
             response = self.client.table("species_observations").update(payload).eq("id", observation_id).execute()
         except Exception:
-            legacy_payload = {key: value for key, value in payload.items() if key != "is_primary"}
+            legacy_payload = {
+                key: value
+                for key, value in payload.items()
+                if key not in {"is_primary", "identification_provenance"}
+            }
             response = self.client.table("species_observations").update(legacy_payload).eq("id", observation_id).execute()
         return response.data[0]
 

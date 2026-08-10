@@ -110,7 +110,84 @@ create table if not exists public.species_observations (
     inat_photo_attached boolean,
     source text not null,
     raw_response_json jsonb not null default '{}'::jsonb,
-    identified_at timestamptz not null default timezone('utc', now())
+    identified_at timestamptz not null default timezone('utc', now()),
+    observed_on date,
+    occurrence_precision text not null default 'unknown' check (occurrence_precision in ('exact', 'day', 'estimated', 'unknown')),
+    identification_confidence text not null default 'tentative' check (identification_confidence in ('tentative', 'likely', 'confident', 'externally_confirmed')),
+    identification_provenance text not null default 'legacy_import'
+);
+
+create table if not exists public.identification_events (
+    id uuid primary key default gen_random_uuid(),
+    observation_id uuid not null references public.species_observations(id) on delete cascade,
+    owner_subject text,
+    owner_email text,
+    taxon_id bigint,
+    species_taxon_id bigint,
+    scientific_name text,
+    common_name text,
+    source text not null check (source in ('user', 'inat_computer_vision', 'inat_lookup', 'inat_community', 'external_expert', 'imported_record', 'legacy_import', 'migration')),
+    confidence text not null check (confidence in ('tentative', 'likely', 'confident', 'externally_confirmed')),
+    source_reference_id text,
+    actor text,
+    note text,
+    became_current boolean not null default true,
+    created_at timestamptz not null default timezone('utc', now())
+);
+
+create table if not exists public.observation_annotations (
+    id uuid primary key default gen_random_uuid(),
+    observation_id uuid not null references public.species_observations(id) on delete cascade,
+    owner_subject text,
+    owner_email text,
+    category text not null,
+    code text not null,
+    metadata jsonb not null default '{}'::jsonb,
+    created_at timestamptz not null default timezone('utc', now()),
+    updated_at timestamptz not null default timezone('utc', now()),
+    unique (observation_id, category, code)
+);
+
+create table if not exists public.field_marks (
+    id uuid primary key,
+    hike_id uuid not null references public.hikes(id) on delete cascade,
+    recording_session_id uuid,
+    owner_subject text,
+    owner_email text,
+    marked_at timestamptz not null,
+    lat double precision not null check (lat between -90 and 90),
+    lng double precision not null check (lng between -180 and 180),
+    accuracy_meters double precision check (accuracy_meters is null or accuracy_meters >= 0),
+    mark_type text not null check (mark_type in ('wildlife', 'plant', 'trail_condition', 'water', 'campsite', 'hazard', 'note')),
+    note text,
+    created_at timestamptz not null default timezone('utc', now()),
+    updated_at timestamptz not null default timezone('utc', now())
+);
+
+create table if not exists public.hike_weather_snapshots (
+    id uuid primary key default gen_random_uuid(),
+    hike_id uuid not null references public.hikes(id) on delete cascade,
+    owner_subject text,
+    owner_email text,
+    provider text not null,
+    provider_dataset text,
+    algorithm_version text not null,
+    anchor_lat double precision not null check (anchor_lat between -90 and 90),
+    anchor_lng double precision not null check (anchor_lng between -180 and 180),
+    interval_started_at timestamptz not null,
+    interval_ended_at timestamptz not null,
+    temperature_min_c double precision,
+    temperature_mean_c double precision,
+    temperature_max_c double precision,
+    apparent_temperature_mean_c double precision,
+    precipitation_total_mm double precision,
+    relative_humidity_mean_percent double precision,
+    cloud_cover_mean_percent double precision,
+    wind_speed_mean_kph double precision,
+    condition_label text,
+    raw_response_json jsonb not null default '{}'::jsonb,
+    enriched_at timestamptz not null default timezone('utc', now()),
+    unique (hike_id, provider, algorithm_version)
 );
 
 create table if not exists public.species_discovery_snapshots (
@@ -184,6 +261,10 @@ alter table public.species_observations add column if not exists inat_observatio
 alter table public.species_observations add column if not exists inat_posted_at timestamptz;
 alter table public.species_observations add column if not exists inat_photo_attached boolean;
 alter table public.species_observations add column if not exists species_taxon_id bigint;
+alter table public.species_observations add column if not exists observed_on date;
+alter table public.species_observations add column if not exists occurrence_precision text not null default 'unknown';
+alter table public.species_observations add column if not exists identification_confidence text not null default 'tentative';
+alter table public.species_observations add column if not exists identification_provenance text not null default 'legacy_import';
 update public.species_observations
 set species_taxon_id = taxon_id
 where species_taxon_id is null
@@ -280,6 +361,11 @@ create index if not exists species_inat_observation_id_idx on public.species_obs
 create index if not exists species_observations_species_taxon_id_idx
 on public.species_observations (species_taxon_id)
 where status = 'confirmed';
+create index if not exists species_observations_observed_on_idx on public.species_observations (observed_on desc) where status = 'confirmed';
+create index if not exists identification_events_observation_created_idx on public.identification_events (observation_id, created_at desc);
+create index if not exists observation_annotations_observation_idx on public.observation_annotations (observation_id, category);
+create index if not exists field_marks_hike_marked_idx on public.field_marks (hike_id, marked_at);
+create index if not exists hike_weather_snapshots_hike_idx on public.hike_weather_snapshots (hike_id, enriched_at desc);
 create unique index if not exists species_quest_taxa_focus_order_idx
 on public.species_quest_taxa (quest_id, focus_order)
 where focus_order is not null;
@@ -304,6 +390,10 @@ alter table public.hike_location_tags enable row level security;
 alter table public.species_discovery_snapshots enable row level security;
 alter table public.species_quests enable row level security;
 alter table public.species_quest_taxa enable row level security;
+alter table public.identification_events enable row level security;
+alter table public.observation_annotations enable row level security;
+alter table public.field_marks enable row level security;
+alter table public.hike_weather_snapshots enable row level security;
 alter table public.hikes force row level security;
 alter table public.photos force row level security;
 alter table public.species_observations force row level security;
@@ -314,6 +404,10 @@ alter table public.hike_location_tags force row level security;
 alter table public.species_discovery_snapshots force row level security;
 alter table public.species_quests force row level security;
 alter table public.species_quest_taxa force row level security;
+alter table public.identification_events force row level security;
+alter table public.observation_annotations force row level security;
+alter table public.field_marks force row level security;
+alter table public.hike_weather_snapshots force row level security;
 
 drop policy if exists "Open single-user access for hikes" on public.hikes;
 drop policy if exists "Open single-user access for photos" on public.photos;
@@ -333,6 +427,10 @@ revoke all privileges on table public.hike_location_tags from anon, authenticate
 revoke all privileges on table public.species_discovery_snapshots from anon, authenticated;
 revoke all privileges on table public.species_quests from anon, authenticated;
 revoke all privileges on table public.species_quest_taxa from anon, authenticated;
+revoke all privileges on table public.identification_events from anon, authenticated;
+revoke all privileges on table public.observation_annotations from anon, authenticated;
+revoke all privileges on table public.field_marks from anon, authenticated;
+revoke all privileges on table public.hike_weather_snapshots from anon, authenticated;
 
 insert into storage.buckets (id, name, public)
 values ('hike-journal', 'hike-journal', true)

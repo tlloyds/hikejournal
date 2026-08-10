@@ -17,8 +17,12 @@ import com.hikejournal.app.data.CompanionConfig
 import com.hikejournal.app.data.DiscoveryArea
 import com.hikejournal.app.data.DiscoveryTaxon
 import com.hikejournal.app.data.FieldQuest
+import com.hikejournal.app.data.FieldBriefing
+import com.hikejournal.app.data.FieldMark
+import com.hikejournal.app.data.HikeComparison
 import com.hikejournal.app.data.NearbySpecies
 import com.hikejournal.app.data.Photo
+import com.hikejournal.app.data.PlaceProfile
 import com.hikejournal.app.data.PublishBatchStatus
 import com.hikejournal.app.data.PublishBatchRequest
 import com.hikejournal.app.data.PublishBatchWork
@@ -60,6 +64,9 @@ data class AppState(
     val journal: Hike? = null,
     val species: List<SpeciesRecord> = emptyList(),
     val speciesDetail: SpeciesRecord? = null,
+    val placeProfile: PlaceProfile? = null,
+    val fieldBriefing: FieldBriefing? = null,
+    val hikeComparison: HikeComparison? = null,
     val discoveryAreas: List<DiscoveryArea> = emptyList(),
     val nearbySpecies: NearbySpecies? = null,
     val speciesQuests: List<FieldQuest> = emptyList(),
@@ -110,6 +117,8 @@ data class AppState(
     val syncStatus: SyncStatus = SyncStatus(),
     val isSyncing: Boolean = false,
     val tracking: TrackingSnapshot? = null,
+    val trackingMarks: List<FieldMark> = emptyList(),
+    val isLongitudinalLoading: Boolean = false,
     val trackingOpenRequestToken: Long = 0L,
     val trackingEndRequestToken: Long = 0L,
     val isFinalizingTracking: Boolean = false,
@@ -126,6 +135,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private var handledSpeciesBatchWorkId: UUID? = null
     private var handledPublishBatchWorkId: UUID? = null
     private var mapDataValidated = false
+    private var loadedTrackingMarksForHikeId: String? = null
 
     val serverUrl: String get() = repository.serverUrl
     val pairingKey: String get() = repository.pairingKey
@@ -155,6 +165,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         tracking = snapshot?.takeUnless { current -> current.status == TrackingStatus.FINISHED },
                         isFinalizingTracking = snapshot?.status == TrackingStatus.FINALIZING,
                     )
+                }
+                val activeHikeId = snapshot?.hikeId
+                if (activeHikeId != null && activeHikeId != loadedTrackingMarksForHikeId) {
+                    loadedTrackingMarksForHikeId = activeHikeId
+                    val marks = runCatching { repository.loadLocalFieldMarks(activeHikeId) }.getOrDefault(emptyList())
+                    _state.update { it.copy(trackingMarks = marks) }
+                } else if (activeHikeId == null) {
+                    loadedTrackingMarksForHikeId = null
+                    _state.update { it.copy(trackingMarks = emptyList()) }
                 }
             }
         }
@@ -1399,7 +1418,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun startTracking() {
         viewModelScope.launch {
-            _state.update { it.copy(error = null) }
+            _state.update { it.copy(error = null, trackingMarks = emptyList()) }
             runCatching {
                 trackingRepository.start()
             }.onSuccess {
@@ -1410,6 +1429,154 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 _state.update { it.copy(error = error.userMessage()) }
             }
         }
+    }
+
+    fun addFieldMark(markType: String, note: String = "") {
+        val tracking = _state.value.tracking ?: return
+        val point = tracking.routeSegments.lastOrNull { it.isNotEmpty() }?.lastOrNull()
+        if (point == null) {
+            _state.update { it.copy(error = "Wait for the first GPS fix before adding a Field Mark.") }
+            return
+        }
+        val mark = FieldMark(
+            id = UUID.randomUUID().toString(),
+            hikeId = tracking.hikeId,
+            recordingSessionId = tracking.sessionId,
+            markedAt = Instant.now().toString(),
+            latitude = point.latitude,
+            longitude = point.longitude,
+            accuracyMeters = tracking.lastAccuracyMeters?.toDouble(),
+            markType = markType,
+            note = note.trim(),
+            syncState = "queued",
+        )
+        viewModelScope.launch {
+            runCatching { repository.createFieldMark(mark) }
+                .onSuccess { saved ->
+                    _state.update { current ->
+                        current.copy(
+                            trackingMarks = (current.trackingMarks.filterNot { it.id == saved.id } + saved)
+                                .sortedBy(FieldMark::markedAt),
+                            notice = "${fieldMarkLabel(saved.markType)} marked at your current position.",
+                            error = null,
+                        )
+                    }
+                }
+                .onFailure { error -> _state.update { it.copy(error = error.userMessage()) } }
+        }
+    }
+
+    fun updateObservationNaturalHistory(
+        photo: Photo,
+        observationId: String,
+        confidence: String,
+        phenophases: List<String>,
+    ) {
+        viewModelScope.launch {
+            runCatching {
+                repository.updateObservationNaturalHistory(
+                    observationId = observationId,
+                    hikeId = photo.hikeId,
+                    confidence = confidence,
+                    phenophases = phenophases,
+                )
+            }.onSuccess {
+                _state.update { current ->
+                    val updatedJournal = current.journal?.copy(
+                        photos = current.journal.photos.map { currentPhoto ->
+                            if (currentPhoto.id != photo.id) currentPhoto else currentPhoto.copy(
+                                syncState = if (currentPhoto.syncState == "synced") "queued" else currentPhoto.syncState,
+                                species = currentPhoto.species.map { label ->
+                                    if (label.observationId == observationId) {
+                                        label.copy(
+                                            confidence = confidence,
+                                            provenance = "user",
+                                            phenophases = phenophases,
+                                        )
+                                    } else label
+                                },
+                            )
+                        },
+                    )
+                    current.copy(
+                        journal = updatedJournal,
+                        notice = "Natural-history details saved on this phone.",
+                        error = null,
+                    )
+                }
+            }.onFailure { error -> _state.update { it.copy(error = error.userMessage()) } }
+        }
+    }
+
+    fun openPlaceProfile(locationId: String) {
+        viewModelScope.launch {
+            _state.update {
+                it.copy(isLongitudinalLoading = true, placeProfile = null, fieldBriefing = null, error = null)
+            }
+            runCatching { repository.loadPlaceProfile(locationId) }
+                .onSuccess { result ->
+                    _state.update {
+                        it.copy(
+                            placeProfile = result.value,
+                            isLongitudinalLoading = false,
+                            isOffline = result.fromCache,
+                        )
+                    }
+                }
+                .onFailure { error ->
+                    _state.update { it.copy(isLongitudinalLoading = false, error = error.userMessage()) }
+                }
+        }
+    }
+
+    fun closePlaceProfile() {
+        _state.update { it.copy(placeProfile = null, fieldBriefing = null) }
+    }
+
+    fun openFieldBriefing(locationId: String) {
+        viewModelScope.launch {
+            _state.update { it.copy(isLongitudinalLoading = true, fieldBriefing = null, error = null) }
+            runCatching { repository.loadFieldBriefing(locationId) }
+                .onSuccess { result ->
+                    _state.update {
+                        it.copy(
+                            fieldBriefing = result.value,
+                            isLongitudinalLoading = false,
+                            isOffline = result.fromCache,
+                        )
+                    }
+                }
+                .onFailure { error ->
+                    _state.update { it.copy(isLongitudinalLoading = false, error = error.userMessage()) }
+                }
+        }
+    }
+
+    fun closeFieldBriefing() {
+        _state.update { it.copy(fieldBriefing = null) }
+    }
+
+    fun openHikeComparison(hikeId: String, otherHikeId: String) {
+        viewModelScope.launch {
+            _state.update { it.copy(isLongitudinalLoading = true, hikeComparison = null, error = null) }
+            runCatching { repository.loadHikeComparison(hikeId, otherHikeId) }
+                .onSuccess { result ->
+                    _state.update {
+                        it.copy(
+                            hikeComparison = result.value,
+                            isLongitudinalLoading = false,
+                            isOffline = result.fromCache,
+                        )
+                    }
+                }
+                .onFailure { error ->
+                    _state.update { it.copy(isLongitudinalLoading = false, error = error.userMessage()) }
+                }
+        }
+    }
+
+    fun closeHikeComparison() {
+        _state.update { it.copy(hikeComparison = null) }
     }
 
     fun pauseTracking() {
@@ -1533,7 +1700,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun discardTracking(onDiscarded: () -> Unit) {
         viewModelScope.launch {
             _state.update { it.copy(isFinalizingTracking = true, error = null) }
-            runCatching { trackingRepository.discard() }
+            val hikeId = _state.value.tracking?.hikeId
+            runCatching {
+                trackingRepository.discard()
+                if (hikeId != null) repository.discardRecordingFieldMarks(hikeId)
+            }
                 .onSuccess {
                     _state.update {
                         it.copy(
@@ -2033,6 +2204,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
     }
+}
+
+private fun fieldMarkLabel(markType: String): String = when (markType) {
+    "wildlife" -> "Wildlife"
+    "plant" -> "Plant"
+    "trail_condition" -> "Trail condition"
+    "water" -> "Water"
+    "campsite" -> "Campsite"
+    "hazard" -> "Hazard"
+    else -> "Note"
 }
 
 private fun Throwable?.userMessage(): String =
