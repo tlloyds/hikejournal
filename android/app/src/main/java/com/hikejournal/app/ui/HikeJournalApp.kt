@@ -434,7 +434,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                 viewModel.loadSpecies()
                 viewModel.loadSpeciesDiscovery()
             }
-            TopDestination.Review -> viewModel.loadReviewQueue()
+            TopDestination.Review -> viewModel.loadReviewQueue(force = true)
             TopDestination.Publish -> viewModel.loadPublishQueue()
             TopDestination.Map -> viewModel.loadSightings()
         }
@@ -655,6 +655,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                     onBatchFinished = {
                         viewModel.clearBatchProgress()
                     },
+                    onNavigateBack = { destination = TopDestination.Archive },
                 )
                 destination == TopDestination.Publish -> PublishingScreen(
                     queue = state.publishQueue,

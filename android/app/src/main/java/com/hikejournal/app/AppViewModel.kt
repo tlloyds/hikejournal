@@ -65,6 +65,16 @@ import kotlinx.coroutines.launch
 
 enum class LongitudinalDestination { PlaceProfile, FieldBriefing, Comparison }
 
+internal fun shouldRefreshReviewQueueAfterSync(
+    reviewQueueRequested: Boolean,
+    previousOutstandingSyncCount: Int,
+    outstandingSyncCount: Int,
+    connected: Boolean,
+): Boolean = reviewQueueRequested &&
+    previousOutstandingSyncCount > 0 &&
+    outstandingSyncCount == 0 &&
+    connected
+
 data class AppState(
     val hikes: List<Hike> = emptyList(),
     val hikeLocations: List<HikeLocation> = emptyList(),
@@ -145,6 +155,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private var handledPublishBatchWorkId: UUID? = null
     private var mapDataValidated = false
     private var loadedTrackingMarksForHikeId: String? = null
+    private var reviewQueueRequested = false
 
     val serverUrl: String get() = repository.serverUrl
     val pairingKey: String get() = repository.pairingKey
@@ -187,7 +198,18 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         viewModelScope.launch {
+            var previousOutstandingSyncCount = 0
             repository.syncStatus.collect { syncStatus ->
+                val outstandingSyncCount = syncStatus.pendingCount +
+                    syncStatus.syncingCount +
+                    syncStatus.needsAttentionCount
+                val reviewUploadsSettled = shouldRefreshReviewQueueAfterSync(
+                    reviewQueueRequested = reviewQueueRequested,
+                    previousOutstandingSyncCount = previousOutstandingSyncCount,
+                    outstandingSyncCount = outstandingSyncCount,
+                    connected = syncStatus.connected,
+                )
+                previousOutstandingSyncCount = outstandingSyncCount
                 val journalNeedsRemoteUrls = syncStatus.connected &&
                     syncStatus.pendingCount == 0 &&
                     syncStatus.syncingCount == 0 &&
@@ -211,6 +233,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     // Successful upload sync removes its temporary local file. Replace any
                     // archive covers that still point to that file with the permanent URL.
                     refreshLibrary(showRefreshIndicator = false)
+                }
+                if (reviewUploadsSettled) {
+                    loadReviewQueue(force = true)
                 }
             }
         }
@@ -1178,6 +1203,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun loadReviewQueue(force: Boolean = false) {
+        reviewQueueRequested = true
         if (_state.value.reviewQueue.isNotEmpty() && !force) return
         viewModelScope.launch {
             _state.update { it.copy(isReviewLoading = true, error = null) }

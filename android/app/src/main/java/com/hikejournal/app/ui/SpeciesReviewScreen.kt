@@ -2,6 +2,7 @@
 
 package com.hikejournal.app.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -93,12 +94,14 @@ fun SpeciesReviewScreen(
     onConnectInat: () -> Unit,
     onSubmitBatch: (List<List<String>>) -> Unit,
     onBatchFinished: () -> Unit,
+    onNavigateBack: () -> Unit,
 ) {
     var index by remember { mutableIntStateOf(0) }
     var horizontalDragDistance by remember { mutableFloatStateOf(0f) }
     var batchMode by remember { mutableStateOf(false) }
     val queueSignature = remember(queue) { queue.joinToString(",") { it.id } }
     val waitingItems = queue.filter { it.candidates.isEmpty() }
+    val unsyncedWaitingItems = waitingItems.filterNot { reviewPhotoIsSynced(it) }
     LaunchedEffect(queueSignature) {
         if (queue.isEmpty()) index = 0 else index = index.coerceIn(0, queue.lastIndex)
     }
@@ -112,6 +115,15 @@ fun SpeciesReviewScreen(
     val pendingCount = queue.count { it.state == "pending" }
     val waitingCount = queue.count { it.candidates.isEmpty() }
 
+    BackHandler {
+        when (reviewBackAction(batchMode, batchIdentifying, index)) {
+            ReviewBackAction.Wait -> Unit
+            ReviewBackAction.CloseBatch -> batchMode = false
+            ReviewBackAction.PreviousPhoto -> index -= 1
+            ReviewBackAction.LeaveReview -> onNavigateBack()
+        }
+    }
+
     Column(Modifier.fillMaxSize().background(Parchment)) {
         Row(
             Modifier.fillMaxWidth().background(Moss).statusBarsPadding().padding(start = 20.dp, end = 8.dp, top = 15.dp, bottom = 16.dp),
@@ -120,14 +132,26 @@ fun SpeciesReviewScreen(
             Column(Modifier.weight(1f)) {
                 Text("HikeJournal", style = MaterialTheme.typography.titleMedium, color = Color(0xFFB7C8B5))
                 Text("Species review", style = MaterialTheme.typography.headlineMedium, color = Paper)
-                Text("$pendingCount TO DECIDE · $waitingCount NEED ID", style = MaterialTheme.typography.labelSmall, color = Color(0xFFB7C8B5))
+                val syncSuffix = when {
+                    unsyncedWaitingItems.any { it.photo.syncState == "needs_attention" } ->
+                        " · ${unsyncedWaitingItems.size} NEED SYNC"
+                    unsyncedWaitingItems.isNotEmpty() -> " · ${unsyncedWaitingItems.size} SYNCING"
+                    else -> ""
+                }
+                Text("$pendingCount TO DECIDE · $waitingCount NEED ID$syncSuffix", style = MaterialTheme.typography.labelSmall, color = Color(0xFFB7C8B5))
             }
             TextButton(
                 onClick = { batchMode = true },
-                enabled = waitingItems.isNotEmpty() && !offline && !batchIdentifying,
+                enabled = waitingItems.isNotEmpty() && unsyncedWaitingItems.isEmpty() && !loading && !offline && !batchIdentifying,
                 colors = ButtonDefaults.textButtonColors(contentColor = Paper),
             ) {
-                Text("Batch ID")
+                Text(
+                    when {
+                        loading -> "Loading"
+                        unsyncedWaitingItems.isNotEmpty() -> "Syncing"
+                        else -> "Batch ID"
+                    },
+                )
             }
             IconButton(onClick = onRefresh, enabled = !loading && decidingId == null) {
                 if (loading) CircularProgressIndicator(Modifier.size(20.dp), color = Paper, strokeWidth = 2.dp)
@@ -194,7 +218,7 @@ fun SpeciesReviewScreen(
                         hasNext = targetPosition < queue.size,
                         deciding = decidingId == targetItem.id,
                         identifying = identifyingId == targetItem.id,
-                        enabled = !offline && decidingId == null && identifyingId == null,
+                        enabled = reviewPhotoIsSynced(targetItem) && !offline && decidingId == null && identifyingId == null,
                         onNext = { if (index < queue.lastIndex) index += 1 },
                         onDecision = onDecision,
                         onRequestRecommendation = onRequestRecommendation,
@@ -476,9 +500,24 @@ private fun ReviewItemContent(
         item {
             Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 22.dp)) {
                 if (item.candidates.isEmpty()) {
-                    Text("Awaiting a suggestion", style = MaterialTheme.typography.headlineMedium, color = Ink)
+                    val photoSynced = reviewPhotoIsSynced(item)
                     Text(
-                        "Ask iNaturalist to analyze this photo using its computer-vision model. Location and date help narrow the result.",
+                        when (item.photo.syncState) {
+                            "needs_attention" -> "Photo needs sync attention"
+                            else -> if (photoSynced) "Awaiting a suggestion" else "Waiting for photo sync"
+                        },
+                        style = MaterialTheme.typography.headlineMedium,
+                        color = Ink,
+                    )
+                    Text(
+                        when (item.photo.syncState) {
+                            "needs_attention" -> "Resolve the sync notice, then HikeJournal will include this photo in Batch ID."
+                            else -> if (photoSynced) {
+                                "Ask iNaturalist to analyze this photo using its computer-vision model. Location and date help narrow the result."
+                            } else {
+                                "This selected photo is in the review queue and will become available for identification as soon as its upload finishes."
+                            }
+                        },
                         style = MaterialTheme.typography.bodyLarge,
                         color = InkMuted,
                         modifier = Modifier.padding(top = 7.dp),
@@ -491,7 +530,13 @@ private fun ReviewItemContent(
                         if (identifying) CircularProgressIndicator(Modifier.size(19.dp), color = Paper, strokeWidth = 2.dp)
                         else Icon(Icons.Rounded.Refresh, null)
                         Spacer(Modifier.width(8.dp))
-                        Text(if (identifying) "Asking iNaturalist…" else "Get iNaturalist recommendation")
+                        Text(
+                            when {
+                                identifying -> "Asking iNaturalist…"
+                                !photoSynced -> "Upload before ID"
+                                else -> "Get iNaturalist recommendation"
+                            },
+                        )
                     }
                     OutlinedButton(
                         onClick = onNext,
@@ -556,6 +601,22 @@ private fun ReviewItemContent(
         }
     }
 }
+
+internal enum class ReviewBackAction { Wait, CloseBatch, PreviousPhoto, LeaveReview }
+
+internal fun reviewBackAction(
+    batchMode: Boolean,
+    batchIdentifying: Boolean,
+    index: Int,
+): ReviewBackAction = when {
+    batchMode && batchIdentifying -> ReviewBackAction.Wait
+    batchMode -> ReviewBackAction.CloseBatch
+    index > 0 -> ReviewBackAction.PreviousPhoto
+    else -> ReviewBackAction.LeaveReview
+}
+
+internal fun reviewPhotoIsSynced(item: ReviewItem): Boolean =
+    item.photo.syncState == "synced" && !item.photo.url.startsWith("file:")
 
 @Composable
 private fun CandidateRow(

@@ -137,6 +137,19 @@ internal fun selectNextSyncOperation(
     } ?: operations.firstOrNull(::eligible)
 }
 
+internal fun pendingReviewUploadOperations(
+    operations: List<PendingOperationEntity>,
+): List<PendingOperationEntity> = operations.filter { operation ->
+    operation.kind == OperationKind.UploadPhoto &&
+        operation.state != "completed" &&
+        runCatching {
+            initialProcessingStatus(
+                JSONObject(operation.payloadJson).optBoolean("queue_for_review"),
+                operation.contentType ?: "image/jpeg",
+            ) == "in_review"
+        }.getOrDefault(false)
+}
+
 internal enum class HikeDeletionMode {
     DELETE_REMOTE_NOW,
     QUEUE_LOCAL_DRAFT_DELETION,
@@ -892,6 +905,9 @@ class FieldOperationQueue(private val context: Context) {
     suspend fun pendingReviewPhotoIds(): Set<String> = dao.listAll()
         .filter { it.kind == OperationKind.ReviewDecision }
         .mapTo(mutableSetOf()) { it.entityId }
+
+    suspend fun pendingReviewUploads(): List<Photo> = pendingReviewUploadOperations(dao.listAll())
+        .map(PendingOperationEntity::toLocalPhoto)
 
     suspend fun pendingRoutesByHikeId(): Map<String, List<List<RoutePoint>>> = dao.listAll()
         .asSequence()

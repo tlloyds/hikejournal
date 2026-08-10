@@ -3,6 +3,7 @@ package com.hikejournal.app.data
 import com.hikejournal.app.data.local.PendingOperationEntity
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FieldSyncOrderingTest {
@@ -82,6 +83,31 @@ class FieldSyncOrderingTest {
     }
 
     @Test
+    fun `every locally selected review photo remains visible while uploads drain`() {
+        val operations = (1..35).map { index ->
+            operation(
+                id = "upload-$index",
+                kind = OperationKind.UploadPhoto,
+                entityId = "photo-$index",
+                parentId = "hike-1",
+                payloadJson = """{"queue_for_review":true}""",
+            )
+        } + operation(
+            id = "video",
+            kind = OperationKind.UploadPhoto,
+            entityId = "video-1",
+            parentId = "hike-1",
+            payloadJson = """{"queue_for_review":true}""",
+            contentType = "video/mp4",
+        )
+
+        val reviewUploads = pendingReviewUploadOperations(operations)
+
+        assertEquals(35, reviewUploads.size)
+        assertTrue(reviewUploads.all { it.entityId.startsWith("photo-") })
+    }
+
+    @Test
     fun `offline pending create is cancelled locally without an API requirement`() {
         val create = operation("create", OperationKind.CreateHike, "hike-1")
 
@@ -134,6 +160,7 @@ class FieldSyncOrderingTest {
         parentId: String? = null,
         state: String = "queued",
         payloadJson: String = "{}",
+        contentType: String? = null,
     ) = PendingOperationEntity(
         id = id,
         kind = kind,
@@ -141,7 +168,7 @@ class FieldSyncOrderingTest {
         parentId = parentId,
         payloadJson = payloadJson,
         localFilePath = null,
-        contentType = null,
+        contentType = contentType,
         fileName = null,
         state = state,
         attemptCount = 0,

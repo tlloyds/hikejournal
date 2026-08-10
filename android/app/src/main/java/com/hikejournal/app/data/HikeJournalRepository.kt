@@ -582,10 +582,35 @@ class HikeJournalRepository(context: Context) {
             fetch = api::getReviewQueueJson,
             parse = ::parseReviewQueue,
         )
-        val pending = fieldQueue.pendingReviewPhotoIds()
+        val pendingDecisions = fieldQueue.pendingReviewPhotoIds()
+        val pendingUploads = fieldQueue.pendingReviewUploads()
         val deletedHikeIds = fieldQueue.deletedHikeIds()
+        val hikesById = if (pendingUploads.isEmpty()) {
+            emptyMap()
+        } else {
+            runCatching { loadCachedHikes().orEmpty().associateBy(Hike::id) }.getOrDefault(emptyMap())
+        }
+        val serverItems = result.value.filterNot {
+            it.id in pendingDecisions || it.hikeId in deletedHikeIds
+        }
+        val localItems = pendingUploads
+            .filterNot { it.hikeId in deletedHikeIds }
+            .map { photo ->
+                val hike = photo.hikeId?.let(hikesById::get)
+                ReviewItem(
+                    id = photo.id,
+                    photo = photo,
+                    hikeId = photo.hikeId,
+                    hikeTitle = hike?.title ?: "Outing awaiting sync",
+                    hikeDate = hike?.hikeDate.orEmpty(),
+                    locationName = hike?.locationName.orEmpty(),
+                    state = "waiting",
+                    observationId = null,
+                    candidates = emptyList(),
+                )
+            }
         return result.copy(
-            value = result.value.filterNot { it.id in pending || it.hikeId in deletedHikeIds },
+            value = mergeReviewQueueItems(serverItems, localItems),
         )
     }
 
@@ -898,6 +923,14 @@ class HikeJournalRepository(context: Context) {
             LoadResult(parse(cached), fromCache = true)
         }
     }
+}
+
+internal fun mergeReviewQueueItems(
+    serverItems: List<ReviewItem>,
+    pendingLocalItems: List<ReviewItem>,
+): List<ReviewItem> {
+    val serverIds = serverItems.mapTo(mutableSetOf(), ReviewItem::id)
+    return serverItems + pendingLocalItems.filterNot { it.id in serverIds }
 }
 
 private const val METERS_PER_MILE = 1_609.344
