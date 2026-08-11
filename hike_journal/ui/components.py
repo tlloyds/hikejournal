@@ -184,8 +184,6 @@ def _pagination_query_for_view(source_view: str) -> dict[str, str]:
         query["species_review_mode"] = str(st.session_state.get("species_review_mode", "Review"))
         query["species_review_stage"] = str(st.session_state.get("species_review_stage", "All"))
     elif source_view == "Map":
-        query["map_layer_mode"] = str(st.session_state.get("map_layer_mode", "Both"))
-        query["map_species_filter"] = str(st.session_state.get("map_species_filter", "All confirmed species"))
         map_range = st.session_state.get("map_photo_range")
         if isinstance(map_range, (list, tuple)) and len(map_range) == 2:
             query["map_photo_range_start"] = str(int(map_range[0]))

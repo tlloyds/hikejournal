@@ -74,6 +74,21 @@ def test_query_state_and_href_preserve_species_log_context() -> None:
     assert "oak%20%26%20pine" in href
 
 
+def test_map_query_state_keeps_photo_range_without_removed_species_controls() -> None:
+    state = {
+        "map_photo_range": (1, 600),
+        "map_layer_mode": "Species",
+        "map_species_filter": "Eastern bluebird",
+    }
+
+    query = query_state_for_view("Map", state)
+    href = build_internal_view_href(view="Map", state=state)
+
+    assert query == {"map_photo_range_start": "1", "map_photo_range_end": "600"}
+    assert "map_layer_mode" not in href
+    assert "map_species_filter" not in href
+
+
 def test_species_record_and_viewer_state_are_isolated() -> None:
     query = {"species_log_focus_key": "old", "photo": "photo-2"}
     state = {"viewer_open": False, "viewer_index": 0}

@@ -116,6 +116,7 @@ fun HikeMapScreen(
                     style = MaterialTheme.typography.labelSmall,
                     color = Color(0xFFB7C8B5),
                 )
+                MapRouteLegend(modifier = Modifier.padding(top = 4.dp), compact = true)
             }
             TextButton(
                 onClick = {

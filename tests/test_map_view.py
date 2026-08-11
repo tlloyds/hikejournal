@@ -29,7 +29,7 @@ class Control:
 
     def slider(self, *_args, **_kwargs):
         self.slider_calls += 1
-        raise AssertionError("A zero- or one-photo map must not create a degenerate slider.")
+        return (int(_kwargs["min_value"]), int(_kwargs["max_value"]))
 
     def caption(self, value, **_kwargs):
         self.captions.append(str(value))
@@ -39,7 +39,7 @@ class FakeStreamlit:
     def __init__(self) -> None:
         self.session_state = SessionState()
         self.query_params: dict[str, str] = {}
-        self.controls = [Control() for _ in range(4)]
+        self.controls = [Control() for _ in range(2)]
         self.warnings: list[str] = []
 
     def columns(self, *_args, **_kwargs):
@@ -77,6 +77,7 @@ class MapRepository:
         self.summary_bounds = summary_bounds
         self.spatial_rpc_ready = spatial_rpc_ready
         self.route_imports = route_imports or []
+        self.map_viewport_calls: list[dict[str, Any]] = []
 
     def get_map_summary(self, **_kwargs):
         return {
@@ -87,7 +88,8 @@ class MapRepository:
             "spatial_rpc_ready": self.spatial_rpc_ready,
         }
 
-    def get_map_viewport(self, **_kwargs):
+    def get_map_viewport(self, **kwargs):
+        self.map_viewport_calls.append(kwargs)
         return self.markers
 
     def get_map_routes_viewport(self, **_kwargs):
@@ -123,13 +125,23 @@ def render_outing(repository) -> None:
     )
 
 
+def render_master(repository) -> None:
+    map_view.render_map_view(
+        repository,
+        [{"id": "hike-1"}],
+        {},
+        selected_hike=None,
+        format_confidence_label=lambda _observation: "",
+    )
+
+
 def test_empty_outing_map_skips_degenerate_slider_and_shows_empty_state(monkeypatch) -> None:
     fake_st, rendered = install_map_fakes(monkeypatch)
 
     render_outing(MapRepository(photo_count=0, route_count=0))
 
-    assert fake_st.controls[2].slider_calls == 0
-    assert fake_st.controls[2].captions == ["No mapped photos"]
+    assert fake_st.controls[0].slider_calls == 0
+    assert fake_st.controls[0].captions == ["No mapped photos"]
     assert fake_st.warnings == ["This outing does not have a recorded route or geotagged photos yet."]
     assert rendered == []
 
@@ -164,8 +176,8 @@ def test_one_photo_outing_map_keeps_route_extent_and_clickable_photo_point(monke
         )
     )
 
-    assert fake_st.controls[2].slider_calls == 0
-    assert fake_st.controls[2].captions == ["1 mapped photo"]
+    assert fake_st.controls[0].slider_calls == 0
+    assert fake_st.controls[0].captions == ["1 mapped photo"]
     assert len(rendered) == 1
     assert rendered[0]["fit_bounds"] == (-82.0, 27.0, -80.0, 30.0)
     assert rendered[0]["routes"]["features"] == [route_feature]
@@ -177,7 +189,7 @@ def test_outing_map_stays_mounted_when_current_viewport_has_no_features(monkeypa
 
     render_outing(MapRepository(photo_count=0, route_count=1))
 
-    assert fake_st.controls[2].slider_calls == 0
+    assert fake_st.controls[0].slider_calls == 0
     assert fake_st.warnings == []
     assert len(rendered) == 1
     assert rendered[0]["markers"]["features"] == []
@@ -267,3 +279,22 @@ def test_changed_summary_bounds_refit_once_after_route_sync(monkeypatch) -> None
 
     assert rendered[-1]["fit_bounds"] is None
     assert rendered[-1]["fit_request"] is None
+
+
+def test_master_map_defaults_to_every_photo_without_species_filtering(monkeypatch) -> None:
+    fake_st, rendered = install_map_fakes(monkeypatch)
+    repository = MapRepository(
+        photo_count=600,
+        route_count=0,
+        summary_bounds=[-82.0, 27.0, -80.0, 30.0],
+    )
+
+    render_master(repository)
+
+    assert fake_st.controls[0].slider_calls == 1
+    assert fake_st.session_state["map_photo_range"] == (1, 600)
+    assert len(rendered) == 1
+    assert repository.map_viewport_calls[0]["range_start"] == 1
+    assert repository.map_viewport_calls[0]["range_end"] == 600
+    assert repository.map_viewport_calls[0]["layer_mode"] == "Photos"
+    assert repository.map_viewport_calls[0]["species_filter"] == ""

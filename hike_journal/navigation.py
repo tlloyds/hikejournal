@@ -16,8 +16,6 @@ QUERY_STATE_KEYS = (
     "species_log_page_size",
     "species_log_focus_key",
     "species_log_record_open",
-    "map_layer_mode",
-    "map_species_filter",
     "species_log_query",
     "species_log_hike_filter",
     "species_log_type_filter",
@@ -79,8 +77,6 @@ def hydrate_query_state(
         "species_review_mode",
         "species_review_stage",
         "species_log_focus_key",
-        "map_layer_mode",
-        "map_species_filter",
         "species_log_query",
         "species_log_hike_filter",
         "species_log_type_filter",
@@ -126,10 +122,7 @@ def query_state_for_view(view: str, state: Mapping[str, Any]) -> dict[str, str]:
             "species_review_stage": str(state.get("species_review_stage", "All")),
         }
     if view == "Map":
-        query = {
-            "map_layer_mode": str(state.get("map_layer_mode", "Both")),
-            "map_species_filter": str(state.get("map_species_filter", "All confirmed species")),
-        }
+        query: dict[str, str] = {}
         map_range = state.get("map_photo_range")
         if isinstance(map_range, (tuple, list)) and len(map_range) == 2:
             query["map_photo_range_start"] = str(int(map_range[0]))

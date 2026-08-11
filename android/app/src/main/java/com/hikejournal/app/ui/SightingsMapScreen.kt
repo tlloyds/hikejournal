@@ -41,7 +41,6 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -94,6 +93,7 @@ import org.maplibre.geojson.Feature
 import org.maplibre.geojson.FeatureCollection
 import org.maplibre.geojson.LineString
 import org.maplibre.geojson.Point
+import java.net.URI
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -103,7 +103,14 @@ private const val LAYER_ID = "hikejournal-sightings-circles"
 private const val SELECTED_SOURCE_ID = "hikejournal-selected-sighting"
 private const val SELECTED_LAYER_ID = "hikejournal-selected-sighting-circle"
 private const val ROUTE_SOURCE_ID = "hikejournal-routes"
+private const val ROUTE_HALO_LAYER_ID = "hikejournal-route-halo"
 private const val ROUTE_LAYER_ID = "hikejournal-route-lines"
+private const val FLORIDA_TRAIL_SOURCE_ID = "florida-trail"
+private const val FLORIDA_TRAIL_HALO_LAYER_ID = "florida-trail-halo"
+private const val FLORIDA_TRAIL_LAYER_ID = "florida-trail-lines"
+private const val FLORIDA_TRAIL_GEOJSON_URL = "https://services9.arcgis.com/soy9dtLUh5hYXg8U/arcgis/rest/services/FNST%20Master/FeatureServer/0/query?where=1%3D1&outFields=FID&returnGeometry=true&outSR=4326&f=geojson&maxAllowableOffset=0.00002"
+internal const val FLORIDA_TRAIL_COLOR = "#F47A32"
+internal const val HIKE_ROUTE_COLOR = "#FFD33D"
 private const val CURRENT_POSITION_SOURCE_ID = "hikejournal-current-position"
 private const val CURRENT_POSITION_HALO_LAYER_ID = "hikejournal-current-position-halo"
 private const val CURRENT_POSITION_LAYER_ID = "hikejournal-current-position-dot"
@@ -139,21 +146,14 @@ fun SightingsMapScreen(
     onOpenHike: (String) -> Unit,
     onOpenPhoto: (Sighting) -> Unit,
 ) {
-    var speciesOnly by remember { mutableStateOf(true) }
     var selected by remember { mutableStateOf<Sighting?>(null) }
     var layerMode by remember { mutableStateOf(MapLayerMode.Satellite) }
     var viewport by remember { mutableStateOf<MapViewport?>(null) }
     var packsOpen by remember { mutableStateOf(false) }
-    val visibleSightings = remember(sightings, speciesOnly) {
-        if (speciesOnly) sightings.filter { it.confirmed } else sightings
-    }
-    LaunchedEffect(speciesOnly) {
-        if (speciesOnly && selected?.confirmed == false) selected = null
-    }
 
     Box(Modifier.fillMaxSize().background(Moss)) {
         HikeJournalMap(
-            sightings = visibleSightings,
+            sightings = sightings,
             routeSegments = routeSegments,
             selectedSighting = selected,
             layerMode = layerMode,
@@ -170,7 +170,7 @@ fun SightingsMapScreen(
                     Text("HikeJournal", style = MaterialTheme.typography.titleMedium, color = Color(0xFFB7C8B5))
                     Text("Sightings map", style = MaterialTheme.typography.headlineMedium, color = Paper)
                     Text(
-                        "${visibleSightings.size} GEOTAGGED PHOTOS · ${routeSegments.size} ROUTE SEGMENTS",
+                        "${sightings.size} GEOTAGGED PHOTOS · ${routeSegments.size} ROUTE SEGMENTS",
                         style = MaterialTheme.typography.labelSmall,
                         color = Color(0xFFB7C8B5),
                     )
@@ -190,13 +190,7 @@ fun SightingsMapScreen(
                     else Icon(Icons.Rounded.Refresh, "Refresh map", tint = Paper)
                 }
             }
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("Confirmed species only", style = MaterialTheme.typography.labelLarge, color = Paper)
-                    Text("Turn off to include every geotagged photo", style = MaterialTheme.typography.bodyMedium, color = Color(0xFFB7C8B5))
-                }
-                Switch(checked = speciesOnly, onCheckedChange = { speciesOnly = it })
-            }
+            MapRouteLegend(modifier = Modifier.padding(top = 5.dp))
             if (layerMode == MapLayerMode.Satellite) {
                 Text(
                     "IMAGERY © ESRI · MAXAR · EARTHSTAR · GIS COMMUNITY",
@@ -532,6 +526,7 @@ private class NativeMapController {
             Style.Builder().fromUri(BuildConfig.TRAIL_MAP_STYLE_URL)
         }
         map.setStyle(builder) { style ->
+            style.addSource(GeoJsonSource(FLORIDA_TRAIL_SOURCE_ID, URI(FLORIDA_TRAIL_GEOJSON_URL)))
             style.addSource(GeoJsonSource(ROUTE_SOURCE_ID, routeFeatureCollection(routeSegments)))
             style.addSource(GeoJsonSource(CURRENT_POSITION_SOURCE_ID, pointFeatureCollection(currentPoint)))
             val source = GeoJsonSource(SOURCE_ID, featureCollection(sightings))
@@ -543,10 +538,31 @@ private class NativeMapController {
                 ),
             )
             style.addLayer(
+                LineLayer(FLORIDA_TRAIL_HALO_LAYER_ID, FLORIDA_TRAIL_SOURCE_ID).withProperties(
+                    lineColor("#4D2B17"),
+                    lineWidth(5.5f),
+                    lineOpacity(0.58f),
+                ),
+            )
+            style.addLayer(
+                LineLayer(FLORIDA_TRAIL_LAYER_ID, FLORIDA_TRAIL_SOURCE_ID).withProperties(
+                    lineColor(FLORIDA_TRAIL_COLOR),
+                    lineWidth(3.5f),
+                    lineOpacity(0.94f),
+                ),
+            )
+            style.addLayer(
+                LineLayer(ROUTE_HALO_LAYER_ID, ROUTE_SOURCE_ID).withProperties(
+                    lineColor("#263228"),
+                    lineWidth(8f),
+                    lineOpacity(0.72f),
+                ),
+            )
+            style.addLayer(
                 LineLayer(ROUTE_LAYER_ID, ROUTE_SOURCE_ID).withProperties(
-                    lineColor("#D17D42"),
+                    lineColor(HIKE_ROUTE_COLOR),
                     lineWidth(5f),
-                    lineOpacity(0.92f),
+                    lineOpacity(0.98f),
                 ),
             )
             style.addLayer(
@@ -719,6 +735,27 @@ private class NativeMapController {
                 listOf(Feature.fromGeometry(Point.fromLngLat(it.longitude, it.latitude)))
             }.orEmpty(),
         )
+}
+
+@Composable
+internal fun MapRouteLegend(modifier: Modifier = Modifier, compact: Boolean = false) {
+    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.width(22.dp).height(3.dp).background(Color(0xFFF47A32)))
+        Spacer(Modifier.width(6.dp))
+        Text(
+            if (compact) "FT" else "FLORIDA TRAIL · USFS / FTA",
+            style = MaterialTheme.typography.labelSmall,
+            color = Color(0xFFB7C8B5),
+        )
+        Spacer(Modifier.width(if (compact) 10.dp else 14.dp))
+        Box(Modifier.width(22.dp).height(3.dp).background(Color(0xFFFFD33D)))
+        Spacer(Modifier.width(6.dp))
+        Text(
+            if (compact) "YOU" else "YOUR ROUTE",
+            style = MaterialTheme.typography.labelSmall,
+            color = Color(0xFFB7C8B5),
+        )
+    }
 }
 
 private fun formatBytes(bytes: Long): String = when {

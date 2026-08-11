@@ -10,6 +10,10 @@ MAP_COMPONENT_HTML = """
 <div class="hj-map-shell">
   <div class="hj-map" role="application" aria-label="Interactive hike map"></div>
   <div class="hj-map-loading" aria-live="polite">Loading this area…</div>
+  <div class="hj-map-legend" aria-label="Route colors">
+    <span><i class="hj-map-line hj-map-line--florida"></i>Florida Trail · USFS / FTA</span>
+    <span><i class="hj-map-line hj-map-line--recorded"></i>Your recorded route</span>
+  </div>
 </div>
 """
 
@@ -20,6 +24,11 @@ MAP_COMPONENT_CSS = """
 .hj-map { position:absolute; inset:0; }
 .hj-map-loading { position:absolute; left:50%; top:16px; z-index:5; transform:translate(-50%,-10px); opacity:0; pointer-events:none; padding:8px 12px; border-radius:999px; background:rgba(20,35,27,.88); color:#fff; font-size:12px; font-weight:800; transition:opacity .16s ease,transform .16s ease; }
 .hj-map-shell.is-loading .hj-map-loading { opacity:1; transform:translate(-50%,0); }
+.hj-map-legend { position:absolute; right:10px; bottom:30px; z-index:4; display:grid; gap:5px; color:#fff; font-size:11px; font-weight:800; letter-spacing:.02em; text-shadow:0 1px 3px rgba(0,0,0,.95),0 0 7px rgba(0,0,0,.65); pointer-events:none; }
+.hj-map-legend span { display:flex; align-items:center; justify-content:flex-end; gap:7px; }
+.hj-map-line { display:inline-block; width:24px; height:4px; box-shadow:0 1px 3px rgba(0,0,0,.8); }
+.hj-map-line--florida { background:#f47a32; }
+.hj-map-line--recorded { background:#ffd33d; }
 .maplibregl-ctrl-group { border-radius:10px!important; overflow:hidden; box-shadow:0 5px 18px rgba(20,35,27,.18)!important; }
 .maplibregl-popup-content { width:min(310px,calc(100vw - 64px)); padding:0; overflow:hidden; border-radius:14px; box-shadow:0 16px 42px rgba(20,35,27,.24); }
 .maplibregl-popup-close-button { z-index:2; width:32px; height:32px; margin:7px; border-radius:50%; background:rgba(20,35,27,.78); color:white; font-size:20px; }
@@ -31,11 +40,12 @@ MAP_COMPONENT_CSS = """
 .hj-popup-actions { display:flex; gap:14px; flex-wrap:wrap; }
 .hj-popup-actions a { color:#30473a; font-weight:800; text-decoration:none; }
 .hj-basemap { position:absolute; top:10px; left:10px; z-index:4; min-height:38px; max-width:138px; border:0; border-radius:10px; padding:0 32px 0 12px; background:rgba(255,255,255,.94); color:#1f2a26; font:700 12px 'Manrope',sans-serif; box-shadow:0 5px 18px rgba(20,35,27,.18); }
-@media (max-width:640px) { .hj-map-shell { min-height:500px; border-radius:12px; } .hj-basemap { top:8px; left:8px; } .maplibregl-ctrl-top-right { top:0; right:0; } }
+@media (max-width:640px) { .hj-map-shell { min-height:500px; border-radius:12px; } .hj-basemap { top:8px; left:8px; } .hj-map-legend { right:8px; bottom:28px; font-size:10px; } .maplibregl-ctrl-top-right { top:0; right:0; } }
 """
 
 MAP_COMPONENT_JS = r"""
 const MAPLIBRE_URL = 'https://esm.sh/maplibre-gl@5.6.1';
+const FLORIDA_TRAIL_GEOJSON_URL = 'https://services9.arcgis.com/soy9dtLUh5hYXg8U/arcgis/rest/services/FNST%20Master/FeatureServer/0/query?where=1%3D1&outFields=FID&returnGeometry=true&outSR=4326&f=geojson&maxAllowableOffset=0.00002';
 const EMPTY = {type:'FeatureCollection',features:[]};
 
 function rasterStyle() {
@@ -58,9 +68,12 @@ function rasterStyle() {
 }
 
 function addDataLayers(map) {
+  map.addSource('florida-trail',{type:'geojson',data:FLORIDA_TRAIL_GEOJSON_URL});
+  map.addLayer({id:'florida-trail-halo',type:'line',source:'florida-trail',paint:{'line-color':'#4d2b17','line-width':['interpolate',['linear'],['zoom'],7,2.5,15,6],'line-opacity':.58}});
+  map.addLayer({id:'florida-trail',type:'line',source:'florida-trail',paint:{'line-color':'#f47a32','line-width':['interpolate',['linear'],['zoom'],7,1.5,15,3.5],'line-opacity':.96}});
   map.addSource('routes',{type:'geojson',data:EMPTY});
-  map.addLayer({id:'route-halo',type:'line',source:'routes',paint:{'line-color':'#f6f0e4','line-width':['interpolate',['linear'],['zoom'],7,3,15,8],'line-opacity':.68}});
-  map.addLayer({id:'routes',type:'line',source:'routes',paint:{'line-color':'#30473a','line-width':['interpolate',['linear'],['zoom'],7,1.5,15,4.5],'line-opacity':.96}});
+  map.addLayer({id:'route-halo',type:'line',source:'routes',paint:{'line-color':'#263228','line-width':['interpolate',['linear'],['zoom'],7,3.5,15,8],'line-opacity':.72}});
+  map.addLayer({id:'routes',type:'line',source:'routes',paint:{'line-color':'#ffd33d','line-width':['interpolate',['linear'],['zoom'],7,1.8,15,4.5],'line-opacity':.98}});
   map.addSource('markers',{type:'geojson',data:EMPTY});
   const clusterFilter = ['==',['get','kind'],'cluster'];
   const pointFilter = ['==',['get','kind'],'point'];

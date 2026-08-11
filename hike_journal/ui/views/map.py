@@ -18,9 +18,6 @@ from hike_journal.ui.components import section_heading
 from hike_journal.ui.map_component import map_viewer_url, render_maplibre
 
 
-DEFAULT_MASTER_MAP_PHOTO_LIMIT = 250
-
-
 def render_map_view(
     repository: HikeJournalRepository,
     visible_hikes: list[dict[str, Any]],
@@ -34,13 +31,13 @@ def render_map_view(
         section_heading(
             "Outing map",
             "Route and observations",
-            "Follow the track, open geotagged photographs, and inspect confirmed species in place.",
+            "Follow your recorded track, compare it with the Florida Trail, and open every geotagged photograph.",
         )
     else:
         section_heading(
             "Master map",
             "Your field record in place",
-            "Browse geotagged photographs across every outing and filter the confirmed species layered over them.",
+            "Browse every geotagged photograph across your outings and compare your recorded tracks with the Florida Trail.",
         )
     st.write("")
 
@@ -48,31 +45,9 @@ def render_map_view(
     selected_hike_id = str(selected_hike["id"]) if selected_hike else None
     summary = repository.get_map_summary(visible_hike_ids=visible_hike_ids, hike_id=selected_hike_id)
     photo_count = max(0, int(summary.get("photo_count") or 0))
-    species_names = [str(name) for name in summary.get("species") or [] if str(name).strip()]
-    species_count = int(summary.get("species_count") or len(species_names))
+    species_count = int(summary.get("species_count") or 0)
 
-    valid_layer_modes = {"Both", "Photos", "Species"}
-    if st.session_state.get("map_layer_mode") not in valid_layer_modes:
-        st.session_state.map_layer_mode = "Both"
-    valid_species_filters = {"All confirmed species", *species_names}
-    if st.session_state.get("map_species_filter") not in valid_species_filters:
-        st.session_state.map_species_filter = "All confirmed species"
-
-    controls = st.columns([0.24, 0.28, 0.25, 0.23], gap="small")
-    layer_mode = controls[0].radio(
-        "Map layer",
-        ["Both", "Photos", "Species"],
-        horizontal=True,
-        label_visibility="collapsed",
-        key="map_layer_mode",
-    )
-    species_filter = controls[1].selectbox(
-        "Species filter",
-        ["All confirmed species", *species_names],
-        label_visibility="collapsed",
-        key="map_species_filter",
-        disabled=layer_mode == "Photos",
-    )
+    controls = st.columns([0.68, 0.32], gap="small")
 
     max_index = max(1, photo_count)
     map_scope = selected_hike_id or "master"
@@ -83,15 +58,14 @@ def render_map_view(
     st.session_state[count_state_key] = photo_count
     range_is_new = "map_photo_range" not in st.session_state or scope_changed or count_changed
     if range_is_new:
-        default_start = max(1, max_index - DEFAULT_MASTER_MAP_PHOTO_LIMIT + 1) if not selected_hike else 1
-        st.session_state.map_photo_range = (default_start, max_index)
+        st.session_state.map_photo_range = (1, max_index)
     current_range = st.session_state.get("map_photo_range", (1, max_index))
     start = min(max(1, int(current_range[0])), max_index)
     end = min(max(start, int(current_range[1])), max_index)
     st.session_state.map_photo_range = (start, end)
     st.session_state.map_photo_range_scope = map_scope
     if photo_count > 1:
-        photo_range = controls[2].slider(
+        photo_range = controls[0].slider(
             "Photo range",
             min_value=1,
             max_value=max_index,
@@ -100,10 +74,10 @@ def render_map_view(
         )
     else:
         photo_range = (1, 1)
-        controls[2].caption("1 mapped photo" if photo_count else "No mapped photos")
+        controls[0].caption("1 mapped photo" if photo_count else "No mapped photos")
     displayed_count = 0 if photo_count == 0 else photo_range[1] - photo_range[0] + 1
     scope_label = "in this outing" if selected_hike else "across your library"
-    controls[3].caption(f"{displayed_count:,} of {photo_count:,} photos • {species_count:,} species {scope_label}")
+    controls[1].caption(f"{displayed_count:,} of {photo_count:,} photos • {species_count:,} species {scope_label}")
 
     route_count, indexed_route_count = repository.get_map_route_index_status(
         visible_hike_ids=visible_hike_ids,
@@ -153,8 +127,8 @@ def render_map_view(
         visible_hike_ids=visible_hike_ids,
         hike_id=selected_hike_id,
         viewport=viewport,
-        layer_mode=layer_mode,
-        species_filter=species_filter,
+        layer_mode="Photos",
+        species_filter="",
         range_start=photo_range[0],
         range_end=photo_range[1],
     )

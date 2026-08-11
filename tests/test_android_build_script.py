@@ -89,3 +89,17 @@ def test_personal_release_requires_a_configured_trail_map_provider() -> None:
     assert "demotiles.maplibre.org" not in quests
     assert "BuildConfig.TRAIL_MAP_STYLE_URL" in sightings
     assert "BuildConfig.TRAIL_MAP_STYLE_URL" in quests
+
+
+def test_android_map_shows_all_photos_with_distinct_florida_trail_routes() -> None:
+    sightings = (
+        ROOT
+        / "android/app/src/main/java/com/hikejournal/app/ui/SightingsMapScreen.kt"
+    ).read_text(encoding="utf-8")
+
+    assert "Confirmed species only" not in sightings
+    assert "speciesOnly" not in sightings
+    assert "sightings = sightings" in sightings
+    assert "FNST%20Master/FeatureServer/0/query" in sightings
+    assert 'FLORIDA_TRAIL_COLOR = "#F47A32"' in sightings
+    assert 'HIKE_ROUTE_COLOR = "#FFD33D"' in sightings
