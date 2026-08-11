@@ -114,6 +114,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -170,6 +171,7 @@ import com.hikejournal.app.data.HikeDraft
 import com.hikejournal.app.data.HikeLocation
 import com.hikejournal.app.data.HikeLocationSuggestion
 import com.hikejournal.app.data.LocalMediaAccess
+import com.hikejournal.app.data.MapDisplayPreferences
 import com.hikejournal.app.data.MediaLocationSummary
 import com.hikejournal.app.data.Photo
 import com.hikejournal.app.data.ReviewCandidate
@@ -221,6 +223,7 @@ private enum class TrackingPreflightIssue {
 fun HikeJournalApp(viewModel: AppViewModel) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val mapDisplayPreferences = remember(context) { MapDisplayPreferences(context) }
     var destination by rememberSaveable { mutableStateOf(TopDestination.Archive) }
     var editingHike by remember { mutableStateOf<Hike?>(null) }
     var trackedHikeLocationSuggestion by remember { mutableStateOf<HikeLocationSuggestion?>(null) }
@@ -253,6 +256,9 @@ fun HikeJournalApp(viewModel: AppViewModel) {
     var trackingEndConfirmationRequested by rememberSaveable { mutableStateOf(false) }
     var pendingTrackingStart by rememberSaveable { mutableStateOf(false) }
     var trackingIssue by remember { mutableStateOf<TrackingPreflightIssue?>(null) }
+    var showFloridaTrail by rememberSaveable {
+        mutableStateOf(mapDisplayPreferences.showFloridaTrail())
+    }
 
     val activeTracking = state.tracking?.takeUnless { it.status == TrackingStatus.FINISHED }
     val trackingUi = activeTracking?.toTrackingUiModel()
@@ -469,6 +475,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                     HikeTrackingScreen(
                         tracking = trackingUi,
                         fieldMarks = state.trackingMarks,
+                        showFloridaTrail = showFloridaTrail,
                         onBack = {
                             trackingVisible = false
                             trackingEndConfirmationRequested = false
@@ -503,6 +510,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                     HikeMapScreen(
                         hike = request.hike,
                         focusedPhoto = request.focusedPhoto,
+                        showFloridaTrail = showFloridaTrail,
                         onBack = ::closeHikeMap,
                         onOpenPhoto = { photo ->
                             hikeMapRequest = null
@@ -676,6 +684,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                 destination == TopDestination.Map -> SightingsMapScreen(
                     sightings = state.sightings,
                     routeSegments = state.mapRouteSegments,
+                    showFloridaTrail = showFloridaTrail,
                     loading = state.isMapLoading,
                     openingPhotoId = openingMapPhotoId,
                     onRefresh = { viewModel.loadSightings(force = true) },
@@ -1057,10 +1066,15 @@ fun HikeJournalApp(viewModel: AppViewModel) {
             webUrl = state.companionConfig.webUrl,
             companionVersion = state.companionConfig.apiVersion,
             inatConnected = state.publishQueue.connected,
+            showFloridaTrail = showFloridaTrail,
             onDismiss = { settingsOpen = false },
             onSave = { url, key ->
                 viewModel.updateConnection(url, key)
                 settingsOpen = false
+            },
+            onShowFloridaTrailChange = { show ->
+                showFloridaTrail = show
+                mapDisplayPreferences.setShowFloridaTrail(show)
             },
             onConnectInat = viewModel::connectInat,
         )
@@ -3417,8 +3431,10 @@ private fun SettingsDialog(
     webUrl: String,
     companionVersion: String?,
     inatConnected: Boolean,
+    showFloridaTrail: Boolean,
     onDismiss: () -> Unit,
     onSave: (String, String) -> Unit,
+    onShowFloridaTrailChange: (Boolean) -> Unit,
     onConnectInat: () -> Unit,
 ) {
     var url by remember(currentUrl) { mutableStateOf(currentUrl) }
@@ -3428,9 +3444,14 @@ private fun SettingsDialog(
     val openWebUrl = remember(webUrl) { validSettingsWebUrl(webUrl) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Companion connection", style = MaterialTheme.typography.headlineMedium) },
+        title = { Text("Settings", style = MaterialTheme.typography.headlineMedium) },
         text = {
-            Column {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                Text(
+                    "Companion connection",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Ink,
+                )
                 Text("Use the Mac on home Wi-Fi, or paste the HTTPS address of your hosted companion for cellular access.", style = MaterialTheme.typography.bodyMedium, color = InkMuted)
                 OutlinedTextField(url, { url = it }, Modifier.fillMaxWidth().padding(top = 14.dp), label = { Text("Server address") }, singleLine = true)
                 OutlinedTextField(
@@ -3475,6 +3496,43 @@ private fun SettingsDialog(
                     ) {
                         Text("Connect iNaturalist")
                     }
+                }
+                HorizontalDivider(Modifier.padding(top = 18.dp))
+                Text(
+                    "Map",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Ink,
+                    modifier = Modifier.padding(top = 16.dp),
+                )
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .toggleable(
+                            value = showFloridaTrail,
+                            role = Role.Switch,
+                            onValueChange = onShowFloridaTrailChange,
+                        )
+                        .padding(vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            "Florida Trail overlay",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = Ink,
+                        )
+                        Text(
+                            "Show the public trail reference and highlight shared route sections.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = InkMuted,
+                            modifier = Modifier.padding(top = 3.dp),
+                        )
+                    }
+                    Switch(
+                        checked = showFloridaTrail,
+                        onCheckedChange = null,
+                        modifier = Modifier.padding(start = 12.dp),
+                    )
                 }
                 Text(
                     buildString {

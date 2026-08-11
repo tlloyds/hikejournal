@@ -128,6 +128,7 @@ internal fun TrackingSnapshot.toTrackingUiModel(nowEpochMs: Long = System.curren
 internal fun HikeTrackingScreen(
     tracking: TrackingUiModel,
     fieldMarks: List<FieldMark>,
+    showFloridaTrail: Boolean,
     onBack: () -> Unit,
     onPause: () -> Unit,
     onResume: () -> Unit,
@@ -176,6 +177,7 @@ internal fun HikeTrackingScreen(
             routeSegments = tracking.routeSegments,
             currentPoint = tracking.currentPoint,
             followCurrentPoint = followPosition,
+            showFloridaTrail = showFloridaTrail,
             modifier = Modifier.fillMaxSize(),
         )
 

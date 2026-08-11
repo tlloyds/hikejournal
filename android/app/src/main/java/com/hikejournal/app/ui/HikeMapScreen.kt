@@ -55,6 +55,7 @@ import com.hikejournal.app.ui.theme.TrailText
 fun HikeMapScreen(
     hike: Hike?,
     focusedPhoto: Photo?,
+    showFloridaTrail: Boolean,
     onBack: () -> Unit,
     onOpenPhoto: (Photo) -> Unit,
 ) {
@@ -80,6 +81,7 @@ fun HikeMapScreen(
             onViewportChanged = {},
             routeSegments = routeSegments,
             focusedSightingId = focusedPhoto?.id,
+            showFloridaTrail = showFloridaTrail,
             modifier = Modifier.fillMaxSize(),
         )
 
@@ -116,7 +118,11 @@ fun HikeMapScreen(
                     style = MaterialTheme.typography.labelSmall,
                     color = Color(0xFFB7C8B5),
                 )
-                MapRouteLegend(modifier = Modifier.padding(top = 4.dp), compact = true)
+                MapRouteLegend(
+                    showFloridaTrail = showFloridaTrail,
+                    modifier = Modifier.padding(top = 4.dp),
+                    compact = true,
+                )
             }
             TextButton(
                 onClick = {

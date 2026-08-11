@@ -13,6 +13,7 @@ MAP_COMPONENT_HTML = """
   <div class="hj-map-legend" aria-label="Route colors">
     <span><i class="hj-map-line hj-map-line--florida"></i>Florida Trail · USFS / FTA</span>
     <span><i class="hj-map-line hj-map-line--recorded"></i>Your recorded route</span>
+    <span><i class="hj-map-line hj-map-line--shared"></i>Shared route</span>
   </div>
 </div>
 """
@@ -28,7 +29,8 @@ MAP_COMPONENT_CSS = """
 .hj-map-legend span { display:flex; align-items:center; justify-content:flex-end; gap:7px; }
 .hj-map-line { display:inline-block; width:24px; height:4px; box-shadow:0 1px 3px rgba(0,0,0,.8); }
 .hj-map-line--florida { background:#f47a32; }
-.hj-map-line--recorded { background:#ffd33d; }
+.hj-map-line--recorded { background:#22d3ee; }
+.hj-map-line--shared { background:#ff4d8d; }
 .maplibregl-ctrl-group { border-radius:10px!important; overflow:hidden; box-shadow:0 5px 18px rgba(20,35,27,.18)!important; }
 .maplibregl-popup-content { width:min(310px,calc(100vw - 64px)); padding:0; overflow:hidden; border-radius:14px; box-shadow:0 16px 42px rgba(20,35,27,.24); }
 .maplibregl-popup-close-button { z-index:2; width:32px; height:32px; margin:7px; border-radius:50%; background:rgba(20,35,27,.78); color:white; font-size:20px; }
@@ -47,6 +49,78 @@ MAP_COMPONENT_JS = r"""
 const MAPLIBRE_URL = 'https://esm.sh/maplibre-gl@5.6.1';
 const FLORIDA_TRAIL_GEOJSON_URL = 'https://services9.arcgis.com/soy9dtLUh5hYXg8U/arcgis/rest/services/FNST%20Master/FeatureServer/0/query?where=1%3D1&outFields=FID&returnGeometry=true&outSR=4326&f=geojson&maxAllowableOffset=0.00002';
 const EMPTY = {type:'FeatureCollection',features:[]};
+const OVERLAP_DISTANCE_METERS = 45;
+const MINIMUM_DIRECTION_SIMILARITY = .72;
+const ROUTE_CHUNK_METERS = 20;
+const GRID_CELL_METERS = 120;
+const EARTH_RADIUS_METERS = 6378137;
+
+function projected(point) {
+  const latitude=Math.max(-85,Math.min(85,point[1]))*Math.PI/180;
+  return {x:EARTH_RADIUS_METERS*point[0]*Math.PI/180,y:EARTH_RADIUS_METERS*Math.log(Math.tan(Math.PI/4+latitude/2))};
+}
+function segment(a,b) {
+  const start=projected(a),end=projected(b),dx=end.x-start.x,dy=end.y-start.y;
+  return {start,end,dx,dy,length:Math.hypot(dx,dy)};
+}
+function lineCoordinates(geojson) {
+  const lines=[];
+  for (const feature of geojson?.features||[]) {
+    const geometry=feature?.geometry;
+    if (geometry?.type==='LineString') lines.push(geometry.coordinates);
+    if (geometry?.type==='MultiLineString') lines.push(...geometry.coordinates);
+  }
+  return lines.filter(line=>line.length>1);
+}
+function cell(value) { return Math.floor(value/GRID_CELL_METERS); }
+function cellKey(x,y) { return `${x}:${y}`; }
+function buildTrailIndex(geojson) {
+  const cells=new Map();
+  for (const line of lineCoordinates(geojson)) for (let i=1;i<line.length;i++) {
+    const item=segment(line[i-1],line[i]);
+    if (item.length<.5) continue;
+    const minX=cell(Math.min(item.start.x,item.end.x)-OVERLAP_DISTANCE_METERS);
+    const maxX=cell(Math.max(item.start.x,item.end.x)+OVERLAP_DISTANCE_METERS);
+    const minY=cell(Math.min(item.start.y,item.end.y)-OVERLAP_DISTANCE_METERS);
+    const maxY=cell(Math.max(item.start.y,item.end.y)+OVERLAP_DISTANCE_METERS);
+    for (let x=minX;x<=maxX;x++) for (let y=minY;y<=maxY;y++) {
+      const key=cellKey(x,y),bucket=cells.get(key)||[]; bucket.push(item); cells.set(key,bucket);
+    }
+  }
+  return cells;
+}
+function directionSimilarity(a,b) {
+  return Math.abs(a.dx*b.dx+a.dy*b.dy)/(a.length*b.length);
+}
+function distanceToSegment(point,item) {
+  const squared=item.dx*item.dx+item.dy*item.dy;
+  const amount=squared===0?0:Math.max(0,Math.min(1,((point.x-item.start.x)*item.dx+(point.y-item.start.y)*item.dy)/squared));
+  return Math.hypot(point.x-(item.start.x+amount*item.dx),point.y-(item.start.y+amount*item.dy));
+}
+function overlapsTrail(a,b,index) {
+  const user=segment(a,b);
+  if (user.length<.5) return false;
+  const midpoint={x:(user.start.x+user.end.x)/2,y:(user.start.y+user.end.y)/2};
+  return (index.get(cellKey(cell(midpoint.x),cell(midpoint.y)))||[]).some(trail=>
+    directionSimilarity(user,trail)>=MINIMUM_DIRECTION_SIMILARITY && distanceToSegment(midpoint,trail)<=OVERLAP_DISTANCE_METERS
+  );
+}
+function interpolate(a,b,amount) { return [a[0]+(b[0]-a[0])*amount,a[1]+(b[1]-a[1])*amount]; }
+function overlappingRouteFeatures(routes,index) {
+  const features=[];
+  for (const line of lineCoordinates(routes)) for (let i=1;i<line.length;i++) {
+    const edge=segment(line[i-1],line[i]);
+    const chunks=Math.max(1,Math.min(5000,Math.ceil(edge.length/ROUTE_CHUNK_METERS)));
+    let active=[];
+    for (let chunk=0;chunk<chunks;chunk++) {
+      const from=interpolate(line[i-1],line[i],chunk/chunks),to=interpolate(line[i-1],line[i],(chunk+1)/chunks);
+      if (overlapsTrail(from,to,index)) { if (!active.length) active.push(from); active.push(to); }
+      else if (active.length) { features.push({type:'Feature',properties:{},geometry:{type:'LineString',coordinates:active}}); active=[]; }
+    }
+    if (active.length) features.push({type:'Feature',properties:{},geometry:{type:'LineString',coordinates:active}});
+  }
+  return {type:'FeatureCollection',features};
+}
 
 function rasterStyle() {
   return {
@@ -73,7 +147,9 @@ function addDataLayers(map) {
   map.addLayer({id:'florida-trail',type:'line',source:'florida-trail',paint:{'line-color':'#f47a32','line-width':['interpolate',['linear'],['zoom'],7,1.5,15,3.5],'line-opacity':.96}});
   map.addSource('routes',{type:'geojson',data:EMPTY});
   map.addLayer({id:'route-halo',type:'line',source:'routes',paint:{'line-color':'#263228','line-width':['interpolate',['linear'],['zoom'],7,3.5,15,8],'line-opacity':.72}});
-  map.addLayer({id:'routes',type:'line',source:'routes',paint:{'line-color':'#ffd33d','line-width':['interpolate',['linear'],['zoom'],7,1.8,15,4.5],'line-opacity':.98}});
+  map.addLayer({id:'routes',type:'line',source:'routes',paint:{'line-color':'#22d3ee','line-width':['interpolate',['linear'],['zoom'],7,1.8,15,4.5],'line-opacity':.98}});
+  map.addSource('route-overlap',{type:'geojson',data:EMPTY});
+  map.addLayer({id:'route-overlap',type:'line',source:'route-overlap',paint:{'line-color':'#ff4d8d','line-width':['interpolate',['linear'],['zoom'],7,2.2,15,5.2],'line-opacity':1}});
   map.addSource('markers',{type:'geojson',data:EMPTY});
   const clusterFilter = ['==',['get','kind'],'cluster'];
   const pointFilter = ['==',['get','kind'],'point'];
@@ -83,7 +159,7 @@ function addDataLayers(map) {
     'circle-stroke-color':'#f6f0e4','circle-stroke-width':2,'circle-opacity':.94
   }});
   map.addLayer({id:'cluster-count',type:'symbol',source:'markers',filter:clusterFilter,layout:{'text-field':['to-string',['get','count']],'text-size':12,'text-font':['Open Sans Bold']},paint:{'text-color':'#fff'}});
-  map.addLayer({id:'photo-points',type:'circle',source:'markers',filter:['all',pointFilter,['==',['get','layer'],'photo']],paint:{'circle-radius':6,'circle-color':'#89b8c7','circle-stroke-color':'#f6f0e4','circle-stroke-width':2}});
+  map.addLayer({id:'photo-points',type:'circle',source:'markers',filter:['all',pointFilter,['==',['get','layer'],'photo']],paint:{'circle-radius':6,'circle-color':'#8bd3ff','circle-stroke-color':'#123b4a','circle-stroke-width':2}});
   map.addLayer({id:'species-points',type:'circle',source:'markers',filter:['all',pointFilter,['==',['get','layer'],'species']],paint:{'circle-radius':8,'circle-color':'#30473a','circle-stroke-color':'#f6f0e4','circle-stroke-width':2}});
 }
 
@@ -115,10 +191,14 @@ export default async function(component) {
     for (const [value,label] of Object.entries({satellite:'Satellite',topo:'Topo',light:'Light',street:'Street'})) { const option=document.createElement('option'); option.value=value; option.textContent=label; select.appendChild(option); }
     shell.appendChild(select);
     select.onchange=()=>['satellite','topo','light','street'].forEach(name=>map.setLayoutProperty(`basemap-${name}`,'visibility',name===select.value?'visible':'none'));
-    state={map,maplibregl,loaded:false,popup:null,detailId:null,moveTimer:null}; shell.__hjMapState=state;
+    state={map,maplibregl,loaded:false,popup:null,detailId:null,moveTimer:null,trailIndex:null,routes:data.routes||EMPTY}; shell.__hjMapState=state;
     map.on('load',()=>{
       addDataLayers(map); state.loaded=true;
       map.getSource('markers').setData(data.markers||EMPTY); map.getSource('routes').setData(data.routes||EMPTY);
+      fetch(FLORIDA_TRAIL_GEOJSON_URL).then(response=>response.ok?response.json():null).then(trail=>{
+        if (!trail) return; state.trailIndex=buildTrailIndex(trail);
+        map.getSource('route-overlap')?.setData(overlappingRouteFeatures(state.routes,state.trailIndex));
+      }).catch(()=>{});
       if (data.fit_bounds) { state.fitRequest=data.fit_request; map.fitBounds([[data.fit_bounds[0],data.fit_bounds[1]],[data.fit_bounds[2],data.fit_bounds[3]]],{padding:36,maxZoom:15,duration:0}); }
       map.on('click','clusters',e=>{const f=e.features?.[0];if(f)map.easeTo({center:f.geometry.coordinates,zoom:Math.min(map.getZoom()+2.25,18),duration:420});});
       for (const layer of ['photo-points','species-points']) map.on('click',layer,e=>{const f=e.features?.[0];if(!f)return; shell.classList.add('is-loading'); setStateValue('selection',{photo_id:f.properties.photo_id,nonce:Date.now()});});
@@ -129,6 +209,8 @@ export default async function(component) {
   if (state.loaded) {
     state.map.getSource('markers')?.setData(data.markers||EMPTY);
     state.map.getSource('routes')?.setData(data.routes||EMPTY);
+    state.routes=data.routes||EMPTY;
+    state.map.getSource('route-overlap')?.setData(state.trailIndex?overlappingRouteFeatures(state.routes,state.trailIndex):EMPTY);
     shell.classList.remove('is-loading');
     if (data.fit_bounds && data.fit_request !== state.fitRequest) {
       state.fitRequest=data.fit_request;

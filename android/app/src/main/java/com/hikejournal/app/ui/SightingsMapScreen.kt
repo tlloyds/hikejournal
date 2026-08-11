@@ -78,6 +78,7 @@ import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapLibreMapOptions
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
+import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.CircleLayer
 import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.PropertyFactory.circleColor
@@ -93,10 +94,11 @@ import org.maplibre.geojson.Feature
 import org.maplibre.geojson.FeatureCollection
 import org.maplibre.geojson.LineString
 import org.maplibre.geojson.Point
-import java.net.URI
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 private const val SOURCE_ID = "hikejournal-sightings"
 private const val LAYER_ID = "hikejournal-sightings-circles"
@@ -105,12 +107,14 @@ private const val SELECTED_LAYER_ID = "hikejournal-selected-sighting-circle"
 private const val ROUTE_SOURCE_ID = "hikejournal-routes"
 private const val ROUTE_HALO_LAYER_ID = "hikejournal-route-halo"
 private const val ROUTE_LAYER_ID = "hikejournal-route-lines"
+private const val ROUTE_OVERLAP_LAYER_ID = "hikejournal-route-overlap-lines"
 private const val FLORIDA_TRAIL_SOURCE_ID = "florida-trail"
 private const val FLORIDA_TRAIL_HALO_LAYER_ID = "florida-trail-halo"
 private const val FLORIDA_TRAIL_LAYER_ID = "florida-trail-lines"
-private const val FLORIDA_TRAIL_GEOJSON_URL = "https://services9.arcgis.com/soy9dtLUh5hYXg8U/arcgis/rest/services/FNST%20Master/FeatureServer/0/query?where=1%3D1&outFields=FID&returnGeometry=true&outSR=4326&f=geojson&maxAllowableOffset=0.00002"
 internal const val FLORIDA_TRAIL_COLOR = "#F47A32"
-internal const val HIKE_ROUTE_COLOR = "#FFD33D"
+internal const val HIKE_ROUTE_COLOR = "#22D3EE"
+internal const val ROUTE_OVERLAP_COLOR = "#FF4D8D"
+internal const val PHOTO_POINT_COLOR = "#8BD3FF"
 private const val CURRENT_POSITION_SOURCE_ID = "hikejournal-current-position"
 private const val CURRENT_POSITION_HALO_LAYER_ID = "hikejournal-current-position-halo"
 private const val CURRENT_POSITION_LAYER_ID = "hikejournal-current-position-dot"
@@ -140,6 +144,7 @@ internal data class MapViewport(val bounds: LatLngBounds, val zoom: Double)
 fun SightingsMapScreen(
     sightings: List<Sighting>,
     routeSegments: List<List<RoutePoint>>,
+    showFloridaTrail: Boolean,
     loading: Boolean,
     openingPhotoId: String?,
     onRefresh: () -> Unit,
@@ -159,6 +164,7 @@ fun SightingsMapScreen(
             layerMode = layerMode,
             onSelect = { selected = it },
             onViewportChanged = { viewport = it },
+            showFloridaTrail = showFloridaTrail,
             modifier = Modifier.fillMaxSize(),
         )
 
@@ -190,7 +196,10 @@ fun SightingsMapScreen(
                     else Icon(Icons.Rounded.Refresh, "Refresh map", tint = Paper)
                 }
             }
-            MapRouteLegend(modifier = Modifier.padding(top = 5.dp))
+            MapRouteLegend(
+                showFloridaTrail = showFloridaTrail,
+                modifier = Modifier.padding(top = 5.dp),
+            )
             if (layerMode == MapLayerMode.Satellite) {
                 Text(
                     "IMAGERY © ESRI · MAXAR · EARTHSTAR · GIS COMMUNITY",
@@ -413,9 +422,36 @@ internal fun HikeJournalMap(
     focusedSightingId: String? = null,
     currentPoint: RoutePoint? = null,
     followCurrentPoint: Boolean = false,
+    showFloridaTrail: Boolean,
 ) {
     val context = LocalContext.current
     val controller = remember { NativeMapController() }
+    var floridaTrail by remember { mutableStateOf<FeatureCollection?>(null) }
+    var floridaTrailIndex by remember { mutableStateOf<FloridaTrailSegmentIndex?>(null) }
+    var classifiedRoutes by remember(routeSegments) {
+        mutableStateOf(classifyFloridaTrailOverlap(routeSegments, null))
+    }
+    LaunchedEffect(showFloridaTrail) {
+        if (showFloridaTrail) {
+            val data = FloridaTrailOverlayData.load(context)
+            val index = withContext(Dispatchers.Default) {
+                data?.let { FloridaTrailSegmentIndex(it.floridaTrailSegments()) }
+            }
+            floridaTrail = data
+            floridaTrailIndex = index
+        } else {
+            floridaTrail = null
+            floridaTrailIndex = null
+        }
+    }
+    LaunchedEffect(routeSegments, showFloridaTrail, floridaTrailIndex) {
+        classifiedRoutes = withContext(Dispatchers.Default) {
+            classifyFloridaTrailOverlap(
+                routes = routeSegments,
+                trailIndex = floridaTrailIndex.takeIf { showFloridaTrail },
+            )
+        }
+    }
     controller.tapRadiusPx = 24f * context.resources.displayMetrics.density
     controller.onSelect = onSelect
     controller.onViewportChanged = onViewportChanged
@@ -441,12 +477,28 @@ internal fun HikeJournalMap(
     AndroidView(
         factory = {
             mapView.apply {
-                getMapAsync { map -> controller.attach(map, sightings, routeSegments, currentPoint) }
+                getMapAsync { map ->
+                    controller.attach(
+                        map = map,
+                        sightings = sightings,
+                        routeSegments = classifiedRoutes,
+                        floridaTrail = floridaTrail,
+                        showFloridaTrail = showFloridaTrail,
+                        currentPoint = currentPoint,
+                    )
+                }
             }
         },
         update = {
-            controller.updateLayer(layerMode, sightings, routeSegments, currentPoint)
-            controller.updateMapData(sightings, routeSegments)
+            controller.updateLayer(
+                nextLayerMode = layerMode,
+                nextShowFloridaTrail = showFloridaTrail,
+                sightings = sightings,
+                routeSegments = classifiedRoutes,
+                floridaTrail = floridaTrail,
+                currentPoint = currentPoint,
+            )
+            controller.updateMapData(sightings, classifiedRoutes, floridaTrail)
             controller.updateSelectedSighting(selectedSighting)
             controller.updateCurrentPoint(currentPoint, followCurrentPoint)
         },
@@ -466,18 +518,23 @@ private class NativeMapController {
     private var map: MapLibreMap? = null
     private var fitted = false
     private var layerMode = MapLayerMode.Satellite
+    private var showFloridaTrail = true
     private var clickListenerAttached = false
     private var lastFollowedPoint: RoutePoint? = null
     private var renderedSightings: List<Sighting>? = null
-    private var renderedRouteSegments: List<List<RoutePoint>>? = null
+    private var renderedRouteSegments: List<ClassifiedRouteSegment>? = null
+    private var renderedFloridaTrail: FeatureCollection? = null
 
     fun attach(
         map: MapLibreMap,
         sightings: List<Sighting>,
-        routeSegments: List<List<RoutePoint>>,
+        routeSegments: List<ClassifiedRouteSegment>,
+        floridaTrail: FeatureCollection?,
+        showFloridaTrail: Boolean,
         currentPoint: RoutePoint?,
     ) {
         this.map = map
+        this.showFloridaTrail = showFloridaTrail
         if (!clickListenerAttached) {
             clickListenerAttached = true
             map.addOnMapClickListener { latLng ->
@@ -499,25 +556,48 @@ private class NativeMapController {
                 onViewportChanged(MapViewport(map.projection.visibleRegion.latLngBounds, map.cameraPosition.zoom))
             }
         }
-        loadStyle(map, layerMode, sightings, routeSegments, currentPoint)
+        loadStyle(
+            map = map,
+            nextLayerMode = layerMode,
+            sightings = sightings,
+            routeSegments = routeSegments,
+            floridaTrail = floridaTrail,
+            showFloridaTrail = showFloridaTrail,
+            currentPoint = currentPoint,
+        )
     }
 
     fun updateLayer(
         nextLayerMode: MapLayerMode,
+        nextShowFloridaTrail: Boolean,
         sightings: List<Sighting>,
-        routeSegments: List<List<RoutePoint>>,
+        routeSegments: List<ClassifiedRouteSegment>,
+        floridaTrail: FeatureCollection?,
         currentPoint: RoutePoint?,
     ) {
-        if (nextLayerMode == layerMode) return
+        if (nextLayerMode == layerMode && nextShowFloridaTrail == showFloridaTrail) return
         layerMode = nextLayerMode
-        map?.let { loadStyle(it, nextLayerMode, sightings, routeSegments, currentPoint) }
+        showFloridaTrail = nextShowFloridaTrail
+        map?.let {
+            loadStyle(
+                map = it,
+                nextLayerMode = nextLayerMode,
+                sightings = sightings,
+                routeSegments = routeSegments,
+                floridaTrail = floridaTrail,
+                showFloridaTrail = nextShowFloridaTrail,
+                currentPoint = currentPoint,
+            )
+        }
     }
 
     private fun loadStyle(
         map: MapLibreMap,
         nextLayerMode: MapLayerMode,
         sightings: List<Sighting>,
-        routeSegments: List<List<RoutePoint>>,
+        routeSegments: List<ClassifiedRouteSegment>,
+        floridaTrail: FeatureCollection?,
+        showFloridaTrail: Boolean,
         currentPoint: RoutePoint?,
     ) {
         val builder = if (nextLayerMode == MapLayerMode.Satellite) {
@@ -526,7 +606,14 @@ private class NativeMapController {
             Style.Builder().fromUri(BuildConfig.TRAIL_MAP_STYLE_URL)
         }
         map.setStyle(builder) { style ->
-            style.addSource(GeoJsonSource(FLORIDA_TRAIL_SOURCE_ID, URI(FLORIDA_TRAIL_GEOJSON_URL)))
+            if (showFloridaTrail) {
+                style.addSource(
+                    GeoJsonSource(
+                        FLORIDA_TRAIL_SOURCE_ID,
+                        floridaTrail ?: FeatureCollection.fromFeatures(emptyList<Feature>()),
+                    ),
+                )
+            }
             style.addSource(GeoJsonSource(ROUTE_SOURCE_ID, routeFeatureCollection(routeSegments)))
             style.addSource(GeoJsonSource(CURRENT_POSITION_SOURCE_ID, pointFeatureCollection(currentPoint)))
             val source = GeoJsonSource(SOURCE_ID, featureCollection(sightings))
@@ -537,20 +624,22 @@ private class NativeMapController {
                     featureCollection(selectedSighting?.let(::listOf) ?: emptyList()),
                 ),
             )
-            style.addLayer(
-                LineLayer(FLORIDA_TRAIL_HALO_LAYER_ID, FLORIDA_TRAIL_SOURCE_ID).withProperties(
-                    lineColor("#4D2B17"),
-                    lineWidth(5.5f),
-                    lineOpacity(0.58f),
-                ),
-            )
-            style.addLayer(
-                LineLayer(FLORIDA_TRAIL_LAYER_ID, FLORIDA_TRAIL_SOURCE_ID).withProperties(
-                    lineColor(FLORIDA_TRAIL_COLOR),
-                    lineWidth(3.5f),
-                    lineOpacity(0.94f),
-                ),
-            )
+            if (showFloridaTrail) {
+                style.addLayer(
+                    LineLayer(FLORIDA_TRAIL_HALO_LAYER_ID, FLORIDA_TRAIL_SOURCE_ID).withProperties(
+                        lineColor("#4D2B17"),
+                        lineWidth(5.5f),
+                        lineOpacity(0.58f),
+                    ),
+                )
+                style.addLayer(
+                    LineLayer(FLORIDA_TRAIL_LAYER_ID, FLORIDA_TRAIL_SOURCE_ID).withProperties(
+                        lineColor(FLORIDA_TRAIL_COLOR),
+                        lineWidth(3.5f),
+                        lineOpacity(0.94f),
+                    ),
+                )
+            }
             style.addLayer(
                 LineLayer(ROUTE_HALO_LAYER_ID, ROUTE_SOURCE_ID).withProperties(
                     lineColor("#263228"),
@@ -565,6 +654,17 @@ private class NativeMapController {
                     lineOpacity(0.98f),
                 ),
             )
+            if (showFloridaTrail) {
+                style.addLayer(
+                    LineLayer(ROUTE_OVERLAP_LAYER_ID, ROUTE_SOURCE_ID)
+                        .withFilter(Expression.eq(Expression.get("overlap"), true))
+                        .withProperties(
+                            lineColor(ROUTE_OVERLAP_COLOR),
+                            lineWidth(5.6f),
+                            lineOpacity(1f),
+                        ),
+                )
+            }
             style.addLayer(
                 CircleLayer(CURRENT_POSITION_HALO_LAYER_ID, CURRENT_POSITION_SOURCE_ID).withProperties(
                     circleColor("#FFFCF3"),
@@ -583,25 +683,26 @@ private class NativeMapController {
             )
             style.addLayer(
                 CircleLayer(LAYER_ID, SOURCE_ID).withProperties(
-                    circleColor("#D17D42"),
+                    circleColor(PHOTO_POINT_COLOR),
                     circleRadius(4.5f),
                     circleOpacity(0.88f),
-                    circleStrokeColor("#F4F0E5"),
-                    circleStrokeWidth(1.2f),
+                    circleStrokeColor("#123B4A"),
+                    circleStrokeWidth(1.4f),
                 ),
             )
             style.addLayer(
                 CircleLayer(SELECTED_LAYER_ID, SELECTED_SOURCE_ID).withProperties(
-                    circleColor("#2587D8"),
+                    circleColor("#F8FAFC"),
                     circleRadius(7.5f),
                     circleOpacity(1f),
-                    circleStrokeColor("#F4F0E5"),
-                    circleStrokeWidth(2f),
+                    circleStrokeColor(HIKE_ROUTE_COLOR),
+                    circleStrokeWidth(2.4f),
                 ),
             )
             renderedSightings = sightings
             renderedRouteSegments = routeSegments
-            updateMapData(sightings, routeSegments)
+            renderedFloridaTrail = floridaTrail
+            updateMapData(sightings, routeSegments, floridaTrail)
             updateSelectedSighting(selectedSighting)
             updateCurrentPoint(currentPoint, followCurrentPoint, force = true)
         }
@@ -609,7 +710,8 @@ private class NativeMapController {
 
     fun updateMapData(
         sightings: List<Sighting>,
-        routeSegments: List<List<RoutePoint>>,
+        routeSegments: List<ClassifiedRouteSegment>,
+        floridaTrail: FeatureCollection?,
     ) {
         val currentMap = map ?: return
         currentMap.getStyle { style ->
@@ -622,6 +724,12 @@ private class NativeMapController {
                     routeFeatureCollection(routeSegments),
                 )
                 renderedRouteSegments = routeSegments
+            }
+            if (showFloridaTrail && floridaTrail !== renderedFloridaTrail) {
+                style.getSourceAs<GeoJsonSource>(FLORIDA_TRAIL_SOURCE_ID)?.setGeoJson(
+                    floridaTrail ?: FeatureCollection.fromFeatures(emptyList<Feature>()),
+                )
+                renderedFloridaTrail = floridaTrail
             }
             if (!fitted && !followCurrentPoint && (sightings.isNotEmpty() || routeSegments.isNotEmpty())) {
                 fitted = true
@@ -667,7 +775,7 @@ private class NativeMapController {
     private fun fitMap(
         map: MapLibreMap,
         sightings: List<Sighting>,
-        routeSegments: List<List<RoutePoint>>,
+        routeSegments: List<ClassifiedRouteSegment>,
     ) {
         sightings.firstOrNull { it.id == focusedSightingId }?.let { focused ->
             map.animateCamera(
@@ -683,7 +791,9 @@ private class NativeMapController {
         }
         val points = buildList {
             sightings.forEach { add(LatLng(it.latitude, it.longitude)) }
-            routeSegments.flatten().forEach { add(LatLng(it.latitude, it.longitude)) }
+            routeSegments.flatMap(ClassifiedRouteSegment::points).forEach {
+                add(LatLng(it.latitude, it.longitude))
+            }
         }
         if (points.size == 1) {
             map.animateCamera(
@@ -713,18 +823,20 @@ private class NativeMapController {
     }
 
     private fun routeFeatureCollection(
-        routeSegments: List<List<RoutePoint>>,
+        routeSegments: List<ClassifiedRouteSegment>,
     ): FeatureCollection {
         val features = routeSegments
-            .filter { it.size >= 2 }
+            .filter { it.points.size >= 2 }
             .map { segment ->
                 Feature.fromGeometry(
                     LineString.fromLngLats(
-                        segment.map { point ->
+                        segment.points.map { point ->
                             Point.fromLngLat(point.longitude, point.latitude)
                         },
                     ),
-                )
+                ).apply {
+                    addBooleanProperty("overlap", segment.overlapsFloridaTrail)
+                }
             }
         return FeatureCollection.fromFeatures(features)
     }
@@ -738,23 +850,32 @@ private class NativeMapController {
 }
 
 @Composable
-internal fun MapRouteLegend(modifier: Modifier = Modifier, compact: Boolean = false) {
-    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.width(22.dp).height(3.dp).background(Color(0xFFF47A32)))
-        Spacer(Modifier.width(6.dp))
-        Text(
-            if (compact) "FT" else "FLORIDA TRAIL · USFS / FTA",
-            style = MaterialTheme.typography.labelSmall,
-            color = Color(0xFFB7C8B5),
-        )
-        Spacer(Modifier.width(if (compact) 10.dp else 14.dp))
-        Box(Modifier.width(22.dp).height(3.dp).background(Color(0xFFFFD33D)))
-        Spacer(Modifier.width(6.dp))
-        Text(
-            if (compact) "YOU" else "YOUR ROUTE",
-            style = MaterialTheme.typography.labelSmall,
-            color = Color(0xFFB7C8B5),
-        )
+internal fun MapRouteLegend(
+    showFloridaTrail: Boolean,
+    modifier: Modifier = Modifier,
+    compact: Boolean = false,
+) {
+    Row(
+        modifier,
+        horizontalArrangement = Arrangement.spacedBy(if (compact) 9.dp else 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (showFloridaTrail) {
+            RouteLegendItem(Color(0xFFF47A32), if (compact) "FT" else "FT · USFS/FTA")
+        }
+        RouteLegendItem(Color(0xFF22D3EE), if (compact) "YOU" else "YOUR ROUTE")
+        if (showFloridaTrail) {
+            RouteLegendItem(Color(0xFFFF4D8D), "SHARED")
+        }
+    }
+}
+
+@Composable
+private fun RouteLegendItem(color: Color, label: String) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.width(18.dp).height(3.dp).background(color))
+        Spacer(Modifier.width(5.dp))
+        Text(label, style = MaterialTheme.typography.labelSmall, color = Color(0xFFB7C8B5))
     }
 }
 

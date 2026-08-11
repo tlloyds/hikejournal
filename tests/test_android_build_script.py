@@ -96,10 +96,22 @@ def test_android_map_shows_all_photos_with_distinct_florida_trail_routes() -> No
         ROOT
         / "android/app/src/main/java/com/hikejournal/app/ui/SightingsMapScreen.kt"
     ).read_text(encoding="utf-8")
+    florida_trail = (
+        ROOT
+        / "android/app/src/main/java/com/hikejournal/app/ui/FloridaTrailOverlay.kt"
+    ).read_text(encoding="utf-8")
+    app = (
+        ROOT
+        / "android/app/src/main/java/com/hikejournal/app/ui/HikeJournalApp.kt"
+    ).read_text(encoding="utf-8")
 
     assert "Confirmed species only" not in sightings
     assert "speciesOnly" not in sightings
     assert "sightings = sightings" in sightings
-    assert "FNST%20Master/FeatureServer/0/query" in sightings
+    assert "FNST%20Master/FeatureServer/0/query" in florida_trail
     assert 'FLORIDA_TRAIL_COLOR = "#F47A32"' in sightings
-    assert 'HIKE_ROUTE_COLOR = "#FFD33D"' in sightings
+    assert 'HIKE_ROUTE_COLOR = "#22D3EE"' in sightings
+    assert 'ROUTE_OVERLAP_COLOR = "#FF4D8D"' in sightings
+    assert 'PHOTO_POINT_COLOR = "#8BD3FF"' in sightings
+    assert "Florida Trail overlay" in app
+    assert "setShowFloridaTrail(show)" in app
