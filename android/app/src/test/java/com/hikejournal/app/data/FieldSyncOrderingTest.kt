@@ -117,6 +117,43 @@ class FieldSyncOrderingTest {
     }
 
     @Test
+    fun `ordinary photo uploads run in bounded parallel batches`() {
+        val uploads = (1..184).map { index ->
+            operation(
+                id = "upload-$index",
+                kind = OperationKind.UploadPhoto,
+                entityId = "photo-$index",
+                parentId = "hike-1",
+            )
+        }
+
+        assertEquals(uploads.take(2), selectNextSyncBatch(uploads))
+        assertEquals(uploads.take(3), selectNextSyncBatch(uploads, maxParallelPhotoUploads = 3))
+    }
+
+    @Test
+    fun `selected cover upload runs alone so its cover update can follow immediately`() {
+        val ordinary = operation("ordinary", OperationKind.UploadPhoto, "photo-1", "hike-1")
+        val selected = operation("selected", OperationKind.UploadPhoto, "photo-2", "hike-1")
+        val cover = operation(
+            id = "cover",
+            kind = OperationKind.SetHikeCover,
+            entityId = "hike-1",
+            payloadJson = """{"photo_id":"photo-2"}""",
+        )
+
+        assertEquals(listOf(selected), selectNextSyncBatch(listOf(ordinary, selected, cover)))
+    }
+
+    @Test
+    fun `metadata changes never share a batch with uploads`() {
+        val update = operation("update", OperationKind.UpdateHike, "hike-1")
+        val photo = operation("photo", OperationKind.UploadPhoto, "photo-1", "hike-1")
+
+        assertEquals(listOf(update), selectNextSyncBatch(listOf(update, photo)))
+    }
+
+    @Test
     fun `every locally selected review photo remains visible while uploads drain`() {
         val operations = (1..35).map { index ->
             operation(

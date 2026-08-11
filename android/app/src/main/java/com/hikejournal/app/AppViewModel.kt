@@ -2100,9 +2100,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             _state.update { it.copy(uploadCurrent = 0, uploadTotal = uris.size, error = null) }
             for ((index, uri) in uris.withIndex()) {
                 val result = runCatching {
-                    repository.uploadPhoto(hikeId, uri, caption, queueForReview)
+                    repository.uploadPhoto(
+                        hikeId,
+                        uri,
+                        caption,
+                        queueForReview,
+                        scheduleSync = index == 0,
+                    )
                 }
                 if (result.isFailure) {
+                    repository.scheduleSync()
                     _state.update {
                         it.copy(
                             uploadCurrent = 0,
@@ -2139,6 +2146,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 onUploaded(savedPhoto)
             }
+            repository.scheduleSync()
             _state.update { it.copy(uploadCurrent = 0, uploadTotal = 0) }
             if (prioritizeForIdentification && _state.value.prioritizingPhotoId != null) {
                 runCatching { repository.syncPhotoNow(_state.value.prioritizingPhotoId ?: return@launch) }

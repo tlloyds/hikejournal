@@ -864,7 +864,10 @@ class HikeJournalRepository(context: Context) {
         uri: Uri,
         caption: String,
         queueForReview: Boolean,
-    ): Photo = fieldQueue.queuePhoto(hikeId, uri, caption, queueForReview)
+        scheduleSync: Boolean = true,
+    ): Photo = fieldQueue.queuePhoto(hikeId, uri, caption, queueForReview, scheduleSync)
+
+    fun scheduleSync() = SyncScheduler.schedule(appContext)
 
     suspend fun uploadRoute(hikeId: String, uri: Uri) {
         fieldQueue.queueRoute(hikeId, uri)

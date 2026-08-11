@@ -1,9 +1,16 @@
 package com.hikejournal.app.data
 
 import android.Manifest
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.pm.ServiceInfo
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Matrix
 import android.media.MediaMetadataRetriever
 import android.net.ConnectivityManager
 import android.net.Network
@@ -14,11 +21,13 @@ import android.os.Build
 import android.provider.MediaStore
 import android.provider.OpenableColumns
 import androidx.core.content.ContextCompat
+import androidx.core.app.NotificationCompat
 import androidx.exifinterface.media.ExifInterface
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingWorkPolicy
+import androidx.work.ForegroundInfo
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
@@ -27,8 +36,14 @@ import androidx.room.withTransaction
 import com.hikejournal.app.data.local.OfflineDatabase
 import com.hikejournal.app.data.local.FieldMarkEntity
 import com.hikejournal.app.data.local.PendingOperationEntity
+import com.hikejournal.app.MainActivity
+import com.hikejournal.app.R
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.combine
@@ -49,6 +64,7 @@ import java.util.Date
 import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.TimeUnit
+import kotlin.math.roundToInt
 
 object OperationKind {
     const val CreateHike = "create_hike"
@@ -69,6 +85,10 @@ object OperationKind {
 }
 
 private const val MAX_LOCAL_MEDIA_BYTES = 30L * 1024L * 1024L
+private const val QUEUED_PHOTO_MAX_DIMENSION = 1_600
+private const val QUEUED_PHOTO_JPEG_QUALITY = 86
+private const val MAX_PARALLEL_PHOTO_UPLOADS = 2
+private const val LONG_RUNNING_PHOTO_UPLOAD_THRESHOLD = 10
 private val fieldSyncMutex = Mutex()
 internal val journalCacheMutex = Mutex()
 
@@ -88,6 +108,12 @@ data class RecordedRouteUpload(
     val routeSegments: List<List<RoutePoint>>,
 )
 
+data class FieldSyncProgress(
+    val totalPhotoCount: Int,
+    val completedPhotoCount: Int,
+    val remainingPhotoCount: Int,
+)
+
 internal fun PendingOperationEntity.targetHikeId(): String? = parentId ?: entityId.takeIf {
     kind in setOf(
         OperationKind.CreateHike,
@@ -98,39 +124,24 @@ internal fun PendingOperationEntity.targetHikeId(): String? = parentId ?: entity
     )
 }
 
-internal fun selectNextSyncOperation(
-    operations: List<PendingOperationEntity>,
-    prioritizedPhotoId: String? = null,
-): PendingOperationEntity? {
-    val deletingHikeIds = operations
+private data class SyncSelectionContext(
+    val deletingHikeIds: Set<String>,
+    val pendingCreateHikeIds: Set<String>,
+    val pendingPhotoIds: Set<String>,
+    val selectedCoverPhotoIds: Set<String>,
+)
+
+private fun syncSelectionContext(operations: List<PendingOperationEntity>) = SyncSelectionContext(
+    deletingHikeIds = operations
         .filter { it.kind == OperationKind.DeleteHike }
-        .mapTo(mutableSetOf()) { it.entityId }
-    val pendingCreateHikeIds = operations
+        .mapTo(mutableSetOf()) { it.entityId },
+    pendingCreateHikeIds = operations
         .filter { it.kind == OperationKind.CreateHike }
-        .mapTo(mutableSetOf()) { it.entityId }
-    val pendingPhotoIds = operations
+        .mapTo(mutableSetOf()) { it.entityId },
+    pendingPhotoIds = operations
         .filter { it.kind == OperationKind.UploadPhoto }
-        .mapTo(mutableSetOf()) { it.entityId }
-    fun eligible(operation: PendingOperationEntity): Boolean {
-        val targetHikeId = operation.targetHikeId()
-        val waitingForRecordedHike = operation.kind == OperationKind.CreateFieldMark &&
-            runCatching { JSONObject(operation.payloadJson).optBoolean("wait_for_hike_create") }
-                .getOrDefault(false)
-        val waitingForCoverPhoto = operation.kind == OperationKind.SetHikeCover &&
-            runCatching {
-                val payload = JSONObject(operation.payloadJson)
-                payload.optString("photo_id")
-                    .takeUnless { payload.isNull("photo_id") }
-                    ?.let(pendingPhotoIds::contains)
-                    ?: false
-            }.getOrDefault(false)
-        return operation.state in setOf("queued", "syncing") &&
-            !(waitingForRecordedHike && targetHikeId !in pendingCreateHikeIds) &&
-            !waitingForCoverPhoto &&
-            (operation.kind == OperationKind.DeleteHike || targetHikeId !in deletingHikeIds) &&
-            (operation.kind in setOf(OperationKind.CreateHike, OperationKind.DeleteHike) || targetHikeId !in pendingCreateHikeIds)
-    }
-    val selectedCoverPhotoIds = operations
+        .mapTo(mutableSetOf()) { it.entityId },
+    selectedCoverPhotoIds = operations
         .asSequence()
         .filter { it.kind == OperationKind.SetHikeCover && it.state in setOf("queued", "syncing") }
         .mapNotNull { operation ->
@@ -140,20 +151,72 @@ internal fun selectNextSyncOperation(
                 }
             }.getOrNull()
         }
-        .toSet()
+        .toSet(),
+)
+
+private fun PendingOperationEntity.isEligibleForSync(context: SyncSelectionContext): Boolean {
+    val targetHikeId = targetHikeId()
+    val waitingForRecordedHike = kind == OperationKind.CreateFieldMark &&
+        runCatching { JSONObject(payloadJson).optBoolean("wait_for_hike_create") }
+            .getOrDefault(false)
+    val waitingForCoverPhoto = kind == OperationKind.SetHikeCover &&
+        runCatching {
+            JSONObject(payloadJson).let { payload ->
+                payload.optString("photo_id")
+                    .takeUnless { payload.isNull("photo_id") }
+                    ?.let(context.pendingPhotoIds::contains)
+                    ?: false
+            }
+        }.getOrDefault(false)
+    return state in setOf("queued", "syncing") &&
+        !(waitingForRecordedHike && targetHikeId !in context.pendingCreateHikeIds) &&
+        !waitingForCoverPhoto &&
+        (kind == OperationKind.DeleteHike || targetHikeId !in context.deletingHikeIds) &&
+        (kind in setOf(OperationKind.CreateHike, OperationKind.DeleteHike) ||
+            targetHikeId !in context.pendingCreateHikeIds)
+}
+
+internal fun selectNextSyncOperation(
+    operations: List<PendingOperationEntity>,
+    prioritizedPhotoId: String? = null,
+): PendingOperationEntity? {
+    val context = syncSelectionContext(operations)
     return operations.firstOrNull {
         it.kind == OperationKind.UploadPhoto &&
             it.entityId == prioritizedPhotoId &&
-            eligible(it)
+            it.isEligibleForSync(context)
     } ?: operations.firstOrNull {
         // A cover chosen during a large import should not wait behind every other upload.
         // Upload its own photo first, then apply the cover as soon as that photo exists remotely.
         it.kind == OperationKind.UploadPhoto &&
-            it.entityId in selectedCoverPhotoIds &&
-            eligible(it)
+            it.entityId in context.selectedCoverPhotoIds &&
+            it.isEligibleForSync(context)
     } ?: operations.firstOrNull {
-        it.kind == OperationKind.SetHikeCover && eligible(it)
-    } ?: operations.firstOrNull(::eligible)
+        it.kind == OperationKind.SetHikeCover && it.isEligibleForSync(context)
+    } ?: operations.firstOrNull { it.isEligibleForSync(context) }
+}
+
+internal fun selectNextSyncBatch(
+    operations: List<PendingOperationEntity>,
+    prioritizedPhotoId: String? = null,
+    maxParallelPhotoUploads: Int = MAX_PARALLEL_PHOTO_UPLOADS,
+): List<PendingOperationEntity> {
+    val first = selectNextSyncOperation(operations, prioritizedPhotoId) ?: return emptyList()
+    if (first.kind != OperationKind.UploadPhoto || maxParallelPhotoUploads <= 1) return listOf(first)
+    val context = syncSelectionContext(operations)
+    if (first.entityId in context.selectedCoverPhotoIds) return listOf(first)
+    return buildList {
+        add(first)
+        operations.asSequence()
+            .filter { operation ->
+                operation.id != first.id &&
+                    operation.kind == OperationKind.UploadPhoto &&
+                    operation.entityId !in context.selectedCoverPhotoIds &&
+                    operation.isEligibleForSync(context)
+            }
+            .take(maxParallelPhotoUploads - 1)
+            .forEach(::add)
+    }
 }
 
 internal fun pendingReviewUploadOperations(
@@ -272,6 +335,12 @@ class FieldOperationQueue(private val context: Context) {
             coverSyncHikeIds = operations
                 .filter { it.kind == OperationKind.SetHikeCover }
                 .mapTo(mutableSetOf()) { it.entityId },
+            pendingPhotoCount = operations.count {
+                it.kind == OperationKind.UploadPhoto && it.state == "queued"
+            },
+            syncingPhotoCount = operations.count {
+                it.kind == OperationKind.UploadPhoto && it.state == "syncing"
+            },
         )
     }.distinctUntilChanged()
 
@@ -448,10 +517,11 @@ class FieldOperationQueue(private val context: Context) {
         uri: Uri,
         caption: String,
         queueForReview: Boolean,
+        scheduleSync: Boolean = true,
     ): Photo = withContext(Dispatchers.IO) {
         val photoId = UUID.randomUUID().toString()
-        val contentType = selectedMediaContentType(context, uri)
-        val extension = when (contentType.lowercase(Locale.US)) {
+        val selectedContentType = selectedMediaContentType(context, uri)
+        val extension = when (selectedContentType.lowercase(Locale.US)) {
             "image/png" -> "png"
             "image/heic", "image/heif" -> "heic"
             "video/mp4" -> "mp4"
@@ -461,41 +531,60 @@ class FieldOperationQueue(private val context: Context) {
             "video/webm" -> "webm"
             else -> "jpg"
         }
-        val destination = File(photoDirectory, "$photoId.$extension")
-        copySelectedMedia(context, uri, destination, requestOriginal = true)
+        val selectedFile = File(photoDirectory, "$photoId-source.$extension")
+        copySelectedMedia(context, uri, selectedFile, requestOriginal = true)
         val pickerTakenAt = readPickerTakenAt(context, uri)
-        val fileMetadata = readMediaMetadata(destination, contentType)
+        val fileMetadata = readMediaMetadata(selectedFile, selectedContentType)
         val metadata = fileMetadata.copy(takenAt = fileMetadata.takenAt ?: pickerTakenAt)
+        val queuedMedia = if (selectedContentType.startsWith("video/", ignoreCase = true)) {
+            QueuedMedia(
+                file = selectedFile,
+                contentType = selectedContentType,
+                width = metadata.width,
+                height = metadata.height,
+            )
+        } else {
+            prepareQueuedPhoto(
+                source = selectedFile,
+                destination = File(photoDirectory, "$photoId.jpg"),
+            ) ?: QueuedMedia(
+                file = selectedFile,
+                contentType = selectedContentType,
+                width = metadata.width,
+                height = metadata.height,
+            )
+        }
         val payload = JSONObject()
             .put("caption", caption.trim())
             .put("queue_for_review", queueForReview)
             .put("taken_at", metadata.takenAt ?: JSONObject.NULL)
             .put("lat", metadata.latitude ?: JSONObject.NULL)
             .put("lng", metadata.longitude ?: JSONObject.NULL)
-            .put("width", metadata.width ?: JSONObject.NULL)
-            .put("height", metadata.height ?: JSONObject.NULL)
-        enqueue(
+            .put("width", queuedMedia.width ?: JSONObject.NULL)
+            .put("height", queuedMedia.height ?: JSONObject.NULL)
+        enqueueDuringSync(
             kind = OperationKind.UploadPhoto,
             entityId = photoId,
             parentId = hikeId,
             payload = payload,
-            localFilePath = destination.absolutePath,
-            contentType = contentType,
-            fileName = destination.name,
+            localFilePath = queuedMedia.file.absolutePath,
+            contentType = queuedMedia.contentType,
+            fileName = queuedMedia.file.name,
+            scheduleSync = scheduleSync,
         )
         Photo(
             id = photoId,
             hikeId = hikeId,
-            url = Uri.fromFile(destination).toString(),
+            url = Uri.fromFile(queuedMedia.file).toString(),
             caption = caption.trim(),
             takenAt = metadata.takenAt,
             createdAt = Date().toInstant().toString(),
             latitude = metadata.latitude,
             longitude = metadata.longitude,
-            width = metadata.width,
-            height = metadata.height,
-            contentType = contentType,
-            processingStatus = initialProcessingStatus(queueForReview, contentType),
+            width = queuedMedia.width,
+            height = queuedMedia.height,
+            contentType = queuedMedia.contentType,
+            processingStatus = initialProcessingStatus(queueForReview, queuedMedia.contentType),
             syncState = "queued",
             species = emptyList(),
         )
@@ -1037,6 +1126,55 @@ class FieldOperationQueue(private val context: Context) {
         SyncScheduler.schedule(context)
     }
 
+    private suspend fun enqueueDuringSync(
+        kind: String,
+        entityId: String,
+        parentId: String?,
+        payload: JSONObject,
+        localFilePath: String? = null,
+        contentType: String? = null,
+        fileName: String? = null,
+        scheduleSync: Boolean = true,
+    ) {
+        val targetHikeId = parentId ?: entityId.takeIf {
+            kind in setOf(
+                OperationKind.CreateHike,
+                OperationKind.UpdateHike,
+                OperationKind.ArchiveHike,
+                OperationKind.SetHikeCover,
+            )
+        }
+        val now = System.currentTimeMillis()
+        try {
+            database.withTransaction {
+                if (targetHikeId != null && dao.find(OperationKind.DeleteHike, targetHikeId) != null) {
+                    throw IOException("This hike is already being deleted.")
+                }
+                dao.upsert(
+                    PendingOperationEntity(
+                        id = UUID.randomUUID().toString(),
+                        kind = kind,
+                        entityId = entityId,
+                        parentId = parentId,
+                        payloadJson = payload.toString(),
+                        localFilePath = localFilePath,
+                        contentType = contentType,
+                        fileName = fileName,
+                        state = "queued",
+                        attemptCount = 0,
+                        createdAt = now,
+                        updatedAt = now,
+                        lastError = null,
+                    ),
+                )
+            }
+        } catch (error: Exception) {
+            localFilePath?.let { File(it).delete() }
+            throw error
+        }
+        if (scheduleSync) SyncScheduler.schedule(context)
+    }
+
     private fun draft(operation: PendingOperationEntity): HikeDraft = JSONObject(operation.payloadJson).let { payload ->
         HikeDraft(
             title = payload.optString("title"),
@@ -1070,6 +1208,122 @@ private data class LocalPhotoMetadata(
     val width: Int?,
     val height: Int?,
 )
+
+private data class QueuedMedia(
+    val file: File,
+    val contentType: String,
+    val width: Int?,
+    val height: Int?,
+)
+
+private fun prepareQueuedPhoto(source: File, destination: File): QueuedMedia? {
+    val temporary = File(destination.parentFile, "${destination.name}.tmp")
+    temporary.delete()
+    return runCatching {
+        val bounds = BitmapFactory.Options().also { options ->
+            options.inJustDecodeBounds = true
+            BitmapFactory.decodeFile(source.absolutePath, options)
+        }
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@runCatching null
+        var sampleSize = 1
+        while (maxOf(bounds.outWidth, bounds.outHeight) / sampleSize > QUEUED_PHOTO_MAX_DIMENSION * 2) {
+            sampleSize *= 2
+        }
+        val decoded = BitmapFactory.decodeFile(
+            source.absolutePath,
+            BitmapFactory.Options().apply {
+                inSampleSize = sampleSize
+                inPreferredConfig = Bitmap.Config.ARGB_8888
+            },
+        ) ?: return@runCatching null
+        val orientation = runCatching {
+            ExifInterface(source.absolutePath).getAttributeInt(
+                ExifInterface.TAG_ORIENTATION,
+                ExifInterface.ORIENTATION_NORMAL,
+            )
+        }.getOrDefault(ExifInterface.ORIENTATION_NORMAL)
+        val oriented = orientBitmap(decoded, orientation)
+        val targetDimensions = constrainedPhotoDimensions(oriented.width, oriented.height)
+        val prepared = if (
+            targetDimensions.first != oriented.width || targetDimensions.second != oriented.height
+        ) {
+            Bitmap.createScaledBitmap(
+                oriented,
+                targetDimensions.first,
+                targetDimensions.second,
+                true,
+            )
+        } else {
+            oriented
+        }
+        try {
+            temporary.outputStream().buffered().use { output ->
+                if (!prepared.compress(Bitmap.CompressFormat.JPEG, QUEUED_PHOTO_JPEG_QUALITY, output)) {
+                    throw IOException("The selected photo could not be prepared for upload.")
+                }
+            }
+            if (temporary.length() <= 0L) throw IOException("The prepared photo was empty.")
+            try {
+                java.nio.file.Files.move(
+                    temporary.toPath(),
+                    destination.toPath(),
+                    StandardCopyOption.ATOMIC_MOVE,
+                    StandardCopyOption.REPLACE_EXISTING,
+                )
+            } catch (_: AtomicMoveNotSupportedException) {
+                java.nio.file.Files.move(
+                    temporary.toPath(),
+                    destination.toPath(),
+                    StandardCopyOption.REPLACE_EXISTING,
+                )
+            }
+            source.delete()
+            QueuedMedia(destination, "image/jpeg", prepared.width, prepared.height)
+        } finally {
+            if (prepared !== oriented) prepared.recycle()
+            if (oriented !== decoded) oriented.recycle()
+            decoded.recycle()
+        }
+    }.getOrNull().also { prepared ->
+        temporary.delete()
+        if (prepared == null) destination.delete()
+    }
+}
+
+internal fun constrainedPhotoDimensions(
+    width: Int,
+    height: Int,
+    maxDimension: Int = QUEUED_PHOTO_MAX_DIMENSION,
+): Pair<Int, Int> {
+    val longestSide = maxOf(width, height)
+    if (width <= 0 || height <= 0 || maxDimension <= 0 || longestSide <= maxDimension) {
+        return width to height
+    }
+    val scale = maxDimension.toFloat() / longestSide
+    return (width * scale).roundToInt().coerceAtLeast(1) to
+        (height * scale).roundToInt().coerceAtLeast(1)
+}
+
+private fun orientBitmap(source: Bitmap, orientation: Int): Bitmap {
+    val matrix = Matrix()
+    when (orientation) {
+        ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.setScale(-1f, 1f)
+        ExifInterface.ORIENTATION_ROTATE_180 -> matrix.setRotate(180f)
+        ExifInterface.ORIENTATION_FLIP_VERTICAL -> matrix.setScale(1f, -1f)
+        ExifInterface.ORIENTATION_TRANSPOSE -> {
+            matrix.setRotate(90f)
+            matrix.postScale(-1f, 1f)
+        }
+        ExifInterface.ORIENTATION_ROTATE_90 -> matrix.setRotate(90f)
+        ExifInterface.ORIENTATION_TRANSVERSE -> {
+            matrix.setRotate(-90f)
+            matrix.postScale(-1f, 1f)
+        }
+        ExifInterface.ORIENTATION_ROTATE_270 -> matrix.setRotate(270f)
+        else -> return source
+    }
+    return Bitmap.createBitmap(source, 0, 0, source.width, source.height, matrix, true)
+}
 
 private fun copySelectedMedia(
     context: Context,
@@ -1348,65 +1602,111 @@ class FieldSyncEngine(private val context: Context) {
             }
     }
 
-    suspend fun drain(prioritizedPhotoId: String? = null): Boolean = fieldSyncMutex.withLock {
+    suspend fun pendingPhotoCount(): Int = dao.listAll().count { operation ->
+        operation.kind == OperationKind.UploadPhoto && operation.state in setOf("queued", "syncing")
+    }
+
+    suspend fun drain(
+        prioritizedPhotoId: String? = null,
+        onProgress: suspend (FieldSyncProgress) -> Unit = {},
+    ): Boolean = fieldSyncMutex.withLock {
         var shouldRetry = false
+        var completedPhotoCount = 0
+        var totalPhotoCount = pendingPhotoCount()
+
+        suspend fun reportProgress() {
+            val remainingPhotoCount = pendingPhotoCount()
+            totalPhotoCount = maxOf(totalPhotoCount, completedPhotoCount + remainingPhotoCount)
+            onProgress(
+                FieldSyncProgress(
+                    totalPhotoCount = totalPhotoCount,
+                    completedPhotoCount = completedPhotoCount,
+                    remainingPhotoCount = remainingPhotoCount,
+                )
+            )
+        }
+
+        reportProgress()
         while (true) {
             val operations = dao.listAll()
-            val operation = selectNextSyncOperation(operations, prioritizedPhotoId) ?: break
-            dao.updateState(
-                operation.id,
-                "syncing",
-                operation.attemptCount,
-                System.currentTimeMillis(),
-                null,
-            )
-            try {
-                execute(operation)
-                if (operation.kind == OperationKind.CreateHike) {
-                    releaseRecordedHikeChildren(operation.entityId)
-                }
-                if (operation.kind == OperationKind.CreateFieldMark) {
-                    fieldMarks.updateSyncState(operation.entityId, "synced", System.currentTimeMillis())
-                }
-                if (operation.kind == OperationKind.UploadRoute) {
-                    invalidateRouteCaches(context)
-                }
-                operation.localFilePath?.takeIf {
-                    operation.kind == OperationKind.UploadPhoto || operation.kind == OperationKind.UploadRoute
-                }?.let { File(it).delete() }
-                if (operation.kind == OperationKind.DeleteHike) {
-                    dao.updateState(
-                        operation.id,
-                        "completed",
-                        operation.attemptCount,
-                        System.currentTimeMillis(),
-                        null,
-                    )
-                } else {
-                    dao.delete(operation.id)
-                }
-            } catch (error: Exception) {
-                val attempts = operation.attemptCount + 1
-                val permanent = error is ApiException && error.statusCode in 400..499 && error.statusCode !in setOf(408, 429)
-                val needsAttention = permanent || attempts >= 5
+            val batch = selectNextSyncBatch(operations, prioritizedPhotoId)
+            if (batch.isEmpty()) break
+            batch.forEach { operation ->
                 dao.updateState(
                     operation.id,
-                    if (needsAttention) "needs_attention" else "queued",
-                    attempts,
+                    "syncing",
+                    operation.attemptCount,
                     System.currentTimeMillis(),
-                    error.message ?: "Sync failed.",
+                    null,
                 )
-                if (operation.kind == OperationKind.CreateFieldMark) {
-                    fieldMarks.updateSyncState(
-                        operation.entityId,
+            }
+            val results = coroutineScope {
+                batch.map { operation ->
+                    async {
+                        operation to try {
+                            execute(operation)
+                            null
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (error: Exception) {
+                            error
+                        }
+                    }
+                }.awaitAll()
+            }
+            var batchNeedsRetry = false
+            results.forEach { (operation, error) ->
+                if (error == null) {
+                    if (operation.kind == OperationKind.CreateHike) {
+                        releaseRecordedHikeChildren(operation.entityId)
+                    }
+                    if (operation.kind == OperationKind.CreateFieldMark) {
+                        fieldMarks.updateSyncState(operation.entityId, "synced", System.currentTimeMillis())
+                    }
+                    if (operation.kind == OperationKind.UploadRoute) {
+                        invalidateRouteCaches(context)
+                    }
+                    operation.localFilePath?.takeIf {
+                        operation.kind == OperationKind.UploadPhoto || operation.kind == OperationKind.UploadRoute
+                    }?.let { File(it).delete() }
+                    if (operation.kind == OperationKind.DeleteHike) {
+                        dao.updateState(
+                            operation.id,
+                            "completed",
+                            operation.attemptCount,
+                            System.currentTimeMillis(),
+                            null,
+                        )
+                    } else {
+                        dao.delete(operation.id)
+                    }
+                    if (operation.kind == OperationKind.UploadPhoto) completedPhotoCount += 1
+                } else {
+                    val attempts = operation.attemptCount + 1
+                    val permanent = error is ApiException &&
+                        error.statusCode in 400..499 && error.statusCode !in setOf(408, 429)
+                    val needsAttention = permanent || attempts >= 5
+                    dao.updateState(
+                        operation.id,
                         if (needsAttention) "needs_attention" else "queued",
+                        attempts,
                         System.currentTimeMillis(),
+                        error.message ?: "Sync failed.",
                     )
+                    if (operation.kind == OperationKind.CreateFieldMark) {
+                        fieldMarks.updateSyncState(
+                            operation.entityId,
+                            if (needsAttention) "needs_attention" else "queued",
+                            System.currentTimeMillis(),
+                        )
+                    }
+                    if (!needsAttention) batchNeedsRetry = true
                 }
-                if (!needsAttention) {
-                    shouldRetry = true
-                    break
-                }
+            }
+            reportProgress()
+            if (batchNeedsRetry) {
+                shouldRetry = true
+                break
             }
         }
         if (!shouldRetry && dao.listAll().none { it.state == "queued" || it.state == "syncing" }) {
@@ -1678,7 +1978,72 @@ private fun selectedFileName(context: Context, uri: Uri): String? =
     }
 
 class FieldSyncWorker(context: Context, parameters: WorkerParameters) : CoroutineWorker(context, parameters) {
-    override suspend fun doWork(): Result = if (FieldSyncEngine(applicationContext).drain()) Result.retry() else Result.success()
+    override suspend fun doWork(): Result {
+        val engine = FieldSyncEngine(applicationContext)
+        val initialPhotoCount = engine.pendingPhotoCount()
+        var foregroundTransfer = initialPhotoCount >= LONG_RUNNING_PHOTO_UPLOAD_THRESHOLD
+        if (foregroundTransfer) {
+            setForeground(createForegroundInfo(FieldSyncProgress(initialPhotoCount, 0, initialPhotoCount)))
+        }
+        val shouldRetry = engine.drain { progress ->
+            if (progress.totalPhotoCount >= LONG_RUNNING_PHOTO_UPLOAD_THRESHOLD) {
+                foregroundTransfer = true
+            }
+            if (foregroundTransfer) setForeground(createForegroundInfo(progress))
+        }
+        return if (shouldRetry) Result.retry() else Result.success()
+    }
+
+    private fun createForegroundInfo(progress: FieldSyncProgress): ForegroundInfo {
+        val manager = applicationContext.getSystemService(NotificationManager::class.java)
+        manager.createNotificationChannel(
+            NotificationChannel(
+                SYNC_NOTIFICATION_CHANNEL_ID,
+                "Photo uploads",
+                NotificationManager.IMPORTANCE_LOW,
+            ).apply {
+                description = "Progress for HikeJournal photo transfers"
+            }
+        )
+        val openApp = PendingIntent.getActivity(
+            applicationContext,
+            0,
+            Intent(applicationContext, MainActivity::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val progressMax = progress.totalPhotoCount.coerceAtLeast(1)
+        val uploaded = progress.completedPhotoCount.coerceAtMost(progressMax)
+        val notification = NotificationCompat.Builder(applicationContext, SYNC_NOTIFICATION_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_tracking_notification)
+            .setContentTitle("Uploading HikeJournal photos")
+            .setContentText(
+                if (progress.remainingPhotoCount == 0) {
+                    "Finishing photo sync…"
+                } else {
+                    "$uploaded of ${progress.totalPhotoCount} uploaded · ${progress.remainingPhotoCount} remaining"
+                }
+            )
+            .setContentIntent(openApp)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setCategory(NotificationCompat.CATEGORY_PROGRESS)
+            .setProgress(progressMax, uploaded, false)
+            .build()
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ForegroundInfo(
+                SYNC_NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
+            )
+        } else {
+            ForegroundInfo(SYNC_NOTIFICATION_ID, notification)
+        }
+    }
+
+    private companion object {
+        const val SYNC_NOTIFICATION_CHANNEL_ID = "hikejournal-photo-sync"
+        const val SYNC_NOTIFICATION_ID = 4202
+    }
 }
 
 object SyncScheduler {

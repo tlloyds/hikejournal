@@ -1500,6 +1500,7 @@ private fun SyncStrip(
     onShowAttention: () -> Unit,
 ) {
     val queued = status.pendingCount + status.syncingCount
+    val remainingPhotos = status.pendingPhotoCount + status.syncingPhotoCount
     val background = when {
         status.needsAttentionCount > 0 -> Color(0xFFF0D8CC)
         queued > 0 -> Color(0xFFDDE5D8)
@@ -1523,7 +1524,9 @@ private fun SyncStrip(
             Text(
                 when {
                     status.needsAttentionCount > 0 -> "${status.needsAttentionCount} change${if (status.needsAttentionCount == 1) "" else "s"} need attention"
+                    status.syncingPhotoCount > 0 -> "Uploading photos · $remainingPhotos remaining"
                     syncing || status.syncingCount > 0 -> "Syncing field notes…"
+                    status.pendingPhotoCount > 0 && status.connected -> "$remainingPhotos photo${if (remainingPhotos == 1) "" else "s"} ready to upload"
                     queued > 0 && !status.connected -> "Offline · $queued change${if (queued == 1) "" else "s"} saved"
                     queued > 0 -> "$queued change${if (queued == 1) "" else "s"} ready to sync"
                     else -> "Field journal is up to date"
@@ -1532,7 +1535,11 @@ private fun SyncStrip(
                 color = Ink,
             )
             Text(
-                if (status.connected) "Photos and notes sync safely in the background." else "Keep hiking—everything here is stored on this phone.",
+                when {
+                    !status.connected -> "Keep hiking—everything here is stored on this phone."
+                    remainingPhotos > 0 -> "You can leave HikeJournal; Android will continue this transfer."
+                    else -> "Photos and notes sync safely in the background."
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = InkMuted,
             )
