@@ -8,6 +8,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -62,6 +63,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -99,9 +101,12 @@ internal fun PlaceProfileScreen(
     loading: Boolean,
     loadingPlaceName: String,
     loadingCoverUrl: String,
+    placePositionLabel: String,
     onBack: () -> Unit,
     onOpenHike: (String) -> Unit,
     onOpenSpecies: (String) -> Unit,
+    onPreviousPlace: (() -> Unit)?,
+    onNextPlace: (() -> Unit)?,
 ) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -111,10 +116,37 @@ internal fun PlaceProfileScreen(
         profile.visits.firstOrNull()?.coverUrl.orEmpty()
     }
     BackHandler(onBack = onBack)
-    LazyColumn(Modifier.fillMaxSize().background(Parchment), state = listState) {
+    LazyColumn(
+        Modifier.fillMaxSize().background(Parchment).pointerInput(
+            profile?.locationId,
+            loading,
+            onPreviousPlace != null,
+            onNextPlace != null,
+        ) {
+            if (!loading && profile != null && (onPreviousPlace != null || onNextPlace != null)) {
+                val swipeThreshold = 72.dp.toPx()
+                var horizontalDragDistance = 0f
+                detectHorizontalDragGestures(
+                    onHorizontalDrag = { change, dragAmount ->
+                        change.consume()
+                        horizontalDragDistance += dragAmount
+                    },
+                    onDragEnd = {
+                        when {
+                            horizontalDragDistance <= -swipeThreshold -> onNextPlace?.invoke()
+                            horizontalDragDistance >= swipeThreshold -> onPreviousPlace?.invoke()
+                        }
+                        horizontalDragDistance = 0f
+                    },
+                    onDragCancel = { horizontalDragDistance = 0f },
+                )
+            }
+        },
+        state = listState,
+    ) {
         item {
             FieldPageHero(
-                kicker = "PLACE PROFILE",
+                kicker = listOf("PLACE PROFILE", placePositionLabel).filter(String::isNotBlank).joinToString(" · "),
                 title = profile?.name ?: loadingPlaceName.ifBlank { "Reading this place…" },
                 subtitle = profile?.let {
                     "${it.outingCount} recorded visit${if (it.outingCount == 1) "" else "s"} · ${formatMiles(it.totalDistanceMiles)}"
@@ -523,15 +555,25 @@ private fun LifeGroupHeader(name: String, count: Int, expanded: Boolean, onClick
 internal fun HikeComparisonScreen(
     comparison: HikeComparison?,
     loading: Boolean,
+    coverUrl: String,
     onBack: () -> Unit,
+    onOpenSpecies: (String) -> Unit,
 ) {
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    val latestHike = comparison?.let {
+        if (it.hikeA.hikeDate >= it.hikeB.hikeDate) it.hikeA else it.hikeB
+    }
     BackHandler(onBack = onBack)
-    LazyColumn(Modifier.fillMaxSize().background(Parchment)) {
+    LazyColumn(Modifier.fillMaxSize().background(Parchment), state = listState) {
         item {
             FieldPageHero(
                 kicker = "FIELD JOURNAL COMPARISON",
                 title = "What changed between these visits?",
                 subtitle = comparison?.let { "${it.hikeA.hikeDate}  ↔  ${it.hikeB.hikeDate}" }.orEmpty(),
+                imageUrl = coverUrl,
+                imageDescription = latestHike?.let { "Cover photo from ${it.title}, the most recent compared hike" }
+                    ?: "Field journal comparison cover",
                 onBack = onBack,
             )
         }
@@ -582,9 +624,14 @@ internal fun HikeComparisonScreen(
                     }
                 }
             }
-            item { SpeciesDifference("RECORDED ON BOTH", comparison.shared) }
-            item { SpeciesDifference("ONLY ON ${comparison.hikeA.hikeDate}", comparison.onlyA) }
-            item { SpeciesDifference("ONLY ON ${comparison.hikeB.hikeDate}", comparison.onlyB) }
+            item { SpeciesDifference("RECORDED ON BOTH", comparison.shared, onOpenSpecies) }
+            item { SpeciesDifference("ONLY ON ${comparison.hikeA.hikeDate}", comparison.onlyA, onOpenSpecies) }
+            item { SpeciesDifference("ONLY ON ${comparison.hikeB.hikeDate}", comparison.onlyB, onOpenSpecies) }
+            item {
+                FieldBackToTop {
+                    scope.launch { listState.animateScrollToItem(0) }
+                }
+            }
             item { Spacer(Modifier.height(60.dp)) }
         }
     }
@@ -636,14 +683,23 @@ private fun ComparisonColumn(hike: ComparisonHike, modifier: Modifier = Modifier
 }
 
 @Composable
-private fun SpeciesDifference(title: String, species: List<ComparisonSpecies>) {
+private fun SpeciesDifference(
+    title: String,
+    species: List<ComparisonSpecies>,
+    onOpenSpecies: (String) -> Unit,
+) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 20.dp)) {
         Text(title, style = MaterialTheme.typography.labelSmall, color = TrailText)
         if (species.isEmpty()) {
             Text("No confirmed species in this group.", style = MaterialTheme.typography.bodyMedium, color = InkMuted, modifier = Modifier.padding(top = 10.dp))
         } else {
             species.forEach { item ->
-                Row(Modifier.fillMaxWidth().padding(vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    Modifier.fillMaxWidth()
+                        .clickable(enabled = item.key.isNotBlank()) { onOpenSpecies(item.key) }
+                        .padding(vertical = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     Box(Modifier.size(54.dp).clip(CircleShape).background(Color(0xFFD0CFBD))) {
                         if (item.referencePhotoUrl.isNotBlank()) {
                             AsyncImage(
@@ -661,10 +717,16 @@ private fun SpeciesDifference(title: String, species: List<ComparisonSpecies>) {
                             )
                         }
                     }
-                    Column(Modifier.padding(start = 12.dp)) {
+                    Column(Modifier.weight(1f).padding(start = 12.dp)) {
                         Text(item.commonName, style = MaterialTheme.typography.bodyLarge, color = Ink)
                         Text(item.scientificName, style = MaterialTheme.typography.bodySmall, color = InkMuted, fontStyle = FontStyle.Italic)
                     }
+                    Icon(
+                        Icons.AutoMirrored.Rounded.ArrowForward,
+                        contentDescription = "Open ${item.commonName} in the species log",
+                        tint = FernText,
+                        modifier = Modifier.padding(start = 10.dp).size(18.dp),
+                    )
                 }
             }
         }

@@ -25,7 +25,9 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -122,6 +124,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -213,6 +216,42 @@ private data class SpeciesBrowseContext(
     val label: String,
 )
 
+internal data class PlaceProfileTarget(
+    val id: String,
+    val name: String,
+    val coverUrl: String,
+    val latestHikeDate: String,
+)
+
+internal fun placeProfileTargets(hikes: List<Hike>): List<PlaceProfileTarget> = hikes
+    .filterNot { it.isStandalone || it.primaryLocationId.isNullOrBlank() }
+    .groupBy { it.primaryLocationId.orEmpty() }
+    .mapNotNull { (locationId, visits) ->
+        val latest = visits.maxWithOrNull(compareBy<Hike> { it.hikeDate }.thenBy { it.id })
+            ?: return@mapNotNull null
+        PlaceProfileTarget(
+            id = locationId,
+            name = latest.primaryLocationName.ifBlank { latest.locationName }.ifBlank { "Unknown place" },
+            coverUrl = latest.coverUrl,
+            latestHikeDate = latest.hikeDate,
+        )
+    }
+    .sortedWith(
+        compareByDescending<PlaceProfileTarget> { it.latestHikeDate }
+            .thenBy { it.name.lowercase(Locale.US) },
+    )
+
+internal fun adjacentPlaceProfileTarget(
+    targets: List<PlaceProfileTarget>,
+    currentId: String,
+    offset: Int,
+): PlaceProfileTarget? {
+    if (targets.isEmpty()) return null
+    val currentIndex = targets.indexOfFirst { it.id == currentId }
+    if (currentIndex < 0) return null
+    return targets[(currentIndex + offset).mod(targets.size)]
+}
+
 private enum class TrackingPreflightIssue {
     PreciseLocation,
     Notifications,
@@ -251,6 +290,8 @@ fun HikeJournalApp(viewModel: AppViewModel) {
     var selectedRouteUri by remember { mutableStateOf<Uri?>(null) }
     var pendingHikeDelete by remember { mutableStateOf<Hike?>(null) }
     var speciesBrowseContext by remember { mutableStateOf<SpeciesBrowseContext?>(null) }
+    var placeProfileLoadingTarget by remember { mutableStateOf<PlaceProfileTarget?>(null) }
+    var placeSwipeDirection by remember { mutableIntStateOf(0) }
     var speciesCollectionPreferences by remember { mutableStateOf(SpeciesCollectionPreferences()) }
     var trackingVisible by rememberSaveable { mutableStateOf(false) }
     var trackingEndConfirmationRequested by rememberSaveable { mutableStateOf(false) }
@@ -262,6 +303,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
 
     val activeTracking = state.tracking?.takeUnless { it.status == TrackingStatus.FINISHED }
     val trackingUi = activeTracking?.toTrackingUiModel()
+    val availablePlaceProfiles = placeProfileTargets(state.hikes)
 
     fun closeHikeMap() {
         val request = hikeMapRequest
@@ -269,6 +311,12 @@ fun HikeJournalApp(viewModel: AppViewModel) {
         if (request?.returnToPhoto == true) {
             selectedPhoto = request.focusedPhoto
         }
+    }
+
+    fun closePlaceProfile() {
+        placeProfileLoadingTarget = null
+        placeSwipeDirection = 0
+        viewModel.closePlaceProfile()
     }
 
     LaunchedEffect(state.inatAuthorizationUrl) {
@@ -425,10 +473,10 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                 viewModel.closeHikeComparison()
             }
             state.longitudinalDestination == LongitudinalDestination.FieldBriefing -> viewModel.closeFieldBriefing()
-            state.longitudinalDestination == LongitudinalDestination.PlaceProfile -> viewModel.closePlaceProfile()
+            state.longitudinalDestination == LongitudinalDestination.PlaceProfile -> closePlaceProfile()
             state.hikeComparison != null -> viewModel.closeHikeComparison()
             state.fieldBriefing != null -> viewModel.closeFieldBriefing()
-            state.placeProfile != null -> viewModel.closePlaceProfile()
+            state.placeProfile != null -> closePlaceProfile()
             state.journal != null -> viewModel.closeJournal()
         }
     }
@@ -455,7 +503,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
         state.fieldBriefing != null || state.longitudinalDestination == LongitudinalDestination.FieldBriefing ->
             "briefing:${state.fieldBriefing?.targetDate ?: "loading"}"
         state.placeProfile != null || state.longitudinalDestination == LongitudinalDestination.PlaceProfile ->
-            "place:${state.placeProfile?.locationId ?: "loading"}"
+            "place:${state.placeProfile?.locationId ?: placeProfileLoadingTarget?.id ?: "loading"}"
         state.journal != null -> "journal:${state.journal?.id}"
         badgesOpen -> "badges"
         else -> destination.name
@@ -465,8 +513,17 @@ fun HikeJournalApp(viewModel: AppViewModel) {
         AnimatedContent(
             targetState = screenKey,
             transitionSpec = {
-                (fadeIn(tween(280)) + slideInVertically(tween(320)) { it / 12 }) togetherWith
-                    fadeOut(tween(180))
+                if (
+                    initialState.startsWith("place:") && targetState.startsWith("place:") &&
+                    initialState != targetState && placeSwipeDirection != 0
+                ) {
+                    val direction = placeSwipeDirection
+                    (fadeIn(tween(220)) + slideInHorizontally(tween(300)) { direction * it / 3 }) togetherWith
+                        (fadeOut(tween(180)) + slideOutHorizontally(tween(260)) { -direction * it / 3 })
+                } else {
+                    (fadeIn(tween(280)) + slideInVertically(tween(320)) { it / 12 }) togetherWith
+                        fadeOut(tween(180))
+                }
             },
             label = "journal-navigation",
         ) { key ->
@@ -532,9 +589,21 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                 key == "comparison" -> HikeComparisonScreen(
                     comparison = state.hikeComparison,
                     loading = state.isLongitudinalLoading,
+                    coverUrl = state.hikeComparison?.let { comparison ->
+                        val latestHikeId = if (comparison.hikeA.hikeDate >= comparison.hikeB.hikeDate) {
+                            comparison.hikeA.id
+                        } else {
+                            comparison.hikeB.id
+                        }
+                        state.hikes.firstOrNull { it.id == latestHikeId }?.coverUrl
+                    } ?: comparisonBaseHike?.coverUrl.orEmpty(),
                     onBack = {
                         comparisonBaseHike = null
                         viewModel.closeHikeComparison()
+                    },
+                    onOpenSpecies = { speciesKey ->
+                        speciesBrowseContext = null
+                        viewModel.openSpecies(speciesKey)
                     },
                 )
                 key.startsWith("briefing:") -> FieldBriefingScreen(
@@ -543,22 +612,60 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                     onBack = viewModel::closeFieldBriefing,
                     onOpenSightings = viewModel::openBriefingSightingsMap,
                 )
-                key.startsWith("place:") -> PlaceProfileScreen(
-                    profile = state.placeProfile,
-                    loading = state.isLongitudinalLoading,
-                    loadingPlaceName = state.journal?.primaryLocationName.orEmpty()
-                        .ifBlank { state.journal?.locationName.orEmpty() },
-                    loadingCoverUrl = state.journal?.coverUrl.orEmpty(),
-                    onBack = viewModel::closePlaceProfile,
-                    onOpenHike = { hikeId ->
-                        viewModel.closePlaceProfile()
-                        viewModel.openHike(hikeId)
-                    },
-                    onOpenSpecies = { key ->
-                        speciesBrowseContext = null
-                        viewModel.openSpecies(key)
-                    },
-                )
+                key.startsWith("place:") -> {
+                    val currentPlaceId = state.placeProfile?.locationId
+                        ?: placeProfileLoadingTarget?.id
+                        ?: state.journal?.primaryLocationId.orEmpty()
+                    val currentPlaceIndex = availablePlaceProfiles.indexOfFirst { it.id == currentPlaceId }
+                    val canBrowsePlaces = availablePlaceProfiles.size > 1 && currentPlaceIndex >= 0
+                    val previousPlace = if (canBrowsePlaces) {
+                        adjacentPlaceProfileTarget(availablePlaceProfiles, currentPlaceId, -1)
+                    } else {
+                        null
+                    }
+                    val nextPlace = if (canBrowsePlaces) {
+                        adjacentPlaceProfileTarget(availablePlaceProfiles, currentPlaceId, 1)
+                    } else {
+                        null
+                    }
+                    PlaceProfileScreen(
+                        profile = state.placeProfile,
+                        loading = state.isLongitudinalLoading,
+                        loadingPlaceName = placeProfileLoadingTarget?.name
+                            ?: state.journal?.primaryLocationName.orEmpty()
+                                .ifBlank { state.journal?.locationName.orEmpty() },
+                        loadingCoverUrl = placeProfileLoadingTarget?.coverUrl
+                            ?: state.journal?.coverUrl.orEmpty(),
+                        placePositionLabel = if (canBrowsePlaces) {
+                            "${currentPlaceIndex + 1} OF ${availablePlaceProfiles.size}"
+                        } else {
+                            ""
+                        },
+                        onBack = ::closePlaceProfile,
+                        onOpenHike = { hikeId ->
+                            closePlaceProfile()
+                            viewModel.openHike(hikeId)
+                        },
+                        onOpenSpecies = { speciesKey ->
+                            speciesBrowseContext = null
+                            viewModel.openSpecies(speciesKey)
+                        },
+                        onPreviousPlace = previousPlace?.let { target ->
+                            {
+                                placeSwipeDirection = -1
+                                placeProfileLoadingTarget = target
+                                viewModel.openPlaceProfile(target.id)
+                            }
+                        },
+                        onNextPlace = nextPlace?.let { target ->
+                            {
+                                placeSwipeDirection = 1
+                                placeProfileLoadingTarget = target
+                                viewModel.openPlaceProfile(target.id)
+                            }
+                        },
+                    )
+                }
                 key.startsWith("journal:") && state.journal != null -> {
                     val journal = state.journal!!
                     JournalScreen(
@@ -582,7 +689,17 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                             hikeMapRequest = HikeMapRequest(hike = journal)
                         },
                         onOpenPlace = journal.primaryLocationId?.let { locationId ->
-                            { viewModel.openPlaceProfile(locationId) }
+                            {
+                                placeSwipeDirection = 0
+                                placeProfileLoadingTarget = availablePlaceProfiles.firstOrNull { it.id == locationId }
+                                    ?: PlaceProfileTarget(
+                                        id = locationId,
+                                        name = journal.primaryLocationName.ifBlank { journal.locationName },
+                                        coverUrl = journal.coverUrl,
+                                        latestHikeDate = journal.hikeDate,
+                                    )
+                                viewModel.openPlaceProfile(locationId)
+                            }
                         },
                         onOpenBriefing = journal.primaryLocationId?.let { locationId ->
                             { viewModel.openFieldBriefing(locationId) }
