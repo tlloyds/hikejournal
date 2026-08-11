@@ -416,6 +416,10 @@ fun HikeJournalApp(viewModel: AppViewModel) {
             }
             badgesOpen -> badgesOpen = false
             state.questMapQuest != null -> viewModel.closeQuestSightingsMap()
+            state.speciesDetail != null -> {
+                speciesBrowseContext = null
+                viewModel.closeSpecies()
+            }
             state.longitudinalDestination == LongitudinalDestination.Comparison -> {
                 comparisonBaseHike = null
                 viewModel.closeHikeComparison()
@@ -426,10 +430,6 @@ fun HikeJournalApp(viewModel: AppViewModel) {
             state.fieldBriefing != null -> viewModel.closeFieldBriefing()
             state.placeProfile != null -> viewModel.closePlaceProfile()
             state.journal != null -> viewModel.closeJournal()
-            state.speciesDetail != null -> {
-                speciesBrowseContext = null
-                viewModel.closeSpecies()
-            }
         }
     }
 
@@ -450,13 +450,13 @@ fun HikeJournalApp(viewModel: AppViewModel) {
         trackingVisible && trackingUi != null -> "tracking:${trackingUi.sessionId}"
         hikeMapRequest != null -> "hike-map:${hikeMapRequest?.hike?.id}:${hikeMapRequest?.focusedPhoto?.id}"
         state.questMapQuest != null && state.questMapTaxon != null -> "quest-map:${state.questMapTaxon?.taxonId}"
+        state.speciesDetail != null -> "species:${state.speciesDetail?.key}"
         state.hikeComparison != null || state.longitudinalDestination == LongitudinalDestination.Comparison -> "comparison"
         state.fieldBriefing != null || state.longitudinalDestination == LongitudinalDestination.FieldBriefing ->
             "briefing:${state.fieldBriefing?.targetDate ?: "loading"}"
         state.placeProfile != null || state.longitudinalDestination == LongitudinalDestination.PlaceProfile ->
             "place:${state.placeProfile?.locationId ?: "loading"}"
         state.journal != null -> "journal:${state.journal?.id}"
-        state.speciesDetail != null -> "species:${state.speciesDetail?.key}"
         badgesOpen -> "badges"
         else -> destination.name
     }
@@ -546,10 +546,17 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                 key.startsWith("place:") -> PlaceProfileScreen(
                     profile = state.placeProfile,
                     loading = state.isLongitudinalLoading,
+                    loadingPlaceName = state.journal?.primaryLocationName.orEmpty()
+                        .ifBlank { state.journal?.locationName.orEmpty() },
+                    loadingCoverUrl = state.journal?.coverUrl.orEmpty(),
                     onBack = viewModel::closePlaceProfile,
                     onOpenHike = { hikeId ->
                         viewModel.closePlaceProfile()
                         viewModel.openHike(hikeId)
+                    },
+                    onOpenSpecies = { key ->
+                        speciesBrowseContext = null
+                        viewModel.openSpecies(key)
                     },
                 )
                 key.startsWith("journal:") && state.journal != null -> {

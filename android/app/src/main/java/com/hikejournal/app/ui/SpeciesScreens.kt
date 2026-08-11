@@ -37,6 +37,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -68,6 +69,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -113,6 +115,7 @@ import com.hikejournal.app.ui.theme.FernText
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import kotlinx.coroutines.launch
 
 private enum class SpeciesMode(val label: String) {
     Collection("Collection"),
@@ -283,10 +286,13 @@ fun SpeciesIndexScreen(
         } ?: "SEASONAL FIELD LIST"
         SpeciesMode.Quests -> "${visibleQuests.size} ${if (showArchivedQuests) "ARCHIVED" else "ACTIVE"} QUESTS"
     }
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
 
     Box(Modifier.fillMaxSize().background(Parchment)) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
+            state = listState,
             contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 104.dp),
         ) {
         item {
@@ -431,6 +437,11 @@ fun SpeciesIndexScreen(
         } else {
             items(filtered, key = { it.key }) { record ->
                 SpeciesIndexRow(record) { key -> onOpenSpecies(key, filtered, browseContext) }
+            }
+            item(key = "collection-back-to-top") {
+                FieldBackToTop {
+                    scope.launch { listState.animateScrollToItem(0) }
+                }
             }
         }
         }

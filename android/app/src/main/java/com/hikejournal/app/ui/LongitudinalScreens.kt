@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
@@ -31,6 +32,7 @@ import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.material.icons.rounded.FlutterDash
+import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.LocalFlorist
 import androidx.compose.material.icons.rounded.LocationOn
@@ -38,9 +40,10 @@ import androidx.compose.material.icons.rounded.Map
 import androidx.compose.material.icons.rounded.Park
 import androidx.compose.material.icons.rounded.Pets
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -48,20 +51,24 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.hikejournal.app.data.BriefingItem
 import com.hikejournal.app.data.ComparisonHike
 import com.hikejournal.app.data.ComparisonSpecies
@@ -73,6 +80,7 @@ import com.hikejournal.app.data.SeasonalHistory
 import com.hikejournal.app.data.WeatherSnapshot
 import com.hikejournal.app.data.toDiscoveryTaxon
 import com.hikejournal.app.ui.theme.Fern
+import com.hikejournal.app.ui.theme.FernText
 import com.hikejournal.app.ui.theme.Ink
 import com.hikejournal.app.ui.theme.InkMuted
 import com.hikejournal.app.ui.theme.Line
@@ -82,37 +90,51 @@ import com.hikejournal.app.ui.theme.Parchment
 import com.hikejournal.app.ui.theme.Trail
 import com.hikejournal.app.ui.theme.TrailText
 import java.util.Locale
+import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 @Composable
 internal fun PlaceProfileScreen(
     profile: PlaceProfile?,
     loading: Boolean,
+    loadingPlaceName: String,
+    loadingCoverUrl: String,
     onBack: () -> Unit,
     onOpenHike: (String) -> Unit,
+    onOpenSpecies: (String) -> Unit,
 ) {
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    val coverUrl = if (profile == null) {
+        loadingCoverUrl
+    } else {
+        profile.visits.firstOrNull()?.coverUrl.orEmpty()
+    }
     BackHandler(onBack = onBack)
-    LazyColumn(Modifier.fillMaxSize().background(Parchment)) {
+    LazyColumn(Modifier.fillMaxSize().background(Parchment), state = listState) {
         item {
             FieldPageHero(
                 kicker = "PLACE PROFILE",
-                title = profile?.name ?: "Reading this place…",
+                title = profile?.name ?: loadingPlaceName.ifBlank { "Reading this place…" },
                 subtitle = profile?.let {
                     "${it.outingCount} recorded visit${if (it.outingCount == 1) "" else "s"} · ${formatMiles(it.totalDistanceMiles)}"
                 }.orEmpty(),
+                imageUrl = coverUrl,
+                imageDescription = profile?.let { "Most recent hike at ${it.name}" } ?: "Hike cover while the place profile loads",
                 onBack = onBack,
             )
         }
         if (loading || profile == null) {
             item {
-                Box(Modifier.fillMaxWidth().padding(56.dp), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = Trail)
-                }
+                FieldPageLoading(
+                    title = "Gathering your field notes…",
+                    detail = "Reviewing visits, seasons, and the life you recorded here.",
+                )
             }
         } else {
             item {
                 Column(Modifier.padding(horizontal = 20.dp, vertical = 28.dp)) {
-                    Text("YOUR RECORD HERE", style = MaterialTheme.typography.labelSmall, color = TrailText)
+                    Text("YOUR RECORD HERE", style = MaterialTheme.typography.labelMedium, color = TrailText)
                     Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                         FieldNumber(profile.speciesCount.toString(), "SPECIES")
                         FieldNumber(profile.observationCount.toString(), "OBSERVATIONS")
@@ -120,9 +142,10 @@ internal fun PlaceProfileScreen(
                     }
                     Text(
                         profile.guidance,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = InkMuted,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Ink,
                         fontStyle = FontStyle.Italic,
+                        fontWeight = FontWeight.Medium,
                         modifier = Modifier.padding(top = 18.dp),
                     )
                 }
@@ -136,7 +159,7 @@ internal fun PlaceProfileScreen(
                 item {
                     FieldSection("LIFE RECORDED", "Open a life group to browse every distinct confirmed species recorded here.") {
                         if (profile.taxonGroups.isNotEmpty()) {
-                            LifeRecordedGroups(profile.taxonGroups)
+                            LifeRecordedGroups(profile.taxonGroups, onOpenSpecies)
                         } else {
                             profile.taxonCounts.forEach { (name, count) ->
                                 LifeGroupHeader(name = name, count = count, expanded = false, onClick = {})
@@ -148,7 +171,7 @@ internal fun PlaceProfileScreen(
             item {
                 Text(
                     "VISIT HISTORY",
-                    style = MaterialTheme.typography.labelSmall,
+                    style = MaterialTheme.typography.labelMedium,
                     color = TrailText,
                     modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 30.dp, bottom = 8.dp),
                 )
@@ -177,17 +200,25 @@ internal fun PlaceProfileScreen(
                         }
                     }
                     Column(Modifier.weight(1f).padding(start = 14.dp)) {
-                        Text(visit.hikeDate, style = MaterialTheme.typography.labelSmall, color = TrailText)
+                        Text(visit.hikeDate, style = MaterialTheme.typography.labelMedium, color = TrailText)
                         Text(visit.title, style = MaterialTheme.typography.titleLarge, color = Ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(
                             "${visit.speciesCount} species · ${visit.newSpeciesCount} new then · ${visit.cumulativeSpeciesCount} cumulative",
-                            style = MaterialTheme.typography.bodySmall,
+                            style = MaterialTheme.typography.bodyMedium,
                             color = InkMuted,
+                            fontWeight = FontWeight.Medium,
                         )
                     }
-                    Icon(Icons.AutoMirrored.Rounded.ArrowForward, contentDescription = "Open journal", tint = Fern)
+                    Icon(Icons.AutoMirrored.Rounded.ArrowForward, contentDescription = "Open journal", tint = FernText)
                 }
                 HorizontalDivider(color = Line, modifier = Modifier.padding(start = 20.dp))
+            }
+            if (profile.visits.size > 5) {
+                item {
+                    FieldBackToTop {
+                        scope.launch { listState.animateScrollToItem(0) }
+                    }
+                }
             }
             item { Spacer(Modifier.height(60.dp)) }
         }
@@ -212,6 +243,9 @@ internal fun FieldBriefingScreen(
         }
         section.copy(items = visibleItems).takeIf { visibleItems.isNotEmpty() }
     }
+    val coverSpecies = briefing?.sections.orEmpty()
+        .flatMap { it.items }
+        .firstOrNull { it.referencePhotoUrl.isNotBlank() }
     BackHandler(onBack = onBack)
     LazyColumn(Modifier.fillMaxSize().background(Parchment)) {
         item {
@@ -219,22 +253,27 @@ internal fun FieldBriefingScreen(
                 kicker = "FIELD BRIEFING · ${briefing?.targetDate.orEmpty()}",
                 title = "What should I look for today?",
                 subtitle = briefing?.areaName.orEmpty(),
+                imageUrl = coverSpecies?.referencePhotoUrl.orEmpty(),
+                imageDescription = coverSpecies?.let { "${it.commonName}, the first illustrated species in today's briefing" }
+                    ?: "Field briefing cover",
                 onBack = onBack,
             )
         }
         if (loading || briefing == null) {
             item {
-                Box(Modifier.fillMaxWidth().padding(56.dp), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = Trail)
-                }
+                FieldPageLoading(
+                    title = "Preparing today’s field briefing…",
+                    detail = "Matching the season with nearby reports and your own field records.",
+                )
             }
         } else {
             item {
                 Text(
                     briefing.guidance,
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.bodyMedium,
                     fontStyle = FontStyle.Italic,
-                    color = InkMuted,
+                    fontWeight = FontWeight.Medium,
+                    color = Ink,
                     modifier = Modifier.padding(20.dp),
                 )
             }
@@ -244,11 +283,12 @@ internal fun FieldBriefingScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(Modifier.weight(1f)) {
-                        Text("LIFE GROUP", style = MaterialTheme.typography.labelSmall, color = TrailText)
+                        Text("LIFE GROUP", style = MaterialTheme.typography.labelMedium, color = TrailText)
                         Text(
                             if (selectedLifeGroups.isEmpty()) "Every recommendation" else "Filtered briefing",
-                            style = MaterialTheme.typography.bodySmall,
+                            style = MaterialTheme.typography.bodyMedium,
                             color = InkMuted,
+                            fontWeight = FontWeight.Medium,
                         )
                     }
                     TextButton(onClick = { lifeFilterOpen = true }) {
@@ -351,7 +391,7 @@ private fun BriefingRow(
             Column(Modifier.weight(1f).padding(start = 14.dp).clickable(onClick = onOpenSpecies)) {
                 Text(item.commonName, style = MaterialTheme.typography.titleLarge, color = Ink)
                 if (item.scientificName.isNotBlank()) {
-                    Text(item.scientificName, style = MaterialTheme.typography.bodyMedium, color = Fern, fontStyle = FontStyle.Italic)
+                    Text(item.scientificName, style = MaterialTheme.typography.bodyMedium, color = FernText, fontStyle = FontStyle.Italic)
                 }
                 val credit = listOf(item.referencePhotoAttribution, item.referencePhotoLicenseCode)
                     .filter(String::isNotBlank)
@@ -359,7 +399,7 @@ private fun BriefingRow(
                 if (credit.isNotBlank()) {
                     Text(
                         credit,
-                        style = MaterialTheme.typography.labelSmall,
+                        style = MaterialTheme.typography.labelMedium,
                         color = InkMuted,
                         modifier = Modifier.padding(top = 4.dp),
                         maxLines = 2,
@@ -369,7 +409,13 @@ private fun BriefingRow(
             }
         }
         item.reasons.forEach { reason ->
-            Text("· $reason", style = MaterialTheme.typography.bodyMedium, color = InkMuted, modifier = Modifier.padding(top = 4.dp))
+            Text(
+                "· $reason",
+                style = MaterialTheme.typography.bodyMedium,
+                color = Ink,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.padding(top = 4.dp),
+            )
         }
         Row(Modifier.fillMaxWidth().padding(top = 7.dp), horizontalArrangement = Arrangement.End) {
             TextButton(onClick = onOpenSpecies) { Text("Species details") }
@@ -385,7 +431,7 @@ private fun BriefingRow(
 }
 
 @Composable
-private fun LifeRecordedGroups(groups: List<PlaceTaxonGroup>) {
+private fun LifeRecordedGroups(groups: List<PlaceTaxonGroup>, onOpenSpecies: (String) -> Unit) {
     var expanded by remember(groups) { mutableStateOf(setOf<String>()) }
     groups.forEach { group ->
         val isExpanded = group.name in expanded
@@ -404,8 +450,13 @@ private fun LifeRecordedGroups(groups: List<PlaceTaxonGroup>) {
         ) {
             Column(Modifier.fillMaxWidth().padding(start = 50.dp, bottom = 10.dp)) {
                 group.species.forEach { species ->
-                    Row(Modifier.fillMaxWidth().padding(vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.size(42.dp).background(Color(0xFFD0CFBD), CircleShape)) {
+                    Row(
+                        Modifier.fillMaxWidth()
+                            .clickable(enabled = species.key.isNotBlank()) { onOpenSpecies(species.key) }
+                            .padding(vertical = 9.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(Modifier.size(44.dp).clip(CircleShape).background(Color(0xFFD0CFBD))) {
                             if (species.referencePhotoUrl.isNotBlank()) {
                                 AsyncImage(
                                     model = species.referencePhotoUrl,
@@ -429,11 +480,18 @@ private fun LifeRecordedGroups(groups: List<PlaceTaxonGroup>) {
                                     species.scientificName,
                                     "${species.encounterCount} encounter${if (species.encounterCount == 1) "" else "s"}",
                                 ).filter(String::isNotBlank).joinToString(" · "),
-                                style = MaterialTheme.typography.bodySmall,
+                                style = MaterialTheme.typography.bodyMedium,
                                 color = InkMuted,
                                 fontStyle = FontStyle.Italic,
+                                fontWeight = FontWeight.Medium,
                             )
                         }
+                        Icon(
+                            Icons.AutoMirrored.Rounded.ArrowForward,
+                            contentDescription = "Open ${species.commonName} in the species log",
+                            tint = FernText,
+                            modifier = Modifier.padding(horizontal = 10.dp).size(18.dp),
+                        )
                     }
                 }
             }
@@ -451,7 +509,7 @@ private fun LifeGroupHeader(name: String, count: Int, expanded: Boolean, onClick
             Icon(lifeGroupIcon(name), contentDescription = null, tint = Moss, modifier = Modifier.size(22.dp))
         }
         Text(friendlyTaxon(name), style = MaterialTheme.typography.bodyLarge, color = Ink, modifier = Modifier.weight(1f).padding(start = 12.dp))
-        Text(count.toString(), style = MaterialTheme.typography.titleMedium, color = Fern)
+        Text(count.toString(), style = MaterialTheme.typography.titleMedium, color = FernText)
         Icon(
             Icons.Rounded.KeyboardArrowDown,
             contentDescription = if (expanded) "Collapse" else "Expand",
@@ -627,34 +685,113 @@ internal fun SeasonalBand(history: SeasonalHistory, modifier: Modifier = Modifie
                                 else Line,
                             ),
                     )
-                    Text(month.label.take(1), style = MaterialTheme.typography.labelSmall, color = InkMuted, modifier = Modifier.padding(top = 5.dp))
+                    Text(month.label.take(1), style = MaterialTheme.typography.labelMedium, color = Ink, modifier = Modifier.padding(top = 5.dp))
                 }
             }
         }
         if (history.observationCount == 0) {
-            Text("No dated observations yet.", style = MaterialTheme.typography.bodySmall, color = InkMuted, modifier = Modifier.padding(top = 10.dp))
+            Text("No dated observations yet.", style = MaterialTheme.typography.bodyMedium, color = InkMuted, modifier = Modifier.padding(top = 10.dp))
         }
     }
 }
 
 @Composable
-private fun FieldPageHero(kicker: String, title: String, subtitle: String, onBack: () -> Unit) {
-    Box(Modifier.fillMaxWidth().background(Moss).statusBarsPadding().padding(bottom = 32.dp)) {
-        Column(Modifier.fillMaxWidth()) {
-            IconButton(onClick = onBack, modifier = Modifier.padding(start = 4.dp, top = 4.dp)) {
-                Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back", tint = Paper)
-            }
-            Column(Modifier.padding(horizontal = 20.dp, vertical = 12.dp)) {
-                Text("HikeJournal", style = MaterialTheme.typography.titleMedium, color = Color(0xFFD6E0D3))
-                Text(kicker, style = MaterialTheme.typography.labelSmall, color = Color(0xFFE7B868), modifier = Modifier.padding(top = 20.dp))
-                Text(title, style = MaterialTheme.typography.displaySmall, color = Paper, modifier = Modifier.padding(top = 4.dp))
-                if (subtitle.isNotBlank()) {
-                    Row(Modifier.padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.LocationOn, contentDescription = null, tint = Color(0xFFD6E0D3), modifier = Modifier.size(18.dp))
-                        Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = Color(0xFFD6E0D3), modifier = Modifier.padding(start = 5.dp))
-                    }
+private fun FieldPageHero(
+    kicker: String,
+    title: String,
+    subtitle: String,
+    onBack: () -> Unit,
+    imageUrl: String = "",
+    imageDescription: String = title,
+) {
+    Box(
+        Modifier.fillMaxWidth().height(360.dp).background(
+            Brush.linearGradient(listOf(Color(0xFF315844), Moss)),
+        ),
+    ) {
+        if (imageUrl.isNotBlank()) {
+            AsyncImage(
+                model = ImageRequest.Builder(LocalContext.current)
+                    .data(imageUrl)
+                    .crossfade(220)
+                    .build(),
+                contentDescription = imageDescription,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+            )
+        }
+        Box(
+            Modifier.fillMaxSize().background(
+                Brush.verticalGradient(
+                    listOf(Color(0xA3131D17), Color(0x22131D17), Color(0xE6111A14)),
+                ),
+            ),
+        )
+        FilledIconButton(
+            onClick = onBack,
+            modifier = Modifier.statusBarsPadding().padding(10.dp),
+            colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xB0142119)),
+        ) {
+            Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back", tint = Paper)
+        }
+        Column(Modifier.align(Alignment.BottomStart).padding(horizontal = 20.dp, vertical = 24.dp)) {
+            Text("HikeJournal", style = MaterialTheme.typography.headlineSmall, color = Paper)
+            Text(
+                kicker,
+                style = MaterialTheme.typography.labelMedium,
+                color = Color(0xFFF1C37A),
+                modifier = Modifier.padding(top = 14.dp),
+            )
+            Text(title, style = MaterialTheme.typography.headlineLarge, color = Paper, modifier = Modifier.padding(top = 4.dp))
+            if (subtitle.isNotBlank()) {
+                Row(Modifier.padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Rounded.LocationOn, contentDescription = null, tint = Paper, modifier = Modifier.size(18.dp))
+                    Text(
+                        subtitle,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Paper,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(start = 5.dp),
+                    )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun FieldPageLoading(title: String, detail: String) {
+    Row(
+        Modifier.fillMaxWidth().background(Paper).padding(horizontal = 20.dp, vertical = 28.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(52.dp).background(Color(0xFFE0E7D8), CircleShape), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator(Modifier.size(34.dp), color = Trail, strokeWidth = 2.dp)
+            Icon(Icons.Rounded.LocalFlorist, contentDescription = null, tint = Moss, modifier = Modifier.size(18.dp))
+        }
+        Column(Modifier.weight(1f).padding(start = 16.dp)) {
+            Text(title, style = MaterialTheme.typography.titleLarge, color = Ink)
+            Text(
+                detail,
+                style = MaterialTheme.typography.bodyMedium,
+                color = InkMuted,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.padding(top = 3.dp),
+            )
+        }
+    }
+    HorizontalDivider(color = Line)
+}
+
+@Composable
+internal fun FieldBackToTop(onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 22.dp),
+        horizontalArrangement = Arrangement.Center,
+    ) {
+        TextButton(onClick = onClick) {
+            Icon(Icons.Rounded.KeyboardArrowUp, contentDescription = null, modifier = Modifier.size(20.dp))
+            Text("Back to top", modifier = Modifier.padding(start = 5.dp))
         }
     }
 }
@@ -662,8 +799,14 @@ private fun FieldPageHero(kicker: String, title: String, subtitle: String, onBac
 @Composable
 private fun FieldSection(kicker: String, subtitle: String, content: @Composable () -> Unit) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 24.dp)) {
-        Text(kicker, style = MaterialTheme.typography.labelSmall, color = TrailText)
-        Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = InkMuted, modifier = Modifier.padding(top = 4.dp, bottom = 18.dp))
+        Text(kicker, style = MaterialTheme.typography.labelMedium, color = TrailText)
+        Text(
+            subtitle,
+            style = MaterialTheme.typography.bodyMedium,
+            color = Ink,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.padding(top = 4.dp, bottom = 18.dp),
+        )
         content()
     }
     HorizontalDivider(color = Line)
@@ -672,8 +815,8 @@ private fun FieldSection(kicker: String, subtitle: String, content: @Composable 
 @Composable
 private fun FieldNumber(value: String, label: String) {
     Column(horizontalAlignment = Alignment.Start) {
-        Text(value, style = MaterialTheme.typography.headlineMedium, color = Fern, fontWeight = FontWeight.Bold)
-        Text(label, style = MaterialTheme.typography.labelSmall, color = InkMuted)
+        Text(value, style = MaterialTheme.typography.headlineMedium, color = FernText, fontWeight = FontWeight.Bold)
+        Text(label, style = MaterialTheme.typography.labelMedium, color = InkMuted)
     }
 }
 
