@@ -2165,35 +2165,81 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             .distinctBy { it.id }
         if (eligible.isEmpty()) return
         viewModelScope.launch {
-            _state.update { it.copy(reviewUpdateId = "batch", error = null, notice = null) }
-            runCatching {
+            val syncImmediately = _state.value.syncStatus.connected
+            _state.update {
+                it.copy(
+                    reviewUpdateId = "batch",
+                    isSyncing = syncImmediately,
+                    error = null,
+                    notice = null,
+                )
+            }
+            val enqueueResult = runCatching {
                 eligible.forEach { photo ->
                     val hikeId = photo.hikeId ?: _state.value.journal?.id ?: "everyday"
-                    repository.setSpeciesReview(photo.id, hikeId, queued = true)
-                }
-            }.onSuccess {
-                val selectedIds = eligible.mapTo(hashSetOf()) { it.id }
-                _state.update { state ->
-                    state.copy(
-                        journal = state.journal?.copy(
-                            photos = state.journal.photos.map { photo ->
-                                if (photo.id in selectedIds) {
-                                    photo.copy(
-                                        processingStatus = "in_review",
-                                        syncState = if (photo.syncState == "synced") "queued" else photo.syncState,
-                                    )
-                                } else {
-                                    photo
-                                }
-                            },
-                        ),
-                        reviewQueue = emptyList(),
-                        reviewUpdateId = null,
-                        notice = "Added ${eligible.size} photo${if (eligible.size == 1) "" else "s"} to species review.",
+                    repository.setSpeciesReview(
+                        photoId = photo.id,
+                        hikeId = hikeId,
+                        queued = true,
+                        scheduleSync = false,
                     )
                 }
-            }.onFailure { error ->
-                _state.update { it.copy(reviewUpdateId = null, error = error.userMessage()) }
+            }
+            if (enqueueResult.isFailure) {
+                // Some items may already be durable even if a later item failed.
+                // Make sure those successful writes are never left without a worker.
+                repository.scheduleSync()
+                _state.update {
+                    it.copy(
+                        reviewUpdateId = null,
+                        isSyncing = false,
+                        error = enqueueResult.exceptionOrNull()?.userMessage(),
+                    )
+                }
+                return@launch
+            }
+
+            val selectedIds = eligible.mapTo(hashSetOf()) { it.id }
+            val addedNotice = "Added ${eligible.size} photo${if (eligible.size == 1) "" else "s"} to species review."
+            _state.update { state ->
+                state.copy(
+                    journal = state.journal?.copy(
+                        photos = state.journal.photos.map { photo ->
+                            if (photo.id in selectedIds) {
+                                photo.copy(
+                                    processingStatus = "in_review",
+                                    syncState = if (photo.syncState == "synced") "queued" else photo.syncState,
+                                )
+                            } else {
+                                photo
+                            }
+                        },
+                    ),
+                    reviewQueue = emptyList(),
+                    reviewUpdateId = null,
+                    notice = if (syncImmediately) "$addedNotice Syncing automatically…" else addedNotice,
+                )
+            }
+
+            // Keep one durable handoff in case the app closes, then start immediately while
+            // this foreground session is available. The user's review choice is the action;
+            // tapping a second Sync button must not be required.
+            repository.scheduleSync()
+            if (!syncImmediately) return@launch
+
+            val syncResult = runCatching { repository.syncNow() }
+            if (syncResult.getOrNull() == false) {
+                _state.value.journal?.id?.let { refreshJournalAfterSync(it) }
+            }
+            _state.update { state ->
+                state.copy(
+                    isSyncing = false,
+                    notice = if (syncResult.getOrNull() == false) {
+                        addedNotice
+                    } else {
+                        "$addedNotice Automatic sync will keep retrying in the background."
+                    },
+                )
             }
         }
     }

@@ -738,7 +738,12 @@ class FieldOperationQueue(private val context: Context) {
         enqueue(OperationKind.DeletePhoto, photoId, hikeId, JSONObject())
     }
 
-    suspend fun queueSpeciesReview(photoId: String, hikeId: String?, queued: Boolean) {
+    suspend fun queueSpeciesReview(
+        photoId: String,
+        hikeId: String?,
+        queued: Boolean,
+        scheduleSync: Boolean = true,
+    ) {
         val updatedPendingUpload = fieldSyncMutex.withLock {
             val pendingUpload = dao.find(OperationKind.UploadPhoto, photoId)
             if (pendingUpload == null || pendingUpload.state == "syncing") return@withLock false
@@ -760,7 +765,7 @@ class FieldOperationQueue(private val context: Context) {
             true
         }
         if (updatedPendingUpload) {
-            SyncScheduler.schedule(context)
+            if (scheduleSync) SyncScheduler.schedule(context)
             return
         }
         coalesce(OperationKind.QueueSpeciesReview, photoId)
@@ -769,6 +774,7 @@ class FieldOperationQueue(private val context: Context) {
             photoId,
             hikeId,
             JSONObject().put("queued", queued),
+            scheduleSync = scheduleSync,
         )
     }
 
@@ -1092,6 +1098,7 @@ class FieldOperationQueue(private val context: Context) {
         localFilePath: String? = null,
         contentType: String? = null,
         fileName: String? = null,
+        scheduleSync: Boolean = true,
     ) = fieldSyncMutex.withLock {
         val targetHikeId = parentId ?: entityId.takeIf {
             kind in setOf(
@@ -1123,7 +1130,7 @@ class FieldOperationQueue(private val context: Context) {
                 lastError = null,
             ),
         )
-        SyncScheduler.schedule(context)
+        if (scheduleSync) SyncScheduler.schedule(context)
     }
 
     private suspend fun enqueueDuringSync(

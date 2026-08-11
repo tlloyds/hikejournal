@@ -881,8 +881,13 @@ class HikeJournalRepository(context: Context) {
 
     suspend fun deletePhoto(photoId: String, hikeId: String?) = fieldQueue.queueDeletePhoto(photoId, hikeId)
 
-    suspend fun setSpeciesReview(photoId: String, hikeId: String?, queued: Boolean) {
-        fieldQueue.queueSpeciesReview(photoId, hikeId, queued)
+    suspend fun setSpeciesReview(
+        photoId: String,
+        hikeId: String?,
+        queued: Boolean,
+        scheduleSync: Boolean = true,
+    ) {
+        fieldQueue.queueSpeciesReview(photoId, hikeId, queued, scheduleSync)
         withContext(Dispatchers.IO) { File(cacheDirectory, "species-review.json").delete() }
     }
 

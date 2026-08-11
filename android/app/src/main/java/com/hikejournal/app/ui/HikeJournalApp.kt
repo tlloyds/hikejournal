@@ -1528,7 +1528,7 @@ private fun SyncStrip(
                     syncing || status.syncingCount > 0 -> "Syncing field notes…"
                     status.pendingPhotoCount > 0 && status.connected -> "$remainingPhotos photo${if (remainingPhotos == 1) "" else "s"} ready to upload"
                     queued > 0 && !status.connected -> "Offline · $queued change${if (queued == 1) "" else "s"} saved"
-                    queued > 0 -> "$queued change${if (queued == 1) "" else "s"} ready to sync"
+                    queued > 0 -> "$queued change${if (queued == 1) "" else "s"} queued"
                     else -> "Field journal is up to date"
                 },
                 style = MaterialTheme.typography.titleSmall,
@@ -1538,6 +1538,7 @@ private fun SyncStrip(
                 when {
                     !status.connected -> "Keep hiking—everything here is stored on this phone."
                     remainingPhotos > 0 -> "You can leave HikeJournal; Android will continue this transfer."
+                    queued > 0 -> "You can keep using HikeJournal; sync starts automatically."
                     else -> "Photos and notes sync safely in the background."
                 },
                 style = MaterialTheme.typography.bodySmall,
@@ -1546,7 +1547,7 @@ private fun SyncStrip(
         }
         when {
             status.needsAttentionCount > 0 -> TextButton(onClick = onShowAttention) { Text("Review") }
-            queued > 0 && status.connected -> TextButton(onClick = onSync, enabled = !syncing) { Text("Sync") }
+            queued > 0 && status.connected -> TextButton(onClick = onSync, enabled = !syncing) { Text("Sync now") }
         }
     }
 }
