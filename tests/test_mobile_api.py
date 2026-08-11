@@ -354,6 +354,47 @@ def test_hike_list_hydrates_saved_weather_in_one_batch(monkeypatch):
     assert payload[1]["id"] == "everyday"
 
 
+def test_hike_list_resolves_selected_cover_missing_from_bulk_photo_scan(monkeypatch):
+    hike_id = "11111111-1111-4111-8111-111111111111"
+    photo_id = "22222222-2222-4222-8222-222222222222"
+
+    class Repository:
+        def _select_all_rows(self, _query_factory):
+            return []
+
+        def list_photo_records_for_ids(self, photo_ids):
+            assert photo_ids == [photo_id]
+            return [{
+                "id": photo_id,
+                "hike_id": hike_id,
+                "public_url": "https://img/selected.jpg",
+            }]
+
+        def list_hike_weather_snapshots(self):
+            return []
+
+    service = type("Service", (), {"repository": Repository(), "client": object()})()
+    monkeypatch.setattr("mobile_api.get_services", lambda: service)
+    monkeypatch.setattr(
+        "mobile_api._visible_hikes",
+        lambda _repository: [{
+            "id": hike_id,
+            "title": "Pine Loop",
+            "cover_photo_id": photo_id,
+        }],
+    )
+    monkeypatch.setattr("mobile_api._visible_species_data", lambda _service: ([], {}, {}))
+    monkeypatch.setattr(
+        "mobile_api._standalone_hike_payload",
+        lambda _service: {"id": "everyday", "title": "Everyday sightings"},
+    )
+
+    payload = list_hikes()
+
+    assert payload[0]["cover_photo_id"] == photo_id
+    assert payload[0]["cover_url"] == "https://img/selected.jpg"
+
+
 def test_main_map_routes_include_visible_hike_tracks(monkeypatch):
     class Repository:
         def list_hike_route_imports(self):

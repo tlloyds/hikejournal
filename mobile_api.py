@@ -2133,15 +2133,31 @@ def list_hikes() -> list[dict[str, Any]]:
                 svc.client.table("photos")
                 .select("id,hike_id,public_url,taken_at,created_at")
                 .in_("hike_id", hike_ids)
+                .order("id")
             )
         )
         if hike_ids
         else []
     )
     photos_by_hike: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    photos_by_id: dict[str, dict[str, Any]] = {}
     for photo in photo_rows:
+        photo_id = str(photo.get("id") or "")
+        if photo_id:
+            photos_by_id[photo_id] = photo
         if photo.get("hike_id"):
             photos_by_hike[str(photo["hike_id"])].append(photo)
+    cover_photo_ids = {
+        str(hike.get("cover_photo_id") or "")
+        for hike in hikes
+        if hike.get("cover_photo_id")
+    }
+    missing_cover_photo_ids = sorted(cover_photo_ids - photos_by_id.keys())
+    if missing_cover_photo_ids:
+        for photo in svc.repository.list_photo_records_for_ids(missing_cover_photo_ids):
+            photo_id = str(photo.get("id") or "")
+            if photo_id:
+                photos_by_id[photo_id] = photo
     confirmed_observations, species_photos_by_id, _ = _visible_species_data(svc)
     species_by_hike: dict[str, set[str]] = defaultdict(set)
     for observation in confirmed_observations:
@@ -2152,10 +2168,15 @@ def list_hikes() -> list[dict[str, Any]]:
     outing_payloads = []
     for hike in hikes:
         hike_id = str(hike["id"])
+        cover_id = str(hike.get("cover_photo_id") or "")
+        selected_cover = photos_by_id.get(cover_id)
+        if str((selected_cover or {}).get("hike_id") or "") != hike_id:
+            selected_cover = None
         payload = _hike_payload(
             hike,
             photos=photos_by_hike.get(hike_id, []),
             species_count=len(species_by_hike.get(hike_id, set())),
+            cover_photo=selected_cover,
         )
         payload["weather"] = weather_by_hike.get(hike_id)
         outing_payloads.append(payload)

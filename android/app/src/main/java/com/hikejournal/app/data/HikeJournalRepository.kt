@@ -77,15 +77,42 @@ class HikeJournalRepository(context: Context) {
             when {
                 result.fromCache && (cached.isLocalDraft || cached.hike.id in hikes) -> {
                     // A detail cache is newer than a stale list cache after an offline edit.
-                    hikes[cached.hike.id] = cached.hike
+                    hikes[cached.hike.id] = mergeCachedHikeDetail(
+                        archive = hikes[cached.hike.id],
+                        detail = cached.hike,
+                    )
                 }
                 cached.isLocalDraft -> hikes.putIfAbsent(cached.hike.id, cached.hike)
+                cached.hike.id in hikes -> {
+                    hikes[cached.hike.id] = restoreMatchingCachedCover(
+                        archive = hikes.getValue(cached.hike.id),
+                        detail = cached.hike,
+                    )
+                }
             }
         }
         if (!result.fromCache) {
+            repairMissingSelectedCovers(hikes)
             clearVerifiedLocalDraftMarkers(result.value.mapTo(mutableSetOf()) { it.id })
         }
         return result.copy(value = fieldQueue.overlayHikes(hikes.values.toList()))
+    }
+
+    private suspend fun repairMissingSelectedCovers(hikes: MutableMap<String, Hike>) = coroutineScope {
+        val repairs = hikes.values
+            .filter { hike -> hike.coverPhotoId != null && hike.coverUrl.isBlank() }
+            .map { archive ->
+                async {
+                    val detail = runCatching { parseHike(api.getHikeJson(archive.id)) }.getOrNull()
+                    archive.id to detail?.let { restoreMatchingCachedCover(archive, it) }
+                }
+            }
+            .map { request -> request.await() }
+        repairs.forEach { (hikeId, repaired) ->
+            if (repaired == null || repaired.coverUrl.isBlank()) return@forEach
+            hikes[hikeId] = repaired
+            cacheHikeCover(appContext, hikeId, repaired.coverPhotoId, repaired.coverUrl)
+        }
     }
 
     /**
@@ -107,7 +134,12 @@ class HikeJournalRepository(context: Context) {
         val hikes = cachedList.orEmpty().associateBy { it.id }.toMutableMap()
         cachedDetails.forEach { cached ->
             // A detail cache is newer than the archive snapshot after an offline edit.
-            if (cached.isLocalDraft || cached.hike.id in hikes) hikes[cached.hike.id] = cached.hike
+            if (cached.isLocalDraft || cached.hike.id in hikes) {
+                hikes[cached.hike.id] = mergeCachedHikeDetail(
+                    archive = hikes[cached.hike.id],
+                    detail = cached.hike,
+                )
+            }
         }
         return fieldQueue.overlayHikes(hikes.values.toList())
     }
@@ -940,6 +972,25 @@ private data class CachedHikeFile(
     val hike: Hike,
     val isLocalDraft: Boolean,
 )
+
+internal fun mergeCachedHikeDetail(archive: Hike?, detail: Hike): Hike {
+    if (archive == null || detail.coverUrl.isNotBlank() || archive.coverUrl.isBlank()) return detail
+    return detail.copy(
+        coverUrl = archive.coverUrl,
+        coverPhotoId = archive.coverPhotoId,
+    )
+}
+
+internal fun restoreMatchingCachedCover(archive: Hike, detail: Hike): Hike {
+    if (
+        archive.coverUrl.isNotBlank() ||
+        detail.coverUrl.isBlank() ||
+        archive.coverPhotoId != detail.coverPhotoId
+    ) {
+        return archive
+    }
+    return archive.copy(coverUrl = detail.coverUrl)
+}
 
 internal suspend fun cacheHikeCover(
     context: Context,
