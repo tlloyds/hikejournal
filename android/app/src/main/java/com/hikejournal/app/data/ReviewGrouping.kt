@@ -12,6 +12,7 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 
 const val GROUPED_ID_MAX_PHOTOS = 8
+const val REVIEW_BATCH_MAX_GROUPS_PER_JOB = 50
 const val SMART_ID_MAX_DISTANCE_METERS = 12.0
 const val SMART_ID_MAX_MINUTES = 2.0
 
@@ -21,6 +22,15 @@ data class ReviewPhotoGroup(
     val maxDistanceMeters: Double,
 ) {
     val photoIds: List<String> get() = items.map { it.id }
+}
+
+/** Keep each companion job inside the API contract while preserving the review-plan order. */
+fun chunkReviewBatchGroups(
+    groups: List<List<String>>,
+    maxGroupsPerJob: Int = REVIEW_BATCH_MAX_GROUPS_PER_JOB,
+): List<List<List<String>>> {
+    require(maxGroupsPerJob > 0) { "A review batch job must allow at least one group." }
+    return groups.chunked(maxGroupsPerJob)
 }
 
 /** Mirrors the web review planner: same outing, same short time window, and close GPS points. */

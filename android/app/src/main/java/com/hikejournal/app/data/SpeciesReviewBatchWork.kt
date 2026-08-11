@@ -31,6 +31,14 @@ internal data class SpeciesReviewBatchRequest(
     val groups: List<List<String>>,
 )
 
+internal data class SpeciesReviewBatchCheckpoint(
+    val chunkIndex: Int = 0,
+    val processedCount: Int = 0,
+    val groupedCount: Int = 0,
+    val individualCount: Int = 0,
+    val warning: String? = null,
+)
+
 /**
  * Owns the durable client-side half of a species review batch.
  *
@@ -59,20 +67,35 @@ object SpeciesReviewBatchWork {
     private const val RequestIdKey = "request_id"
     private const val GroupsKey = "groups"
     private const val JobIdKey = "job_id"
+    private const val ChunkIndexKey = "chunk_index"
+    private const val ProcessedCountKey = "processed_count"
+    private const val GroupedCountKey = "grouped_count"
+    private const val IndividualCountKey = "individual_count"
+    private const val WarningKey = "warning"
     private const val NotificationChannelId = "species-review-batch"
     private const val NotificationId = 4102
 
     fun enqueue(context: Context, groups: List<List<String>>): UUID {
+        require(groups.isNotEmpty()) { "Choose at least one species review group." }
+        require(groups.all { it.size in 1..GROUPED_ID_MAX_PHOTOS }) {
+            "Each species review group must contain between 1 and $GROUPED_ID_MAX_PHOTOS photos."
+        }
+        require(groups.flatten().distinct().size == groups.sumOf(List<String>::size)) {
+            "A photo can only appear once in a species review batch."
+        }
         val requestId = UUID.randomUUID().toString()
         val requestJson = JSONArray().apply {
             groups.forEach { put(JSONArray(it)) }
         }.toString()
-        context.getSharedPreferences(PreferencesName, Context.MODE_PRIVATE)
-            .edit()
-            .clear()
-            .putString(RequestIdKey, requestId)
-            .putString(GroupsKey, requestJson)
-            .commit()
+        val requestSaved = synchronized(this) {
+            context.getSharedPreferences(PreferencesName, Context.MODE_PRIVATE)
+                .edit()
+                .clear()
+                .putString(RequestIdKey, requestId)
+                .putString(GroupsKey, requestJson)
+                .commit()
+        }
+        check(requestSaved) { "HikeJournal could not save the species review batch." }
 
         val constraints = Constraints.Builder()
             .setRequiredNetworkType(NetworkType.CONNECTED)
@@ -103,34 +126,117 @@ object SpeciesReviewBatchWork {
         return SpeciesReviewBatchRequest(requestId, groups)
     }
 
-    internal fun loadJobId(context: Context): String? = context
-        .getSharedPreferences(PreferencesName, Context.MODE_PRIVATE)
-        .getString(JobIdKey, null)
-        ?.takeIf { it.isNotBlank() }
-
-    internal fun saveJobId(context: Context, jobId: String) {
-        context.getSharedPreferences(PreferencesName, Context.MODE_PRIVATE)
-            .edit()
-            .putString(JobIdKey, jobId)
-            .commit()
+    internal fun loadCheckpoint(context: Context, requestId: String): SpeciesReviewBatchCheckpoint? {
+        val preferences = context.getSharedPreferences(PreferencesName, Context.MODE_PRIVATE)
+        if (preferences.getString(RequestIdKey, null) != requestId) return null
+        return SpeciesReviewBatchCheckpoint(
+            chunkIndex = preferences.getInt(ChunkIndexKey, 0).coerceAtLeast(0),
+            processedCount = preferences.getInt(ProcessedCountKey, 0).coerceAtLeast(0),
+            groupedCount = preferences.getInt(GroupedCountKey, 0).coerceAtLeast(0),
+            individualCount = preferences.getInt(IndividualCountKey, 0).coerceAtLeast(0),
+            warning = preferences.getString(WarningKey, null)?.takeIf(String::isNotBlank),
+        )
     }
 
-    internal fun emptyStatus(request: SpeciesReviewBatchRequest, state: String = "queued") = ReviewBatchStatus(
-        jobId = "",
-        state = state,
-        totalPhotos = request.groups.sumOf(List<String>::size),
-        processedCount = 0,
-        processedPhotoIds = emptyList(),
-        currentPhotoNumber = 0,
-        currentPhotoId = null,
-        totalGroups = request.groups.size,
-        currentGroup = 0,
-        groupedCount = 0,
-        individualCount = 0,
-        warnings = emptyList(),
-        error = null,
-        items = emptyList(),
-    )
+    internal fun loadJobId(context: Context, requestId: String): String? {
+        val preferences = context.getSharedPreferences(PreferencesName, Context.MODE_PRIVATE)
+        if (preferences.getString(RequestIdKey, null) != requestId) return null
+        return preferences.getString(JobIdKey, null)?.takeIf(String::isNotBlank)
+    }
+
+    internal fun saveJobId(context: Context, requestId: String, jobId: String): Boolean = synchronized(this) {
+        val preferences = context.getSharedPreferences(PreferencesName, Context.MODE_PRIVATE)
+        if (preferences.getString(RequestIdKey, null) != requestId) return@synchronized false
+        preferences.edit().putString(JobIdKey, jobId).commit()
+    }
+
+    internal fun completeChunk(
+        context: Context,
+        requestId: String,
+        chunkIndex: Int,
+        status: ReviewBatchStatus,
+    ): SpeciesReviewBatchCheckpoint? = synchronized(this) {
+        val preferences = context.getSharedPreferences(PreferencesName, Context.MODE_PRIVATE)
+        if (
+            preferences.getString(RequestIdKey, null) != requestId ||
+            preferences.getInt(ChunkIndexKey, 0) != chunkIndex
+        ) {
+            return@synchronized null
+        }
+        val checkpoint = SpeciesReviewBatchCheckpoint(
+            chunkIndex = chunkIndex + 1,
+            processedCount = preferences.getInt(ProcessedCountKey, 0) + status.processedCount,
+            groupedCount = preferences.getInt(GroupedCountKey, 0) + status.groupedCount,
+            individualCount = preferences.getInt(IndividualCountKey, 0) + status.individualCount,
+            warning = preferences.getString(WarningKey, null)?.takeIf(String::isNotBlank)
+                ?: status.warnings.firstOrNull(),
+        )
+        val saved = preferences.edit()
+            .putInt(ChunkIndexKey, checkpoint.chunkIndex)
+            .putInt(ProcessedCountKey, checkpoint.processedCount)
+            .putInt(GroupedCountKey, checkpoint.groupedCount)
+            .putInt(IndividualCountKey, checkpoint.individualCount)
+            .putString(WarningKey, checkpoint.warning)
+            .remove(JobIdKey)
+            .commit()
+        checkpoint.takeIf { saved }
+    }
+
+    internal fun emptyStatus(
+        request: SpeciesReviewBatchRequest,
+        checkpoint: SpeciesReviewBatchCheckpoint = SpeciesReviewBatchCheckpoint(),
+        state: String = "queued",
+    ): ReviewBatchStatus {
+        val chunks = chunkReviewBatchGroups(request.groups)
+        val completedChunks = chunks.take(checkpoint.chunkIndex.coerceIn(0, chunks.size))
+        val completedGroups = completedChunks.sumOf(List<List<String>>::size)
+        val submittedPhotos = completedChunks.flatten().sumOf(List<String>::size)
+        return ReviewBatchStatus(
+            jobId = "",
+            state = state,
+            totalPhotos = request.groups.sumOf(List<String>::size),
+            processedCount = checkpoint.processedCount,
+            processedPhotoIds = emptyList(),
+            currentPhotoNumber = submittedPhotos,
+            currentPhotoId = null,
+            totalGroups = request.groups.size,
+            currentGroup = completedGroups,
+            groupedCount = checkpoint.groupedCount,
+            individualCount = checkpoint.individualCount,
+            warnings = checkpoint.warning?.let(::listOf).orEmpty(),
+            error = null,
+            items = emptyList(),
+        )
+    }
+
+    internal fun aggregateStatus(
+        request: SpeciesReviewBatchRequest,
+        checkpoint: SpeciesReviewBatchCheckpoint,
+        chunkStatus: ReviewBatchStatus,
+    ): ReviewBatchStatus {
+        val chunks = chunkReviewBatchGroups(request.groups)
+        val chunkIndex = checkpoint.chunkIndex.coerceIn(0, chunks.lastIndex.coerceAtLeast(0))
+        val completedChunks = chunks.take(chunkIndex)
+        val completedGroups = completedChunks.sumOf(List<List<String>>::size)
+        val submittedPhotos = completedChunks.flatten().sumOf(List<String>::size)
+        return chunkStatus.copy(
+            totalPhotos = request.groups.sumOf(List<String>::size),
+            processedCount = checkpoint.processedCount + chunkStatus.processedCount,
+            processedPhotoIds = emptyList(),
+            currentPhotoNumber = (submittedPhotos + chunkStatus.currentPhotoNumber)
+                .coerceAtMost(request.groups.sumOf(List<String>::size)),
+            totalGroups = request.groups.size,
+            currentGroup = (completedGroups + chunkStatus.currentGroup)
+                .coerceAtMost(request.groups.size),
+            groupedCount = checkpoint.groupedCount + chunkStatus.groupedCount,
+            individualCount = checkpoint.individualCount + chunkStatus.individualCount,
+            warnings = listOfNotNull(checkpoint.warning, *chunkStatus.warnings.toTypedArray()).distinct(),
+            items = emptyList(),
+        )
+    }
+
+    internal fun chunkRequestId(requestId: String, chunkIndex: Int): String =
+        "$requestId-${chunkIndex + 1}"
 
     internal fun statusData(status: ReviewBatchStatus): Data = Data.Builder()
         .putString(ProgressJobId, status.jobId)
@@ -167,13 +273,8 @@ object SpeciesReviewBatchWork {
         )
     }
 
-    internal fun failureData(status: ReviewBatchStatus): Data = Data.Builder()
-        .putString(ProgressState, "failed")
-        .putString(ProgressJobId, status.jobId)
-        .putInt(ProgressTotalPhotos, status.totalPhotos)
-        .putInt(ProgressProcessedCount, status.processedCount)
-        .putString(ProgressError, status.error.orEmpty())
-        .build()
+    internal fun failureData(status: ReviewBatchStatus): Data =
+        statusData(status.copy(state = "failed"))
 
     internal fun notificationId(): Int = NotificationId
 
@@ -189,40 +290,75 @@ class SpeciesReviewBatchWorker(
     override suspend fun doWork(): Result {
         val request = SpeciesReviewBatchWork.loadRequest(appContext)
             ?: return Result.failure()
-        var status = SpeciesReviewBatchWork.emptyStatus(request)
+        val chunks = chunkReviewBatchGroups(request.groups)
+        var checkpoint = SpeciesReviewBatchWork.loadCheckpoint(appContext, request.requestId)
+            ?: return Result.failure()
+        if (checkpoint.chunkIndex > chunks.size) return Result.failure()
+        var status = SpeciesReviewBatchWork.emptyStatus(
+            request,
+            checkpoint,
+            state = if (checkpoint.chunkIndex == chunks.size) "completed" else "queued",
+        )
         publish(status)
 
         return try {
-            val storedJobId = SpeciesReviewBatchWork.loadJobId(appContext)
-            status = if (storedJobId == null) {
-                repository().startReviewBatch(request.groups, request.requestId).also { started ->
-                    SpeciesReviewBatchWork.saveJobId(appContext, started.jobId)
+            while (checkpoint.chunkIndex < chunks.size) {
+                val chunkIndex = checkpoint.chunkIndex
+                val chunk = chunks[chunkIndex]
+                val storedJobId = SpeciesReviewBatchWork.loadJobId(appContext, request.requestId)
+                var chunkStatus = if (storedJobId == null) {
+                    repository().startReviewBatch(
+                        chunk,
+                        SpeciesReviewBatchWork.chunkRequestId(request.requestId, chunkIndex),
+                    ).also { started ->
+                        if (!SpeciesReviewBatchWork.saveJobId(appContext, request.requestId, started.jobId)) {
+                            return Result.failure()
+                        }
+                    }
+                } else {
+                    repository().getReviewBatchStatus(storedJobId)
                 }
-            } else {
-                repository().getReviewBatchStatus(storedJobId)
-            }
-            publish(status)
+                status = SpeciesReviewBatchWork.aggregateStatus(request, checkpoint, chunkStatus)
+                publish(status)
 
-            var statusCheckFailures = 0
-            while (status.state == "queued" || status.state == "running") {
-                if (isStopped) return Result.retry()
-                delay(1_500)
-                status = try {
-                    repository().getReviewBatchStatus(status.jobId)
-                } catch (error: IOException) {
-                    statusCheckFailures += 1
-                    if (statusCheckFailures >= 3) throw error
-                    continue
+                var statusCheckFailures = 0
+                while (chunkStatus.state == "queued" || chunkStatus.state == "running") {
+                    if (isStopped) return Result.retry()
+                    delay(1_500)
+                    chunkStatus = try {
+                        repository().getReviewBatchStatus(chunkStatus.jobId)
+                    } catch (error: IOException) {
+                        statusCheckFailures += 1
+                        if (statusCheckFailures >= 3) throw error
+                        continue
+                    }
+                    statusCheckFailures = 0
+                    status = SpeciesReviewBatchWork.aggregateStatus(request, checkpoint, chunkStatus)
+                    publish(status)
                 }
-                statusCheckFailures = 0
+
+                if (chunkStatus.state != "completed") {
+                    return Result.failure(SpeciesReviewBatchWork.failureData(status))
+                }
+                checkpoint = SpeciesReviewBatchWork.completeChunk(
+                    appContext,
+                    request.requestId,
+                    chunkIndex,
+                    chunkStatus,
+                ) ?: return Result.failure()
+                status = if (checkpoint.chunkIndex >= chunks.size) {
+                    SpeciesReviewBatchWork.emptyStatus(request, checkpoint, state = "completed")
+                        .copy(
+                            jobId = chunkStatus.jobId,
+                            currentPhotoNumber = request.groups.sumOf(List<String>::size),
+                            currentGroup = request.groups.size,
+                        )
+                } else {
+                    SpeciesReviewBatchWork.emptyStatus(request, checkpoint, state = "running")
+                }
                 publish(status)
             }
-
-            if (status.state == "completed") {
-                Result.success(SpeciesReviewBatchWork.statusData(status))
-            } else {
-                Result.failure(SpeciesReviewBatchWork.failureData(status))
-            }
+            Result.success(SpeciesReviewBatchWork.statusData(status))
         } catch (error: ApiException) {
             val message = error.message ?: "HikeJournal could not complete the species review batch."
             if (error.statusCode == 408 || error.statusCode == 425 || error.statusCode == 429 || error.statusCode >= 500) {

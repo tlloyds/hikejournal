@@ -38,6 +38,56 @@ class ReviewGroupingTest {
         assertEquals(listOf("b"), split.last().photoIds)
     }
 
+    @Test
+    fun `large review plans are split at the companion group limit without reordering`() {
+        val groups = (1..121).map { index -> listOf("photo-$index") }
+
+        val chunks = chunkReviewBatchGroups(groups)
+
+        assertEquals(listOf(50, 50, 21), chunks.map(List<List<String>>::size))
+        assertEquals(groups, chunks.flatten())
+    }
+
+    @Test
+    fun `chunk status is reported against the complete review plan`() {
+        val request = SpeciesReviewBatchRequest(
+            requestId = "request-1",
+            groups = (1..121).map { index -> listOf("photo-$index") },
+        )
+        val checkpoint = SpeciesReviewBatchCheckpoint(
+            chunkIndex = 1,
+            processedCount = 49,
+            individualCount = 49,
+            warning = "One earlier photo was skipped.",
+        )
+        val chunkStatus = ReviewBatchStatus(
+            jobId = "job-2",
+            state = "running",
+            totalPhotos = 50,
+            processedCount = 10,
+            processedPhotoIds = emptyList(),
+            currentPhotoNumber = 11,
+            currentPhotoId = "photo-61",
+            totalGroups = 50,
+            currentGroup = 11,
+            groupedCount = 0,
+            individualCount = 10,
+            warnings = emptyList(),
+            error = null,
+            items = emptyList(),
+        )
+
+        val overall = SpeciesReviewBatchWork.aggregateStatus(request, checkpoint, chunkStatus)
+
+        assertEquals(121, overall.totalPhotos)
+        assertEquals(59, overall.processedCount)
+        assertEquals(61, overall.currentPhotoNumber)
+        assertEquals(121, overall.totalGroups)
+        assertEquals(61, overall.currentGroup)
+        assertEquals(59, overall.individualCount)
+        assertEquals(listOf("One earlier photo was skipped."), overall.warnings)
+    }
+
     private fun reviewItem(
         id: String,
         takenAt: String,

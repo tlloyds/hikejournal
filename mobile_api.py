@@ -1712,7 +1712,12 @@ def _build_mobile_grouped_species_candidate(
                 observed_on=_photo_observed_at(photo),
                 limit=5,
             )
-        except (InatConfigurationError, InatAuthError):
+        except (
+            InatConfigurationError,
+            InatAuthError,
+            InatRateLimitError,
+            InatComputerVisionBlockedError,
+        ):
             raise
         except (InatRequestError, RuntimeError) as exc:
             warnings.append(f"{photo_id[:8]}: {exc}")
@@ -2670,13 +2675,24 @@ def _process_species_batch_submission(
             photo = group_photos[0]
             if on_photo_start:
                 on_photo_start(str(photo["id"]))
-            candidate = inat_client.identify_species(
-                image_bytes=_download_photo_for_cv(svc, photo),
-                filename=f"{photo['id']}.jpg",
-                lat=photo.get("lat"),
-                lng=photo.get("lng"),
-                observed_on=_photo_observed_at(photo),
-            )
+            try:
+                candidate = inat_client.identify_species(
+                    image_bytes=_download_photo_for_cv(svc, photo),
+                    filename=f"{photo['id']}.jpg",
+                    lat=photo.get("lat"),
+                    lng=photo.get("lng"),
+                    observed_on=_photo_observed_at(photo),
+                )
+            except (
+                InatConfigurationError,
+                InatAuthError,
+                InatRateLimitError,
+                InatComputerVisionBlockedError,
+            ):
+                raise
+            except (InatRequestError, RuntimeError) as exc:
+                warnings.append(f"{str(photo['id'])[:8]}: {exc}")
+                continue
             observation = svc.repository.upsert_observation(
                 photo.get("hike_id"),
                 photo["id"],
@@ -2698,6 +2714,8 @@ def _process_species_batch_submission(
             on_photo_start=on_photo_start,
         )
         warnings.extend(group_warnings)
+        if not processed_photos:
+            continue
         if grouped_candidate is not None:
             grouped_count += 1
         else:

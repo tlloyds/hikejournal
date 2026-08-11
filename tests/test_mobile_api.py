@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 import mobile_api
 from hike_journal.models import PhotoMetadata, ProcessedImage, SpeciesCandidate
+from hike_journal.services.inat import InatRequestError
 from mobile_api import (
     CoverPhotoInput,
     HikeInput,
@@ -1027,6 +1028,63 @@ def test_mobile_review_batch_status_reports_completion_after_background_work(mon
     assert status["state"] == "completed"
     assert status["processed_photo_ids"] == ["photo-a", "photo-b"]
     assert status["current_photo_number"] == 2
+
+
+def test_mobile_review_batch_skips_one_bad_photo_and_continues(monkeypatch):
+    class Repository:
+        def __init__(self):
+            self.saved = []
+
+        def list_photo_records_for_ids(self, photo_ids):
+            return [
+                {
+                    "id": photo_id,
+                    "hike_id": "hike-1",
+                    "storage_path": f"photos/{photo_id}.jpg",
+                }
+                for photo_id in photo_ids
+            ]
+
+        def upsert_observation(self, _hike_id, photo_id, candidate, **_kwargs):
+            self.saved.append((photo_id, candidate))
+            return {"id": f"obs-{photo_id}", "photo_id": photo_id}
+
+    class Storage:
+        def download_file(self, _storage_path):
+            return b"image"
+
+    class InatClient:
+        def validate_credentials(self):
+            return None
+
+        def identify_species(self, *, filename, **_kwargs):
+            if filename == "photo-a.jpg":
+                raise InatRequestError("no usable suggestion")
+            return SpeciesCandidate("Species", "Species testus", 0.8, 10, {})
+
+    repository = Repository()
+    service = type("Service", (), {"repository": repository, "storage": Storage()})()
+    queue = [
+        {"id": photo_id, "photo": {"id": photo_id}, "candidates": []}
+        for photo_id in ("photo-a", "photo-b")
+    ]
+    monkeypatch.setattr("mobile_api.get_services", lambda: service)
+    monkeypatch.setattr("mobile_api._mobile_inat_client", lambda: InatClient())
+    monkeypatch.setattr("mobile_api._review_queue_payload", lambda _service: queue)
+    monkeypatch.setattr("mobile_api.ensure_observation_taxonomy", lambda *_args: None)
+
+    result = request_species_batch_recommendation(
+        ReviewBatchInput(
+            groups=[
+                ReviewBatchGroupInput(photo_ids=["photo-a"]),
+                ReviewBatchGroupInput(photo_ids=["photo-b"]),
+            ]
+        )
+    )
+
+    assert result["processed_photo_ids"] == ["photo-b"]
+    assert [photo_id for photo_id, _candidate in repository.saved] == ["photo-b"]
+    assert result["warnings"] == ["photo-a: no usable suggestion"]
 
 
 @pytest.mark.parametrize(
