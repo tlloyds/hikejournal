@@ -130,10 +130,29 @@ internal fun selectNextSyncOperation(
             (operation.kind == OperationKind.DeleteHike || targetHikeId !in deletingHikeIds) &&
             (operation.kind in setOf(OperationKind.CreateHike, OperationKind.DeleteHike) || targetHikeId !in pendingCreateHikeIds)
     }
+    val selectedCoverPhotoIds = operations
+        .asSequence()
+        .filter { it.kind == OperationKind.SetHikeCover && it.state in setOf("queued", "syncing") }
+        .mapNotNull { operation ->
+            runCatching {
+                JSONObject(operation.payloadJson).let { payload ->
+                    payload.optString("photo_id").takeUnless { payload.isNull("photo_id") }
+                }
+            }.getOrNull()
+        }
+        .toSet()
     return operations.firstOrNull {
         it.kind == OperationKind.UploadPhoto &&
             it.entityId == prioritizedPhotoId &&
             eligible(it)
+    } ?: operations.firstOrNull {
+        // A cover chosen during a large import should not wait behind every other upload.
+        // Upload its own photo first, then apply the cover as soon as that photo exists remotely.
+        it.kind == OperationKind.UploadPhoto &&
+            it.entityId in selectedCoverPhotoIds &&
+            eligible(it)
+    } ?: operations.firstOrNull {
+        it.kind == OperationKind.SetHikeCover && eligible(it)
     } ?: operations.firstOrNull(::eligible)
 }
 
@@ -249,6 +268,9 @@ class FieldOperationQueue(private val context: Context) {
                 },
             pendingCreateHikeIds = operations
                 .filter { it.kind == OperationKind.CreateHike }
+                .mapTo(mutableSetOf()) { it.entityId },
+            coverSyncHikeIds = operations
+                .filter { it.kind == OperationKind.SetHikeCover }
                 .mapTo(mutableSetOf()) { it.entityId },
         )
     }.distinctUntilChanged()
@@ -387,15 +409,38 @@ class FieldOperationQueue(private val context: Context) {
     }
 
     suspend fun queueHikeCover(hikeId: String, photoId: String?, coverUrl: String) {
-        coalesce(OperationKind.SetHikeCover, hikeId)
-        enqueue(
-            OperationKind.SetHikeCover,
-            hikeId,
-            null,
-            JSONObject()
-                .put("photo_id", photoId ?: JSONObject.NULL)
-                .put("cover_url", coverUrl),
-        )
+        val now = System.currentTimeMillis()
+        val payload = JSONObject()
+            .put("photo_id", photoId ?: JSONObject.NULL)
+            .put("cover_url", coverUrl)
+        // Do not take fieldSyncMutex here. The sync worker deliberately holds it while a
+        // batch drains, which used to leave cover changes waiting behind hundreds of uploads.
+        // Room provides the atomic replacement, and the worker re-reads this table after each
+        // operation, so it can safely discover the latest cover intent while already running.
+        database.withTransaction {
+            if (dao.find(OperationKind.DeleteHike, hikeId) != null) {
+                throw IOException("This hike is already being deleted.")
+            }
+            dao.deleteReplaceable(OperationKind.SetHikeCover, hikeId)
+            dao.upsert(
+                PendingOperationEntity(
+                    id = UUID.randomUUID().toString(),
+                    kind = OperationKind.SetHikeCover,
+                    entityId = hikeId,
+                    parentId = null,
+                    payloadJson = payload.toString(),
+                    localFilePath = null,
+                    contentType = null,
+                    fileName = null,
+                    state = "queued",
+                    attemptCount = 0,
+                    createdAt = now,
+                    updatedAt = now,
+                    lastError = null,
+                ),
+            )
+        }
+        SyncScheduler.schedule(context)
     }
 
     suspend fun queuePhoto(

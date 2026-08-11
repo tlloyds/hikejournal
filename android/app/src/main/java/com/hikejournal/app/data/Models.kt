@@ -574,6 +574,7 @@ data class SyncStatus(
     val lastSyncedAt: Long? = null,
     val attentionItems: List<SyncAttention> = emptyList(),
     val pendingCreateHikeIds: Set<String> = emptySet(),
+    val coverSyncHikeIds: Set<String> = emptySet(),
 )
 
 data class SyncAttention(

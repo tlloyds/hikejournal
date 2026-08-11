@@ -222,17 +222,25 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     _state.value.journal?.photos.orEmpty().any { photo ->
                         photo.syncState != "synced" || photo.url.startsWith("file:")
                     }
+                val journalCoverNeedsRemoteUrl = syncStatus.connected &&
+                    _state.value.coverUpdateId == null &&
+                    _state.value.journal?.let { journal ->
+                        journal.coverUrl.startsWith("file:") && journal.id !in syncStatus.coverSyncHikeIds
+                    } == true
                 val archiveNeedsRemoteCoverUrls = syncStatus.connected &&
-                    syncStatus.pendingCount == 0 &&
-                    syncStatus.syncingCount == 0 &&
-                    _state.value.hikes.any { hike -> hike.coverUrl.startsWith("file:") }
+                    _state.value.coverUpdateId == null &&
+                    _state.value.hikes.any { hike ->
+                        hike.coverPhotoId != null &&
+                            hike.coverUrl.startsWith("file:") &&
+                            hike.id !in syncStatus.coverSyncHikeIds
+                    }
                 _state.update {
                     it.copy(
                         syncStatus = syncStatus,
                         isOffline = !syncStatus.connected || it.isOffline && syncStatus.pendingCount > 0,
                     )
                 }
-                if (journalNeedsRemoteUrls) {
+                if (journalNeedsRemoteUrls || journalCoverNeedsRemoteUrl) {
                     refreshJournalAfterSync(_state.value.journal?.id ?: return@collect)
                 }
                 if (archiveNeedsRemoteCoverUrls) {
@@ -2286,34 +2294,64 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             "${it.takenAt.orEmpty()}|${it.createdAt.orEmpty()}"
         }?.url.orEmpty()
         val coverUrl = if (selected) photo.url else fallbackCover
+        val previousCoverPhotoId = journal.coverPhotoId
+        val previousCoverUrl = journal.coverUrl
+        val previousArchiveCover = _state.value.hikes.firstOrNull { it.id == journal.id }
+        // Reflect the durable local intent immediately. Queueing and remote sync happen in the
+        // background; if local persistence fails, the guarded failure path restores this state.
+        _state.update { state ->
+            state.copy(
+                journal = state.journal?.takeIf { it.id == journal.id }?.copy(
+                    coverPhotoId = coverPhotoId,
+                    coverUrl = coverUrl,
+                    syncState = if (journal.syncState == "synced") "queued" else journal.syncState,
+                ) ?: state.journal,
+                hikes = state.hikes.map { hike ->
+                    if (hike.id == journal.id) {
+                        hike.copy(
+                            coverPhotoId = coverPhotoId,
+                            coverUrl = coverUrl,
+                            syncState = if (hike.syncState == "synced") "queued" else hike.syncState,
+                        )
+                    } else {
+                        hike
+                    }
+                },
+                coverUpdateId = photo.id,
+                error = null,
+            )
+        }
         viewModelScope.launch {
-            _state.update { it.copy(coverUpdateId = photo.id, error = null) }
             runCatching { repository.setHikeCover(journal.id, coverPhotoId, coverUrl) }
                 .onSuccess {
                     _state.update { state ->
+                        if (state.coverUpdateId == photo.id) state.copy(coverUpdateId = null) else state
+                    }
+                }
+                .onFailure { error ->
+                    _state.update { state ->
+                        if (state.coverUpdateId != photo.id) return@update state
                         state.copy(
                             journal = state.journal?.takeIf { it.id == journal.id }?.copy(
-                                coverPhotoId = coverPhotoId,
-                                coverUrl = coverUrl,
-                                syncState = if (journal.syncState == "synced") "queued" else journal.syncState,
+                                coverPhotoId = previousCoverPhotoId,
+                                coverUrl = previousCoverUrl,
+                                syncState = journal.syncState,
                             ) ?: state.journal,
                             hikes = state.hikes.map { hike ->
-                                if (hike.id == journal.id) {
+                                if (hike.id == journal.id && previousArchiveCover != null) {
                                     hike.copy(
-                                        coverPhotoId = coverPhotoId,
-                                        coverUrl = coverUrl,
-                                        syncState = if (hike.syncState == "synced") "queued" else hike.syncState,
+                                        coverPhotoId = previousArchiveCover.coverPhotoId,
+                                        coverUrl = previousArchiveCover.coverUrl,
+                                        syncState = previousArchiveCover.syncState,
                                     )
                                 } else {
                                     hike
                                 }
                             },
                             coverUpdateId = null,
+                            error = error.userMessage(),
                         )
                     }
-                }
-                .onFailure { error ->
-                    _state.update { it.copy(coverUpdateId = null, error = error.userMessage()) }
                 }
         }
     }

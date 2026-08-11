@@ -83,6 +83,40 @@ class FieldSyncOrderingTest {
     }
 
     @Test
+    fun `cover photo jumps a large upload queue and cover update follows it`() {
+        val uploads = (1..184).map { index ->
+            operation(
+                id = "upload-$index",
+                kind = OperationKind.UploadPhoto,
+                entityId = "photo-$index",
+                parentId = "hike-1",
+            )
+        }
+        val cover = operation(
+            id = "cover",
+            kind = OperationKind.SetHikeCover,
+            entityId = "hike-1",
+            payloadJson = """{"photo_id":"photo-184"}""",
+        )
+
+        assertEquals(uploads.last(), selectNextSyncOperation(uploads + cover))
+        assertEquals(cover, selectNextSyncOperation(uploads.dropLast(1) + cover))
+    }
+
+    @Test
+    fun `clearing a cover jumps pending photo uploads`() {
+        val photo = operation("photo", OperationKind.UploadPhoto, "photo-1", "hike-1")
+        val clearCover = operation(
+            id = "cover",
+            kind = OperationKind.SetHikeCover,
+            entityId = "hike-1",
+            payloadJson = """{"photo_id":null}""",
+        )
+
+        assertEquals(clearCover, selectNextSyncOperation(listOf(photo, clearCover)))
+    }
+
+    @Test
     fun `every locally selected review photo remains visible while uploads drain`() {
         val operations = (1..35).map { index ->
             operation(
