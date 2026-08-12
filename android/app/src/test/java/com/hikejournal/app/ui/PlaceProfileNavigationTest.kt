@@ -52,6 +52,15 @@ class PlaceProfileNavigationTest {
 
         assertEquals(listOf("place-a", "place-c", "place-b"), targets.map { it.id })
         assertEquals("", targets[1].latestHikeDate)
+        assertEquals(true, targets[1].hasCoordinates)
+    }
+
+    @Test
+    fun `river trend describes net change over the selected period`() {
+        assertEquals("Up +1.25 ft over 7 days", riverPeriodTrendLabel(1.25, 7))
+        assertEquals("Down -0.75 ft over 30 days", riverPeriodTrendLabel(-0.75, 30))
+        assertEquals("Little net change over 7 days", riverPeriodTrendLabel(0.01, 7))
+        assertEquals("Net change over 30 days unavailable", riverPeriodTrendLabel(null, 30))
     }
 
     private fun hike(

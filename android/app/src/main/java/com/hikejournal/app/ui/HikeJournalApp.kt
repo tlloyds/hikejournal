@@ -225,12 +225,14 @@ internal data class PlaceProfileTarget(
     val name: String,
     val coverUrl: String,
     val latestHikeDate: String,
+    val hasCoordinates: Boolean = false,
 )
 
 internal fun placeProfileTargets(
     hikes: List<Hike>,
     locations: List<HikeLocation> = emptyList(),
 ): List<PlaceProfileTarget> {
+    val locationsById = locations.associateBy(HikeLocation::id)
     val visited = hikes
         .filterNot { it.isStandalone || it.primaryLocationId.isNullOrBlank() }
         .groupBy { it.primaryLocationId.orEmpty() }
@@ -242,6 +244,9 @@ internal fun placeProfileTargets(
             name = latest.primaryLocationName.ifBlank { latest.locationName }.ifBlank { "Unknown place" },
             coverUrl = latest.coverUrl,
             latestHikeDate = latest.hikeDate,
+            hasCoordinates = locationsById[locationId]?.let {
+                it.latitude != null && it.longitude != null
+            } == true,
         )
     }.sortedWith(
         compareByDescending<PlaceProfileTarget> { it.latestHikeDate }
@@ -256,6 +261,7 @@ internal fun placeProfileTargets(
                 name = location.name,
                 coverUrl = "",
                 latestHikeDate = "",
+                hasCoordinates = location.latitude != null && location.longitude != null,
             )
         }
         .sortedBy { it.name.lowercase(Locale.US) }
@@ -339,6 +345,14 @@ fun HikeJournalApp(viewModel: AppViewModel) {
         placeProfileLoadingTarget = null
         placeSwipeDirection = 0
         viewModel.closePlaceProfile()
+    }
+
+    fun openTopDestination(target: TopDestination) {
+        comparisonBaseHike = null
+        placeProfileLoadingTarget = null
+        placeSwipeDirection = 0
+        viewModel.closeLongitudinalScreens()
+        destination = target
     }
 
     LaunchedEffect(state.inatAuthorizationUrl) {
@@ -659,6 +673,8 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                                 .ifBlank { state.journal?.locationName.orEmpty() },
                         loadingCoverUrl = placeProfileLoadingTarget?.coverUrl
                             ?: state.journal?.coverUrl.orEmpty(),
+                        loadingHasRecordedVisits = placeProfileLoadingTarget?.latestHikeDate?.isNotBlank()
+                            ?: (state.journal != null),
                         placePositionLabel = if (canBrowsePlaces) {
                             "${currentPlaceIndex + 1} OF ${availablePlaceProfiles.size}"
                         } else {
@@ -886,7 +902,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
         ) {
             TopNavigation(
                 selected = destination,
-                onSelect = { destination = it },
+                onSelect = ::openTopDestination,
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
         }
@@ -1260,19 +1276,14 @@ fun HikeJournalApp(viewModel: AppViewModel) {
 
     if (placeBrowserOpen) {
         PlaceBrowserDialog(
-            locations = state.hikeLocations,
-            loading = state.hikeLocations.isEmpty(),
+            places = availablePlaceProfiles,
+            loading = state.isHikeLocationsLoading && availablePlaceProfiles.isEmpty(),
             onDismiss = { placeBrowserOpen = false },
-            onOpen = { location ->
+            onOpen = { target ->
                 placeBrowserOpen = false
                 placeSwipeDirection = 0
-                placeProfileLoadingTarget = PlaceProfileTarget(
-                    id = location.id,
-                    name = location.name,
-                    coverUrl = availablePlaceProfiles.firstOrNull { it.id == location.id }?.coverUrl.orEmpty(),
-                    latestHikeDate = availablePlaceProfiles.firstOrNull { it.id == location.id }?.latestHikeDate.orEmpty(),
-                )
-                viewModel.openPlaceProfile(location.id)
+                placeProfileLoadingTarget = target
+                viewModel.openPlaceProfile(target.id)
             },
         )
     }
@@ -3659,14 +3670,14 @@ private fun VideoPlayer(url: String, contentDescription: String) {
 
 @Composable
 private fun PlaceBrowserDialog(
-    locations: List<HikeLocation>,
+    places: List<PlaceProfileTarget>,
     loading: Boolean,
     onDismiss: () -> Unit,
-    onOpen: (HikeLocation) -> Unit,
+    onOpen: (PlaceProfileTarget) -> Unit,
 ) {
     var query by rememberSaveable { mutableStateOf("") }
-    val filtered = remember(locations, query) {
-        locations.filter { query.isBlank() || it.name.contains(query, ignoreCase = true) }
+    val filtered = remember(places, query) {
+        places.filter { query.isBlank() || it.name.contains(query, ignoreCase = true) }
     }
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -3695,27 +3706,35 @@ private fun PlaceBrowserDialog(
                         Text("Loading saved places…", style = MaterialTheme.typography.bodyMedium, color = InkMuted, modifier = Modifier.padding(start = 12.dp))
                     }
                     filtered.isEmpty() -> Text(
-                        "No saved place matches this search.",
+                        when {
+                            places.isEmpty() -> "No saved places are available yet."
+                            query.isBlank() -> "No saved places are available."
+                            else -> "No saved place matches this search."
+                        },
                         style = MaterialTheme.typography.bodyMedium,
                         color = InkMuted,
                         modifier = Modifier.padding(vertical = 24.dp),
                     )
                     else -> LazyColumn(Modifier.fillMaxWidth().heightIn(max = 420.dp).padding(top = 8.dp)) {
-                        items(filtered, key = HikeLocation::id) { location ->
+                        items(filtered, key = PlaceProfileTarget::id) { place ->
                             Row(
-                                Modifier.fillMaxWidth().clickable { onOpen(location) }.padding(vertical = 12.dp),
+                                Modifier.fillMaxWidth().clickable { onOpen(place) }.padding(vertical = 12.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Icon(Icons.Rounded.LocationOn, contentDescription = null, tint = Fern)
                                 Column(Modifier.weight(1f).padding(start = 11.dp)) {
-                                    Text(location.name, style = MaterialTheme.typography.titleSmall, color = Ink)
+                                    Text(place.name, style = MaterialTheme.typography.titleSmall, color = Ink)
                                     Text(
-                                        if (location.latitude != null && location.longitude != null) "Live planning ready" else "Weather needs saved coordinates",
+                                        when {
+                                            place.latestHikeDate.isNotBlank() -> "Recorded place · last visit ${formatDate(place.latestHikeDate)}"
+                                            place.hasCoordinates -> "Live planning ready"
+                                            else -> "Weather needs saved coordinates"
+                                        },
                                         style = MaterialTheme.typography.bodySmall,
                                         color = InkMuted,
                                     )
                                 }
-                                Icon(Icons.Rounded.ChevronRight, contentDescription = "Open ${location.name}", tint = Fern)
+                                Icon(Icons.Rounded.ChevronRight, contentDescription = "Open ${place.name}", tint = Fern)
                             }
                             HorizontalDivider(color = Line)
                         }

@@ -206,7 +206,7 @@ internal fun buildWeatherPlanningNotes(forecast: PlaceForecast): List<String> {
         feelsLike != null && feelsLike >= 100 -> notes +=
             "Plan a cooler, earlier outing: the peak feels-like temperature is near ${feelsLike.roundToInt()}°F."
         feelsLike != null && feelsLike >= 90 -> notes +=
-            "Warm and humid trail conditions are likely; the peak feels-like temperature is near ${feelsLike.roundToInt()}°F."
+            "Hot trail conditions are likely; the peak feels-like temperature is near ${feelsLike.roundToInt()}°F."
     }
     val rainChance = today?.precipitationProbabilityPercent
     val rainTotal = today?.precipitationTotalInches
@@ -219,7 +219,7 @@ internal fun buildWeatherPlanningNotes(forecast: PlaceForecast): List<String> {
     }
     val uv = today?.uvIndexMax
     if ((uv ?: 0.0) >= 8) {
-        notes += "Peak UV is very high near ${formatForecastDecimal(uv)}; shade is limited around midday."
+        notes += "Peak UV is very high near ${formatForecastDecimal(uv)}; plan sun protection and limit exposed midday time."
     }
     if (notes.isEmpty()) {
         notes += "No major heat, rain, wind, or UV signal stands out in today’s forecast."

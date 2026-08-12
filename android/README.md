@@ -19,6 +19,18 @@ and replace the server address. The API always uses port `8506`.
 Native hike recording does not need the companion or a network connection.
 Pairing is needed when queued hikes, routes, and photos are ready to sync.
 
+## Included in v0.7.20
+
+- Bottom navigation now leaves Place Profiles and nested Field Briefings instead
+  of leaving the planning guide over the selected destination
+- `Plan a visit` merges downloaded saved places with places recovered from cached
+  journals, so recorded profiles remain available while offline
+- Weather includes a local update time, river movement is labeled as net change
+  over the selected period, and Field Briefings show their report radius, season,
+  and iNaturalist context
+- Archived outings remain part of a place's historical record, while unvisited
+  profiles omit the empty personal-record section
+
 ## Included in v0.7.19
 
 - Location-first USGS discovery finds recently reporting gage-height stations

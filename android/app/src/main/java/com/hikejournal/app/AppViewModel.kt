@@ -85,6 +85,7 @@ internal fun shouldRefreshReviewQueueAfterSync(
 data class AppState(
     val hikes: List<Hike> = emptyList(),
     val hikeLocations: List<HikeLocation> = emptyList(),
+    val isHikeLocationsLoading: Boolean = false,
     val journal: Hike? = null,
     val species: List<SpeciesRecord> = emptyList(),
     val speciesDetail: SpeciesRecord? = null,
@@ -158,6 +159,15 @@ data class AppState(
     val trackingOpenRequestToken: Long = 0L,
     val trackingEndRequestToken: Long = 0L,
     val isFinalizingTracking: Boolean = false,
+)
+
+internal fun AppState.withoutLongitudinalScreens(): AppState = copy(
+    placeProfile = null,
+    fieldBriefing = null,
+    hikeComparison = null,
+    isLongitudinalLoading = false,
+    longitudinalDestination = null,
+    isRiverGaugeLoading = false,
 )
 
 class AppViewModel(application: Application) : AndroidViewModel(application) {
@@ -641,19 +651,29 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun loadHikeLocations() {
-        if (_state.value.hikeLocations.any { it.latitude != null && it.longitude != null }) return
+        if (
+            _state.value.isHikeLocationsLoading ||
+            _state.value.hikeLocations.any { it.latitude != null && it.longitude != null }
+        ) return
+        _state.update { it.copy(isHikeLocationsLoading = true) }
         viewModelScope.launch {
             runCatching { repository.loadHikeLocations() }
                 .onSuccess { result ->
                     _state.update {
                         it.copy(
                             hikeLocations = result.value,
+                            isHikeLocationsLoading = false,
                             isOffline = result.fromCache,
                         )
                     }
                 }
                 .onFailure { error ->
-                    _state.update { it.copy(error = error.userMessage()) }
+                    _state.update {
+                        it.copy(
+                            isHikeLocationsLoading = false,
+                            error = error.userMessage(),
+                        )
+                    }
                 }
         }
     }
@@ -1703,6 +1723,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     .takeUnless { target -> target == LongitudinalDestination.PlaceProfile },
             )
         }
+    }
+
+    fun closeLongitudinalScreens() {
+        _state.update(AppState::withoutLongitudinalScreens)
     }
 
     fun setPlaceRiverPeriod(periodDays: Int) {

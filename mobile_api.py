@@ -2219,8 +2219,6 @@ def _analytics_hikes(svc: Services) -> list[dict[str, Any]]:
     }
     results = []
     for hike in _visible_hikes(svc.repository):
-        if hike.get("is_archived"):
-            continue
         hike_id = str(hike.get("id") or "")
         photos = svc.repository.list_photos(hike_id)
         cover_url = _hike_payload(hike, photos=photos).get("cover_url")

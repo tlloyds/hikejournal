@@ -116,6 +116,7 @@ internal fun PlaceProfileScreen(
     loading: Boolean,
     loadingPlaceName: String,
     loadingCoverUrl: String,
+    loadingHasRecordedVisits: Boolean,
     placePositionLabel: String,
     riverPeriodDays: Int,
     riverLoading: Boolean,
@@ -134,6 +135,7 @@ internal fun PlaceProfileScreen(
     } else {
         profile.visits.firstOrNull()?.coverUrl.orEmpty()
     }
+    val planningOnly = profile?.outingCount == 0 || (profile == null && !loadingHasRecordedVisits)
     BackHandler(onBack = onBack)
     LazyColumn(
         Modifier.fillMaxSize().background(Parchment).pointerInput(
@@ -170,7 +172,7 @@ internal fun PlaceProfileScreen(
                 subtitle = profile?.let {
                     if (it.outingCount == 0) "Live planning profile" else
                         "${it.outingCount} recorded visit${if (it.outingCount == 1) "" else "s"} · ${formatMiles(it.totalDistanceMiles)}"
-                }.orEmpty(),
+                } ?: if (planningOnly) "Live planning profile" else "",
                 imageUrl = coverUrl,
                 imageDescription = profile?.let { "Most recent hike at ${it.name}" } ?: "Hike cover while the place profile loads",
                 onBack = onBack,
@@ -179,8 +181,12 @@ internal fun PlaceProfileScreen(
         if (loading || profile == null) {
             item {
                 FieldPageLoading(
-                    title = "Gathering your field notes…",
-                    detail = "Reviewing visits, seasons, and the life you recorded here.",
+                    title = if (planningOnly) "Checking trail conditions…" else "Gathering your field notes…",
+                    detail = if (planningOnly) {
+                        "Loading weather, river levels, and today’s field briefing."
+                    } else {
+                        "Reviewing visits, seasons, and the life you recorded here."
+                    },
                 )
             }
         } else {
@@ -189,6 +195,7 @@ internal fun PlaceProfileScreen(
                     placeName = profile.name,
                     forecast = profile.forecast,
                     notice = profile.liveConditionsNotice,
+                    hasCoordinates = profile.latitude != null && profile.longitude != null,
                     onOpenBriefing = onOpenBriefing,
                 )
             }
@@ -200,19 +207,7 @@ internal fun PlaceProfileScreen(
                     onPeriodChange = onRiverPeriodChange,
                 )
             }
-            if (profile.outingCount == 0) {
-                item {
-                    FieldSection("YOUR RECORD HERE", "This place is ready before your first visit.") {
-                        Text(
-                            profile.guidance,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = Ink,
-                            fontStyle = FontStyle.Italic,
-                            fontWeight = FontWeight.Medium,
-                        )
-                    }
-                }
-            } else {
+            if (profile.outingCount > 0) {
                 item {
                     Column(Modifier.padding(horizontal = 20.dp, vertical = 28.dp)) {
                         Text("YOUR RECORD HERE", style = MaterialTheme.typography.labelMedium, color = TrailText)
@@ -302,7 +297,7 @@ internal fun PlaceProfileScreen(
                     }
                 }
             }
-            item { Spacer(Modifier.height(60.dp)) }
+            item { Spacer(Modifier.height(112.dp)) }
         }
     }
 }
@@ -312,6 +307,7 @@ private fun PlaceWeatherSection(
     placeName: String,
     forecast: PlaceForecast?,
     notice: String?,
+    hasCoordinates: Boolean,
     onOpenBriefing: () -> Unit,
 ) {
     val uriHandler = LocalUriHandler.current
@@ -368,6 +364,14 @@ private fun PlaceWeatherSection(
                 color = InkMuted,
                 modifier = Modifier.padding(top = 8.dp),
             )
+            forecast.observedAt?.let { observedAt ->
+                Text(
+                    "Updated ${formatForecastObservation(observedAt)} local",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = InkMuted,
+                    modifier = Modifier.padding(top = 5.dp),
+                )
+            }
             forecast.days.firstOrNull()?.let { today ->
                 Row(
                     Modifier.fillMaxWidth().padding(top = 20.dp),
@@ -430,7 +434,11 @@ private fun PlaceWeatherSection(
                 modifier = Modifier.padding(top = 14.dp).clickable { uriHandler.openUri("https://open-meteo.com/") },
             )
         }
-        TextButton(onClick = onOpenBriefing, modifier = Modifier.padding(top = 12.dp)) {
+        TextButton(
+            onClick = onOpenBriefing,
+            enabled = hasCoordinates,
+            modifier = Modifier.padding(top = 12.dp),
+        ) {
             Icon(Icons.Rounded.Explore, contentDescription = null, modifier = Modifier.size(18.dp))
             Text("What might I see today?", modifier = Modifier.padding(start = 7.dp))
         }
@@ -542,12 +550,7 @@ private fun RiverGaugeSummary(series: RiverGaugeSeries, onOpenSource: () -> Unit
         } else {
             RiverSparkline(series, Modifier.fillMaxWidth().height(82.dp).padding(top = 14.dp))
             val change = series.changeFeet
-            val trend = when {
-                change == null -> "Trend unavailable"
-                change > 0.05 -> "Rising ${String.format(Locale.US, "+%.2f ft", change)}"
-                change < -0.05 -> "Falling ${String.format(Locale.US, "%.2f ft", change)}"
-                else -> "Holding nearly steady"
-            }
+            val trend = riverPeriodTrendLabel(change, series.periodDays)
             Text(
                 buildString {
                     append(trend)
@@ -602,9 +605,24 @@ private fun formatForecastDay(value: String): String = runCatching {
     LocalDate.parse(value).format(DateTimeFormatter.ofPattern("EEE", Locale.US)).uppercase(Locale.US)
 }.getOrDefault(value.take(3).uppercase(Locale.US))
 
+private fun formatBriefingDate(value: String): String = runCatching {
+    LocalDate.parse(value).format(DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.US)).uppercase(Locale.US)
+}.getOrDefault(value)
+
 private fun formatForecastClock(value: String): String = runCatching {
     LocalDateTime.parse(value).format(DateTimeFormatter.ofPattern("h:mm a", Locale.US))
 }.getOrDefault(value.substringAfter('T', value))
+
+private fun formatForecastObservation(value: String): String = runCatching {
+    LocalDateTime.parse(value).format(DateTimeFormatter.ofPattern("MMM d, h:mm a", Locale.US))
+}.getOrDefault(value.substringAfter('T', value))
+
+internal fun riverPeriodTrendLabel(changeFeet: Double?, periodDays: Int): String = when {
+    changeFeet == null -> "Net change over $periodDays days unavailable"
+    changeFeet > 0.05 -> "Up ${String.format(Locale.US, "+%.2f ft", changeFeet)} over $periodDays days"
+    changeFeet < -0.05 -> "Down ${String.format(Locale.US, "%.2f ft", changeFeet)} over $periodDays days"
+    else -> "Little net change over $periodDays days"
+}
 
 private fun formatGaugeObservation(value: String): String = runCatching {
     OffsetDateTime.parse(value).atZoneSameInstant(ZoneId.systemDefault())
@@ -619,7 +637,9 @@ internal fun FieldBriefingScreen(
     onOpenSightings: (BriefingItem) -> Unit,
 ) {
     var previewItem by remember { mutableStateOf<BriefingItem?>(null) }
-    var selectedLifeGroups by rememberSaveable { mutableStateOf(emptyList<String>()) }
+    var selectedLifeGroups by rememberSaveable(briefing?.areaId, briefing?.targetDate) {
+        mutableStateOf(emptyList<String>())
+    }
     var lifeFilterOpen by remember { mutableStateOf(false) }
     val visibleSections = briefing?.sections.orEmpty().mapNotNull { section ->
         val visibleItems = section.items.filter { item ->
@@ -636,8 +656,8 @@ internal fun FieldBriefingScreen(
     LazyColumn(Modifier.fillMaxSize().background(Parchment)) {
         item {
             FieldPageHero(
-                kicker = "FIELD BRIEFING · ${briefing?.targetDate.orEmpty()}",
-                title = "What should I look for today?",
+                kicker = "FIELD BRIEFING · ${briefing?.targetDate?.let(::formatBriefingDate).orEmpty()}",
+                title = "What might I see today?",
                 subtitle = briefing?.areaName.orEmpty(),
                 imageUrl = coverSpecies?.referencePhotoUrl.orEmpty(),
                 imageDescription = coverSpecies?.let { "${it.commonName}, the first illustrated species in today's briefing" }
@@ -654,14 +674,28 @@ internal fun FieldBriefingScreen(
             }
         } else {
             item {
-                Text(
-                    briefing.guidance,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontStyle = FontStyle.Italic,
-                    fontWeight = FontWeight.Medium,
-                    color = Ink,
-                    modifier = Modifier.padding(20.dp),
-                )
+                Column(Modifier.fillMaxWidth().padding(20.dp)) {
+                    Text("BRIEFING SCOPE", style = MaterialTheme.typography.labelMedium, color = TrailText)
+                    Text(
+                        listOf(
+                            "Nearby iNaturalist reports",
+                            "within ${briefing.radiusKm} km",
+                            briefing.periodLabel,
+                        ).filter(String::isNotBlank).joinToString(" · "),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = InkMuted,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                    Text(
+                        briefing.guidance,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontStyle = FontStyle.Italic,
+                        fontWeight = FontWeight.Medium,
+                        color = Ink,
+                        modifier = Modifier.padding(top = 12.dp),
+                    )
+                }
             }
             item {
                 Row(
@@ -720,7 +754,7 @@ internal fun FieldBriefingScreen(
                     )
                 }
             }
-            item { Spacer(Modifier.height(60.dp)) }
+            item { Spacer(Modifier.height(112.dp)) }
         }
     }
     previewItem?.let { item ->

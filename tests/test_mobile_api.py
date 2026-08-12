@@ -1571,6 +1571,46 @@ def test_place_profile_endpoint_allows_planning_before_a_recorded_visit(monkeypa
     assert result["visits"] == []
 
 
+def test_place_profile_keeps_archived_outings_in_the_historical_record(monkeypatch):
+    class Repository:
+        def get_hike_location(self, _location_id):
+            return {
+                "id": "area-1",
+                "name": "Oak Flat",
+                "lat": 28.1,
+                "lng": -81.2,
+            }
+
+        def list_hike_route_imports(self):
+            return []
+
+        def list_photos(self, _hike_id):
+            return []
+
+    repository = Repository()
+    service = type("Service", (), {"repository": repository})()
+    monkeypatch.setattr("mobile_api.get_services", lambda: service)
+    monkeypatch.setattr(
+        "mobile_api._visible_hikes",
+        lambda _repository: [
+            {
+                "id": "hike-archived",
+                "title": "Earlier visit",
+                "hike_date": "2025-08-01",
+                "distance_miles": 3.2,
+                "is_archived": True,
+                "location_tags": [{"id": "area-1"}],
+            }
+        ],
+    )
+    monkeypatch.setattr("mobile_api._dated_visible_observations", lambda _service: [])
+
+    result = get_place_profile("area-1")
+
+    assert result["summary"]["outing_count"] == 1
+    assert result["visits"][0]["hike_id"] == "hike-archived"
+
+
 def test_native_hike_locations_returns_imported_library(monkeypatch):
     repository = type(
         "Repository",
