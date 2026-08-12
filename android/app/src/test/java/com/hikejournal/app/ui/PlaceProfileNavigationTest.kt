@@ -1,6 +1,7 @@
 package com.hikejournal.app.ui
 
 import com.hikejournal.app.data.Hike
+import com.hikejournal.app.data.HikeLocation
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -36,6 +37,21 @@ class PlaceProfileNavigationTest {
         assertEquals("place-a", adjacentPlaceProfileTarget(targets, "place-c", 1)?.id)
         assertNull(adjacentPlaceProfileTarget(targets, "missing", 1))
         assertNull(adjacentPlaceProfileTarget(emptyList(), "place-a", 1))
+    }
+
+    @Test
+    fun `place targets append unvisited saved places for planning`() {
+        val targets = placeProfileTargets(
+            hikes = listOf(hike("visited", "2026-08-10", "place-a", "Oak Flat", "oak.jpg")),
+            locations = listOf(
+                HikeLocation("place-b", "Zigzag Marsh", 28.0, -81.0),
+                HikeLocation("place-a", "Oak Flat", 28.1, -81.1),
+                HikeLocation("place-c", "Cypress Loop", 28.2, -81.2),
+            ),
+        )
+
+        assertEquals(listOf("place-a", "place-c", "place-b"), targets.map { it.id })
+        assertEquals("", targets[1].latestHikeDate)
     }
 
     private fun hike(

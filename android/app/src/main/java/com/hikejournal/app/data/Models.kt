@@ -45,6 +45,69 @@ data class WeatherSnapshot(
     val conditionLabel: String,
 )
 
+data class ForecastDay(
+    val date: String,
+    val conditionLabel: String,
+    val temperatureMaxF: Double?,
+    val temperatureMinF: Double?,
+    val apparentTemperatureMaxF: Double?,
+    val precipitationProbabilityPercent: Double?,
+    val precipitationTotalInches: Double?,
+    val windSpeedMaxMph: Double?,
+    val windGustMaxMph: Double?,
+    val uvIndexMax: Double?,
+    val sunrise: String?,
+    val sunset: String?,
+)
+
+data class PlaceForecast(
+    val observedAt: String?,
+    val timezone: String,
+    val temperatureF: Double?,
+    val apparentTemperatureF: Double?,
+    val relativeHumidityPercent: Double?,
+    val precipitationInches: Double?,
+    val cloudCoverPercent: Double?,
+    val windSpeedMph: Double?,
+    val windGustMph: Double?,
+    val conditionLabel: String,
+    val days: List<ForecastDay>,
+    val planningNotes: List<String>,
+)
+
+data class RiverGauge(
+    val siteId: String,
+    val name: String,
+    val latitude: Double,
+    val longitude: Double,
+    val enabled: Boolean = false,
+    val suggested: Boolean = false,
+)
+
+data class RiverGaugeReading(
+    val observedAt: String,
+    val heightFeet: Double,
+    val provisional: Boolean,
+)
+
+data class RiverGaugeSeries(
+    val gauge: RiverGauge,
+    val periodDays: Int,
+    val readings: List<RiverGaugeReading>,
+    val distanceMiles: Double? = null,
+    val errorMessage: String? = null,
+) {
+    val currentHeightFeet: Double? get() = readings.lastOrNull()?.heightFeet
+    val observedAt: String? get() = readings.lastOrNull()?.observedAt
+    val minimumHeightFeet: Double? get() = readings.minOfOrNull(RiverGaugeReading::heightFeet)
+    val maximumHeightFeet: Double? get() = readings.maxOfOrNull(RiverGaugeReading::heightFeet)
+    val changeFeet: Double? get() = if (readings.size >= 2) {
+        readings.last().heightFeet - readings.first().heightFeet
+    } else {
+        null
+    }
+}
+
 data class RoutePoint(
     val latitude: Double,
     val longitude: Double,
@@ -213,6 +276,8 @@ data class PlaceTaxonGroup(
 data class PlaceProfile(
     val locationId: String,
     val name: String,
+    val latitude: Double?,
+    val longitude: Double?,
     val firstVisit: String?,
     val latestVisit: String?,
     val outingCount: Int,
@@ -225,6 +290,9 @@ data class PlaceProfile(
     val seasonalHistory: SeasonalHistory,
     val visits: List<PlaceVisit>,
     val guidance: String,
+    val forecast: PlaceForecast? = null,
+    val riverGauges: List<RiverGaugeSeries> = emptyList(),
+    val liveConditionsNotice: String? = null,
 )
 
 data class ComparisonSpecies(
@@ -1100,6 +1168,8 @@ fun parsePlaceProfile(json: String): PlaceProfile {
     return PlaceProfile(
         locationId = location.optString("id"),
         name = location.optString("name", "Unknown place"),
+        latitude = location.optNullableDouble("lat")?.takeIf { it.isFinite() && it in -90.0..90.0 },
+        longitude = location.optNullableDouble("lng")?.takeIf { it.isFinite() && it in -180.0..180.0 },
         firstVisit = summary.optNullableString("first_visit"),
         latestVisit = summary.optNullableString("latest_visit"),
         outingCount = summary.optInt("outing_count"),

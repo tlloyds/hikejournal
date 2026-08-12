@@ -2,11 +2,13 @@ package com.hikejournal.app.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -40,6 +42,8 @@ import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.Map
 import androidx.compose.material.icons.rounded.Park
 import androidx.compose.material.icons.rounded.Pets
+import androidx.compose.material.icons.rounded.WaterDrop
+import androidx.compose.material.icons.rounded.WbSunny
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.HorizontalDivider
@@ -60,11 +64,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -77,7 +84,9 @@ import com.hikejournal.app.data.ComparisonSpecies
 import com.hikejournal.app.data.FieldBriefing
 import com.hikejournal.app.data.HikeComparison
 import com.hikejournal.app.data.PlaceProfile
+import com.hikejournal.app.data.PlaceForecast
 import com.hikejournal.app.data.PlaceTaxonGroup
+import com.hikejournal.app.data.RiverGaugeSeries
 import com.hikejournal.app.data.SeasonalHistory
 import com.hikejournal.app.data.WeatherSnapshot
 import com.hikejournal.app.data.toDiscoveryTaxon
@@ -86,12 +95,18 @@ import com.hikejournal.app.ui.theme.FernText
 import com.hikejournal.app.ui.theme.Ink
 import com.hikejournal.app.ui.theme.InkMuted
 import com.hikejournal.app.ui.theme.Line
+import com.hikejournal.app.ui.theme.Lichen
 import com.hikejournal.app.ui.theme.Moss
 import com.hikejournal.app.ui.theme.Paper
 import com.hikejournal.app.ui.theme.Parchment
 import com.hikejournal.app.ui.theme.Trail
 import com.hikejournal.app.ui.theme.TrailText
 import java.util.Locale
+import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.OffsetDateTime
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -102,7 +117,11 @@ internal fun PlaceProfileScreen(
     loadingPlaceName: String,
     loadingCoverUrl: String,
     placePositionLabel: String,
+    riverPeriodDays: Int,
+    riverLoading: Boolean,
     onBack: () -> Unit,
+    onOpenBriefing: () -> Unit,
+    onRiverPeriodChange: (Int) -> Unit,
     onOpenHike: (String) -> Unit,
     onOpenSpecies: (String) -> Unit,
     onPreviousPlace: (() -> Unit)?,
@@ -149,7 +168,8 @@ internal fun PlaceProfileScreen(
                 kicker = listOf("PLACE PROFILE", placePositionLabel).filter(String::isNotBlank).joinToString(" · "),
                 title = profile?.name ?: loadingPlaceName.ifBlank { "Reading this place…" },
                 subtitle = profile?.let {
-                    "${it.outingCount} recorded visit${if (it.outingCount == 1) "" else "s"} · ${formatMiles(it.totalDistanceMiles)}"
+                    if (it.outingCount == 0) "Live planning profile" else
+                        "${it.outingCount} recorded visit${if (it.outingCount == 1) "" else "s"} · ${formatMiles(it.totalDistanceMiles)}"
                 }.orEmpty(),
                 imageUrl = coverUrl,
                 imageDescription = profile?.let { "Most recent hike at ${it.name}" } ?: "Hike cover while the place profile loads",
@@ -165,90 +185,120 @@ internal fun PlaceProfileScreen(
             }
         } else {
             item {
-                Column(Modifier.padding(horizontal = 20.dp, vertical = 28.dp)) {
-                    Text("YOUR RECORD HERE", style = MaterialTheme.typography.labelMedium, color = TrailText)
-                    Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                        FieldNumber(profile.speciesCount.toString(), "SPECIES")
-                        FieldNumber(profile.observationCount.toString(), "OBSERVATIONS")
-                        FieldNumber(profile.firstVisit?.take(4).orEmpty().ifBlank { "—" }, "SINCE")
-                    }
-                    Text(
-                        profile.guidance,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Ink,
-                        fontStyle = FontStyle.Italic,
-                        fontWeight = FontWeight.Medium,
-                        modifier = Modifier.padding(top = 18.dp),
-                    )
-                }
+                PlaceWeatherSection(
+                    placeName = profile.name,
+                    forecast = profile.forecast,
+                    notice = profile.liveConditionsNotice,
+                    onOpenBriefing = onOpenBriefing,
+                )
             }
             item {
-                FieldSection("WHEN YOU VISIT", "Your recorded activity and observations by month.") {
-                    SeasonalBand(profile.seasonalHistory)
-                }
+                RiverConditionsSection(
+                    series = profile.riverGauges,
+                    periodDays = riverPeriodDays,
+                    loading = riverLoading,
+                    onPeriodChange = onRiverPeriodChange,
+                )
             }
-            if (profile.taxonCounts.isNotEmpty()) {
+            if (profile.outingCount == 0) {
                 item {
-                    FieldSection("LIFE RECORDED", "Open a life group to browse every distinct confirmed species recorded here.") {
-                        if (profile.taxonGroups.isNotEmpty()) {
-                            LifeRecordedGroups(profile.taxonGroups, onOpenSpecies)
-                        } else {
-                            profile.taxonCounts.forEach { (name, count) ->
-                                LifeGroupHeader(name = name, count = count, expanded = false, onClick = {})
+                    FieldSection("YOUR RECORD HERE", "This place is ready before your first visit.") {
+                        Text(
+                            profile.guidance,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Ink,
+                            fontStyle = FontStyle.Italic,
+                            fontWeight = FontWeight.Medium,
+                        )
+                    }
+                }
+            } else {
+                item {
+                    Column(Modifier.padding(horizontal = 20.dp, vertical = 28.dp)) {
+                        Text("YOUR RECORD HERE", style = MaterialTheme.typography.labelMedium, color = TrailText)
+                        Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                            FieldNumber(profile.speciesCount.toString(), "SPECIES")
+                            FieldNumber(profile.observationCount.toString(), "OBSERVATIONS")
+                            FieldNumber(profile.firstVisit?.take(4).orEmpty().ifBlank { "—" }, "SINCE")
+                        }
+                        Text(
+                            profile.guidance,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Ink,
+                            fontStyle = FontStyle.Italic,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.padding(top = 18.dp),
+                        )
+                    }
+                }
+                item {
+                    FieldSection("WHEN YOU VISIT", "Your recorded activity and observations by month.") {
+                        SeasonalBand(profile.seasonalHistory)
+                    }
+                }
+                if (profile.taxonCounts.isNotEmpty()) {
+                    item {
+                        FieldSection("LIFE RECORDED", "Open a life group to browse every distinct confirmed species recorded here.") {
+                            if (profile.taxonGroups.isNotEmpty()) {
+                                LifeRecordedGroups(profile.taxonGroups, onOpenSpecies)
+                            } else {
+                                profile.taxonCounts.forEach { (name, count) ->
+                                    LifeGroupHeader(name = name, count = count, expanded = false, onClick = {})
+                                }
                             }
                         }
                     }
                 }
-            }
-            item {
-                Text(
-                    "VISIT HISTORY",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = TrailText,
-                    modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 30.dp, bottom = 8.dp),
-                )
-            }
-            items(profile.visits, key = { it.hikeId }) { visit ->
-                Row(
-                    Modifier.fillMaxWidth().clickable { onOpenHike(visit.hikeId) }
-                        .padding(horizontal = 20.dp, vertical = 15.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Box(Modifier.width(92.dp).height(72.dp).background(Color(0xFFD0CFBD))) {
-                        if (visit.coverUrl.isNotBlank()) {
-                            AsyncImage(
-                                model = visit.coverUrl,
-                                contentDescription = "Cover photo for ${visit.title}",
-                                modifier = Modifier.fillMaxSize(),
-                                contentScale = ContentScale.Crop,
-                            )
-                        } else {
-                            Icon(
-                                Icons.Rounded.Park,
-                                contentDescription = null,
-                                tint = Moss.copy(alpha = 0.55f),
-                                modifier = Modifier.align(Alignment.Center).size(30.dp),
+                item {
+                    Text(
+                        "VISIT HISTORY",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = TrailText,
+                        modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 30.dp, bottom = 8.dp),
+                    )
+                }
+                items(profile.visits, key = { it.hikeId }) { visit ->
+                    Row(
+                        Modifier.fillMaxWidth().clickable { onOpenHike(visit.hikeId) }
+                            .padding(horizontal = 20.dp, vertical = 15.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(Modifier.width(92.dp).height(72.dp).background(Color(0xFFD0CFBD))) {
+                            if (visit.coverUrl.isNotBlank()) {
+                                AsyncImage(
+                                    model = visit.coverUrl,
+                                    contentDescription = "Cover photo for ${visit.title}",
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Crop,
+                                )
+                            } else {
+                                Icon(
+                                    Icons.Rounded.Park,
+                                    contentDescription = null,
+                                    tint = Moss.copy(alpha = 0.55f),
+                                    modifier = Modifier.align(Alignment.Center).size(30.dp),
+                                )
+                            }
+                        }
+                        Column(Modifier.weight(1f).padding(start = 14.dp)) {
+                            Text(visit.hikeDate, style = MaterialTheme.typography.labelMedium, color = TrailText)
+                            Text(visit.title, style = MaterialTheme.typography.titleLarge, color = Ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(
+                                "${visit.speciesCount} species · ${visit.newSpeciesCount} new then · ${visit.cumulativeSpeciesCount} cumulative",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = InkMuted,
+                                fontWeight = FontWeight.Medium,
                             )
                         }
+                        Icon(Icons.AutoMirrored.Rounded.ArrowForward, contentDescription = "Open journal", tint = FernText)
                     }
-                    Column(Modifier.weight(1f).padding(start = 14.dp)) {
-                        Text(visit.hikeDate, style = MaterialTheme.typography.labelMedium, color = TrailText)
-                        Text(visit.title, style = MaterialTheme.typography.titleLarge, color = Ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(
-                            "${visit.speciesCount} species · ${visit.newSpeciesCount} new then · ${visit.cumulativeSpeciesCount} cumulative",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = InkMuted,
-                            fontWeight = FontWeight.Medium,
-                        )
-                    }
-                    Icon(Icons.AutoMirrored.Rounded.ArrowForward, contentDescription = "Open journal", tint = FernText)
+                    HorizontalDivider(color = Line, modifier = Modifier.padding(start = 20.dp))
                 }
-                HorizontalDivider(color = Line, modifier = Modifier.padding(start = 20.dp))
-            }
-            if (profile.visits.size > 5) {
-                item {
-                    FieldBackToTop {
-                        scope.launch { listState.animateScrollToItem(0) }
+                if (profile.visits.size > 5) {
+                    item {
+                        FieldBackToTop {
+                            scope.launch { listState.animateScrollToItem(0) }
+                        }
                     }
                 }
             }
@@ -256,6 +306,310 @@ internal fun PlaceProfileScreen(
         }
     }
 }
+
+@Composable
+private fun PlaceWeatherSection(
+    placeName: String,
+    forecast: PlaceForecast?,
+    notice: String?,
+    onOpenBriefing: () -> Unit,
+) {
+    val uriHandler = LocalUriHandler.current
+    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 24.dp)) {
+        Text("TODAY AT $placeName", style = MaterialTheme.typography.labelMedium, color = TrailText)
+        if (forecast == null) {
+            Text(
+                notice ?: "Live weather is temporarily unavailable.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = InkMuted,
+                modifier = Modifier.padding(top = 10.dp),
+            )
+        } else {
+            Row(Modifier.fillMaxWidth().padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    if (forecast.conditionLabel.contains("Clear", ignoreCase = true)) Icons.Rounded.WbSunny else Icons.Rounded.Cloud,
+                    contentDescription = null,
+                    tint = Trail,
+                    modifier = Modifier.size(34.dp),
+                )
+                Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                    Text(
+                        forecast.temperatureF?.let { "${it.roundToInt()}°F" } ?: "—",
+                        style = MaterialTheme.typography.displayMedium,
+                        color = Ink,
+                    )
+                    Text(forecast.conditionLabel, style = MaterialTheme.typography.titleMedium, color = FernText)
+                }
+                Column(horizontalAlignment = Alignment.End) {
+                    forecast.days.firstOrNull()?.let { today ->
+                        Text(
+                            listOfNotNull(
+                                today.temperatureMaxF?.let { "${it.roundToInt()}°" },
+                                today.temperatureMinF?.let { "${it.roundToInt()}°" },
+                            ).joinToString(" / "),
+                            style = MaterialTheme.typography.titleLarge,
+                            color = Ink,
+                        )
+                        Text("HIGH / LOW", style = MaterialTheme.typography.labelSmall, color = InkMuted)
+                    }
+                }
+            }
+            val currentDetails = buildList {
+                forecast.apparentTemperatureF?.let { add("Feels ${it.roundToInt()}°F") }
+                forecast.relativeHumidityPercent?.let { add("${it.roundToInt()}% humidity") }
+                forecast.windSpeedMph?.let { wind ->
+                    add("${wind.roundToInt()} mph wind${forecast.windGustMph?.let { ", ${it.roundToInt()} gusts" }.orEmpty()}")
+                }
+                forecast.cloudCoverPercent?.let { add("${it.roundToInt()}% cloud cover") }
+            }
+            Text(
+                currentDetails.joinToString(" · "),
+                style = MaterialTheme.typography.bodyMedium,
+                color = InkMuted,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+            forecast.days.firstOrNull()?.let { today ->
+                Row(
+                    Modifier.fillMaxWidth().padding(top = 20.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    ForecastMetric(
+                        value = today.precipitationProbabilityPercent?.let { "${it.roundToInt()}%" } ?: "—",
+                        label = "RAIN",
+                    )
+                    ForecastMetric(
+                        value = today.uvIndexMax?.let { String.format(Locale.US, "%.1f", it) } ?: "—",
+                        label = "PEAK UV",
+                    )
+                    ForecastMetric(
+                        value = today.sunrise?.let(::formatForecastClock) ?: "—",
+                        label = "SUNRISE",
+                    )
+                    ForecastMetric(
+                        value = today.sunset?.let(::formatForecastClock) ?: "—",
+                        label = "SUNSET",
+                    )
+                }
+            }
+            Column(Modifier.fillMaxWidth().padding(top = 20.dp)) {
+                forecast.planningNotes.forEach { note ->
+                    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.Top) {
+                        Box(Modifier.padding(top = 7.dp).size(6.dp).background(Trail, CircleShape))
+                        Text(note, style = MaterialTheme.typography.bodyMedium, color = Ink, modifier = Modifier.padding(start = 10.dp))
+                    }
+                }
+            }
+            if (forecast.days.size > 1) {
+                Text("NEXT FIVE DAYS", style = MaterialTheme.typography.labelSmall, color = TrailText, modifier = Modifier.padding(top = 22.dp, bottom = 6.dp))
+                forecast.days.drop(1).take(5).forEach { day ->
+                    Row(
+                        Modifier.fillMaxWidth().padding(vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(formatForecastDay(day.date), style = MaterialTheme.typography.labelMedium, color = Ink, modifier = Modifier.width(44.dp))
+                        Text(day.conditionLabel, style = MaterialTheme.typography.bodyMedium, color = Ink, modifier = Modifier.weight(1f))
+                        day.precipitationProbabilityPercent?.let {
+                            Text("${it.roundToInt()}% rain", style = MaterialTheme.typography.bodySmall, color = InkMuted, modifier = Modifier.padding(end = 12.dp))
+                        }
+                        Text(
+                            listOfNotNull(
+                                day.temperatureMaxF?.let { "${it.roundToInt()}°" },
+                                day.temperatureMinF?.let { "${it.roundToInt()}°" },
+                            ).joinToString(" / "),
+                            style = MaterialTheme.typography.titleSmall,
+                            color = Ink,
+                        )
+                    }
+                    HorizontalDivider(color = Line)
+                }
+            }
+            Text(
+                "Open-Meteo forecast data · CC BY 4.0",
+                style = MaterialTheme.typography.labelSmall,
+                color = InkMuted,
+                modifier = Modifier.padding(top = 14.dp).clickable { uriHandler.openUri("https://open-meteo.com/") },
+            )
+        }
+        TextButton(onClick = onOpenBriefing, modifier = Modifier.padding(top = 12.dp)) {
+            Icon(Icons.Rounded.Explore, contentDescription = null, modifier = Modifier.size(18.dp))
+            Text("What might I see today?", modifier = Modifier.padding(start = 7.dp))
+        }
+    }
+    HorizontalDivider(color = Line)
+}
+
+@Composable
+private fun ForecastMetric(value: String, label: String) {
+    Column {
+        Text(value, style = MaterialTheme.typography.titleMedium, color = FernText)
+        Text(label, style = MaterialTheme.typography.labelSmall, color = InkMuted)
+    }
+}
+
+@Composable
+private fun RiverConditionsSection(
+    series: List<RiverGaugeSeries>,
+    periodDays: Int,
+    loading: Boolean,
+    onPeriodChange: (Int) -> Unit,
+) {
+    val uriHandler = LocalUriHandler.current
+    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 24.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("RIVER HEIGHT", style = MaterialTheme.typography.labelMedium, color = TrailText)
+                Text("Your selected USGS gages, nearest first.", style = MaterialTheme.typography.bodyMedium, color = Ink, modifier = Modifier.padding(top = 4.dp))
+            }
+            listOf(7, 30).forEach { days ->
+                TextButton(
+                    onClick = { onPeriodChange(days) },
+                    enabled = !loading,
+                    modifier = Modifier
+                        .padding(start = 3.dp)
+                        .background(if (periodDays == days) Lichen else Color.Transparent, CircleShape),
+                ) {
+                    Text("${days}D")
+                }
+            }
+        }
+        if (loading) {
+            Row(Modifier.fillMaxWidth().padding(vertical = 28.dp), verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(Modifier.size(22.dp), color = Trail, strokeWidth = 2.dp)
+                Text("Reading the last $periodDays days from USGS…", style = MaterialTheme.typography.bodyMedium, color = InkMuted, modifier = Modifier.padding(start = 12.dp))
+            }
+        } else if (series.isEmpty()) {
+            Text(
+                "No river gages are selected. Choose suggested or custom USGS sites in Settings.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = InkMuted,
+                modifier = Modifier.padding(top = 18.dp),
+            )
+        } else {
+            AnimatedContent(targetState = periodDays, label = "river-period") { animatedPeriod ->
+                Column {
+                    series.forEachIndexed { index, gaugeSeries ->
+                        if (index > 0) HorizontalDivider(color = Line)
+                        RiverGaugeSummary(
+                            series = gaugeSeries,
+                            onOpenSource = {
+                                val usgsPeriod = if (animatedPeriod >= 30) "P30D" else "P7D"
+                                uriHandler.openUri(
+                                    "https://waterdata.usgs.gov/monitoring-location/${gaugeSeries.gauge.siteId}/" +
+                                        "#dataTypeId=continuous-00065-0&period=$usgsPeriod",
+                                )
+                            },
+                        )
+                    }
+                }
+            }
+            Text(
+                "USGS gage height (parameter 00065). Values may be provisional; a height at one site cannot be compared directly with another or treated as a crossing-safety rating.",
+                style = MaterialTheme.typography.bodySmall,
+                color = InkMuted,
+                modifier = Modifier.padding(top = 14.dp),
+            )
+        }
+    }
+    HorizontalDivider(color = Line)
+}
+
+@Composable
+private fun RiverGaugeSummary(series: RiverGaugeSeries, onOpenSource: () -> Unit) {
+    Column(Modifier.fillMaxWidth().padding(vertical = 18.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+            Icon(Icons.Rounded.WaterDrop, contentDescription = null, tint = Trail, modifier = Modifier.padding(top = 3.dp).size(22.dp))
+            Column(Modifier.weight(1f).padding(start = 10.dp)) {
+                Text(series.gauge.name, style = MaterialTheme.typography.titleMedium, color = Ink)
+                Text(
+                    listOfNotNull(
+                        series.gauge.siteId,
+                        series.distanceMiles?.let { String.format(Locale.US, "%.0f mi away", it) },
+                    ).joinToString(" · "),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = InkMuted,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
+            series.currentHeightFeet?.let {
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(String.format(Locale.US, "%.2f ft", it), style = MaterialTheme.typography.headlineSmall, color = FernText)
+                    Text("CURRENT", style = MaterialTheme.typography.labelSmall, color = InkMuted)
+                }
+            }
+        }
+        if (series.errorMessage != null) {
+            Text(series.errorMessage, style = MaterialTheme.typography.bodyMedium, color = InkMuted, modifier = Modifier.padding(top = 12.dp, start = 32.dp))
+        } else {
+            RiverSparkline(series, Modifier.fillMaxWidth().height(82.dp).padding(top = 14.dp))
+            val change = series.changeFeet
+            val trend = when {
+                change == null -> "Trend unavailable"
+                change > 0.05 -> "Rising ${String.format(Locale.US, "+%.2f ft", change)}"
+                change < -0.05 -> "Falling ${String.format(Locale.US, "%.2f ft", change)}"
+                else -> "Holding nearly steady"
+            }
+            Text(
+                buildString {
+                    append(trend)
+                    if (series.minimumHeightFeet != null && series.maximumHeightFeet != null) {
+                        append(" · ")
+                        append(String.format(Locale.US, "%.2f–%.2f ft range", series.minimumHeightFeet, series.maximumHeightFeet))
+                    }
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = Ink,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+            Text(
+                "Latest ${series.observedAt?.let(::formatGaugeObservation).orEmpty()}${if (series.readings.lastOrNull()?.provisional == true) " · provisional" else ""}",
+                style = MaterialTheme.typography.bodySmall,
+                color = InkMuted,
+                modifier = Modifier.padding(top = 2.dp),
+            )
+        }
+        TextButton(onClick = onOpenSource, modifier = Modifier.padding(top = 4.dp)) {
+            Text("Open USGS station")
+            Icon(Icons.AutoMirrored.Rounded.ArrowForward, contentDescription = null, modifier = Modifier.padding(start = 4.dp).size(16.dp))
+        }
+    }
+}
+
+@Composable
+private fun RiverSparkline(series: RiverGaugeSeries, modifier: Modifier = Modifier) {
+    val readings = series.readings
+    Canvas(modifier) {
+        if (readings.size < 2) return@Canvas
+        val minimum = readings.minOf { it.heightFeet }
+        val maximum = readings.maxOf { it.heightFeet }
+        val spread = (maximum - minimum).takeIf { it > 0.001 } ?: 1.0
+        val sampleStep = (readings.size / 220).coerceAtLeast(1)
+        val sampled = readings.filterIndexed { index, _ -> index % sampleStep == 0 }.toMutableList()
+        if (sampled.lastOrNull() != readings.last()) sampled += readings.last()
+        val path = Path()
+        sampled.forEachIndexed { index, reading ->
+            val x = if (sampled.size == 1) 0f else size.width * index / (sampled.size - 1)
+            val normalized = ((reading.heightFeet - minimum) / spread).toFloat()
+            val y = size.height - normalized * (size.height - 6.dp.toPx()) - 3.dp.toPx()
+            if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
+        }
+        drawLine(Line, start = androidx.compose.ui.geometry.Offset(0f, size.height - 2.dp.toPx()), end = androidx.compose.ui.geometry.Offset(size.width, size.height - 2.dp.toPx()), strokeWidth = 1.dp.toPx())
+        drawPath(path, color = Trail, style = Stroke(width = 2.5.dp.toPx()))
+    }
+}
+
+private fun formatForecastDay(value: String): String = runCatching {
+    LocalDate.parse(value).format(DateTimeFormatter.ofPattern("EEE", Locale.US)).uppercase(Locale.US)
+}.getOrDefault(value.take(3).uppercase(Locale.US))
+
+private fun formatForecastClock(value: String): String = runCatching {
+    LocalDateTime.parse(value).format(DateTimeFormatter.ofPattern("h:mm a", Locale.US))
+}.getOrDefault(value.substringAfter('T', value))
+
+private fun formatGaugeObservation(value: String): String = runCatching {
+    OffsetDateTime.parse(value).atZoneSameInstant(ZoneId.systemDefault())
+        .format(DateTimeFormatter.ofPattern("MMM d, h:mm a", Locale.US))
+}.getOrDefault(value)
 
 @Composable
 internal fun FieldBriefingScreen(

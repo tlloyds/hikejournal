@@ -185,7 +185,11 @@ def build_place_profile(
             {**_species_snapshot(items[0]), "encounter_count": len(items)}
             for _, items in sorted(by_species.items(), key=lambda item: (-len(item[1]), item[0]))[:20]
         ],
-        "guidance": "This profile is derived from your own recorded visits and confirmed observations.",
+        "guidance": (
+            "This profile is derived from your own recorded visits and confirmed observations."
+            if hikes
+            else "Live planning information is available before your first recorded visit."
+        ),
     }
 
 

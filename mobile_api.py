@@ -2245,8 +2245,6 @@ def get_place_profile(location_id: str) -> dict[str, Any]:
         for hike in _analytics_hikes(svc)
         if any(str(tag.get("id") or "") == location_id for tag in hike.get("location_tags") or [])
     ]
-    if not hikes:
-        raise HTTPException(status_code=404, detail="No visible visits were recorded for this place.")
     return build_place_profile(location, hikes, _dated_visible_observations(svc))
 
 

@@ -64,6 +64,13 @@ comparison, historical Open-Meteo enrichment, and observation
 confidence/provenance/history across Android and web. See
 [docs/longitudinal-intelligence.md](docs/longitudinal-intelligence.md).
 
+Android 0.7.18 extends Place Profiles into pre-visit planning pages for every
+saved place, with live Open-Meteo analysis, generic access to Field Briefings,
+and per-phone USGS gage selection with current plus 7/30-day river-height
+history. The three Central Florida stations included as suggestions remain
+optional, and any compatible USGS gage-height station can be added by site
+number or monitoring-location link.
+
 If you already have a running project from the earlier single-observation version, also run:
 
 - [sql/multi_observations_migration.sql](sql/multi_observations_migration.sql)

@@ -66,6 +66,19 @@ def test_place_profile_deduplicates_species_and_tracks_progression():
     assert {group["name"] for group in profile["taxon_groups"]} == {"Plantae", "Aves"}
 
 
+def test_place_profile_supports_planning_before_first_visit():
+    profile = build_place_profile(
+        {"id": "place-new", "name": "Unvisited Preserve", "lat": 28.1, "lng": -81.2},
+        [],
+        [],
+    )
+
+    assert profile["summary"]["outing_count"] == 0
+    assert profile["visits"] == []
+    assert profile["location"]["lat"] == 28.1
+    assert "before your first" in profile["guidance"]
+
+
 def test_hike_comparison_uses_species_set_math():
     comparison = build_hike_comparison(
         {"id": "a", "title": "A"},

@@ -36,6 +36,7 @@ import com.hikejournal.app.data.PublishQueue
 import com.hikejournal.app.data.ReviewCandidate
 import com.hikejournal.app.data.ReviewItem
 import com.hikejournal.app.data.ReviewBatchStatus
+import com.hikejournal.app.data.RiverGauge
 import com.hikejournal.app.data.RecordedRouteUpload
 import com.hikejournal.app.data.RoutePoint
 import com.hikejournal.app.data.QuestSightingsMap
@@ -144,6 +145,11 @@ data class AppState(
     val trackingMarks: List<FieldMark> = emptyList(),
     val isLongitudinalLoading: Boolean = false,
     val longitudinalDestination: LongitudinalDestination? = null,
+    val riverGaugeOptions: List<RiverGauge> = emptyList(),
+    val riverPeriodDays: Int = 7,
+    val isRiverGaugeLoading: Boolean = false,
+    val isAddingRiverGauge: Boolean = false,
+    val riverGaugeSettingsError: String? = null,
     val trackingOpenRequestToken: Long = 0L,
     val trackingEndRequestToken: Long = 0L,
     val isFinalizingTracking: Boolean = false,
@@ -153,7 +159,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = HikeJournalRepository(application)
     private val trackingRepository = TrackingRepository.get(application)
     private val appContext = application.applicationContext
-    private val _state = MutableStateFlow(AppState())
+    private val _state = MutableStateFlow(AppState(riverGaugeOptions = repository.riverGauges()))
     val state: StateFlow<AppState> = _state.asStateFlow()
     private var observedSpeciesBatchWorkId: UUID? = null
     private var observedPublishBatchWorkId: UUID? = null
@@ -1639,6 +1645,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun openPlaceProfile(locationId: String) {
+        val fallbackLocation = _state.value.hikeLocations.firstOrNull { it.id == locationId }
         viewModelScope.launch {
             _state.update {
                 it.copy(
@@ -1646,10 +1653,18 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     longitudinalDestination = LongitudinalDestination.PlaceProfile,
                     placeProfile = null,
                     fieldBriefing = null,
+                    riverPeriodDays = 7,
+                    isRiverGaugeLoading = false,
                     error = null,
                 )
             }
-            runCatching { repository.loadPlaceProfile(locationId) }
+            runCatching {
+                repository.loadPlaceProfile(
+                    locationId = locationId,
+                    fallbackLocation = fallbackLocation,
+                    riverPeriodDays = 7,
+                )
+            }
                 .onSuccess { result ->
                     _state.update { current ->
                         if (current.longitudinalDestination != LongitudinalDestination.PlaceProfile) current else current.copy(
@@ -1677,11 +1692,89 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             it.copy(
                 placeProfile = null,
                 fieldBriefing = null,
+                isRiverGaugeLoading = false,
                 isLongitudinalLoading = if (it.longitudinalDestination == LongitudinalDestination.PlaceProfile) false else it.isLongitudinalLoading,
                 longitudinalDestination = it.longitudinalDestination
                     .takeUnless { target -> target == LongitudinalDestination.PlaceProfile },
             )
         }
+    }
+
+    fun setPlaceRiverPeriod(periodDays: Int) {
+        val normalized = if (periodDays >= 30) 30 else 7
+        val profile = _state.value.placeProfile ?: return
+        if (_state.value.isRiverGaugeLoading || _state.value.riverPeriodDays == normalized) return
+        viewModelScope.launch {
+            _state.update { it.copy(riverPeriodDays = normalized, isRiverGaugeLoading = true) }
+            runCatching { repository.loadRiverGauges(profile, normalized) }
+                .onSuccess { gauges ->
+                    _state.update { current ->
+                        if (current.placeProfile?.locationId != profile.locationId || current.riverPeriodDays != normalized) {
+                            current
+                        } else {
+                            current.copy(
+                                placeProfile = current.placeProfile.copy(riverGauges = gauges),
+                                isRiverGaugeLoading = false,
+                            )
+                        }
+                    }
+                }
+                .onFailure { error ->
+                    _state.update {
+                        it.copy(isRiverGaugeLoading = false, error = error.userMessage())
+                    }
+                }
+        }
+    }
+
+    fun setRiverGaugeEnabled(siteId: String, enabled: Boolean) {
+        repository.setRiverGaugeEnabled(siteId, enabled)
+        _state.update {
+            it.copy(
+                riverGaugeOptions = repository.riverGauges(),
+                riverGaugeSettingsError = null,
+            )
+        }
+    }
+
+    fun addRiverGauge(value: String) {
+        if (_state.value.isAddingRiverGauge) return
+        viewModelScope.launch {
+            _state.update { it.copy(isAddingRiverGauge = true, riverGaugeSettingsError = null) }
+            runCatching { repository.addRiverGauge(value) }
+                .onSuccess { gauge ->
+                    _state.update {
+                        it.copy(
+                            riverGaugeOptions = repository.riverGauges(),
+                            isAddingRiverGauge = false,
+                            riverGaugeSettingsError = null,
+                            notice = "Monitoring ${gauge.name}.",
+                        )
+                    }
+                }
+                .onFailure { error ->
+                    _state.update {
+                        it.copy(
+                            isAddingRiverGauge = false,
+                            riverGaugeSettingsError = error.userMessage(),
+                        )
+                    }
+                }
+        }
+    }
+
+    fun removeRiverGauge(siteId: String) {
+        repository.removeRiverGauge(siteId)
+        _state.update {
+            it.copy(
+                riverGaugeOptions = repository.riverGauges(),
+                riverGaugeSettingsError = null,
+            )
+        }
+    }
+
+    fun clearRiverGaugeSettingsError() {
+        _state.update { it.copy(riverGaugeSettingsError = null) }
     }
 
     fun openFieldBriefing(locationId: String) {

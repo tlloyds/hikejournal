@@ -38,6 +38,8 @@ internal fun expectedPhotoPageOffsets(expectedPhotoCount: Int?): List<Int> =
 class HikeJournalRepository(context: Context) {
     private val appContext = context.applicationContext
     private val api = HikeJournalApi(appContext)
+    private val riverGaugePreferences = RiverGaugePreferences(appContext)
+    private val outdoorConditions = OutdoorConditionsClient()
     private val fieldQueue = FieldOperationQueue(appContext)
     private val trackingRepository = TrackingRepository.get(appContext)
     private val cacheDirectory = File(context.filesDir, "journal-cache").apply { mkdirs() }
@@ -150,11 +152,93 @@ class HikeJournalRepository(context: Context) {
         parse = ::parseHikeLocations,
     )
 
-    suspend fun loadPlaceProfile(locationId: String): LoadResult<PlaceProfile> = loadWithCache(
-        cacheFile = File(cacheDirectory, "place-${locationId.hashCode()}.json"),
-        fetch = { api.getPlaceProfileJson(locationId) },
-        parse = ::parsePlaceProfile,
-    )
+    fun riverGauges(): List<RiverGauge> = riverGaugePreferences.gauges()
+
+    fun setRiverGaugeEnabled(siteId: String, enabled: Boolean) {
+        riverGaugePreferences.setEnabled(siteId, enabled)
+    }
+
+    suspend fun addRiverGauge(value: String): RiverGauge {
+        val gauge = outdoorConditions.resolveGauge(value)
+        riverGaugePreferences.addCustom(gauge)
+        return gauge.copy(enabled = true)
+    }
+
+    fun removeRiverGauge(siteId: String) {
+        riverGaugePreferences.removeCustom(siteId)
+    }
+
+    suspend fun loadPlaceProfile(
+        locationId: String,
+        fallbackLocation: HikeLocation? = null,
+        riverPeriodDays: Int = 7,
+    ): LoadResult<PlaceProfile> {
+        val baseResult = runCatching {
+            loadWithCache(
+                cacheFile = File(cacheDirectory, "place-${locationId.hashCode()}.json"),
+                fetch = { api.getPlaceProfileJson(locationId) },
+                parse = ::parsePlaceProfile,
+            )
+        }.getOrElse { error ->
+            if (fallbackLocation == null) throw error
+            LoadResult(
+                genericPlaceProfile(fallbackLocation),
+                fromCache = error !is ApiException || error.statusCode != 404,
+            )
+        }
+        val profile = baseResult.value.withFallbackCoordinates(fallbackLocation)
+        val enriched = coroutineScope {
+            val forecastRequest = async {
+                val latitude = profile.latitude ?: return@async null
+                val longitude = profile.longitude ?: return@async null
+                runCatching { outdoorConditions.loadForecast(latitude, longitude) }.getOrNull()
+            }
+            val riverRequest = async { loadRiverGauges(profile, riverPeriodDays) }
+            val forecast = forecastRequest.await()
+            val rivers = riverRequest.await()
+            profile.copy(
+                forecast = forecast,
+                riverGauges = rivers,
+                liveConditionsNotice = when {
+                    profile.latitude == null || profile.longitude == null ->
+                        "Add coordinates to this saved place to see its live weather forecast."
+                    forecast == null -> "Live weather is temporarily unavailable."
+                    else -> null
+                },
+            )
+        }
+        return baseResult.copy(value = enriched)
+    }
+
+    suspend fun loadRiverGauges(profile: PlaceProfile, riverPeriodDays: Int): List<RiverGaugeSeries> =
+        coroutineScope {
+            riverGaugePreferences.gauges()
+                .filter(RiverGauge::enabled)
+                .map { gauge ->
+                    async {
+                        runCatching {
+                            outdoorConditions.loadRiverGauge(
+                                gauge = gauge,
+                                periodDays = riverPeriodDays,
+                                placeLatitude = profile.latitude,
+                                placeLongitude = profile.longitude,
+                            )
+                        }.getOrElse { error ->
+                            RiverGaugeSeries(
+                                gauge = gauge,
+                                periodDays = if (riverPeriodDays >= 30) 30 else 7,
+                                readings = emptyList(),
+                                errorMessage = error.message ?: "USGS gage height is temporarily unavailable.",
+                            )
+                        }
+                    }
+                }
+                .map { it.await() }
+                .sortedWith(
+                    compareBy<RiverGaugeSeries> { it.distanceMiles ?: Double.MAX_VALUE }
+                        .thenBy { it.gauge.name.lowercase() },
+                )
+        }
 
     suspend fun loadFieldBriefing(
         locationId: String,
@@ -1032,6 +1116,34 @@ internal suspend fun cacheHikeCover(
         }
     }
 }
+
+private fun genericPlaceProfile(location: HikeLocation): PlaceProfile = PlaceProfile(
+    locationId = location.id,
+    name = location.name,
+    latitude = location.latitude,
+    longitude = location.longitude,
+    firstVisit = null,
+    latestVisit = null,
+    outingCount = 0,
+    totalDistanceMiles = 0.0,
+    totalDurationSeconds = 0,
+    observationCount = 0,
+    speciesCount = 0,
+    taxonCounts = emptyList(),
+    taxonGroups = emptyList(),
+    seasonalHistory = SeasonalHistory(
+        months = listOf("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+            .mapIndexed { index, label -> SeasonalMonth(index + 1, label, 0, 0.0) },
+        guidance = "No personal observations have been recorded here yet.",
+    ),
+    visits = emptyList(),
+    guidance = "Live planning conditions are available before your first recorded visit.",
+)
+
+private fun PlaceProfile.withFallbackCoordinates(location: HikeLocation?): PlaceProfile = copy(
+    latitude = latitude ?: location?.latitude,
+    longitude = longitude ?: location?.longitude,
+)
 
 private fun Hike.toLocalDraftJson(): JSONObject = JSONObject()
     .put("id", id)

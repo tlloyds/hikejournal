@@ -19,6 +19,23 @@ and replace the server address. The API always uses port `8506`.
 Native hike recording does not need the companion or a network connection.
 Pairing is needed when queued hikes, routes, and photos are ready to sync.
 
+## Included in v0.7.18
+
+- A `Plan a visit` browser opens a useful Place Profile for every saved place,
+  including places with no recorded outing yet
+- Live Open-Meteo planning conditions on Place Profiles: current temperature,
+  feels-like temperature, humidity, cloud cover, wind and gusts, today’s
+  high/low, rain chance, UV, daylight, planning notes, and a five-day outlook
+- USGS river-height monitoring configured per phone in Settings, with the Econ
+  River near Oviedo and Chuluota and the St. Johns near Geneva available as
+  optional suggestions
+- Custom USGS site-number or monitoring-link validation for any station that
+  publishes gage height (parameter 00065)
+- Current gage height, place distance, 7- and 30-day charts, range and trend on
+  Place Profiles, with source links and provisional-data guidance
+- `What might I see today?` now opens the existing Field Briefing from generic
+  Place Profiles as well as from recorded Journals
+
 ## Included in v0.7.3
 
 - Saved weather appears with the lightweight Journal header instead of waiting

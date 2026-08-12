@@ -179,6 +179,7 @@ import com.hikejournal.app.data.MediaLocationSummary
 import com.hikejournal.app.data.Photo
 import com.hikejournal.app.data.ReviewCandidate
 import com.hikejournal.app.data.ReviewItem
+import com.hikejournal.app.data.RiverGauge
 import com.hikejournal.app.data.SpeciesRecord
 import com.hikejournal.app.data.SpeciesLabel
 import com.hikejournal.app.data.SyncAttention
@@ -223,10 +224,14 @@ internal data class PlaceProfileTarget(
     val latestHikeDate: String,
 )
 
-internal fun placeProfileTargets(hikes: List<Hike>): List<PlaceProfileTarget> = hikes
-    .filterNot { it.isStandalone || it.primaryLocationId.isNullOrBlank() }
-    .groupBy { it.primaryLocationId.orEmpty() }
-    .mapNotNull { (locationId, visits) ->
+internal fun placeProfileTargets(
+    hikes: List<Hike>,
+    locations: List<HikeLocation> = emptyList(),
+): List<PlaceProfileTarget> {
+    val visited = hikes
+        .filterNot { it.isStandalone || it.primaryLocationId.isNullOrBlank() }
+        .groupBy { it.primaryLocationId.orEmpty() }
+        .mapNotNull { (locationId, visits) ->
         val latest = visits.maxWithOrNull(compareBy<Hike> { it.hikeDate }.thenBy { it.id })
             ?: return@mapNotNull null
         PlaceProfileTarget(
@@ -235,11 +240,24 @@ internal fun placeProfileTargets(hikes: List<Hike>): List<PlaceProfileTarget> = 
             coverUrl = latest.coverUrl,
             latestHikeDate = latest.hikeDate,
         )
-    }
-    .sortedWith(
+    }.sortedWith(
         compareByDescending<PlaceProfileTarget> { it.latestHikeDate }
             .thenBy { it.name.lowercase(Locale.US) },
     )
+    val visitedIds = visited.mapTo(hashSetOf(), PlaceProfileTarget::id)
+    val unvisited = locations
+        .filterNot { it.id in visitedIds }
+        .map { location ->
+            PlaceProfileTarget(
+                id = location.id,
+                name = location.name,
+                coverUrl = "",
+                latestHikeDate = "",
+            )
+        }
+        .sortedBy { it.name.lowercase(Locale.US) }
+    return visited + unvisited
+}
 
 internal fun adjacentPlaceProfileTarget(
     targets: List<PlaceProfileTarget>,
@@ -270,6 +288,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
     var createEntryOpen by remember { mutableStateOf(false) }
     var pendingEverydayUpload by remember { mutableStateOf(false) }
     var settingsOpen by remember { mutableStateOf(false) }
+    var placeBrowserOpen by remember { mutableStateOf(false) }
     var badgesOpen by remember { mutableStateOf(false) }
     var comparisonBaseHike by remember { mutableStateOf<Hike?>(null) }
     var selectedPhoto by remember { mutableStateOf<Photo?>(null) }
@@ -303,7 +322,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
 
     val activeTracking = state.tracking?.takeUnless { it.status == TrackingStatus.FINISHED }
     val trackingUi = activeTracking?.toTrackingUiModel()
-    val availablePlaceProfiles = placeProfileTargets(state.hikes)
+    val availablePlaceProfiles = placeProfileTargets(state.hikes, state.hikeLocations)
 
     fun closeHikeMap() {
         val request = hikeMapRequest
@@ -437,7 +456,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
     }
 
     BackHandler(
-        enabled = (trackingVisible && activeTracking != null) || hikeMapRequest != null || selectedPhoto != null || syncAttentionOpen || settingsOpen ||
+        enabled = (trackingVisible && activeTracking != null) || hikeMapRequest != null || selectedPhoto != null || syncAttentionOpen || settingsOpen || placeBrowserOpen ||
             pendingUpload.isNotEmpty() ||
             pendingHikeDelete != null || createEntryOpen || creatingHike || editingHike != null || badgesOpen || state.journal != null ||
             state.speciesDetail != null || state.questMapQuest != null || state.longitudinalDestination != null,
@@ -455,6 +474,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
             selectedPhoto != null -> selectedPhoto = null
             syncAttentionOpen -> syncAttentionOpen = false
             settingsOpen -> settingsOpen = false
+            placeBrowserOpen -> placeBrowserOpen = false
             pendingUpload.isNotEmpty() -> pendingUpload = emptyList()
             creatingHike || editingHike != null -> {
                 creatingHike = false
@@ -641,7 +661,11 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                         } else {
                             ""
                         },
+                        riverPeriodDays = state.riverPeriodDays,
+                        riverLoading = state.isRiverGaugeLoading,
                         onBack = ::closePlaceProfile,
+                        onOpenBriefing = { viewModel.openFieldBriefing(currentPlaceId) },
+                        onRiverPeriodChange = viewModel::setPlaceRiverPeriod,
                         onOpenHike = { hikeId ->
                             closePlaceProfile()
                             viewModel.openHike(hikeId)
@@ -831,6 +855,10 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                     onRefresh = { viewModel.refreshLibrary() },
                     onCreate = { createEntryOpen = true },
                     onSettings = { settingsOpen = true },
+                    onPlanPlaces = {
+                        placeBrowserOpen = true
+                        viewModel.loadHikeLocations()
+                    },
                     onBadges = {
                         badgesOpen = true
                         viewModel.loadBadgeProgress()
@@ -1191,6 +1219,9 @@ fun HikeJournalApp(viewModel: AppViewModel) {
             companionVersion = state.companionConfig.apiVersion,
             inatConnected = state.publishQueue.connected,
             showFloridaTrail = showFloridaTrail,
+            riverGauges = state.riverGaugeOptions,
+            addingRiverGauge = state.isAddingRiverGauge,
+            riverGaugeError = state.riverGaugeSettingsError,
             onDismiss = { settingsOpen = false },
             onSave = { url, key ->
                 viewModel.updateConnection(url, key)
@@ -1200,7 +1231,30 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                 showFloridaTrail = show
                 mapDisplayPreferences.setShowFloridaTrail(show)
             },
+            onRiverGaugeEnabledChange = viewModel::setRiverGaugeEnabled,
+            onAddRiverGauge = viewModel::addRiverGauge,
+            onRemoveRiverGauge = viewModel::removeRiverGauge,
+            onClearRiverGaugeError = viewModel::clearRiverGaugeSettingsError,
             onConnectInat = viewModel::connectInat,
+        )
+    }
+
+    if (placeBrowserOpen) {
+        PlaceBrowserDialog(
+            locations = state.hikeLocations,
+            loading = state.hikeLocations.isEmpty(),
+            onDismiss = { placeBrowserOpen = false },
+            onOpen = { location ->
+                placeBrowserOpen = false
+                placeSwipeDirection = 0
+                placeProfileLoadingTarget = PlaceProfileTarget(
+                    id = location.id,
+                    name = location.name,
+                    coverUrl = availablePlaceProfiles.firstOrNull { it.id == location.id }?.coverUrl.orEmpty(),
+                    latestHikeDate = availablePlaceProfiles.firstOrNull { it.id == location.id }?.latestHikeDate.orEmpty(),
+                )
+                viewModel.openPlaceProfile(location.id)
+            },
         )
     }
 
@@ -1223,6 +1277,7 @@ private fun LibraryScreen(
     onRefresh: () -> Unit,
     onCreate: () -> Unit,
     onSettings: () -> Unit,
+    onPlanPlaces: () -> Unit,
     onBadges: () -> Unit,
     onSync: () -> Unit,
     onRetrySync: () -> Unit,
@@ -1288,6 +1343,9 @@ private fun LibraryScreen(
                     onShowAttention = onShowSyncAttention,
                 )
             }
+            item {
+                PlanningPlaceRow(onOpen = onPlanPlaces)
+            }
             tracking?.let { active ->
                 item(key = "active-hike:${active.sessionId}") {
                     ActiveHikeRow(tracking = active, onOpen = onOpenTracking)
@@ -1341,6 +1399,30 @@ private fun LibraryScreen(
             }
         }
     }
+}
+
+@Composable
+private fun PlanningPlaceRow(onOpen: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onOpen)
+            .padding(horizontal = 20.dp, vertical = 15.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier.size(44.dp).background(Lichen, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(Icons.Rounded.WbSunny, contentDescription = null, tint = Trail)
+        }
+        Column(Modifier.weight(1f).padding(start = 13.dp)) {
+            Text("PLAN A VISIT", style = MaterialTheme.typography.labelSmall, color = TrailText)
+            Text("Weather, river levels, and what to look for", style = MaterialTheme.typography.titleMedium, color = Ink)
+        }
+        Icon(Icons.Rounded.ChevronRight, contentDescription = "Browse place profiles", tint = Fern)
+    }
+    HorizontalDivider(color = Line)
 }
 
 @Composable
@@ -3557,6 +3639,77 @@ private fun VideoPlayer(url: String, contentDescription: String) {
 }
 
 @Composable
+private fun PlaceBrowserDialog(
+    locations: List<HikeLocation>,
+    loading: Boolean,
+    onDismiss: () -> Unit,
+    onOpen: (HikeLocation) -> Unit,
+) {
+    var query by rememberSaveable { mutableStateOf("") }
+    val filtered = remember(locations, query) {
+        locations.filter { query.isBlank() || it.name.contains(query, ignoreCase = true) }
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Plan a visit", style = MaterialTheme.typography.headlineMedium) },
+        text = {
+            Column {
+                Text(
+                    "Open any saved place before or after you visit to check live planning conditions.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = InkMuted,
+                )
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                    label = { Text("Search saved places") },
+                    leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
+                    singleLine = true,
+                )
+                when {
+                    loading -> Row(
+                        Modifier.fillMaxWidth().padding(vertical = 28.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        CircularProgressIndicator(Modifier.size(22.dp), color = Trail, strokeWidth = 2.dp)
+                        Text("Loading saved places…", style = MaterialTheme.typography.bodyMedium, color = InkMuted, modifier = Modifier.padding(start = 12.dp))
+                    }
+                    filtered.isEmpty() -> Text(
+                        "No saved place matches this search.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = InkMuted,
+                        modifier = Modifier.padding(vertical = 24.dp),
+                    )
+                    else -> LazyColumn(Modifier.fillMaxWidth().heightIn(max = 420.dp).padding(top = 8.dp)) {
+                        items(filtered, key = HikeLocation::id) { location ->
+                            Row(
+                                Modifier.fillMaxWidth().clickable { onOpen(location) }.padding(vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(Icons.Rounded.LocationOn, contentDescription = null, tint = Fern)
+                                Column(Modifier.weight(1f).padding(start = 11.dp)) {
+                                    Text(location.name, style = MaterialTheme.typography.titleSmall, color = Ink)
+                                    Text(
+                                        if (location.latitude != null && location.longitude != null) "Live planning ready" else "Weather needs saved coordinates",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = InkMuted,
+                                    )
+                                }
+                                Icon(Icons.Rounded.ChevronRight, contentDescription = "Open ${location.name}", tint = Fern)
+                            }
+                            HorizontalDivider(color = Line)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+    )
+}
+
+@Composable
 private fun SettingsDialog(
     currentUrl: String,
     currentKey: String,
@@ -3564,14 +3717,22 @@ private fun SettingsDialog(
     companionVersion: String?,
     inatConnected: Boolean,
     showFloridaTrail: Boolean,
+    riverGauges: List<RiverGauge>,
+    addingRiverGauge: Boolean,
+    riverGaugeError: String?,
     onDismiss: () -> Unit,
     onSave: (String, String) -> Unit,
     onShowFloridaTrailChange: (Boolean) -> Unit,
+    onRiverGaugeEnabledChange: (String, Boolean) -> Unit,
+    onAddRiverGauge: (String) -> Unit,
+    onRemoveRiverGauge: (String) -> Unit,
+    onClearRiverGaugeError: () -> Unit,
     onConnectInat: () -> Unit,
 ) {
     var url by remember(currentUrl) { mutableStateOf(currentUrl) }
     var key by remember(currentKey) { mutableStateOf(currentKey) }
     var validation by remember { mutableStateOf<String?>(null) }
+    var gaugeInput by rememberSaveable { mutableStateOf("") }
     val context = LocalContext.current
     val openWebUrl = remember(webUrl) { validSettingsWebUrl(webUrl) }
     AlertDialog(
@@ -3666,6 +3827,98 @@ private fun SettingsDialog(
                         modifier = Modifier.padding(start = 12.dp),
                     )
                 }
+                HorizontalDivider(Modifier.padding(top = 18.dp))
+                Text(
+                    "River height",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Ink,
+                    modifier = Modifier.padding(top = 16.dp),
+                )
+                Text(
+                    "Select the USGS gages that should appear on place profiles. The three suggested gages are off until you choose them.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = InkMuted,
+                    modifier = Modifier.padding(top = 4.dp, bottom = 6.dp),
+                )
+                riverGauges.forEach { gauge ->
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .toggleable(
+                                value = gauge.enabled,
+                                role = Role.Switch,
+                                onValueChange = { onRiverGaugeEnabledChange(gauge.siteId, it) },
+                            )
+                            .padding(vertical = 9.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(gauge.name, style = MaterialTheme.typography.titleSmall, color = Ink)
+                            Text(
+                                "${gauge.siteId}${if (gauge.suggested) " · SUGGESTED" else ""}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = InkMuted,
+                                modifier = Modifier.padding(top = 2.dp),
+                            )
+                        }
+                        if (!gauge.suggested) {
+                            IconButton(
+                                onClick = { onRemoveRiverGauge(gauge.siteId) },
+                                modifier = Modifier.padding(start = 4.dp),
+                            ) {
+                                Icon(Icons.Rounded.DeleteOutline, contentDescription = "Remove ${gauge.name}", tint = InkMuted)
+                            }
+                        }
+                        Switch(
+                            checked = gauge.enabled,
+                            onCheckedChange = null,
+                            modifier = Modifier.padding(start = 6.dp),
+                        )
+                    }
+                    HorizontalDivider(color = Line)
+                }
+                OutlinedTextField(
+                    value = gaugeInput,
+                    onValueChange = {
+                        gaugeInput = it
+                        if (riverGaugeError != null) onClearRiverGaugeError()
+                    },
+                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                    label = { Text("USGS site number or link") },
+                    supportingText = { Text("Example: 02233484") },
+                    singleLine = true,
+                )
+                riverGaugeError?.let { message ->
+                    Text(
+                        message,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(top = 6.dp),
+                    )
+                }
+                OutlinedButton(
+                    onClick = {
+                        if (gaugeInput.isBlank()) {
+                            gaugeInput = ""
+                        } else {
+                            onAddRiverGauge(gaugeInput)
+                        }
+                    },
+                    enabled = gaugeInput.isNotBlank() && !addingRiverGauge,
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                ) {
+                    if (addingRiverGauge) {
+                        CircularProgressIndicator(Modifier.size(17.dp), color = Moss, strokeWidth = 2.dp)
+                        Spacer(Modifier.width(8.dp))
+                    }
+                    Text(if (addingRiverGauge) "Checking USGS…" else "Add river gage")
+                }
+                Text(
+                    "USGS gage height is site-specific, often provisional, and is not a flood or crossing-safety rating.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = InkMuted,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
                 Text(
                     buildString {
                         append("HikeJournal ${BuildConfig.VERSION_NAME}")

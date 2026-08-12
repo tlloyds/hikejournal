@@ -41,6 +41,7 @@ from mobile_api import (
     get_hike,
     get_hike_photos,
     get_hike_route,
+    get_place_profile,
     list_discovery_areas,
     list_hikes,
     list_hike_locations,
@@ -1543,6 +1544,31 @@ def test_discovery_area_endpoint_returns_coordinate_backed_locations(monkeypatch
     result = list_discovery_areas("alafia")
 
     assert result[0]["id"] == "area-1"
+
+
+def test_place_profile_endpoint_allows_planning_before_a_recorded_visit(monkeypatch):
+    repository = type(
+        "Repository",
+        (),
+        {
+            "get_hike_location": lambda _self, _location_id: {
+                "id": "area-1",
+                "name": "Unvisited Preserve",
+                "lat": 28.1,
+                "lng": -81.2,
+            }
+        },
+    )()
+    service = type("Service", (), {"repository": repository})()
+    monkeypatch.setattr("mobile_api.get_services", lambda: service)
+    monkeypatch.setattr("mobile_api._analytics_hikes", lambda _service: [])
+    monkeypatch.setattr("mobile_api._dated_visible_observations", lambda _service: [])
+
+    result = get_place_profile("area-1")
+
+    assert result["summary"]["outing_count"] == 0
+    assert result["location"]["lat"] == 28.1
+    assert result["visits"] == []
 
 
 def test_native_hike_locations_returns_imported_library(monkeypatch):

@@ -10,7 +10,7 @@ class LongitudinalParserTest {
         val profile = parsePlaceProfile(
             """
             {
-              "location":{"id":"place-1","name":"Oak Flat"},
+              "location":{"id":"place-1","name":"Oak Flat","lat":28.1,"lng":-82.2},
               "summary":{"first_visit":"2024-02-01","latest_visit":"2026-02-01","outing_count":2,"total_distance_miles":5.5,"total_duration_seconds":7200,"observation_count":4,"species_count":3},
               "taxon_counts":[{"name":"Plantae","count":2}],
               "taxon_groups":[{"name":"Plantae","count":2,"species":[{"key":"taxon:1","taxon_id":1,"common_name":"Pink sundew","scientific_name":"Drosera capillaris","iconic_taxon_name":"Plantae","encounter_count":3,"reference_photo_url":"https://example.test/sundew.jpg"}]}],
@@ -22,6 +22,7 @@ class LongitudinalParserTest {
         )
 
         assertEquals("Oak Flat", profile.name)
+        assertEquals(28.1, profile.latitude!!, 0.001)
         assertEquals(3, profile.speciesCount)
         assertEquals(4, profile.seasonalHistory.months.single().count)
         assertEquals(3, profile.visits.single().cumulativeSpeciesCount)
