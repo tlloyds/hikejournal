@@ -176,6 +176,8 @@ import com.hikejournal.app.data.HikeLocationSuggestion
 import com.hikejournal.app.data.LocalMediaAccess
 import com.hikejournal.app.data.MapDisplayPreferences
 import com.hikejournal.app.data.MediaLocationSummary
+import com.hikejournal.app.data.NationalScenicTrailOverlays
+import com.hikejournal.app.data.NearbyRiverGauge
 import com.hikejournal.app.data.Photo
 import com.hikejournal.app.data.ReviewCandidate
 import com.hikejournal.app.data.ReviewItem
@@ -183,6 +185,7 @@ import com.hikejournal.app.data.RiverGauge
 import com.hikejournal.app.data.SpeciesRecord
 import com.hikejournal.app.data.SpeciesLabel
 import com.hikejournal.app.data.SyncAttention
+import com.hikejournal.app.data.TrailOverlayDefinition
 import com.hikejournal.app.data.WeatherSnapshot
 import com.hikejournal.app.data.localMediaAccess
 import com.hikejournal.app.data.requiredLocalMediaPermissions
@@ -316,8 +319,8 @@ fun HikeJournalApp(viewModel: AppViewModel) {
     var trackingEndConfirmationRequested by rememberSaveable { mutableStateOf(false) }
     var pendingTrackingStart by rememberSaveable { mutableStateOf(false) }
     var trackingIssue by remember { mutableStateOf<TrackingPreflightIssue?>(null) }
-    var showFloridaTrail by rememberSaveable {
-        mutableStateOf(mapDisplayPreferences.showFloridaTrail())
+    var selectedTrailIds by remember {
+        mutableStateOf(mapDisplayPreferences.selectedTrailIds())
     }
 
     val activeTracking = state.tracking?.takeUnless { it.status == TrackingStatus.FINISHED }
@@ -552,7 +555,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                     HikeTrackingScreen(
                         tracking = trackingUi,
                         fieldMarks = state.trackingMarks,
-                        showFloridaTrail = showFloridaTrail,
+                        selectedTrailIds = selectedTrailIds,
                         onBack = {
                             trackingVisible = false
                             trackingEndConfirmationRequested = false
@@ -587,7 +590,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                     HikeMapScreen(
                         hike = request.hike,
                         focusedPhoto = request.focusedPhoto,
-                        showFloridaTrail = showFloridaTrail,
+                        selectedTrailIds = selectedTrailIds,
                         onBack = ::closeHikeMap,
                         onOpenPhoto = { photo ->
                             hikeMapRequest = null
@@ -832,7 +835,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                 destination == TopDestination.Map -> SightingsMapScreen(
                     sightings = state.sightings,
                     routeSegments = state.mapRouteSegments,
-                    showFloridaTrail = showFloridaTrail,
+                    selectedTrailIds = selectedTrailIds,
                     loading = state.isMapLoading,
                     openingPhotoId = openingMapPhotoId,
                     onRefresh = { viewModel.loadSightings(force = true) },
@@ -854,7 +857,10 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                     onOpenTracking = { trackingVisible = true },
                     onRefresh = { viewModel.refreshLibrary() },
                     onCreate = { createEntryOpen = true },
-                    onSettings = { settingsOpen = true },
+                    onSettings = {
+                        settingsOpen = true
+                        viewModel.loadHikeLocations()
+                    },
                     onPlanPlaces = {
                         placeBrowserOpen = true
                         viewModel.loadHikeLocations()
@@ -1218,21 +1224,34 @@ fun HikeJournalApp(viewModel: AppViewModel) {
             webUrl = state.companionConfig.webUrl,
             companionVersion = state.companionConfig.apiVersion,
             inatConnected = state.publishQueue.connected,
-            showFloridaTrail = showFloridaTrail,
+            selectedTrailIds = selectedTrailIds,
+            hikeLocations = state.hikeLocations,
             riverGauges = state.riverGaugeOptions,
+            nearbyRiverGauges = state.nearbyRiverGauges,
+            nearbyRiverGaugeLocationName = state.nearbyRiverGaugeLocationName,
+            nearbyRiverGaugeLoading = state.isNearbyRiverGaugeLoading,
+            nearbyRiverGaugeError = state.nearbyRiverGaugeError,
             addingRiverGauge = state.isAddingRiverGauge,
             riverGaugeError = state.riverGaugeSettingsError,
-            onDismiss = { settingsOpen = false },
+            onDismiss = {
+                settingsOpen = false
+                viewModel.clearNearbyRiverGaugeSearch()
+            },
             onSave = { url, key ->
                 viewModel.updateConnection(url, key)
                 settingsOpen = false
             },
-            onShowFloridaTrailChange = { show ->
-                showFloridaTrail = show
-                mapDisplayPreferences.setShowFloridaTrail(show)
+            onTrailOverlayChange = { trailId, selected ->
+                selectedTrailIds = selectedTrailIds.toMutableSet().apply {
+                    if (selected) add(trailId) else remove(trailId)
+                }
+                mapDisplayPreferences.setTrailSelected(trailId, selected)
             },
             onRiverGaugeEnabledChange = viewModel::setRiverGaugeEnabled,
             onAddRiverGauge = viewModel::addRiverGauge,
+            onFindRiverGauges = viewModel::findRiverGaugesNear,
+            onAddDiscoveredRiverGauge = viewModel::addDiscoveredRiverGauge,
+            onClearNearbyRiverGaugeSearch = viewModel::clearNearbyRiverGaugeSearch,
             onRemoveRiverGauge = viewModel::removeRiverGauge,
             onClearRiverGaugeError = viewModel::clearRiverGaugeSettingsError,
             onConnectInat = viewModel::connectInat,
@@ -3716,15 +3735,23 @@ private fun SettingsDialog(
     webUrl: String,
     companionVersion: String?,
     inatConnected: Boolean,
-    showFloridaTrail: Boolean,
+    selectedTrailIds: Set<String>,
+    hikeLocations: List<HikeLocation>,
     riverGauges: List<RiverGauge>,
+    nearbyRiverGauges: List<NearbyRiverGauge>,
+    nearbyRiverGaugeLocationName: String?,
+    nearbyRiverGaugeLoading: Boolean,
+    nearbyRiverGaugeError: String?,
     addingRiverGauge: Boolean,
     riverGaugeError: String?,
     onDismiss: () -> Unit,
     onSave: (String, String) -> Unit,
-    onShowFloridaTrailChange: (Boolean) -> Unit,
+    onTrailOverlayChange: (String, Boolean) -> Unit,
     onRiverGaugeEnabledChange: (String, Boolean) -> Unit,
     onAddRiverGauge: (String) -> Unit,
+    onFindRiverGauges: (HikeLocation) -> Unit,
+    onAddDiscoveredRiverGauge: (RiverGauge) -> Unit,
+    onClearNearbyRiverGaugeSearch: () -> Unit,
     onRemoveRiverGauge: (String) -> Unit,
     onClearRiverGaugeError: () -> Unit,
     onConnectInat: () -> Unit,
@@ -3733,8 +3760,37 @@ private fun SettingsDialog(
     var key by remember(currentKey) { mutableStateOf(currentKey) }
     var validation by remember { mutableStateOf<String?>(null) }
     var gaugeInput by rememberSaveable { mutableStateOf("") }
+    var manualGaugeOpen by rememberSaveable { mutableStateOf(false) }
+    var trailPickerOpen by rememberSaveable { mutableStateOf(false) }
+    var gaugeFinderOpen by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
     val openWebUrl = remember(webUrl) { validSettingsWebUrl(webUrl) }
+    if (trailPickerOpen) {
+        TrailOverlayPickerDialog(
+            selectedTrailIds = selectedTrailIds,
+            onSelectionChange = onTrailOverlayChange,
+            onBack = { trailPickerOpen = false },
+        )
+        return
+    }
+    if (gaugeFinderOpen) {
+        RiverGaugeFinderDialog(
+            locations = hikeLocations,
+            monitoredGauges = riverGauges,
+            results = nearbyRiverGauges,
+            locationName = nearbyRiverGaugeLocationName,
+            loading = nearbyRiverGaugeLoading,
+            error = nearbyRiverGaugeError,
+            onSearch = onFindRiverGauges,
+            onMonitor = onAddDiscoveredRiverGauge,
+            onClearResults = onClearNearbyRiverGaugeSearch,
+            onBack = {
+                gaugeFinderOpen = false
+                onClearNearbyRiverGaugeSearch()
+            },
+        )
+        return
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Settings", style = MaterialTheme.typography.headlineMedium) },
@@ -3792,7 +3848,7 @@ private fun SettingsDialog(
                 }
                 HorizontalDivider(Modifier.padding(top = 18.dp))
                 Text(
-                    "Map",
+                    "Map overlays",
                     style = MaterialTheme.typography.titleMedium,
                     color = Ink,
                     modifier = Modifier.padding(top = 16.dp),
@@ -3800,32 +3856,28 @@ private fun SettingsDialog(
                 Row(
                     Modifier
                         .fillMaxWidth()
-                        .toggleable(
-                            value = showFloridaTrail,
-                            role = Role.Switch,
-                            onValueChange = onShowFloridaTrailChange,
-                        )
-                        .padding(vertical = 10.dp),
+                        .clickable { trailPickerOpen = true }
+                        .padding(vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(Modifier.weight(1f)) {
                         Text(
-                            "Florida Trail overlay",
+                            "National Scenic Trails",
                             style = MaterialTheme.typography.titleSmall,
                             color = Ink,
                         )
                         Text(
-                            "Show the public trail reference and highlight shared route sections.",
+                            when (selectedTrailIds.size) {
+                                0 -> "No trail overlays selected"
+                                1 -> NationalScenicTrailOverlays.firstOrNull { it.id in selectedTrailIds }?.name.orEmpty()
+                                else -> "${selectedTrailIds.size} trails selected"
+                            },
                             style = MaterialTheme.typography.bodyMedium,
                             color = InkMuted,
                             modifier = Modifier.padding(top = 3.dp),
                         )
                     }
-                    Switch(
-                        checked = showFloridaTrail,
-                        onCheckedChange = null,
-                        modifier = Modifier.padding(start = 12.dp),
-                    )
+                    Icon(Icons.Rounded.ChevronRight, contentDescription = "Choose trail overlays", tint = Fern)
                 }
                 HorizontalDivider(Modifier.padding(top = 18.dp))
                 Text(
@@ -3835,12 +3887,20 @@ private fun SettingsDialog(
                     modifier = Modifier.padding(top = 16.dp),
                 )
                 Text(
-                    "Select the USGS gages that should appear on place profiles. The three suggested gages are off until you choose them.",
+                    "Find active USGS gage-height stations near any saved place—no station code needed.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = InkMuted,
                     modifier = Modifier.padding(top = 4.dp, bottom = 6.dp),
                 )
-                riverGauges.forEach { gauge ->
+                OutlinedButton(
+                    onClick = { gaugeFinderOpen = true },
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 4.dp),
+                ) {
+                    Icon(Icons.Rounded.LocationOn, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Find nearby river gages")
+                }
+                riverGauges.filter(RiverGauge::enabled).forEach { gauge ->
                     Row(
                         Modifier
                             .fillMaxWidth()
@@ -3877,41 +3937,61 @@ private fun SettingsDialog(
                     }
                     HorizontalDivider(color = Line)
                 }
-                OutlinedTextField(
-                    value = gaugeInput,
-                    onValueChange = {
-                        gaugeInput = it
-                        if (riverGaugeError != null) onClearRiverGaugeError()
-                    },
-                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
-                    label = { Text("USGS site number or link") },
-                    supportingText = { Text("Example: 02233484") },
-                    singleLine = true,
-                )
-                riverGaugeError?.let { message ->
-                    Text(
-                        message,
-                        color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(top = 6.dp),
-                    )
-                }
-                OutlinedButton(
-                    onClick = {
-                        if (gaugeInput.isBlank()) {
-                            gaugeInput = ""
-                        } else {
-                            onAddRiverGauge(gaugeInput)
-                        }
-                    },
-                    enabled = gaugeInput.isNotBlank() && !addingRiverGauge,
-                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                TextButton(
+                    onClick = { manualGaugeOpen = !manualGaugeOpen },
+                    modifier = Modifier.padding(top = 4.dp),
                 ) {
-                    if (addingRiverGauge) {
-                        CircularProgressIndicator(Modifier.size(17.dp), color = Moss, strokeWidth = 2.dp)
-                        Spacer(Modifier.width(8.dp))
+                    Text(if (manualGaugeOpen) "Hide manual option" else "Add from a USGS page instead")
+                }
+                AnimatedVisibility(manualGaugeOpen) {
+                    Column {
+                        Text(
+                            "Open the USGS map, tap a monitoring station, then copy its page address. Paste the whole link here—HikeJournal finds the site number inside it.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = InkMuted,
+                        )
+                        TextButton(
+                            onClick = {
+                                context.startActivity(
+                                    Intent(Intent.ACTION_VIEW, Uri.parse("https://dashboard.waterdata.usgs.gov/app/nwd/en/")),
+                                )
+                            },
+                        ) {
+                            Icon(Icons.AutoMirrored.Rounded.OpenInNew, null, Modifier.size(17.dp))
+                            Spacer(Modifier.width(7.dp))
+                            Text("Open USGS water map")
+                        }
+                        OutlinedTextField(
+                            value = gaugeInput,
+                            onValueChange = {
+                                gaugeInput = it
+                                if (riverGaugeError != null) onClearRiverGaugeError()
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("USGS station link") },
+                            supportingText = { Text("A site number like 02233484 also works") },
+                            singleLine = true,
+                        )
+                        riverGaugeError?.let { message ->
+                            Text(
+                                message,
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.padding(top = 6.dp),
+                            )
+                        }
+                        OutlinedButton(
+                            onClick = { onAddRiverGauge(gaugeInput) },
+                            enabled = gaugeInput.isNotBlank() && !addingRiverGauge,
+                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                        ) {
+                            if (addingRiverGauge) {
+                                CircularProgressIndicator(Modifier.size(17.dp), color = Moss, strokeWidth = 2.dp)
+                                Spacer(Modifier.width(8.dp))
+                            }
+                            Text(if (addingRiverGauge) "Checking USGS…" else "Add river gage")
+                        }
                     }
-                    Text(if (addingRiverGauge) "Checking USGS…" else "Add river gage")
                 }
                 Text(
                     "USGS gage height is site-specific, often provisional, and is not a flood or crossing-safety rating.",
@@ -3949,6 +4029,263 @@ private fun SettingsDialog(
             }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@Composable
+private fun TrailOverlayPickerDialog(
+    selectedTrailIds: Set<String>,
+    onSelectionChange: (String, Boolean) -> Unit,
+    onBack: () -> Unit,
+) {
+    val featured = NationalScenicTrailOverlays.filter(TrailOverlayDefinition::featured)
+    val remaining = NationalScenicTrailOverlays.filterNot(TrailOverlayDefinition::featured)
+    AlertDialog(
+        onDismissRequest = onBack,
+        title = { Text("Trail overlays", style = MaterialTheme.typography.headlineMedium) },
+        text = {
+            LazyColumn(Modifier.fillMaxWidth().heightIn(max = 560.dp)) {
+                item {
+                    Text(
+                        "Choose any National Scenic Trails to draw in orange on every map.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = InkMuted,
+                        modifier = Modifier.padding(bottom = 14.dp),
+                    )
+                    Text("TRIPLE CROWN", style = MaterialTheme.typography.labelSmall, color = TrailText)
+                }
+                items(featured, key = TrailOverlayDefinition::id) { trail ->
+                    TrailOverlaySelectionRow(trail, trail.id in selectedTrailIds, onSelectionChange)
+                }
+                item {
+                    HorizontalDivider(Modifier.padding(vertical = 12.dp), color = Line)
+                    Text("OTHER NATIONAL SCENIC TRAILS", style = MaterialTheme.typography.labelSmall, color = TrailText)
+                }
+                items(remaining, key = TrailOverlayDefinition::id) { trail ->
+                    TrailOverlaySelectionRow(trail, trail.id in selectedTrailIds, onSelectionChange)
+                }
+                item {
+                    Text(
+                        "Route references come from the public trail datasets used by the National Park Service catalog. Always follow current closures and official local guidance.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = InkMuted,
+                        modifier = Modifier.padding(top = 14.dp),
+                    )
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onBack) { Text("Done") } },
+    )
+}
+
+@Composable
+private fun TrailOverlaySelectionRow(
+    trail: TrailOverlayDefinition,
+    selected: Boolean,
+    onSelectionChange: (String, Boolean) -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .toggleable(
+                value = selected,
+                role = Role.Checkbox,
+                onValueChange = { onSelectionChange(trail.id, it) },
+            )
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Checkbox(checked = selected, onCheckedChange = null)
+        Column(Modifier.weight(1f).padding(start = 8.dp)) {
+            Text(trail.name, style = MaterialTheme.typography.titleSmall, color = Ink)
+            Text("${trail.shortName} · ${trail.states}", style = MaterialTheme.typography.bodySmall, color = InkMuted)
+        }
+    }
+}
+
+@Composable
+private fun RiverGaugeFinderDialog(
+    locations: List<HikeLocation>,
+    monitoredGauges: List<RiverGauge>,
+    results: List<NearbyRiverGauge>,
+    locationName: String?,
+    loading: Boolean,
+    error: String?,
+    onSearch: (HikeLocation) -> Unit,
+    onMonitor: (RiverGauge) -> Unit,
+    onClearResults: () -> Unit,
+    onBack: () -> Unit,
+) {
+    var query by rememberSaveable { mutableStateOf("") }
+    var locating by rememberSaveable { mutableStateOf(false) }
+    var locationError by rememberSaveable { mutableStateOf<String?>(null) }
+    val context = LocalContext.current
+    fun requestCurrentLocation() {
+        locating = true
+        locationError = null
+        requestOneShotLocation(
+            context = context,
+            onLocation = { location ->
+                locating = false
+                onSearch(
+                    HikeLocation(
+                        id = "current-location",
+                        name = "Current location",
+                        latitude = location.latitude,
+                        longitude = location.longitude,
+                    ),
+                )
+            },
+            onUnavailable = {
+                locating = false
+                locationError = "Current location is unavailable. Check that location services are on, or choose a saved place."
+            },
+        )
+    }
+    val locationPermissionLauncher = rememberLauncherForActivityResult(RequestMultiplePermissions()) { grants ->
+        if (grants[Manifest.permission.ACCESS_FINE_LOCATION] == true || grants[Manifest.permission.ACCESS_COARSE_LOCATION] == true) {
+            requestCurrentLocation()
+        } else {
+            locating = false
+            locationError = "Location permission is needed to find river gages near you."
+        }
+    }
+    val availableLocations = remember(locations, query) {
+        locations
+            .filter { it.latitude != null && it.longitude != null }
+            .filter { query.isBlank() || it.name.contains(query.trim(), ignoreCase = true) }
+            .sortedBy { it.name.lowercase(Locale.US) }
+    }
+    val monitoredIds = monitoredGauges.filter(RiverGauge::enabled).map(RiverGauge::siteId).toSet()
+    AlertDialog(
+        onDismissRequest = onBack,
+        title = { Text("Find river gages", style = MaterialTheme.typography.headlineMedium) },
+        text = {
+            Column {
+                if (locationName == null) {
+                    Text(
+                        "Use your location or choose a saved place. HikeJournal will look for active USGS gage-height stations within 30 miles.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = InkMuted,
+                    )
+                    OutlinedButton(
+                        onClick = {
+                            val alreadyGranted = context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+                                context.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                            if (alreadyGranted) {
+                                requestCurrentLocation()
+                            } else {
+                                locating = true
+                                locationPermissionLauncher.launch(
+                                    arrayOf(
+                                        Manifest.permission.ACCESS_FINE_LOCATION,
+                                        Manifest.permission.ACCESS_COARSE_LOCATION,
+                                    ),
+                                )
+                            }
+                        },
+                        enabled = !locating,
+                        modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
+                    ) {
+                        if (locating) {
+                            CircularProgressIndicator(Modifier.size(17.dp), color = Moss, strokeWidth = 2.dp)
+                        } else {
+                            Icon(Icons.Rounded.LocationOn, null, Modifier.size(18.dp))
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        Text(if (locating) "Finding your location…" else "Use my current location")
+                    }
+                    locationError?.let { message ->
+                        Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 7.dp))
+                    }
+                    Text(
+                        "OR CHOOSE A SAVED PLACE",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = TrailText,
+                        modifier = Modifier.padding(top = 16.dp),
+                    )
+                    OutlinedTextField(
+                        value = query,
+                        onValueChange = { query = it },
+                        modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                        leadingIcon = { Icon(Icons.Rounded.Search, null) },
+                        label = { Text("Search saved places") },
+                        singleLine = true,
+                    )
+                    if (availableLocations.isEmpty()) {
+                        Text(
+                            if (locations.isEmpty()) "No saved places with coordinates yet." else "No matching places with coordinates.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = InkMuted,
+                            modifier = Modifier.padding(vertical = 22.dp),
+                        )
+                    } else {
+                        LazyColumn(Modifier.fillMaxWidth().heightIn(max = 390.dp).padding(top = 6.dp)) {
+                            items(availableLocations, key = HikeLocation::id) { location ->
+                                Row(
+                                    Modifier.fillMaxWidth().clickable { onSearch(location) }.padding(vertical = 11.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Icon(Icons.Rounded.LocationOn, null, tint = Fern)
+                                    Text(
+                                        location.name,
+                                        style = MaterialTheme.typography.titleSmall,
+                                        color = Ink,
+                                        modifier = Modifier.weight(1f).padding(horizontal = 10.dp),
+                                    )
+                                    Icon(Icons.Rounded.ChevronRight, "Search near ${location.name}", tint = Fern)
+                                }
+                                HorizontalDivider(color = Line)
+                            }
+                        }
+                    }
+                } else {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Within 30 miles", style = MaterialTheme.typography.labelSmall, color = TrailText)
+                            Text(locationName, style = MaterialTheme.typography.titleMedium, color = Ink)
+                        }
+                        TextButton(onClick = onClearResults) { Text("Change place") }
+                    }
+                    when {
+                        loading -> Column(
+                            Modifier.fillMaxWidth().padding(vertical = 36.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            CircularProgressIndicator(color = Moss, strokeWidth = 2.dp)
+                            Text("Checking nearby USGS stations…", style = MaterialTheme.typography.bodyMedium, color = InkMuted, modifier = Modifier.padding(top = 12.dp))
+                        }
+                        error != null -> Text(error, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(vertical = 18.dp))
+                        results.isEmpty() -> Text("No recently reporting gage-height stations were found nearby.", style = MaterialTheme.typography.bodyMedium, color = InkMuted, modifier = Modifier.padding(vertical = 18.dp))
+                        else -> LazyColumn(Modifier.fillMaxWidth().heightIn(max = 470.dp).padding(top = 8.dp)) {
+                            items(results, key = { it.gauge.siteId }) { candidate ->
+                                val monitored = candidate.gauge.siteId in monitoredIds
+                                Row(
+                                    Modifier.fillMaxWidth().padding(vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Icon(Icons.Rounded.WaterDrop, null, tint = Trail, modifier = Modifier.size(21.dp))
+                                    Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
+                                        Text(candidate.gauge.name, style = MaterialTheme.typography.titleSmall, color = Ink)
+                                        Text(
+                                            "${String.format(Locale.US, "%.1f", candidate.distanceMiles)} mi · ${String.format(Locale.US, "%.2f", candidate.currentHeightFeet)} ft now",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = InkMuted,
+                                            modifier = Modifier.padding(top = 2.dp),
+                                        )
+                                    }
+                                    TextButton(onClick = { onMonitor(candidate.gauge) }, enabled = !monitored) {
+                                        Text(if (monitored) "Following" else "Follow")
+                                    }
+                                }
+                                HorizontalDivider(color = Line)
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onBack) { Text("Back") } },
     )
 }
 

@@ -1,5 +1,6 @@
 package com.hikejournal.app.data
 
+import java.time.Instant
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -72,5 +73,33 @@ class OutdoorConditionsTest {
 
         assertEquals("St. Johns River above Lake Harney near Geneva", gauge.name)
         assertEquals(28.7142, gauge.latitude, 0.0001)
+    }
+
+    @Test
+    fun `nearby USGS search keeps recent gage height stations and sorts by distance`() {
+        val results = parseNearbyRiverGauges(
+            latestJson = """
+                {"features":[
+                  {"properties":{"monitoring_location_id":"USGS-02234000","time":"2026-08-12T14:30:00Z","value":"2.31","unit_of_measure":"ft","approval_status":"Provisional"},"geometry":{"type":"Point","coordinates":[-81.0353,28.7142]}},
+                  {"properties":{"monitoring_location_id":"USGS-02233500","time":"2026-08-12T14:45:00Z","value":"4.66","unit_of_measure":"ft","approval_status":"Approved"},"geometry":{"type":"Point","coordinates":[-81.1142,28.6778]}},
+                  {"properties":{"monitoring_location_id":"USGS-OLD","time":"2025-08-12T14:45:00Z","value":"9.99","unit_of_measure":"ft","approval_status":"Approved"},"geometry":{"type":"Point","coordinates":[-81.11,28.68]}}
+                ]}
+            """.trimIndent(),
+            metadataJson = """
+                {"features":[
+                  {"properties":{"id":"USGS-02234000","monitoring_location_name":"ST. JOHNS RIVER ABOVE LAKE HARNEY NEAR GENEVA, FL"}},
+                  {"properties":{"id":"USGS-02233500","monitoring_location_name":"ECONLOCKHATCHEE RIVER NEAR CHULUOTA, FL"}}
+                ]}
+            """.trimIndent(),
+            originLatitude = 28.68,
+            originLongitude = -81.12,
+            now = Instant.parse("2026-08-12T15:00:00Z"),
+        )
+
+        assertEquals(2, results.size)
+        assertEquals("USGS-02233500", results.first().gauge.siteId)
+        assertEquals("Econlockhatchee River near Chuluota", results.first().gauge.name)
+        assertEquals(4.66, results.first().currentHeightFeet, 0.001)
+        assertTrue(results.first().distanceMiles < results.last().distanceMiles)
     }
 }

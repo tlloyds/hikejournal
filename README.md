@@ -64,12 +64,13 @@ comparison, historical Open-Meteo enrichment, and observation
 confidence/provenance/history across Android and web. See
 [docs/longitudinal-intelligence.md](docs/longitudinal-intelligence.md).
 
-Android 0.7.18 extends Place Profiles into pre-visit planning pages for every
+Android 0.7.19 extends Place Profiles into pre-visit planning pages for every
 saved place, with live Open-Meteo analysis, generic access to Field Briefings,
 and per-phone USGS gage selection with current plus 7/30-day river-height
-history. The three Central Florida stations included as suggestions remain
-optional, and any compatible USGS gage-height station can be added by site
-number or monitoring-location link.
+history. Settings can discover recently reporting gage-height stations within
+30 miles of the phone or any saved place, while a copied USGS station link remains available
+as a manual fallback. Maps can independently show any of the 11 National Scenic
+Trails, using one compact selector and a consistent orange reference line.
 
 If you already have a running project from the earlier single-observation version, also run:
 

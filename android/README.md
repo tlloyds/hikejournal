@@ -19,6 +19,17 @@ and replace the server address. The API always uses port `8506`.
 Native hike recording does not need the companion or a network connection.
 Pairing is needed when queued hikes, routes, and photos are ready to sync.
 
+## Included in v0.7.19
+
+- Location-first USGS discovery finds recently reporting gage-height stations
+  within 30 miles of the phone or any saved place and shows distance plus current height
+  before a station is followed
+- The manual USGS option now explains how to copy a station page link and links
+  directly to the National Water Dashboard; raw site numbers remain supported
+- A compact map-overlay picker includes all 11 National Scenic Trails, with the
+  Appalachian, Pacific Crest, and Continental Divide trails highlighted as the
+  Triple Crown and every selected route drawn in orange
+
 ## Included in v0.7.18
 
 - A `Plan a visit` browser opens a useful Place Profile for every saved place,

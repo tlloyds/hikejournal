@@ -84,6 +84,14 @@ data class RiverGauge(
     val suggested: Boolean = false,
 )
 
+data class NearbyRiverGauge(
+    val gauge: RiverGauge,
+    val distanceMiles: Double,
+    val currentHeightFeet: Double,
+    val observedAt: String,
+    val provisional: Boolean,
+)
+
 data class RiverGaugeReading(
     val observedAt: String,
     val heightFeet: Double,

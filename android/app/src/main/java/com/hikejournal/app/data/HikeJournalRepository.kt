@@ -164,6 +164,18 @@ class HikeJournalRepository(context: Context) {
         return gauge.copy(enabled = true)
     }
 
+    fun addDiscoveredRiverGauge(gauge: RiverGauge): RiverGauge {
+        val existing = riverGaugePreferences.gauges().firstOrNull { it.siteId == gauge.siteId }
+        if (existing == null) riverGaugePreferences.addCustom(gauge) else riverGaugePreferences.setEnabled(gauge.siteId, true)
+        return (existing ?: gauge).copy(enabled = true)
+    }
+
+    suspend fun findNearbyRiverGauges(location: HikeLocation): List<NearbyRiverGauge> {
+        val latitude = location.latitude ?: throw IllegalArgumentException("${location.name} needs saved coordinates first.")
+        val longitude = location.longitude ?: throw IllegalArgumentException("${location.name} needs saved coordinates first.")
+        return outdoorConditions.findNearbyRiverGauges(latitude, longitude)
+    }
+
     fun removeRiverGauge(siteId: String) {
         riverGaugePreferences.removeCustom(siteId)
     }

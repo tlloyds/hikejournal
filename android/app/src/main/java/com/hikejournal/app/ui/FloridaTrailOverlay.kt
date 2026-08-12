@@ -2,7 +2,10 @@ package com.hikejournal.app.ui
 
 import android.content.Context
 import com.hikejournal.app.BuildConfig
+import com.hikejournal.app.data.FLORIDA_TRAIL_ID
+import com.hikejournal.app.data.NationalScenicTrailOverlays
 import com.hikejournal.app.data.RoutePoint
+import com.hikejournal.app.data.TrailOverlayDefinition
 import java.io.File
 import java.util.concurrent.TimeUnit
 import kotlin.math.PI
@@ -14,10 +17,15 @@ import kotlin.math.ln
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.tan
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.maplibre.geojson.Feature
 import org.maplibre.geojson.FeatureCollection
 import org.maplibre.geojson.LineString
 import org.maplibre.geojson.MultiLineString
@@ -29,42 +37,72 @@ internal data class ClassifiedRouteSegment(
     val overlapsFloridaTrail: Boolean,
 )
 
-internal object FloridaTrailOverlayData {
-    private const val CacheFilename = "florida-trail-centerline.geojson"
+internal object NationalScenicTrailOverlayData {
     private val CacheLifetimeMillis = TimeUnit.DAYS.toMillis(7)
+    private const val PageSize = 2_000
+    private const val MaximumPages = 20
     private val client = OkHttpClient.Builder()
         .connectTimeout(12, TimeUnit.SECONDS)
         .readTimeout(25, TimeUnit.SECONDS)
         .build()
 
-    @Volatile
-    private var memoryCache: FeatureCollection? = null
+    private val memoryCache = mutableMapOf<String, FeatureCollection>()
 
-    suspend fun load(context: Context): FeatureCollection? = withContext(Dispatchers.IO) {
-        memoryCache?.let { return@withContext it }
-        val cacheFile = File(context.applicationContext.cacheDir, CacheFilename)
+    suspend fun load(context: Context, selectedTrailIds: Set<String>): FeatureCollection? = coroutineScope {
+        val selected = NationalScenicTrailOverlays.filter { it.id in selectedTrailIds }
+        if (selected.isEmpty()) return@coroutineScope null
+        val collections = selected.map { trail ->
+            async(Dispatchers.IO) { loadTrail(context, trail) }
+        }.awaitAll().filterNotNull()
+        FeatureCollection.fromFeatures(collections.flatMap { it.features().orEmpty() })
+    }
+
+    private fun loadTrail(context: Context, trail: TrailOverlayDefinition): FeatureCollection? {
+        synchronized(memoryCache) { memoryCache[trail.id] }?.let { return it }
+        val cacheFile = File(context.applicationContext.cacheDir, "national-scenic-trail-${trail.id}.geojson")
         val cached = runCatching { cacheFile.takeIf(File::isFile)?.readText() }.getOrNull()
         val cacheIsFresh = cacheFile.isFile &&
             System.currentTimeMillis() - cacheFile.lastModified() <= CacheLifetimeMillis
         val raw = if (cacheIsFresh && !cached.isNullOrBlank()) {
             cached
         } else {
-            download()?.also { downloaded -> writeCache(cacheFile, downloaded) } ?: cached
+            download(trail)?.also { downloaded -> writeCache(cacheFile, downloaded) } ?: cached
         }
-        runCatching { raw?.let(FeatureCollection::fromJson) }
+        return runCatching { raw?.let(FeatureCollection::fromJson) }
             .getOrNull()
-            ?.also { memoryCache = it }
+            ?.also { collection -> synchronized(memoryCache) { memoryCache[trail.id] = collection } }
     }
 
-    private fun download(): String? = runCatching {
-        val request = Request.Builder()
-            .url(FLORIDA_TRAIL_GEOJSON_URL)
-            .header("User-Agent", "HikeJournal/${BuildConfig.VERSION_NAME}")
-            .build()
-        client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) return@use null
-            response.body?.string()?.takeIf(String::isNotBlank)
+    private fun download(trail: TrailOverlayDefinition): String? = runCatching {
+        val features = mutableListOf<Feature>()
+        trail.layerUrls.forEach { layerUrl ->
+            for (page in 0 until MaximumPages) {
+                val url = layerUrl.toHttpUrl().newBuilder()
+                    .addPathSegment("query")
+                    .addQueryParameter("where", "1=1")
+                    .addQueryParameter("outFields", trail.objectIdField)
+                    .addQueryParameter("returnGeometry", "true")
+                    .addQueryParameter("outSR", "4326")
+                    .addQueryParameter("f", "geojson")
+                    .addQueryParameter("maxAllowableOffset", "0.00005")
+                    .addQueryParameter("resultRecordCount", PageSize.toString())
+                    .addQueryParameter("resultOffset", (page * PageSize).toString())
+                    .build()
+                val request = Request.Builder()
+                    .url(url)
+                    .header("User-Agent", "HikeJournal/${BuildConfig.VERSION_NAME}")
+                    .build()
+                val pageFeatures = client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) return@runCatching null
+                    val body = response.body?.string()?.takeIf(String::isNotBlank)
+                        ?: return@runCatching null
+                    FeatureCollection.fromJson(body).features().orEmpty()
+                }
+                features += pageFeatures
+                if (pageFeatures.size < PageSize) break
+            }
         }
+        FeatureCollection.fromFeatures(features).toJson()
     }.getOrNull()
 
     private fun writeCache(cacheFile: File, value: String) {
@@ -79,7 +117,12 @@ internal object FloridaTrailOverlayData {
     }
 }
 
-internal fun FeatureCollection.floridaTrailSegments(): List<List<RoutePoint>> =
+internal object FloridaTrailOverlayData {
+    suspend fun load(context: Context): FeatureCollection? =
+        NationalScenicTrailOverlayData.load(context, setOf(FLORIDA_TRAIL_ID))
+}
+
+internal fun FeatureCollection.trailOverlaySegments(): List<List<RoutePoint>> =
     features().orEmpty().flatMap { feature ->
         when (val geometry = feature.geometry()) {
             is LineString -> listOf(geometry.coordinates().toRoutePoints())
@@ -87,6 +130,8 @@ internal fun FeatureCollection.floridaTrailSegments(): List<List<RoutePoint>> =
             else -> emptyList()
         }
     }.filter { it.size >= 2 }
+
+internal fun FeatureCollection.floridaTrailSegments(): List<List<RoutePoint>> = trailOverlaySegments()
 
 private fun List<org.maplibre.geojson.Point>.toRoutePoints(): List<RoutePoint> = map { point ->
     RoutePoint(latitude = point.latitude(), longitude = point.longitude())

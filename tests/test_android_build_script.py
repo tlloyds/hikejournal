@@ -91,7 +91,7 @@ def test_personal_release_requires_a_configured_trail_map_provider() -> None:
     assert "BuildConfig.TRAIL_MAP_STYLE_URL" in quests
 
 
-def test_android_map_shows_all_photos_with_distinct_florida_trail_routes() -> None:
+def test_android_map_shows_all_photos_with_selectable_national_scenic_trails() -> None:
     sightings = (
         ROOT
         / "android/app/src/main/java/com/hikejournal/app/ui/SightingsMapScreen.kt"
@@ -104,6 +104,10 @@ def test_android_map_shows_all_photos_with_distinct_florida_trail_routes() -> No
         ROOT
         / "android/app/src/main/java/com/hikejournal/app/ui/HikeJournalApp.kt"
     ).read_text(encoding="utf-8")
+    preferences = (
+        ROOT
+        / "android/app/src/main/java/com/hikejournal/app/data/MapDisplayPreferences.kt"
+    ).read_text(encoding="utf-8")
 
     assert "Confirmed species only" not in sightings
     assert "speciesOnly" not in sightings
@@ -113,5 +117,8 @@ def test_android_map_shows_all_photos_with_distinct_florida_trail_routes() -> No
     assert 'HIKE_ROUTE_COLOR = "#22D3EE"' in sightings
     assert 'ROUTE_OVERLAP_COLOR = "#FF4D8D"' in sightings
     assert 'PHOTO_POINT_COLOR = "#8BD3FF"' in sightings
-    assert "Florida Trail overlay" in app
-    assert "setShowFloridaTrail(show)" in app
+    assert "National Scenic Trails" in app
+    assert "setTrailSelected(trailId, selected)" in app
+    assert "Appalachian Trail" in preferences
+    assert "Pacific Crest Trail" in preferences
+    assert "Continental Divide Trail" in preferences

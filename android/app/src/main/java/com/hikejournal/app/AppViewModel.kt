@@ -25,6 +25,7 @@ import com.hikejournal.app.data.FieldMark
 import com.hikejournal.app.data.FieldCelebration
 import com.hikejournal.app.data.HikeComparison
 import com.hikejournal.app.data.NearbySpecies
+import com.hikejournal.app.data.NearbyRiverGauge
 import com.hikejournal.app.data.Photo
 import com.hikejournal.app.data.PlaceProfile
 import com.hikejournal.app.data.PublishBatchStatus
@@ -150,6 +151,10 @@ data class AppState(
     val isRiverGaugeLoading: Boolean = false,
     val isAddingRiverGauge: Boolean = false,
     val riverGaugeSettingsError: String? = null,
+    val nearbyRiverGauges: List<NearbyRiverGauge> = emptyList(),
+    val nearbyRiverGaugeLocationName: String? = null,
+    val isNearbyRiverGaugeLoading: Boolean = false,
+    val nearbyRiverGaugeError: String? = null,
     val trackingOpenRequestToken: Long = 0L,
     val trackingEndRequestToken: Long = 0L,
     val isFinalizingTracking: Boolean = false,
@@ -1760,6 +1765,61 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         )
                     }
                 }
+        }
+    }
+
+    fun findRiverGaugesNear(location: HikeLocation) {
+        if (_state.value.isNearbyRiverGaugeLoading) return
+        viewModelScope.launch {
+            _state.update {
+                it.copy(
+                    nearbyRiverGauges = emptyList(),
+                    nearbyRiverGaugeLocationName = location.name,
+                    isNearbyRiverGaugeLoading = true,
+                    nearbyRiverGaugeError = null,
+                )
+            }
+            runCatching { repository.findNearbyRiverGauges(location) }
+                .onSuccess { gauges ->
+                    _state.update {
+                        it.copy(
+                            nearbyRiverGauges = gauges,
+                            isNearbyRiverGaugeLoading = false,
+                            nearbyRiverGaugeError = null,
+                        )
+                    }
+                }
+                .onFailure { error ->
+                    _state.update {
+                        it.copy(
+                            nearbyRiverGauges = emptyList(),
+                            isNearbyRiverGaugeLoading = false,
+                            nearbyRiverGaugeError = error.userMessage(),
+                        )
+                    }
+                }
+        }
+    }
+
+    fun addDiscoveredRiverGauge(gauge: RiverGauge) {
+        val monitored = repository.addDiscoveredRiverGauge(gauge)
+        _state.update {
+            it.copy(
+                riverGaugeOptions = repository.riverGauges(),
+                riverGaugeSettingsError = null,
+                notice = "Monitoring ${monitored.name}.",
+            )
+        }
+    }
+
+    fun clearNearbyRiverGaugeSearch() {
+        _state.update {
+            it.copy(
+                nearbyRiverGauges = emptyList(),
+                nearbyRiverGaugeLocationName = null,
+                isNearbyRiverGaugeLoading = false,
+                nearbyRiverGaugeError = null,
+            )
         }
     }
 

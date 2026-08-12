@@ -61,6 +61,7 @@ import coil.compose.AsyncImage
 import com.hikejournal.app.BuildConfig
 import com.hikejournal.app.data.OfflineMapPack
 import com.hikejournal.app.data.OfflineMapPacks
+import com.hikejournal.app.data.NationalScenicTrailOverlays
 import com.hikejournal.app.data.RoutePoint
 import com.hikejournal.app.data.Sighting
 import com.hikejournal.app.ui.theme.Ink
@@ -144,7 +145,7 @@ internal data class MapViewport(val bounds: LatLngBounds, val zoom: Double)
 fun SightingsMapScreen(
     sightings: List<Sighting>,
     routeSegments: List<List<RoutePoint>>,
-    showFloridaTrail: Boolean,
+    selectedTrailIds: Set<String>,
     loading: Boolean,
     openingPhotoId: String?,
     onRefresh: () -> Unit,
@@ -164,7 +165,7 @@ fun SightingsMapScreen(
             layerMode = layerMode,
             onSelect = { selected = it },
             onViewportChanged = { viewport = it },
-            showFloridaTrail = showFloridaTrail,
+            selectedTrailIds = selectedTrailIds,
             modifier = Modifier.fillMaxSize(),
         )
 
@@ -197,7 +198,7 @@ fun SightingsMapScreen(
                 }
             }
             MapRouteLegend(
-                showFloridaTrail = showFloridaTrail,
+                selectedTrailIds = selectedTrailIds,
                 modifier = Modifier.padding(top = 5.dp),
             )
             if (layerMode == MapLayerMode.Satellite) {
@@ -422,33 +423,34 @@ internal fun HikeJournalMap(
     focusedSightingId: String? = null,
     currentPoint: RoutePoint? = null,
     followCurrentPoint: Boolean = false,
-    showFloridaTrail: Boolean,
+    selectedTrailIds: Set<String>,
 ) {
     val context = LocalContext.current
     val controller = remember { NativeMapController() }
-    var floridaTrail by remember { mutableStateOf<FeatureCollection?>(null) }
-    var floridaTrailIndex by remember { mutableStateOf<FloridaTrailSegmentIndex?>(null) }
+    val showTrailOverlays = selectedTrailIds.isNotEmpty()
+    var trailOverlays by remember { mutableStateOf<FeatureCollection?>(null) }
+    var trailOverlayIndex by remember { mutableStateOf<FloridaTrailSegmentIndex?>(null) }
     var classifiedRoutes by remember(routeSegments) {
         mutableStateOf(classifyFloridaTrailOverlap(routeSegments, null))
     }
-    LaunchedEffect(showFloridaTrail) {
-        if (showFloridaTrail) {
-            val data = FloridaTrailOverlayData.load(context)
+    LaunchedEffect(selectedTrailIds) {
+        if (showTrailOverlays) {
+            val data = NationalScenicTrailOverlayData.load(context, selectedTrailIds)
             val index = withContext(Dispatchers.Default) {
-                data?.let { FloridaTrailSegmentIndex(it.floridaTrailSegments()) }
+                data?.let { FloridaTrailSegmentIndex(it.trailOverlaySegments()) }
             }
-            floridaTrail = data
-            floridaTrailIndex = index
+            trailOverlays = data
+            trailOverlayIndex = index
         } else {
-            floridaTrail = null
-            floridaTrailIndex = null
+            trailOverlays = null
+            trailOverlayIndex = null
         }
     }
-    LaunchedEffect(routeSegments, showFloridaTrail, floridaTrailIndex) {
+    LaunchedEffect(routeSegments, showTrailOverlays, trailOverlayIndex) {
         classifiedRoutes = withContext(Dispatchers.Default) {
             classifyFloridaTrailOverlap(
                 routes = routeSegments,
-                trailIndex = floridaTrailIndex.takeIf { showFloridaTrail },
+                trailIndex = trailOverlayIndex.takeIf { showTrailOverlays },
             )
         }
     }
@@ -482,8 +484,8 @@ internal fun HikeJournalMap(
                         map = map,
                         sightings = sightings,
                         routeSegments = classifiedRoutes,
-                        floridaTrail = floridaTrail,
-                        showFloridaTrail = showFloridaTrail,
+                        floridaTrail = trailOverlays,
+                        showFloridaTrail = showTrailOverlays,
                         currentPoint = currentPoint,
                     )
                 }
@@ -492,13 +494,13 @@ internal fun HikeJournalMap(
         update = {
             controller.updateLayer(
                 nextLayerMode = layerMode,
-                nextShowFloridaTrail = showFloridaTrail,
+                nextShowFloridaTrail = showTrailOverlays,
                 sightings = sightings,
                 routeSegments = classifiedRoutes,
-                floridaTrail = floridaTrail,
+                floridaTrail = trailOverlays,
                 currentPoint = currentPoint,
             )
-            controller.updateMapData(sightings, classifiedRoutes, floridaTrail)
+            controller.updateMapData(sightings, classifiedRoutes, trailOverlays)
             controller.updateSelectedSighting(selectedSighting)
             controller.updateCurrentPoint(currentPoint, followCurrentPoint)
         },
@@ -851,7 +853,7 @@ private class NativeMapController {
 
 @Composable
 internal fun MapRouteLegend(
-    showFloridaTrail: Boolean,
+    selectedTrailIds: Set<String>,
     modifier: Modifier = Modifier,
     compact: Boolean = false,
 ) {
@@ -860,11 +862,17 @@ internal fun MapRouteLegend(
         horizontalArrangement = Arrangement.spacedBy(if (compact) 9.dp else 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (showFloridaTrail) {
-            RouteLegendItem(Color(0xFFF47A32), if (compact) "FT" else "FT · USFS/FTA")
+        if (selectedTrailIds.isNotEmpty()) {
+            val selected = NationalScenicTrailOverlays.filter { it.id in selectedTrailIds }
+            val trailLabel = if (selected.size == 1) {
+                selected.single().shortName
+            } else {
+                "${selected.size} TRAILS"
+            }
+            RouteLegendItem(Color(0xFFF47A32), trailLabel)
         }
         RouteLegendItem(Color(0xFF22D3EE), if (compact) "YOU" else "YOUR ROUTE")
-        if (showFloridaTrail) {
+        if (selectedTrailIds.isNotEmpty()) {
             RouteLegendItem(Color(0xFFFF4D8D), "SHARED")
         }
     }

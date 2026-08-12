@@ -76,6 +76,42 @@ internal class OutdoorConditionsClient {
         gauge
     }
 
+    suspend fun findNearbyRiverGauges(
+        latitude: Double,
+        longitude: Double,
+        radiusMiles: Double = 30.0,
+    ): List<NearbyRiverGauge> = withContext(Dispatchers.IO) {
+        val latitudeDelta = radiusMiles / 69.0
+        val longitudeScale = cos(Math.toRadians(latitude)).coerceAtLeast(0.2)
+        val longitudeDelta = radiusMiles / (69.0 * longitudeScale)
+        val bbox = listOf(
+            longitude - longitudeDelta,
+            latitude - latitudeDelta,
+            longitude + longitudeDelta,
+            latitude + latitudeDelta,
+        ).joinToString(",") { String.format(Locale.US, "%.5f", it) }
+        val latestUrl = "$UsgsApiRoot/latest-continuous/items".toHttpUrl().newBuilder()
+            .addQueryParameter("f", "json")
+            .addQueryParameter("bbox", bbox)
+            .addQueryParameter("parameter_code", GageHeightParameterCode)
+            .addQueryParameter("limit", "1000")
+            .build()
+        val metadataUrl = "$UsgsApiRoot/monitoring-locations/items".toHttpUrl().newBuilder()
+            .addQueryParameter("f", "json")
+            .addQueryParameter("bbox", bbox)
+            .addQueryParameter("agency_code", "USGS")
+            .addQueryParameter("limit", "10000")
+            .addQueryParameter("properties", "id,monitoring_location_name")
+            .build()
+        parseNearbyRiverGauges(
+            latestJson = request(latestUrl.toString(), "USGS"),
+            metadataJson = request(metadataUrl.toString(), "USGS"),
+            originLatitude = latitude,
+            originLongitude = longitude,
+            radiusMiles = radiusMiles,
+        )
+    }
+
     suspend fun loadRiverGauge(
         gauge: RiverGauge,
         periodDays: Int,
@@ -209,6 +245,60 @@ internal fun parseRiverGaugeMetadata(json: String, expectedSiteId: String): Rive
         latitude = latitude,
         longitude = longitude,
     )
+}
+
+internal fun parseNearbyRiverGauges(
+    latestJson: String,
+    metadataJson: String,
+    originLatitude: Double,
+    originLongitude: Double,
+    radiusMiles: Double = 30.0,
+    now: Instant = Instant.now(),
+): List<NearbyRiverGauge> {
+    val names = mutableMapOf<String, String>()
+    val metadata = JSONObject(metadataJson).optJSONArray("features") ?: JSONArray()
+    for (index in 0 until metadata.length()) {
+        val properties = metadata.optJSONObject(index)?.optJSONObject("properties") ?: continue
+        val siteId = properties.optString("id").uppercase().takeIf(String::isNotBlank) ?: continue
+        names[siteId] = friendlyUsgsGaugeName(properties.optString("monitoring_location_name", siteId))
+    }
+    val latestBySite = linkedMapOf<String, NearbyRiverGauge>()
+    val latest = JSONObject(latestJson).optJSONArray("features") ?: JSONArray()
+    for (index in 0 until latest.length()) {
+        val feature = latest.optJSONObject(index) ?: continue
+        val properties = feature.optJSONObject("properties") ?: continue
+        val siteId = properties.optString("monitoring_location_id").uppercase()
+            .takeIf { it.startsWith("USGS-") } ?: continue
+        val observedAt = properties.stringOrNull("time") ?: continue
+        val observedInstant = runCatching { Instant.parse(observedAt) }.getOrNull() ?: continue
+        if (observedInstant.isBefore(now.minus(7, ChronoUnit.DAYS)) || observedInstant.isAfter(now.plus(1, ChronoUnit.DAYS))) {
+            continue
+        }
+        val height = properties.numberOrNull("value") ?: continue
+        if (!properties.optString("unit_of_measure").equals("ft", ignoreCase = true)) continue
+        val coordinates = feature.optJSONObject("geometry")?.optJSONArray("coordinates") ?: continue
+        val longitude = coordinates.optDouble(0).takeIf(Double::isFinite) ?: continue
+        val latitude = coordinates.optDouble(1).takeIf(Double::isFinite) ?: continue
+        val distance = distanceMiles(originLatitude, originLongitude, latitude, longitude)
+        if (distance > radiusMiles) continue
+        val candidate = NearbyRiverGauge(
+            gauge = RiverGauge(
+                siteId = siteId,
+                name = names[siteId] ?: siteId,
+                latitude = latitude,
+                longitude = longitude,
+            ),
+            distanceMiles = distance,
+            currentHeightFeet = height,
+            observedAt = observedAt,
+            provisional = !properties.optString("approval_status").equals("Approved", ignoreCase = true),
+        )
+        val existing = latestBySite[siteId]
+        if (existing == null || candidate.observedAt > existing.observedAt) latestBySite[siteId] = candidate
+    }
+    return latestBySite.values
+        .sortedWith(compareBy<NearbyRiverGauge> { it.distanceMiles }.thenBy { it.gauge.name })
+        .take(30)
 }
 
 internal fun parseRiverGaugeSeries(
