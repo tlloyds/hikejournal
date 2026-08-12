@@ -270,7 +270,7 @@ internal fun HikeTrackingScreen(
                     },
                     enabled = tracking.isPaused && !tracking.isBusy,
                 ) {
-                    Text("End hike", color = MaterialTheme.colorScheme.error)
+                    Text("End hike and Save", color = MaterialTheme.colorScheme.error)
                 }
             },
             dismissButton = {

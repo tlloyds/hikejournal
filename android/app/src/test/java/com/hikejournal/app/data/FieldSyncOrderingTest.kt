@@ -25,6 +25,25 @@ class FieldSyncOrderingTest {
     }
 
     @Test
+    fun `tracked hike metadata update waits behind its original create`() {
+        val update = operation(
+            id = "update",
+            kind = OperationKind.UpdateHike,
+            entityId = "hike-1",
+            payloadJson = """{"title":"Named hike"}""",
+        )
+        val create = operation(
+            id = "create",
+            kind = OperationKind.CreateHike,
+            entityId = "hike-1",
+            payloadJson = """{"title":"Untitled hike"}""",
+        )
+
+        assertEquals(create, selectNextSyncOperation(listOf(update, create)))
+        assertEquals(update, selectNextSyncOperation(listOf(update)))
+    }
+
+    @Test
     fun `field mark waits for its offline hike to exist`() {
         val mark = operation(
             id = "mark",

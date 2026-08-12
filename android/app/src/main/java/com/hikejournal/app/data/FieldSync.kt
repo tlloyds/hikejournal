@@ -449,22 +449,12 @@ class FieldOperationQueue(private val context: Context) {
     }
 
     suspend fun queueUpdateHike(hikeId: String, draft: HikeDraft) {
-        val pendingCreate = dao.find(OperationKind.CreateHike, hikeId)
-        if (pendingCreate != null && pendingCreate.state != "syncing") {
-            dao.upsert(
-                pendingCreate.copy(
-                    payloadJson = draft.toQueueJson().toString(),
-                    state = "queued",
-                    attemptCount = 0,
-                    updatedAt = System.currentTimeMillis(),
-                    lastError = null,
-                ),
-            )
-            SyncScheduler.schedule(context)
-            return
-        }
+        // Keep edits separate from a pending create. The sync worker may already have read the
+        // create's original payload before it marks that row as syncing; rewriting the row here
+        // could then be deleted with the stale create and lose the user's title. A queued update
+        // remains visible in local overlays immediately and is ordered after its create.
         coalesce(OperationKind.UpdateHike, hikeId)
-        enqueue(OperationKind.UpdateHike, hikeId, null, draft.toQueueJson())
+        enqueueDuringSync(OperationKind.UpdateHike, hikeId, null, draft.toQueueJson())
     }
 
     suspend fun queueArchive(hikeId: String, archived: Boolean) {
