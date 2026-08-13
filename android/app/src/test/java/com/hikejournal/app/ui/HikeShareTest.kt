@@ -5,8 +5,10 @@ import com.hikejournal.app.data.Photo
 import com.hikejournal.app.data.RoutePoint
 import java.time.ZoneOffset
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.json.JSONObject
 
 class HikeShareTest {
     @Test
@@ -46,6 +48,47 @@ class HikeShareTest {
         assertTrue(projected.all { it.x in 40f..860f && it.y in 40f..460f })
         assertTrue(projected.first().x < projected.last().x)
         assertTrue(projected[1].y < projected.first().y)
+    }
+
+    @Test
+    fun `satellite snapshot bounds include padding around the route`() {
+        val bounds = shareRouteBounds(
+            listOf(
+                listOf(
+                    RoutePoint(28.0, -82.0),
+                    RoutePoint(28.2, -81.7),
+                ),
+            ),
+        )
+
+        assertNotNull(bounds)
+        requireNotNull(bounds)
+        assertTrue(bounds.north > 28.2)
+        assertTrue(bounds.south < 28.0)
+        assertTrue(bounds.east > -81.7)
+        assertTrue(bounds.west < -82.0)
+    }
+
+    @Test
+    fun `satellite share style embeds the route and endpoints`() {
+        val style = JSONObject(
+            requireNotNull(
+                satelliteShareStyle(
+                    listOf(
+                        listOf(
+                            RoutePoint(28.0, -82.0),
+                            RoutePoint(28.2, -81.7),
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        val sources = style.getJSONObject("sources")
+        assertTrue(sources.has("share-route"))
+        assertTrue(sources.has("share-start"))
+        assertTrue(sources.has("share-end"))
+        assertEquals(5, style.getJSONArray("layers").length())
     }
 
     @Test

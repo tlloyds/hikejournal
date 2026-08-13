@@ -544,10 +544,11 @@ class FieldOperationQueue(private val context: Context) {
                 height = metadata.height,
             )
         }
-        val payload = JSONObject()
-            .put("caption", caption.trim())
-            .put("queue_for_review", queueForReview)
-            .put("taken_at", metadata.takenAt ?: JSONObject.NULL)
+        val payload = JSONObject().apply {
+            put("caption", caption.trim())
+            put("queue_for_review", queueForReview)
+            metadata.takenAt?.let { put("taken_at", it) }
+        }
             .put("lat", metadata.latitude ?: JSONObject.NULL)
             .put("lng", metadata.longitude ?: JSONObject.NULL)
             .put("width", queuedMedia.width ?: JSONObject.NULL)
@@ -1501,6 +1502,13 @@ internal fun parseVideoLocation(value: String?): Pair<Double, Double>? {
     return latitude to longitude
 }
 
+internal fun pendingPhotoTakenAt(payload: JSONObject): String? {
+    if (!payload.has("taken_at") || payload.isNull("taken_at")) return null
+    return payload.optString("taken_at")
+        .trim()
+        .takeUnless { it.isBlank() || it.equals("null", ignoreCase = true) }
+}
+
 private fun PendingOperationEntity.toLocalPhoto(): Photo {
     val payload = JSONObject(payloadJson)
     return Photo(
@@ -1508,7 +1516,7 @@ private fun PendingOperationEntity.toLocalPhoto(): Photo {
         hikeId = parentId,
         url = localFilePath?.let { Uri.fromFile(File(it)).toString() }.orEmpty(),
         caption = payload.optString("caption"),
-        takenAt = payload.optString("taken_at").takeIf { it.isNotBlank() },
+        takenAt = pendingPhotoTakenAt(payload),
         createdAt = Date(createdAt).toInstant().toString(),
         latitude = payload.optDouble("lat").takeUnless { it.isNaN() || payload.isNull("lat") },
         longitude = payload.optDouble("lng").takeUnless { it.isNaN() || payload.isNull("lng") },
@@ -1870,7 +1878,7 @@ class FieldSyncEngine(private val context: Context) {
                 fileName = operation.fileName ?: "hike-photo.jpg",
                 caption = payload.optString("caption"),
                 queueForReview = payload.optBoolean("queue_for_review"),
-                takenAt = payload.optString("taken_at").takeIf { it.isNotBlank() },
+                takenAt = pendingPhotoTakenAt(payload),
                 latitude = payload.optDouble("lat").takeUnless { it.isNaN() || payload.isNull("lat") },
                 longitude = payload.optDouble("lng").takeUnless { it.isNaN() || payload.isNull("lng") },
             )

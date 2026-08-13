@@ -1,7 +1,6 @@
 package com.hikejournal.app.ui
 
 import android.app.Activity
-import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.Context
 import android.content.Intent
@@ -41,14 +40,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
-import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.IosShare
 import androidx.compose.material3.Button
@@ -77,8 +76,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -109,6 +106,9 @@ import java.util.Locale
 import kotlin.math.cos
 import kotlin.math.min
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -137,11 +137,19 @@ internal fun HikeShareDialog(
     val availablePhotos = remember(hike.photos) {
         hike.photos.filter { !it.contentType.startsWith("video/") && it.url.isNotBlank() }
     }
-    var selectedIds by remember(hike.id) { mutableStateOf<Set<String>>(emptySet()) }
-    var preparingTarget by remember(hike.id) { mutableStateOf<String?>(null) }
+    var selectedIds by remember(hike.id) { mutableStateOf<List<String>>(emptyList()) }
+    var preparing by remember(hike.id) { mutableStateOf(false) }
     var errorMessage by remember(hike.id) { mutableStateOf<String?>(null) }
+    var satelliteMap by remember(hike.id) { mutableStateOf<Bitmap?>(null) }
+    var satelliteLoading by remember(hike.id) { mutableStateOf(hike.routeSegments.isNotEmpty()) }
     var revealed by remember(hike.id) { mutableStateOf(false) }
     LaunchedEffect(hike.id) { revealed = true }
+    LaunchedEffect(hike.id, hike.routeSegments) {
+        if (hike.routeSegments.isEmpty()) return@LaunchedEffect
+        satelliteLoading = true
+        satelliteMap = captureSatelliteRouteMap(context, hike.routeSegments)
+        satelliteLoading = false
+    }
 
     val preview = remember(
         hike.id,
@@ -152,8 +160,9 @@ internal fun HikeShareDialog(
         hike.routeStartedAt,
         hike.locationName,
         hike.routeSegments,
+        satelliteMap,
     ) {
-        renderHikeShareCard(context, hike, width = 540, height = 675)
+        renderHikeShareCard(context, hike, satelliteMap, width = 540, height = 675)
     }
     val previewPresence by animateFloatAsState(
         targetValue = if (revealed) 1f else 0f,
@@ -162,27 +171,17 @@ internal fun HikeShareDialog(
     )
     val navigationBarPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
-    fun beginShare(instagramOnly: Boolean) {
-        if (preparingTarget != null) return
-        preparingTarget = if (instagramOnly) "instagram" else "more"
+    fun beginShare() {
+        if (preparing) return
+        preparing = true
         errorMessage = null
-        val selectedPhotos = availablePhotos.filter { it.id in selectedIds }.take(MAX_SOCIAL_PHOTOS)
+        val photosById = availablePhotos.associateBy(Photo::id)
+        val selectedPhotos = selectedIds.mapNotNull(photosById::get).take(MAX_SOCIAL_PHOTOS)
         scope.launch {
-            runCatching { prepareHikeShare(context, hike, selectedPhotos) }
+            runCatching { prepareHikeShare(context, hike, selectedPhotos, satelliteMap) }
                 .onSuccess { prepared ->
-                    preparingTarget = null
-                    val openedInstagram = launchHikeShare(
-                        context = context,
-                        prepared = prepared,
-                        instagramOnly = instagramOnly,
-                    )
-                    if (instagramOnly && !openedInstagram) {
-                        Toast.makeText(
-                            context,
-                            "Instagram was not available, so the Android share sheet opened instead.",
-                            Toast.LENGTH_LONG,
-                        ).show()
-                    }
+                    preparing = false
+                    launchHikeShare(context, prepared)
                     if (prepared.omittedPhotoCount > 0) {
                         Toast.makeText(
                             context,
@@ -192,16 +191,16 @@ internal fun HikeShareDialog(
                     }
                 }
                 .onFailure { error ->
-                    preparingTarget = null
+                    preparing = false
                     errorMessage = error.message ?: "HikeJournal could not prepare these images."
                 }
         }
     }
 
     Dialog(
-        onDismissRequest = { if (preparingTarget == null) onDismiss() },
+        onDismissRequest = { if (!preparing) onDismiss() },
         properties = DialogProperties(
-            dismissOnBackPress = preparingTarget == null,
+            dismissOnBackPress = !preparing,
             dismissOnClickOutside = false,
             usePlatformDefaultWidth = false,
             decorFitsSystemWindows = false,
@@ -225,38 +224,64 @@ internal fun HikeShareDialog(
                     Text("HIKEJOURNAL", style = MaterialTheme.typography.labelSmall, color = Color(0xFFF1BE79))
                     Text("Share your outing", style = MaterialTheme.typography.headlineMedium, color = Paper)
                 }
-                IconButton(onClick = onDismiss, enabled = preparingTarget == null) {
+                IconButton(onClick = onDismiss, enabled = !preparing) {
                     Icon(Icons.Rounded.Close, "Close share preview", tint = Paper)
                 }
             }
 
-            LazyColumn(
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(2),
                 Modifier.weight(1f),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 18.dp),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                    start = 18.dp,
+                    end = 18.dp,
+                    bottom = 22.dp,
+                ),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                item(key = "share-preview") {
-                    Image(
-                        bitmap = preview.asImageBitmap(),
-                        contentDescription = "Social card preview for ${hike.title}",
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 18.dp)
-                            .aspectRatio(4f / 5f)
-                            .clip(RoundedCornerShape(8.dp))
-                            .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(8.dp))
-                            .alpha(previewPresence)
-                            .scale(0.97f + previewPresence * 0.03f),
-                    )
+                item(key = "share-preview", span = { GridItemSpan(maxLineSpan) }) {
+                    Box {
+                        Image(
+                            bitmap = preview.asImageBitmap(),
+                            contentDescription = "Social card preview for ${hike.title}",
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .aspectRatio(4f / 5f)
+                                .clip(RoundedCornerShape(8.dp))
+                                .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(8.dp))
+                                .alpha(previewPresence)
+                                .scale(0.97f + previewPresence * 0.03f),
+                        )
+                        if (satelliteLoading) {
+                            Row(
+                                Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(10.dp)
+                                    .background(Color(0xD9183A2D), RoundedCornerShape(5.dp))
+                                    .padding(horizontal = 10.dp, vertical = 7.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                CircularProgressIndicator(Modifier.size(15.dp), color = Paper, strokeWidth = 2.dp)
+                                Text(
+                                    "Loading satellite map",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Paper,
+                                    modifier = Modifier.padding(start = 7.dp),
+                                )
+                            }
+                        }
+                    }
                 }
 
-                item(key = "share-copy") {
+                item(key = "share-copy", span = { GridItemSpan(maxLineSpan) }) {
                     AnimatedVisibility(
                         visible = revealed,
                         enter = fadeIn(tween(360, delayMillis = 100)) +
                             slideInVertically(tween(420, delayMillis = 100)) { it / 7 },
                     ) {
-                        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp)) {
+                        Column(Modifier.fillMaxWidth().padding(top = 9.dp, bottom = 8.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(Icons.Rounded.AutoAwesome, null, tint = Trail, modifier = Modifier.size(18.dp))
                                 Text(
@@ -267,7 +292,11 @@ internal fun HikeShareDialog(
                                 )
                             }
                             Text(
-                                "Your map, date, time, and distance are already set.",
+                                if (satelliteMap != null) {
+                                    "Your route is layered over satellite imagery."
+                                } else {
+                                    "Your map, date, time, and distance are already set."
+                                },
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = Color(0xFFD6E0D3),
                                 modifier = Modifier.padding(top = 7.dp),
@@ -277,9 +306,9 @@ internal fun HikeShareDialog(
                 }
 
                 if (availablePhotos.isNotEmpty()) {
-                    item(key = "photo-label") {
+                    item(key = "photo-label", span = { GridItemSpan(maxLineSpan) }) {
                         Row(
-                            Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp),
+                            Modifier.fillMaxWidth().padding(top = 8.dp),
                             verticalAlignment = Alignment.Bottom,
                         ) {
                             Column(Modifier.weight(1f)) {
@@ -297,12 +326,12 @@ internal fun HikeShareDialog(
                                         selectedIds = if (
                                             selectedIds.size == min(availablePhotos.size, MAX_SOCIAL_PHOTOS)
                                         ) {
-                                            emptySet()
+                                            emptyList()
                                         } else {
-                                            availablePhotos.take(MAX_SOCIAL_PHOTOS).mapTo(linkedSetOf(), Photo::id)
+                                            availablePhotos.take(MAX_SOCIAL_PHOTOS).map(Photo::id)
                                         }
                                     },
-                                    enabled = preparingTarget == null,
+                                    enabled = !preparing,
                                 ) {
                                     Text(
                                         if (selectedIds.size == min(availablePhotos.size, MAX_SOCIAL_PHOTOS)) {
@@ -316,82 +345,70 @@ internal fun HikeShareDialog(
                             }
                         }
                     }
-                    item(key = "photo-picker") {
-                        LazyRow(
-                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 20.dp, vertical = 12.dp),
-                            horizontalArrangement = Arrangement.spacedBy(9.dp),
-                        ) {
-                            items(availablePhotos, key = Photo::id) { photo ->
-                                val selected = photo.id in selectedIds
-                                val canSelect = selected || selectedIds.size < MAX_SOCIAL_PHOTOS
-                                SharePhotoTile(
-                                    photo = photo,
-                                    selected = selected,
-                                    enabled = canSelect && preparingTarget == null,
-                                    onClick = {
-                                        selectedIds = if (selected) {
-                                            selectedIds - photo.id
-                                        } else {
-                                            (selectedIds + photo.id).take(MAX_SOCIAL_PHOTOS).toSet()
-                                        }
-                                    },
-                                )
-                            }
-                        }
+                    items(availablePhotos, key = Photo::id) { photo ->
+                        val selectedIndex = selectedIds.indexOf(photo.id).takeIf { it >= 0 }
+                        val canSelect = selectedIndex != null || selectedIds.size < MAX_SOCIAL_PHOTOS
+                        SharePhotoTile(
+                            photo = photo,
+                            selectionIndex = selectedIndex,
+                            enabled = canSelect && !preparing,
+                            onClick = {
+                                selectedIds = if (selectedIndex != null) {
+                                    selectedIds - photo.id
+                                } else {
+                                    (selectedIds + photo.id).take(MAX_SOCIAL_PHOTOS)
+                                }
+                            },
+                        )
                     }
-                    item(key = "photo-order") {
+                    item(key = "photo-order", span = { GridItemSpan(maxLineSpan) }) {
                         Text(
                             "The trail card shares first, followed by your selected photos — ${selectedIds.size + 1} of $MAX_SOCIAL_CAROUSEL_ITEMS items.",
                             style = MaterialTheme.typography.bodySmall,
                             color = Color(0xFFB8C9BC),
-                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp),
+                            modifier = Modifier.padding(top = 4.dp, bottom = 6.dp),
                         )
                     }
                 }
 
                 errorMessage?.let { message ->
-                    item(key = "share-error") {
+                    item(key = "share-error", span = { GridItemSpan(maxLineSpan) }) {
                         Text(
                             message,
                             style = MaterialTheme.typography.bodyMedium,
                             color = Color(0xFFFFD0C5),
-                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
+                            modifier = Modifier.padding(vertical = 14.dp),
                         )
                     }
                 }
             }
 
             Surface(color = Color(0xF2183A2D), shadowElevation = 12.dp) {
-                Column(
+                Box(
                     Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 20.dp)
                         .padding(top = 13.dp, bottom = navigationBarPadding + 14.dp),
                 ) {
                     Button(
-                        onClick = { beginShare(instagramOnly = true) },
-                        enabled = preparingTarget == null,
+                        onClick = ::beginShare,
+                        enabled = !preparing,
                         colors = ButtonDefaults.buttonColors(containerColor = Trail, contentColor = Paper),
                         modifier = Modifier.fillMaxWidth().height(52.dp),
                     ) {
-                        if (preparingTarget == "instagram") {
+                        if (preparing) {
                             CircularProgressIndicator(Modifier.size(19.dp), color = Paper, strokeWidth = 2.dp)
                         } else {
                             Icon(Icons.Rounded.IosShare, null, Modifier.size(19.dp))
                         }
                         Spacer(Modifier.width(8.dp))
-                        Text(if (preparingTarget == "instagram") "Preparing images…" else "Share to Instagram")
-                    }
-                    TextButton(
-                        onClick = { beginShare(instagramOnly = false) },
-                        enabled = preparingTarget == null,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        if (preparingTarget == "more") {
-                            CircularProgressIndicator(Modifier.size(17.dp), color = Paper, strokeWidth = 2.dp)
-                            Spacer(Modifier.width(8.dp))
-                        }
-                        Text("More sharing options", color = Paper)
+                        Text(
+                            if (preparing) {
+                                "Preparing ${selectedIds.size + 1} images…"
+                            } else {
+                                "Share ${selectedIds.size + 1} image${if (selectedIds.isEmpty()) "" else "s"}"
+                            }
+                        )
                     }
                 }
             }
@@ -402,19 +419,20 @@ internal fun HikeShareDialog(
 @Composable
 private fun SharePhotoTile(
     photo: Photo,
-    selected: Boolean,
+    selectionIndex: Int?,
     enabled: Boolean,
     onClick: () -> Unit,
 ) {
     Box(
         Modifier
-            .size(width = 92.dp, height = 112.dp)
+            .fillMaxWidth()
+            .aspectRatio(0.82f)
             .clip(RoundedCornerShape(6.dp))
             .clickable(enabled = enabled, onClick = onClick)
-            .alpha(if (enabled || selected) 1f else 0.42f)
+            .alpha(if (enabled || selectionIndex != null) 1f else 0.42f)
             .border(
-                width = if (selected) 3.dp else 1.dp,
-                color = if (selected) Trail else Color.White.copy(alpha = 0.24f),
+                width = if (selectionIndex != null) 4.dp else 1.dp,
+                color = if (selectionIndex != null) Trail else Color.White.copy(alpha = 0.24f),
                 shape = RoundedCornerShape(6.dp),
             ),
     ) {
@@ -425,15 +443,19 @@ private fun SharePhotoTile(
             modifier = Modifier.fillMaxSize().background(MossSoft),
         )
         AnimatedVisibility(
-            visible = selected,
+            visible = selectionIndex != null,
             modifier = Modifier.align(Alignment.TopEnd),
             enter = fadeIn(tween(140)) + scaleIn(tween(180), initialScale = 0.65f),
         ) {
             Box(
-                Modifier.padding(6.dp).size(24.dp).background(Trail, CircleShape),
+                Modifier.padding(9.dp).size(31.dp).background(Trail, CircleShape),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(Icons.Rounded.Check, "Selected", tint = Paper, modifier = Modifier.size(17.dp))
+                Text(
+                    "${(selectionIndex ?: 0) + 1}",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = Paper,
+                )
             }
         }
     }
@@ -514,6 +536,7 @@ internal fun hikeShareDuration(durationSeconds: Long?): String {
 internal fun renderHikeShareCard(
     context: Context,
     hike: Hike,
+    satelliteMap: Bitmap? = null,
     width: Int = 1080,
     height: Int = 1350,
 ): Bitmap {
@@ -557,13 +580,48 @@ internal fun renderHikeShareCard(
     val mapTop = 170f * sy
     val mapWidth = safeWidth - 112f * sx
     val mapHeight = 555f * sy
-    val projected = projectShareRoute(
-        routeSegments = hike.routeSegments,
-        width = mapWidth,
-        height = mapHeight,
-        padding = 48f * sx,
-    )
-    if (projected.isNotEmpty()) {
+    val mapBounds = RectF(mapLeft, mapTop, mapLeft + mapWidth, mapTop + mapHeight)
+    val projected = if (satelliteMap == null) {
+        projectShareRoute(
+            routeSegments = hike.routeSegments,
+            width = mapWidth,
+            height = mapHeight,
+            padding = 48f * sx,
+        )
+    } else {
+        emptyList()
+    }
+    if (satelliteMap != null) {
+        canvas.drawBitmap(satelliteMap, null, mapBounds, paint)
+        paint.shader = LinearGradient(
+            0f,
+            mapTop + mapHeight * 0.54f,
+            0f,
+            mapTop + mapHeight,
+            0x00000000,
+            0xAA10281F.toInt(),
+            Shader.TileMode.CLAMP,
+        )
+        canvas.drawRect(mapBounds, paint)
+        paint.shader = null
+        paint.color = 0xE6FFFCF3.toInt()
+        paint.typeface = Typeface.create(bodyFont, Typeface.BOLD)
+        paint.textSize = 18f * sx
+        paint.letterSpacing = 0.04f
+        canvas.drawText(
+            "SOURCES: ESRI, MAXAR, EARTHSTAR GEOGRAPHICS,",
+            mapLeft + 18f * sx,
+            mapTop + mapHeight - 40f * sy,
+            paint,
+        )
+        canvas.drawText(
+            "AND THE GIS USER COMMUNITY",
+            mapLeft + 18f * sx,
+            mapTop + mapHeight - 17f * sy,
+            paint,
+        )
+        paint.letterSpacing = 0f
+    } else if (projected.isNotEmpty()) {
         paint.style = Paint.Style.STROKE
         paint.strokeCap = Paint.Cap.ROUND
         paint.strokeJoin = Paint.Join.ROUND
@@ -743,47 +801,55 @@ private suspend fun prepareHikeShare(
     context: Context,
     hike: Hike,
     photos: List<Photo>,
-): PreparedHikeShare = withContext(Dispatchers.IO) {
-    val shareDirectory = File(context.cacheDir, "shared_hikes").apply { mkdirs() }
-    shareDirectory.listFiles().orEmpty()
-        .filter { System.currentTimeMillis() - it.lastModified() > 24L * 60L * 60L * 1_000L }
-        .forEach(File::delete)
+    satelliteMap: Bitmap?,
+): PreparedHikeShare {
+    val resolvedSatelliteMap = satelliteMap ?: captureSatelliteRouteMap(context, hike.routeSegments)
+    return withContext(Dispatchers.IO) {
+        val shareDirectory = File(context.cacheDir, "shared_hikes").apply { mkdirs() }
+        shareDirectory.listFiles().orEmpty()
+            .filter { System.currentTimeMillis() - it.lastModified() > 24L * 60L * 60L * 1_000L }
+            .forEach(File::delete)
 
-    val safeHikeId = hike.id.replace(Regex("[^A-Za-z0-9._-]"), "-").take(64).ifBlank { "outing" }
-    val cardFile = File(shareDirectory, "HikeJournal-$safeHikeId.jpg")
-    FileOutputStream(cardFile).use { output ->
-        check(renderHikeShareCard(context, hike).compress(Bitmap.CompressFormat.JPEG, 94, output)) {
-            "HikeJournal could not save the trail card."
-        }
-    }
-    val uris = arrayListOf(
-        FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", cardFile)
-    )
-    var omitted = 0
-    photos.take(MAX_SOCIAL_PHOTOS).forEachIndexed { index, photo ->
-        runCatching {
-            cacheSharedPhoto(context, photo, shareDirectory, safeHikeId, index)
-        }.onSuccess { file ->
-            uris += FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-        }.onFailure {
-            omitted += 1
-        }
-    }
-    PreparedHikeShare(
-        uris = uris,
-        caption = buildString {
-            append(hike.title.ifBlank { "A day on the trail" })
-            append(" · ")
-            append(hikeShareDateTime(hike))
-            hike.distanceMiles?.let {
-                append(" · ")
-                append(hikeShareDistance(hike))
-                append(" miles")
+        val safeHikeId = hike.id.replace(Regex("[^A-Za-z0-9._-]"), "-").take(64).ifBlank { "outing" }
+        val cardFile = File(shareDirectory, "HikeJournal-$safeHikeId.jpg")
+        FileOutputStream(cardFile).use { output ->
+            check(
+                renderHikeShareCard(context, hike, resolvedSatelliteMap)
+                    .compress(Bitmap.CompressFormat.JPEG, 94, output),
+            ) {
+                "HikeJournal could not save the trail card."
             }
-            append(" · HikeJournal")
-        },
-        omittedPhotoCount = omitted,
-    )
+        }
+        val uris = arrayListOf(
+            FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", cardFile),
+        )
+        val cachedPhotos = coroutineScope {
+            photos.take(MAX_SOCIAL_PHOTOS).mapIndexed { index, photo ->
+                async {
+                    runCatching { cacheSharedPhoto(context, photo, shareDirectory, safeHikeId, index) }
+                        .getOrNull()
+                }
+            }.awaitAll()
+        }
+        cachedPhotos.filterNotNull().forEach { file ->
+            uris += FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+        }
+        PreparedHikeShare(
+            uris = uris,
+            caption = buildString {
+                append(hike.title.ifBlank { "A day on the trail" })
+                append(" · ")
+                append(hikeShareDateTime(hike))
+                hike.distanceMiles?.let {
+                    append(" · ")
+                    append(hikeShareDistance(hike))
+                    append(" miles")
+                }
+                append(" · HikeJournal")
+            },
+            omittedPhotoCount = cachedPhotos.count { it == null },
+        )
+    }
 }
 
 private fun cacheSharedPhoto(
@@ -829,9 +895,8 @@ private fun cacheSharedPhoto(
 private fun launchHikeShare(
     context: Context,
     prepared: PreparedHikeShare,
-    instagramOnly: Boolean,
-): Boolean {
-    fun shareIntent(packageName: String? = null) = Intent(
+) {
+    val shareIntent = Intent(
         if (prepared.uris.size == 1) Intent.ACTION_SEND else Intent.ACTION_SEND_MULTIPLE,
     ).apply {
         type = "image/*"
@@ -845,22 +910,9 @@ private fun launchHikeShare(
         clipData = ClipData.newUri(context.contentResolver, "HikeJournal outing", prepared.uris.first()).apply {
             prepared.uris.drop(1).forEach { addItem(ClipData.Item(it)) }
         }
-        if (packageName != null) setPackage(packageName)
         if (context !is Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     }
-
-    if (instagramOnly) {
-        try {
-            context.startActivity(shareIntent("com.instagram.android"))
-            return true
-        } catch (_: ActivityNotFoundException) {
-            // Fall through to the system chooser when Instagram is not installed.
-        } catch (_: SecurityException) {
-            // Fall through if the installed app refuses the external share intent.
-        }
-    }
-    val chooser = Intent.createChooser(shareIntent(), "Share your HikeJournal outing")
+    val chooser = Intent.createChooser(shareIntent, "Share your HikeJournal outing")
     if (context !is Activity) chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     context.startActivity(chooser)
-    return !instagramOnly
 }

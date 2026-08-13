@@ -116,7 +116,7 @@ logger = logging.getLogger(__name__)
 
 def _parse_picker_taken_at(value: str) -> datetime | None:
     raw = value.strip()
-    if not raw:
+    if not raw or raw.casefold() == "null":
         return None
     try:
         return datetime.fromisoformat(raw.replace("Z", "+00:00"))

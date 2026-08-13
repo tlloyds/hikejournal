@@ -119,7 +119,7 @@ internal const val PHOTO_POINT_COLOR = "#8BD3FF"
 private const val CURRENT_POSITION_SOURCE_ID = "hikejournal-current-position"
 private const val CURRENT_POSITION_HALO_LAYER_ID = "hikejournal-current-position-halo"
 private const val CURRENT_POSITION_LAYER_ID = "hikejournal-current-position-dot"
-private val SATELLITE_STYLE = """
+internal val SATELLITE_STYLE = """
     {
       "version": 8,
       "name": "HikeJournal Satellite",

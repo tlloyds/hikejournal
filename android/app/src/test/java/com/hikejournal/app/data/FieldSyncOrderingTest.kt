@@ -5,8 +5,20 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.json.JSONObject
 
 class FieldSyncOrderingTest {
+    @Test
+    fun `photo upload without capture metadata omits taken at`() {
+        assertNull(pendingPhotoTakenAt(JSONObject()))
+        assertNull(pendingPhotoTakenAt(JSONObject().put("taken_at", JSONObject.NULL)))
+        assertNull(pendingPhotoTakenAt(JSONObject().put("taken_at", "null")))
+        assertEquals(
+            "2026-08-13T15:42:00Z",
+            pendingPhotoTakenAt(JSONObject().put("taken_at", "2026-08-13T15:42:00Z")),
+        )
+    }
+
     @Test
     fun `hike children wait for create even when timestamps match`() {
         val route = operation(
