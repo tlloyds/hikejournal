@@ -353,7 +353,11 @@
     "state": "FL"
   },
   {
-    "aliases": [],
+    "aliases": [
+      "Black Bear Wilderness Loop",
+      "Black Bear Wilderness Loop Trail",
+      "Black Bear Wilderness Walk"
+    ],
     "county": "Seminole",
     "lat": 28.8368,
     "lng": -81.3369,
@@ -363,49 +367,6 @@
     "slug": "black-bear-wilderness-area",
     "source": "cfl_hike_planner_places",
     "source_slug": "black-bear-wilderness-place",
-    "state": "FL"
-  },
-  {
-    "aliases": [
-      "Black Bear Wilderness Loop Trail"
-    ],
-    "county": "Seminole",
-    "lat": 28.833058,
-    "lng": -81.353766,
-    "location_type": "loop",
-    "name": "Black Bear Wilderness Loop",
-    "region": "Central Florida",
-    "slug": "black-bear-wilderness-loop",
-    "source": "cfl_hike_planner_routes",
-    "source_slug": "black-bear-wilderness-loop",
-    "state": "FL"
-  },
-  {
-    "aliases": [
-      "Black Bear Wilderness Loop"
-    ],
-    "county": "Seminole",
-    "lat": 28.833058,
-    "lng": -81.353766,
-    "location_type": "trail_destination",
-    "name": "Black Bear Wilderness Loop Trail",
-    "region": "Central Florida",
-    "slug": "black-bear-wilderness-loop-trail",
-    "source": "cfl_hike_planner_places",
-    "source_slug": "black-bear-wilderness-loop-place",
-    "state": "FL"
-  },
-  {
-    "aliases": [],
-    "county": "Seminole",
-    "lat": 28.833058,
-    "lng": -81.353766,
-    "location_type": "loop",
-    "name": "Black Bear Wilderness Walk",
-    "region": "Central Florida",
-    "slug": "black-bear-wilderness-walk",
-    "source": "cfl_hike_planner_routes",
-    "source_slug": "black-bear-wilderness-walk",
     "state": "FL"
   },
   {
@@ -1526,21 +1487,6 @@
     "state": "FL"
   },
   {
-    "aliases": [
-      "Econ River Wilderness"
-    ],
-    "county": "Seminole",
-    "lat": 28.61378,
-    "lng": -81.174113,
-    "location_type": "loop",
-    "name": "Econ River Wilderness Area",
-    "region": "Central Florida",
-    "slug": "econ-river-wilderness-area",
-    "source": "cfl_hike_planner_routes",
-    "source_slug": "econ-river-wilderness",
-    "state": "FL"
-  },
-  {
     "aliases": [],
     "county": "Seminole",
     "lat": 28.655233,
@@ -2024,23 +1970,6 @@
     "state": "FL"
   },
   {
-    "aliases": [
-      "Little Big Econ State Forest",
-      "Little Big Econ",
-      "LBESF"
-    ],
-    "county": "Orange",
-    "lat": 28.653099,
-    "lng": -81.096733,
-    "location_type": "network",
-    "name": "Florida Trail, Little Big Econ State Forest",
-    "region": "Central Florida",
-    "slug": "florida-trail-little-big-econ-state-forest",
-    "source": "cfl_hike_planner_routes",
-    "source_slug": "florida-trail-little-big-econ-state-forest",
-    "state": "FL"
-  },
-  {
     "aliases": [],
     "county": null,
     "lat": 29.1623,
@@ -2051,21 +1980,6 @@
     "slug": "florida-trail-marshall-swamp",
     "source": "cfl_hike_planner_routes",
     "source_slug": "florida-trail-marshall-swamp",
-    "state": "FL"
-  },
-  {
-    "aliases": [
-      "Mills Creek Woodlands"
-    ],
-    "county": "Seminole",
-    "lat": 28.636131,
-    "lng": -81.100533,
-    "location_type": "point_to_point",
-    "name": "Florida Trail, Mills Creek Woodlands",
-    "region": "Central Florida",
-    "slug": "florida-trail-mills-creek-woodlands",
-    "source": "cfl_hike_planner_routes",
-    "source_slug": "florida-trail-mills-creek",
     "state": "FL"
   },
   {
@@ -2131,22 +2045,6 @@
     "slug": "florida-trail-santos-to-baseline",
     "source": "cfl_hike_planner_routes",
     "source_slug": "florida-trail-santos",
-    "state": "FL"
-  },
-  {
-    "aliases": [
-      "Seminole Ranch Conservation Area",
-      "Seminole Ranch"
-    ],
-    "county": "Orange",
-    "lat": 28.54053,
-    "lng": -80.98811,
-    "location_type": "point_to_point",
-    "name": "Florida Trail, Seminole Ranch",
-    "region": "Central Florida",
-    "slug": "florida-trail-seminole-ranch",
-    "source": "cfl_hike_planner_routes",
-    "source_slug": "ftseminoleranch",
     "state": "FL"
   },
   {
@@ -2606,21 +2504,6 @@
     "slug": "hal-scott-preserve-and-park",
     "source": "cfl_hike_planner_places",
     "source_slug": "hal-scott-preserve-place",
-    "state": "FL"
-  },
-  {
-    "aliases": [
-      "Hal Scott Preserve"
-    ],
-    "county": "Orange",
-    "lat": 28.486333,
-    "lng": -81.095833,
-    "location_type": "loop",
-    "name": "Hal Scott Preserve Loop",
-    "region": "Central Florida",
-    "slug": "hal-scott-preserve-loop",
-    "source": "cfl_hike_planner_routes",
-    "source_slug": "hal-scott-preserve-loop",
     "state": "FL"
   },
   {
@@ -3736,7 +3619,11 @@
     "aliases": [
       "Little-Big Econ State Forest",
       "Little Big Econ",
-      "LBESF"
+      "LBESF",
+      "Florida Trail, Little Big Econ State Forest",
+      "Florida Trail, Chuluota to Oviedo",
+      "Florida Trail, Lockwood Trailhead",
+      "Lockwood Trailhead"
     ],
     "county": "Seminole",
     "lat": 28.6424,
@@ -3791,21 +3678,6 @@
     "state": "FL"
   },
   {
-    "aliases": [
-      "Little Manatee River State Park"
-    ],
-    "county": null,
-    "lat": 27.6754,
-    "lng": -82.3487,
-    "location_type": "trail_destination",
-    "name": "Little Manatee River Trail",
-    "region": "Central Florida",
-    "slug": "little-manatee-river-trail",
-    "source": "cfl_hike_planner_places",
-    "source_slug": "little-manatee-river-state-park-place",
-    "state": "FL"
-  },
-  {
     "aliases": [],
     "county": "Orange",
     "lat": 28.687403,
@@ -3857,21 +3729,6 @@
     "slug": "lower-wekiva-loop",
     "source": "cfl_hike_planner_routes",
     "source_slug": "lower-wekiva-loop",
-    "state": "FL"
-  },
-  {
-    "aliases": [
-      "Lower Wekiva River Preserve State Park"
-    ],
-    "county": "Seminole",
-    "lat": 28.82843,
-    "lng": -81.41155,
-    "location_type": "loop",
-    "name": "Lower Wekiva River Preserve",
-    "region": "Central Florida",
-    "slug": "lower-wekiva-river-preserve",
-    "source": "cfl_hike_planner_routes",
-    "source_slug": "lower-wekiva-river-preserve",
     "state": "FL"
   },
   {
@@ -4099,7 +3956,10 @@
   },
   {
     "aliases": [
-      "Florida Trail, Mills Creek Woodlands"
+      "Florida Trail, Mills Creek Woodlands",
+      "Florida Trail, Mills Creek to Lockwood",
+      "Florida Trail Panorama Trailhead",
+      "Panorama Trailhead"
     ],
     "county": "Seminole",
     "lat": 28.636131,
@@ -4533,7 +4393,9 @@
     "state": "FL"
   },
   {
-    "aliases": [],
+    "aliases": [
+      "Pine Lilly Preserve"
+    ],
     "county": "Osceola",
     "lat": 28.5287,
     "lng": -81.0964,
@@ -4937,7 +4799,8 @@
   },
   {
     "aliases": [
-      "Seminole Ranch"
+      "Seminole Ranch",
+      "Florida Trail, Seminole Ranch"
     ],
     "county": "Brevard",
     "lat": 28.54053,
@@ -5250,21 +5113,6 @@
     "state": "FL"
   },
   {
-    "aliases": [
-      "Fellsmere Trailhead Preserve"
-    ],
-    "county": null,
-    "lat": 27.7681,
-    "lng": -80.5572,
-    "location_type": "loop",
-    "name": "St. Sebastian River Preserve Yellow Trail",
-    "region": "Central Florida",
-    "slug": "st-sebastian-river-preserve-yellow-trail",
-    "source": "cfl_hike_planner_routes",
-    "source_slug": "st-sebastian-yellow-trail",
-    "state": "FL"
-  },
-  {
     "aliases": [],
     "county": null,
     "lat": 28.252833,
@@ -5550,6 +5398,24 @@
     "slug": "tomoka-woodham-woods-trail",
     "source": "cfl_hike_planner_routes",
     "source_slug": "woodham-woods-trail",
+    "state": "FL"
+  },
+  {
+    "aliases": [
+      "Tosohatchee Wildlife Management Area",
+      "Tosohatchee WMA",
+      "Tosohatchee"
+    ],
+    "county": "Orange",
+    "lat": 28.498384,
+    "lng": -80.998595,
+    "location_type": "wildlife_management_area",
+    "name": "William Beardall Tosohatchee Wildlife Management Area",
+    "region": "Central Florida",
+    "slug": "william-beardall-tosohatchee-wildlife-management-area",
+    "source": "manual_curated",
+    "source_slug": "william-beardall-tosohatchee-wildlife-management-area",
+    "source_url": "https://myfwc.com/recreation/lead/tosohatchee/",
     "state": "FL"
   },
   {
@@ -5880,21 +5746,6 @@
     "state": "FL"
   },
   {
-    "aliases": [
-      "Werner-Boyce Salt Springs State Park"
-    ],
-    "county": null,
-    "lat": 28.307233,
-    "lng": -82.705767,
-    "location_type": "loop",
-    "name": "Werner-Boyce Salt Springs Trail",
-    "region": "Central Florida",
-    "slug": "werner-boyce-salt-springs-trail",
-    "source": "cfl_hike_planner_routes",
-    "source_slug": "werner-boyce-springs-trail",
-    "state": "FL"
-  },
-  {
     "aliases": [],
     "county": null,
     "lat": 28.8455,
@@ -6050,21 +5901,6 @@
     "slug": "wuesthoff-park",
     "source": "cfl_hike_planner_places",
     "source_slug": "wuesthoff-trail-place",
-    "state": "FL"
-  },
-  {
-    "aliases": [
-      "Wuesthoff Park"
-    ],
-    "county": "Brevard",
-    "lat": 28.555974,
-    "lng": -80.825086,
-    "location_type": "point_to_point",
-    "name": "Wuesthoff Trail",
-    "region": "Central Florida",
-    "slug": "wuesthoff-trail",
-    "source": "cfl_hike_planner_routes",
-    "source_slug": "wuesthoff-trail",
     "state": "FL"
   },
   {

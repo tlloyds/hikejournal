@@ -1556,7 +1556,15 @@ def test_place_profile_endpoint_allows_planning_before_a_recorded_visit(monkeypa
                 "name": "Unvisited Preserve",
                 "lat": 28.1,
                 "lng": -81.2,
-            }
+            },
+            "list_hike_locations": lambda _self: [
+                {
+                    "id": "area-1",
+                    "name": "Unvisited Preserve",
+                    "lat": 28.1,
+                    "lng": -81.2,
+                }
+            ],
         },
     )()
     service = type("Service", (), {"repository": repository})()
@@ -1580,6 +1588,9 @@ def test_place_profile_keeps_archived_outings_in_the_historical_record(monkeypat
                 "lat": 28.1,
                 "lng": -81.2,
             }
+
+        def list_hike_locations(self):
+            return [self.get_hike_location("area-1")]
 
         def list_hike_route_imports(self):
             return []

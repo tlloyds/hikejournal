@@ -32,7 +32,12 @@ from hike_journal.domain.discovery import (
     plain_text,
 )
 from hike_journal.domain.library import filter_hikes_for_user, record_visible_for_user, user_owns_record
-from hike_journal.domain.locations import attach_location_tags_to_hikes, suggest_location_ids_for_hike
+from hike_journal.domain.locations import (
+    attach_location_tags_to_hikes,
+    canonical_location_id_map,
+    canonicalize_hike_locations,
+    suggest_location_ids_for_hike,
+)
 from hike_journal.domain.longitudinal import (
     build_field_briefing,
     build_hike_comparison,
@@ -2198,7 +2203,9 @@ def list_hike_locations() -> list[dict[str, Any]]:
             "lat": _library_coordinate(location.get("lat"), minimum=-90.0, maximum=90.0),
             "lng": _library_coordinate(location.get("lng"), minimum=-180.0, maximum=180.0),
         }
-        for location in get_services().repository.list_hike_locations()
+        for location in canonicalize_hike_locations(
+            get_services().repository.list_hike_locations()
+        )
         if location.get("id") and str(location.get("name") or "").strip()
     ]
 
@@ -2235,13 +2242,22 @@ def _analytics_hikes(svc: Services) -> list[dict[str, Any]]:
 @app.get("/v1/places/{location_id}/profile", dependencies=[Depends(require_mobile_key)])
 def get_place_profile(location_id: str) -> dict[str, Any]:
     svc = get_services()
-    location = svc.repository.get_hike_location(location_id)
-    if not location:
+    locations = svc.repository.list_hike_locations()
+    canonical_id = canonical_location_id_map(locations).get(location_id, location_id)
+    location = next(
+        (
+            item
+            for item in canonicalize_hike_locations(locations)
+            if str(item.get("id") or "") == canonical_id
+        ),
+        None,
+    )
+    if location is None:
         raise HTTPException(status_code=404, detail="Place not found.")
     hikes = [
         hike
         for hike in _analytics_hikes(svc)
-        if any(str(tag.get("id") or "") == location_id for tag in hike.get("location_tags") or [])
+        if any(str(tag.get("id") or "") == canonical_id for tag in hike.get("location_tags") or [])
     ]
     return build_place_profile(location, hikes, _dated_visible_observations(svc))
 
@@ -3977,10 +3993,10 @@ def _sync_hike_location_tags(
     payload: HikeInput,
 ) -> None:
     locations = repository.list_hike_locations()
-    known_location_ids = {str(location.get("id") or "") for location in locations}
+    canonical_ids = canonical_location_id_map(locations)
     location_ids = (
-        [payload.location_id]
-        if payload.location_id and payload.location_id in known_location_ids
+        [canonical_ids[payload.location_id]]
+        if payload.location_id and payload.location_id in canonical_ids
         else suggest_location_ids_for_hike(hike, locations)
     )
     repository.set_hike_location_tags(str(hike["id"]), location_ids)
