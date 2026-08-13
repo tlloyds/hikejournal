@@ -80,6 +80,7 @@ import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Fullscreen
 import androidx.compose.material.icons.rounded.Image
+import androidx.compose.material.icons.rounded.IosShare
 import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.Map
@@ -1962,6 +1963,7 @@ private fun JournalScreen(
     val opening = state.openingHikeId == hike.id
     var selectingForReview by remember(hike.id) { mutableStateOf(false) }
     var selectedReviewIds by remember(hike.id) { mutableStateOf<Set<String>>(emptySet()) }
+    var shareDialogOpen by remember(hike.id) { mutableStateOf(false) }
     val journalListState = rememberLazyListState()
     val journalScrollScope = rememberCoroutineScope()
     val reviewEligiblePhotos = hike.photos.filter { !it.isVideo && it.processingStatus != "in_review" }
@@ -2127,15 +2129,29 @@ private fun JournalScreen(
                     Text("FIELD NOTES", style = MaterialTheme.typography.labelSmall, color = TrailText)
                     Text("Field journal", style = MaterialTheme.typography.headlineMedium, color = Ink)
                 }
-                Text(
-                    if (opening && hike.photos.isNotEmpty()) {
-                        "${hike.photos.size} of ${hike.photoCount} photos"
-                    } else {
-                        "${if (opening) hike.photoCount else hike.photos.size} photos"
-                    },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = InkMuted,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        if (opening && hike.photos.isNotEmpty()) {
+                            "${hike.photos.size} of ${hike.photoCount} photos"
+                        } else {
+                            "${if (opening) hike.photoCount else hike.photos.size} photos"
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = InkMuted,
+                    )
+                    IconButton(
+                        onClick = { shareDialogOpen = true },
+                        enabled = !opening,
+                        modifier = Modifier.size(40.dp),
+                    ) {
+                        Icon(
+                            Icons.Rounded.IosShare,
+                            contentDescription = "Create a social sharing card",
+                            tint = if (opening) InkMuted.copy(alpha = 0.45f) else TrailText,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                }
             }
             if (!opening && reviewEligiblePhotos.isNotEmpty()) {
                 TextButton(
@@ -2241,6 +2257,9 @@ private fun JournalScreen(
                 }
             }
         }
+    }
+    if (shareDialogOpen) {
+        HikeShareDialog(hike = hike, onDismiss = { shareDialogOpen = false })
     }
 }
 
