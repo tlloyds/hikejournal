@@ -11,12 +11,13 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -70,6 +71,7 @@ internal fun FieldCelebrationDialog(
         animationSpec = tween(520),
         label = "celebration-image",
     )
+    val navigationBarPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(
@@ -87,8 +89,7 @@ internal fun FieldCelebrationDialog(
                         colors = listOf(MossSoft, Moss, Color(0xFF10281F)),
                     )
                 )
-                .statusBarsPadding()
-                .navigationBarsPadding(),
+                .statusBarsPadding(),
         ) {
             CelebrationImagePlane(
                 urls = celebration.imageUrls,
@@ -105,92 +106,103 @@ internal fun FieldCelebrationDialog(
                 modifier = Modifier.weight(0.57f),
             ) {
                 Column(
-                    Modifier
-                        .fillMaxHeight()
-                        .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 24.dp, vertical = 22.dp),
+                    Modifier.fillMaxHeight(),
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.AutoAwesome, null, tint = Trail, modifier = Modifier.size(20.dp))
-                        Text(
-                            celebration.eyebrow,
-                            style = MaterialTheme.typography.labelMedium,
-                            color = Color(0xFFF1BE79),
-                            modifier = Modifier.padding(start = 8.dp),
-                        )
-                    }
-                    Text(
-                        celebration.title,
-                        style = MaterialTheme.typography.displayMedium,
-                        color = Paper,
-                        modifier = Modifier.padding(top = 8.dp),
-                    )
-                    Text(
-                        celebration.detail,
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = Color(0xFFD6E0D3),
-                        modifier = Modifier.padding(top = 8.dp),
-                    )
-                    if (celebration.highlights.isNotEmpty()) {
-                        HorizontalDivider(
-                            color = Color.White.copy(alpha = 0.18f),
-                            modifier = Modifier.padding(top = 20.dp, bottom = 16.dp),
-                        )
-                        Row(
-                            Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                        ) {
-                            celebration.highlights.take(3).forEach { highlight ->
-                                Column(Modifier.weight(1f), horizontalAlignment = Alignment.Start) {
-                                    Text(
-                                        highlight.value,
-                                        style = MaterialTheme.typography.headlineMedium,
-                                        color = Paper,
-                                        fontWeight = FontWeight.Bold,
-                                    )
-                                    Text(
-                                        highlight.label.uppercase(),
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = Color(0xFFB8C9BC),
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    if (!celebration.badgeTitle.isNullOrBlank() || !celebration.badgeProgress.isNullOrBlank()) {
-                        Row(
-                            Modifier.fillMaxWidth().padding(top = 20.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Icon(
-                                Icons.Rounded.WorkspacePremium,
-                                contentDescription = null,
-                                tint = Color(0xFFF1BE79),
-                                modifier = Modifier.size(34.dp),
-                            )
-                            Column(Modifier.padding(start = 12.dp)) {
-                                Text(
-                                    celebration.badgeTitle ?: "BADGE PROGRESS",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = Paper,
-                                )
-                                celebration.badgeProgress?.let { progress ->
-                                    Text(
-                                        progress,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = Color(0xFFD6E0D3),
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    Spacer(Modifier.height(22.dp))
-                    Button(
-                        onClick = onDismiss,
-                        modifier = Modifier.fillMaxWidth().height(54.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Trail, contentColor = Paper),
+                    Column(
+                        Modifier
+                            .weight(1f)
+                            .verticalScroll(rememberScrollState())
+                            .padding(horizontal = 24.dp)
+                            .padding(top = 22.dp, bottom = 10.dp),
                     ) {
-                        Text(celebration.actionLabel, style = MaterialTheme.typography.labelLarge)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Rounded.AutoAwesome, null, tint = Trail, modifier = Modifier.size(20.dp))
+                            Text(
+                                celebration.eyebrow,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = Color(0xFFF1BE79),
+                                modifier = Modifier.padding(start = 8.dp),
+                            )
+                        }
+                        Text(
+                            celebration.title,
+                            style = MaterialTheme.typography.displayMedium,
+                            color = Paper,
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
+                        Text(
+                            celebration.detail,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = Color(0xFFD6E0D3),
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
+                        if (celebration.highlights.isNotEmpty()) {
+                            HorizontalDivider(
+                                color = Color.White.copy(alpha = 0.18f),
+                                modifier = Modifier.padding(top = 20.dp, bottom = 16.dp),
+                            )
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                            ) {
+                                celebration.highlights.take(3).forEach { highlight ->
+                                    Column(Modifier.weight(1f), horizontalAlignment = Alignment.Start) {
+                                        Text(
+                                            highlight.value,
+                                            style = MaterialTheme.typography.headlineMedium,
+                                            color = Paper,
+                                            fontWeight = FontWeight.Bold,
+                                        )
+                                        Text(
+                                            highlight.label.uppercase(),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = Color(0xFFB8C9BC),
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        if (!celebration.badgeTitle.isNullOrBlank() || !celebration.badgeProgress.isNullOrBlank()) {
+                            Row(
+                                Modifier.fillMaxWidth().padding(top = 20.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(
+                                    Icons.Rounded.WorkspacePremium,
+                                    contentDescription = null,
+                                    tint = Color(0xFFF1BE79),
+                                    modifier = Modifier.size(34.dp),
+                                )
+                                Column(Modifier.padding(start = 12.dp)) {
+                                    Text(
+                                        celebration.badgeTitle ?: "BADGE PROGRESS",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = Paper,
+                                    )
+                                    celebration.badgeProgress?.let { progress ->
+                                        Text(
+                                            progress,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = Color(0xFFD6E0D3),
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 24.dp)
+                            .padding(top = 12.dp, bottom = navigationBarPadding + 16.dp),
+                    ) {
+                        Button(
+                            onClick = onDismiss,
+                            modifier = Modifier.fillMaxWidth().height(54.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Trail, contentColor = Paper),
+                        ) {
+                            Text(celebration.actionLabel, style = MaterialTheme.typography.labelLarge)
+                        }
                     }
                 }
             }

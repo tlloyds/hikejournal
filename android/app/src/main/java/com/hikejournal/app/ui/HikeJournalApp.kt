@@ -1364,14 +1364,16 @@ private fun LibraryScreen(
                     onBadges = onBadges,
                 )
             }
-            item {
-                SyncStrip(
-                    status = state.syncStatus,
-                    syncing = state.isSyncing,
-                    onSync = onSync,
-                    onRetry = onRetrySync,
-                    onShowAttention = onShowSyncAttention,
-                )
+            if (shouldShowSyncStrip(state.syncStatus, state.isSyncing)) {
+                item {
+                    SyncStrip(
+                        status = state.syncStatus,
+                        syncing = state.isSyncing,
+                        onSync = onSync,
+                        onRetry = onRetrySync,
+                        onShowAttention = onShowSyncAttention,
+                    )
+                }
             }
             item {
                 PlanningPlaceRow(onOpen = onPlanPlaces)
@@ -1602,6 +1604,17 @@ private fun LibraryHeader(
         }
     }
 }
+
+internal fun shouldShowSyncStrip(
+    status: com.hikejournal.app.data.SyncStatus,
+    syncing: Boolean,
+): Boolean = !status.connected ||
+    syncing ||
+    status.pendingCount > 0 ||
+    status.syncingCount > 0 ||
+    status.needsAttentionCount > 0 ||
+    status.pendingPhotoCount > 0 ||
+    status.syncingPhotoCount > 0
 
 @Composable
 private fun SyncStrip(
