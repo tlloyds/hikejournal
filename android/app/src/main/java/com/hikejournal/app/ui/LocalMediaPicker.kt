@@ -183,7 +183,9 @@ internal fun LocalMediaPickerDialog(
                             .windowInsetsPadding(
                                 WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom),
                             )
-                            .padding(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 30.dp),
+                            // Keep the action above the gesture area even when a full-screen
+                            // dialog reports no bottom inset on older Android builds.
+                            .padding(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 40.dp),
                     ) {
                         selectionNotice?.let {
                             Text(

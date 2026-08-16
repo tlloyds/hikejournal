@@ -1356,6 +1356,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             _state.update { it.copy(error = "iNaturalist recommendations need a connection.") }
             return
         }
+        if (!_state.value.publishQueue.connected) {
+            connectInat()
+            return
+        }
         viewModelScope.launch {
             _state.update { it.copy(identifyingReviewId = item.id, error = null) }
             runCatching { repository.requestReviewRecommendation(item.id) }
@@ -1378,6 +1382,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun submitReviewBatch(groups: List<List<String>>) {
         if (_state.value.isOffline) {
             _state.update { it.copy(error = "Batch identification needs a connection.") }
+            return
+        }
+        if (!_state.value.publishQueue.connected) {
+            connectInat()
             return
         }
         if (groups.isEmpty()) return
@@ -1427,6 +1435,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun requestPhotoRecommendation(photo: Photo, onRecommended: (ReviewItem) -> Unit) {
         if (_state.value.isOffline) {
             _state.update { it.copy(error = "iNaturalist recommendations need a connection.") }
+            return
+        }
+        if (!_state.value.publishQueue.connected) {
+            connectInat()
             return
         }
         if (photo.syncState != "synced" || photo.url.startsWith("file:")) {

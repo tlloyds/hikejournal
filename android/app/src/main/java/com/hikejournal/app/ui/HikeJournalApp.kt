@@ -526,7 +526,10 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                 viewModel.loadSpecies()
                 viewModel.loadSpeciesDiscovery()
             }
-            TopDestination.Review -> viewModel.loadReviewQueue(force = true)
+            TopDestination.Review -> {
+                viewModel.loadReviewQueue(force = true)
+                viewModel.loadPublishQueue(force = true)
+            }
             TopDestination.Publish -> viewModel.loadPublishQueue()
             TopDestination.Map -> viewModel.loadSightings()
         }
@@ -822,6 +825,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                     identifyingId = state.identifyingReviewId,
                     batchIdentifying = state.isBatchIdentifying,
                     batchProgress = state.batchProgress,
+                    inatConnected = state.publishQueue.connected,
                     offline = state.isOffline,
                     onRefresh = { viewModel.loadReviewQueue(force = true) },
                     onDecision = viewModel::decideReview,
@@ -1126,6 +1130,8 @@ fun HikeJournalApp(viewModel: AppViewModel) {
             assigningSpecies = state.speciesAssignmentId == photo.id,
             openingMap = openingPhotoMapId == photo.id,
             identifying = state.identifyingReviewId == photo.id,
+            inatConnected = state.publishQueue.connected,
+            offline = state.isOffline,
             resolvingSpeciesInfo = state.resolvingSpeciesInfoPhotoId == photo.id,
             savingForRecommendation = state.prioritizingPhotoId == photo.id,
             onDismiss = {
@@ -1156,6 +1162,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                     directReviewItem = recommended
                 }
             },
+            onConnectInat = viewModel::connectInat,
             onSetCover = state.journal?.takeUnless { it.isStandalone || photo.isVideo }?.let {
                 { selected: Boolean -> viewModel.setHikeCover(photo, selected) }
             },
@@ -3027,6 +3034,8 @@ private fun PhotoViewer(
     assigningSpecies: Boolean,
     openingMap: Boolean,
     identifying: Boolean,
+    inatConnected: Boolean,
+    offline: Boolean,
     resolvingSpeciesInfo: Boolean,
     savingForRecommendation: Boolean,
     onDismiss: () -> Unit,
@@ -3036,6 +3045,7 @@ private fun PhotoViewer(
     onDelete: () -> Unit,
     onSetReview: (Boolean) -> Unit,
     onRequestRecommendation: () -> Unit,
+    onConnectInat: () -> Unit,
     onSetCover: ((Boolean) -> Unit)?,
     onAssignSpecies: (() -> Unit)?,
     onEditNaturalHistory: ((String, List<String>) -> Unit)?,
@@ -3227,8 +3237,9 @@ private fun PhotoViewer(
                         }
                     }
                     Button(
-                        onClick = onRequestRecommendation,
-                        enabled = !identifying && !savingForRecommendation && photo.syncState == "synced" && !photo.url.startsWith("file:"),
+                        onClick = if (inatConnected) onRequestRecommendation else onConnectInat,
+                        enabled = !offline && !identifying && !savingForRecommendation &&
+                            (!inatConnected || (photo.syncState == "synced" && !photo.url.startsWith("file:"))),
                         modifier = Modifier.fillMaxWidth().padding(top = 10.dp).height(48.dp),
                     ) {
                         if (identifying || savingForRecommendation) CircularProgressIndicator(Modifier.size(18.dp), color = Paper, strokeWidth = 2.dp)
@@ -3238,6 +3249,7 @@ private fun PhotoViewer(
                             when {
                                 savingForRecommendation -> "Saving photo for iNaturalist..."
                                 identifying -> "Asking iNaturalist..."
+                                !inatConnected -> "Connect iNaturalist"
                                 else -> "Get iNaturalist recommendation"
                             },
                         )

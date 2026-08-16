@@ -72,6 +72,10 @@ internal fun FieldCelebrationDialog(
         label = "celebration-image",
     )
     val navigationBarPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    // Dialogs opt out of decor fitting, so some Android versions report a zero
+    // navigation inset here even though the gesture area is still consuming space.
+    // Keep a conservative floor so the action is always fully tappable.
+    val actionBottomPadding = maxOf(navigationBarPadding, 24.dp) + 16.dp
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(
@@ -194,7 +198,7 @@ internal fun FieldCelebrationDialog(
                         Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 24.dp)
-                            .padding(top = 12.dp, bottom = navigationBarPadding + 16.dp),
+                            .padding(top = 12.dp, bottom = actionBottomPadding),
                     ) {
                         Button(
                             onClick = onDismiss,

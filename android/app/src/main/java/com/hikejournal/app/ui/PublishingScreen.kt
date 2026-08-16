@@ -180,11 +180,11 @@ fun PublishingScreen(
                         )
                     }
                     TextButton(
-                        onClick = { batchMode = true },
-                        enabled = readyCount > 0 && !offline && !batchPublishing && publishingId == null && queue.connected,
+                        onClick = { if (queue.connected) batchMode = true else onConnectInat() },
+                        enabled = readyCount > 0 && !offline && !batchPublishing && publishingId == null,
                         colors = ButtonDefaults.textButtonColors(contentColor = Paper),
                     ) {
-                        Text("Batch post")
+                        Text(if (queue.connected) "Batch post" else "Connect iNaturalist")
                     }
                     IconButton(onClick = onRefresh, enabled = !loading && publishingId == null && !batchPublishing) {
                         if (loading) CircularProgressIndicator(Modifier.size(20.dp), color = Paper, strokeWidth = 2.dp)
@@ -236,6 +236,7 @@ fun PublishingScreen(
                     onSubmit = { groups, options ->
                         onSubmitBatch(groups, options)
                     },
+                    onConnectInat = onConnectInat,
                 )
                 loading && queue.items.isEmpty() -> PublishLoading()
                 current == null -> PublishEmpty(
@@ -332,6 +333,7 @@ private fun PublishBatchPlanContent(
     offline: Boolean,
     onBack: () -> Unit,
     onSubmit: (List<List<String>>, PublishOptions) -> Unit,
+    onConnectInat: () -> Unit,
 ) {
     var selectedIds by remember(items) { mutableStateOf(items.map { it.id }.toSet()) }
     var separatePhotoIds by remember(items) { mutableStateOf(emptySet<String>()) }
@@ -510,24 +512,34 @@ private fun PublishBatchPlanContent(
                 }
                 Button(
                     onClick = {
-                        onSubmit(
-                            plannedGroups.map { it.observationIds },
-                            PublishOptions(
-                                observationIds = emptyList(),
-                                description = description.trim(),
-                                tags = tags.split(',').map(String::trim).filter(String::isNotBlank),
-                                geoprivacy = geoprivacy,
-                                captive = captive,
-                            ),
-                        )
+                        if (!connected) {
+                            onConnectInat()
+                        } else {
+                            onSubmit(
+                                plannedGroups.map { it.observationIds },
+                                PublishOptions(
+                                    observationIds = emptyList(),
+                                    description = description.trim(),
+                                    tags = tags.split(',').map(String::trim).filter(String::isNotBlank),
+                                    geoprivacy = geoprivacy,
+                                    captive = captive,
+                                ),
+                            )
+                        }
                     },
-                    enabled = plannedGroups.isNotEmpty() && oversizedGroups.isEmpty() && !submitting && !offline && connected,
+                    enabled = plannedGroups.isNotEmpty() && oversizedGroups.isEmpty() && !submitting && !offline,
                     modifier = Modifier.fillMaxWidth().padding(top = 14.dp).height(52.dp),
                 ) {
                     if (submitting) CircularProgressIndicator(Modifier.size(19.dp), color = Paper, strokeWidth = 2.dp)
-                    else Icon(Icons.Rounded.CloudUpload, null)
+                    else Icon(if (connected) Icons.Rounded.CloudUpload else Icons.Rounded.Refresh, null)
                     Spacer(Modifier.width(8.dp))
-                    Text(if (submitting) "Posting observations…" else "Post ${plannedGroups.size} observation${if (plannedGroups.size == 1) "" else "s"} (${selectedItems.size} photos)")
+                    Text(
+                        when {
+                            submitting -> "Posting observations…"
+                            !connected -> "Connect iNaturalist"
+                            else -> "Post ${plannedGroups.size} observation${if (plannedGroups.size == 1) "" else "s"} (${selectedItems.size} photos)"
+                        },
+                    )
                 }
             }
         }
@@ -672,7 +684,7 @@ private fun PublishItemContent(
                             modifier = Modifier.padding(top = 18.dp),
                         )
                         Button(
-                            onClick = { confirmOpen = true },
+                            onClick = { if (connected) confirmOpen = true else onConnectInat() },
                             enabled = !offline && !publishing,
                             modifier = Modifier.fillMaxWidth().padding(top = 14.dp).height(52.dp),
                         ) {
@@ -683,7 +695,7 @@ private fun PublishItemContent(
                                 when {
                                     publishing -> "Publishing…"
                                     connected -> "Post to iNaturalist"
-                                    else -> "Connect and publish"
+                                    else -> "Connect iNaturalist"
                                 },
                             )
                         }
@@ -724,16 +736,6 @@ private fun PublishItemContent(
                                 Text("View on iNaturalist")
                             }
                         }
-                    }
-                }
-
-                if (!connected) {
-                    Button(
-                        onClick = onConnectInat,
-                        enabled = !offline && !publishing,
-                        modifier = Modifier.fillMaxWidth().padding(top = 14.dp).height(52.dp),
-                    ) {
-                        Text("Connect iNaturalist")
                     }
                 }
 

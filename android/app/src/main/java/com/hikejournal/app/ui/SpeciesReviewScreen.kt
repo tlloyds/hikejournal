@@ -87,6 +87,7 @@ fun SpeciesReviewScreen(
     identifyingId: String?,
     batchIdentifying: Boolean,
     batchProgress: ReviewBatchStatus?,
+    inatConnected: Boolean,
     offline: Boolean,
     onRefresh: () -> Unit,
     onDecision: (ReviewItem, String, ReviewCandidate?) -> Unit,
@@ -144,7 +145,7 @@ fun SpeciesReviewScreen(
                 Text("$pendingCount TO DECIDE · $waitingCount NEED ID$syncSuffix", style = MaterialTheme.typography.labelSmall, color = Color(0xFFB7C8B5))
             }
             TextButton(
-                onClick = { batchMode = true },
+                onClick = { if (inatConnected) batchMode = true else onConnectInat() },
                 enabled = waitingItems.isNotEmpty() && unsyncedWaitingItems.isEmpty() && !loading && !offline && !batchIdentifying,
                 colors = ButtonDefaults.textButtonColors(contentColor = Paper),
             ) {
@@ -152,6 +153,7 @@ fun SpeciesReviewScreen(
                     when {
                         loading -> "Loading"
                         unsyncedWaitingItems.isNotEmpty() -> "Syncing"
+                        !inatConnected -> "Connect iNaturalist"
                         else -> "Batch ID"
                     },
                 )
@@ -177,6 +179,7 @@ fun SpeciesReviewScreen(
                 submitting = batchIdentifying,
                 refreshing = loading,
                 progress = batchProgress,
+                connected = inatConnected,
                 offline = offline,
                 onBack = {
                     if (!batchIdentifying) {
@@ -185,6 +188,7 @@ fun SpeciesReviewScreen(
                     }
                 },
                 onSubmit = onSubmitBatch,
+                onConnectInat = onConnectInat,
             )
             loading && queue.isEmpty() -> ReviewLoading()
             item == null -> ReviewEmpty(
@@ -227,6 +231,8 @@ fun SpeciesReviewScreen(
                         hasNext = targetPosition < queue.size,
                         deciding = decidingId == targetItem.id,
                         identifying = identifyingId == targetItem.id,
+                        inatConnected = inatConnected,
+                        offline = offline,
                         enabled = reviewPhotoIsSynced(targetItem) && !offline && decidingId == null && identifyingId == null,
                         onNext = { if (index < queue.lastIndex) index += 1 },
                         onDecision = onDecision,
@@ -245,9 +251,11 @@ private fun SpeciesBatchIdentificationContent(
     submitting: Boolean,
     refreshing: Boolean,
     progress: ReviewBatchStatus?,
+    connected: Boolean,
     offline: Boolean,
     onBack: () -> Unit,
     onSubmit: (List<List<String>>) -> Unit,
+    onConnectInat: () -> Unit,
 ) {
     var selectedIds by remember(queue) { mutableStateOf(queue.map { it.id }.toSet()) }
     var separatePhotoIds by remember(queue) { mutableStateOf(emptySet<String>()) }
@@ -374,7 +382,9 @@ private fun SpeciesBatchIdentificationContent(
                     color = InkMuted,
                 )
                 Button(
-                    onClick = { onSubmit(plannedGroups.map { it.photoIds }) },
+                    onClick = {
+                        if (connected) onSubmit(plannedGroups.map { it.photoIds }) else onConnectInat()
+                    },
                     enabled = plannedGroups.isNotEmpty() && !submitting && !refreshing && !offline,
                     modifier = Modifier.fillMaxWidth().padding(top = 14.dp).height(52.dp),
                 ) {
@@ -385,6 +395,7 @@ private fun SpeciesBatchIdentificationContent(
                         when {
                             submitting -> "Submitting ID requests…"
                             refreshing -> "Refreshing remaining photos…"
+                            !connected -> "Connect iNaturalist"
                             else -> "Submit ${plannedGroups.size} ID request${if (plannedGroups.size == 1) "" else "s"}"
                         },
                     )
@@ -480,6 +491,8 @@ private fun ReviewItemContent(
     hasNext: Boolean,
     deciding: Boolean,
     identifying: Boolean,
+    inatConnected: Boolean,
+    offline: Boolean,
     enabled: Boolean,
     onNext: () -> Unit,
     onDecision: (ReviewItem, String, ReviewCandidate?) -> Unit,
@@ -539,8 +552,9 @@ private fun ReviewItemContent(
                         modifier = Modifier.padding(top = 7.dp),
                     )
                     Button(
-                        onClick = { onRequestRecommendation(item) },
-                        enabled = enabled,
+                        onClick = { if (inatConnected) onRequestRecommendation(item) else onConnectInat() },
+                        enabled = !offline && !identifying &&
+                            (!inatConnected || (enabled && photoSynced)),
                         modifier = Modifier.fillMaxWidth().padding(top = 20.dp).height(52.dp),
                     ) {
                         if (identifying) CircularProgressIndicator(Modifier.size(19.dp), color = Paper, strokeWidth = 2.dp)
@@ -549,6 +563,7 @@ private fun ReviewItemContent(
                         Text(
                             when {
                                 identifying -> "Asking iNaturalist…"
+                                !inatConnected -> "Connect iNaturalist"
                                 !photoSynced -> "Upload before ID"
                                 else -> "Get iNaturalist recommendation"
                             },
@@ -563,8 +578,10 @@ private fun ReviewItemContent(
                         Spacer(Modifier.width(6.dp))
                         Text("Skip for now")
                     }
-                    TextButton(onClick = onConnectInat, enabled = !identifying, modifier = Modifier.fillMaxWidth().padding(top = 5.dp)) {
-                        Text("Connect iNaturalist")
+                    if (inatConnected) {
+                        TextButton(onClick = onConnectInat, enabled = !identifying, modifier = Modifier.fillMaxWidth().padding(top = 5.dp)) {
+                            Text("Reconnect iNaturalist")
+                        }
                     }
                 } else {
                     Text("Choose the best match", style = MaterialTheme.typography.headlineMedium, color = Ink)
