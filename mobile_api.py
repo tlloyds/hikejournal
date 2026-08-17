@@ -107,6 +107,7 @@ MOBILE_JOB_OWNER_SCOPE = "single-owner"
 SPECIES_REVIEW_JOB_TYPE = "species-review-batch"
 SPECIES_PUBLISH_JOB_TYPE = "species-publish-batch"
 MOBILE_JOB_MAX_LOCAL_WORKERS = 4
+MOBILE_REVIEW_JOB_LEASE_SECONDS = 180
 MOBILE_JOB_CACHE_FINGERPRINT_KEY = "_request_fingerprint"
 MOBILE_API_VERSION = Path(__file__).resolve().with_name("VERSION").read_text(encoding="utf-8").strip()
 if not MOBILE_API_VERSION:
@@ -575,7 +576,7 @@ def _persist_mobile_job_update(job_id: str, **updates: Any) -> MobileJobRecord |
     updated = _mobile_job_store().update(
         job_id,
         expected_lease_owner=lease_owner,
-        lease_seconds=1800,
+        lease_seconds=MOBILE_REVIEW_JOB_LEASE_SECONDS,
         **updates,
     )
     if lease_owner and updated is None:
@@ -770,7 +771,7 @@ def _resume_mobile_job(record: MobileJobRecord) -> None:
             claimed = _mobile_job_store().acquire_lease(
                 record.job_id,
                 lease_owner=failure_owner,
-                lease_seconds=1800,
+                lease_seconds=MOBILE_REVIEW_JOB_LEASE_SECONDS,
             )
             if claimed is None:
                 logger.warning(

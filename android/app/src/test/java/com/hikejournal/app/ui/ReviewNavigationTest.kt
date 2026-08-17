@@ -20,4 +20,13 @@ class ReviewNavigationTest {
         assertFalse(shouldAutoCloseReviewBatch(batchIdentifying = false, state = "failed"))
         assertFalse(shouldAutoCloseReviewBatch(batchIdentifying = true, state = "completed"))
     }
+
+    @Test
+    fun `an active or failed batch can be reopened from ordinary review`() {
+        assertTrue(shouldResumeReviewBatch(batchIdentifying = true, state = "running"))
+        assertTrue(shouldResumeReviewBatch(batchIdentifying = false, state = "queued"))
+        assertTrue(shouldResumeReviewBatch(batchIdentifying = false, state = "failed"))
+        assertFalse(shouldResumeReviewBatch(batchIdentifying = false, state = "completed"))
+        assertFalse(shouldResumeReviewBatch(batchIdentifying = false, state = null))
+    }
 }

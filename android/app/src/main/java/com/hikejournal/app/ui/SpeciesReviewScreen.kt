@@ -103,10 +103,14 @@ fun SpeciesReviewScreen(
     val queueSignature = remember(queue) { queue.joinToString(",") { it.id } }
     val waitingItems = queue.filter { it.candidates.isEmpty() }
     val unsyncedWaitingItems = waitingItems.filterNot { reviewPhotoIsSynced(it) }
+    val batchResumable = shouldResumeReviewBatch(batchIdentifying, batchProgress?.state)
     LaunchedEffect(queueSignature) {
         if (queue.isEmpty()) index = 0 else index = index.coerceIn(0, queue.lastIndex)
     }
     LaunchedEffect(batchProgress?.jobId, batchProgress?.state, batchIdentifying) {
+        if (batchResumable) {
+            batchMode = true
+        }
         if (shouldAutoCloseReviewBatch(batchIdentifying, batchProgress?.state)) {
             onBatchFinished()
             batchMode = false
@@ -145,13 +149,21 @@ fun SpeciesReviewScreen(
                 Text("$pendingCount TO DECIDE · $waitingCount NEED ID$syncSuffix", style = MaterialTheme.typography.labelSmall, color = Color(0xFFB7C8B5))
             }
             TextButton(
-                onClick = { if (inatConnected) batchMode = true else onConnectInat() },
-                enabled = waitingItems.isNotEmpty() && unsyncedWaitingItems.isEmpty() && !loading && !offline && !batchIdentifying,
+                onClick = {
+                    if (batchResumable) batchMode = true
+                    else if (inatConnected) batchMode = true else onConnectInat()
+                },
+                enabled = if (batchResumable) {
+                    !loading
+                } else {
+                    waitingItems.isNotEmpty() && unsyncedWaitingItems.isEmpty() && !loading && !offline
+                },
                 colors = ButtonDefaults.textButtonColors(contentColor = Paper),
             ) {
                 Text(
                     when {
                         loading -> "Loading"
+                        batchResumable -> "Resume batch"
                         unsyncedWaitingItems.isNotEmpty() -> "Syncing"
                         !inatConnected -> "Connect iNaturalist"
                         else -> "Batch ID"
@@ -650,6 +662,9 @@ internal fun reviewBackAction(
 
 internal fun shouldAutoCloseReviewBatch(batchIdentifying: Boolean, state: String?): Boolean =
     !batchIdentifying && state == "completed"
+
+internal fun shouldResumeReviewBatch(batchIdentifying: Boolean, state: String?): Boolean =
+    batchIdentifying || state in setOf("queued", "running", "failed")
 
 internal fun reviewPhotoIsSynced(item: ReviewItem): Boolean =
     item.photo.syncState == "synced" && !item.photo.url.startsWith("file:")
