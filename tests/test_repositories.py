@@ -101,3 +101,22 @@ def test_quest_save_retries_without_wikipedia_fields_for_legacy_schema() -> None
     assert saved_taxa[0]["taxon_id"] == 123
     assert "wikipedia_url" not in saved_taxa[0]
     assert "wikipedia_summary" not in saved_taxa[0]
+
+
+def test_media_rows_use_signed_delivery_urls_without_changing_stored_values() -> None:
+    original = {
+        "id": "photo-1",
+        "storage_path": "hikes/hike-1/photo-1.jpg",
+        "public_url": "https://public.example/photo-1.jpg",
+    }
+    repository = HikeJournalRepository(
+        client=None,
+        media_url_resolver=lambda path: f"https://signed.example/{path}?token=test",
+    )
+
+    decorated = repository.decorate_media_row(original)
+
+    assert decorated["public_url"] == (
+        "https://signed.example/hikes/hike-1/photo-1.jpg?token=test"
+    )
+    assert original["public_url"] == "https://public.example/photo-1.jpg"

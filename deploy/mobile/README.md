@@ -36,6 +36,7 @@ deployable from a GitHub connection in Cloud Run:
    `MOBILE_AUTH_MODE=google`,
    `SUPABASE_URL`, `SUPABASE_KEY`,
    storage settings (`STORAGE_BACKEND` and either the R2 or Supabase values),
+   `MEDIA_SIGNED_URL_TTL_SECONDS=86400`,
    `SPECIES_DISCOVERY_ENABLED=true`, and
    `INAT_DISCOVERY_BASE_URL=https://api.inaturalist.org/v2`.
    Historical weather is enabled by default through Open-Meteo's free
@@ -55,7 +56,10 @@ deployable from a GitHub connection in Cloud Run:
    Readiness fails closed when the selected authentication configuration is
    incomplete. Optional `MOBILE_JOB_RECOVERY_INTERVAL_SECONDS` (5-300 seconds) and
    `MOBILE_HEALTH_CACHE_SECONDS` (1-60 seconds) tune the in-process recovery scan
-   and readiness cache. Do not commit or upload `.env`.
+   and readiness cache. R2 buckets must keep their `r2.dev` public development
+   domain disabled; HikeJournal resolves stored object paths into expiring signed
+   download URLs and reads iNaturalist publishing images through the server-side
+   storage client. Do not commit or upload `.env`.
 7. Set memory to at least **1 GiB** to leave room for photo processing, then
    deploy. Verify `/health/live` returns an `ok` response and `/health/ready`
    returns HTTP 200 with `configuration`, `database`, `storage`, and `job_store`

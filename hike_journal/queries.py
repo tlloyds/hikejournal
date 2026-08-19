@@ -5,11 +5,17 @@ from typing import Any
 import streamlit as st
 
 from hike_journal.services.repositories import HikeJournalRepository
+from hike_journal.services.storage import StorageService
 from hike_journal.services.supabase_client import get_supabase
 
 
 def _repository() -> HikeJournalRepository:
-    return HikeJournalRepository(get_supabase())
+    client = get_supabase()
+    storage = StorageService(client)
+    return HikeJournalRepository(
+        client,
+        media_url_resolver=storage.resolve_download_url,
+    )
 
 
 @st.cache_data(show_spinner=False)
@@ -45,27 +51,27 @@ def fetch_unindexed_map_routes(visible_hike_ids: tuple[str, ...], hike_id: str |
     )
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False, ttl=900)
 def fetch_hike_photos(hike_id: str) -> list[dict[str, Any]]:
     return _repository().list_photos(hike_id)
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False, ttl=900)
 def fetch_standalone_photos() -> list[dict[str, Any]]:
     return _repository().list_standalone_photos()
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False, ttl=900)
 def fetch_hike_map_photos(hike_id: str) -> list[dict[str, Any]]:
     return _repository().list_map_photos(hike_id)
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False, ttl=900)
 def fetch_all_map_photos() -> list[dict[str, Any]]:
     return _repository().list_map_photos()
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False, ttl=900)
 def fetch_review_queue_photos() -> list[dict[str, Any]]:
     return _repository().list_review_queue_photos()
 
@@ -105,7 +111,7 @@ def fetch_confirmed_observations_light() -> list[dict[str, Any]]:
     return _repository().list_lightweight_observations(status="confirmed")
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False, ttl=900)
 def fetch_photo_records_for_ids(photo_ids: tuple[str, ...]) -> list[dict[str, Any]]:
     return _repository().list_photo_records_for_ids(list(photo_ids))
 

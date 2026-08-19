@@ -96,8 +96,11 @@ def run_application(actions: ApplicationActions) -> None:
         return
 
     supabase = get_supabase()
-    repository = HikeJournalRepository(supabase)
     storage = StorageService(supabase)
+    repository = HikeJournalRepository(
+        supabase,
+        media_url_resolver=storage.resolve_download_url,
+    )
     inat_access_token = actions.get_inat_access_token_for_context(user_context)
     inat_client = InatClient(access_token=inat_access_token)
     actions.sync_pagination_state_from_query_params()

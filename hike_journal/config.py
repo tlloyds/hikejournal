@@ -238,6 +238,7 @@ class Settings:
     r2_public_base_url: str = os.getenv("R2_PUBLIC_BASE_URL", "").rstrip("/")
     r2_region: str = os.getenv("R2_REGION", "auto")
     r2_api_token: str = os.getenv("R2_API_TOKEN", "")
+    media_signed_url_ttl_seconds: int = int(os.getenv("MEDIA_SIGNED_URL_TTL_SECONDS", "86400"))
     inat_access_token_env: str = os.getenv("INAT_ACCESS_TOKEN", "")
     inat_base_url: str = os.getenv("INAT_BASE_URL", "https://api.inaturalist.org/v1").rstrip("/")
     # iNaturalist's Node v1 API is suitable for reads, but its write surface is
@@ -292,7 +293,6 @@ class Settings:
             and self.r2_bucket
             and self.r2_access_key_id
             and self.r2_secret_access_key
-            and self.r2_public_base_url
         )
 
     @property

@@ -21,6 +21,13 @@ and replace the server address. The API always uses port `8506`.
 Native hike recording does not need a network connection. Google sign-in and a
 hosted API are needed when queued hikes, routes, and photos are ready to sync.
 
+## Included in v0.8.1
+
+- Google sign-in now uses the dedicated HikeJournal Public OAuth project and is
+  published for any Google account
+- Journal photos are delivered through expiring signed links from private object
+  storage; iNaturalist publishing reads the original image inside the trusted API
+
 ## Included in v0.8.0
 
 - Google Credential Manager sign-in, encrypted rotating mobile sessions, and

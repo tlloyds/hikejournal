@@ -71,6 +71,7 @@ from hike_journal.services.inat import (
     resolve_access_token_for_user,
 )
 from hike_journal.services.inat_publishing import (
+    MAX_PUBLISH_IMAGE_BYTES,
     get_inat_posting,
     get_publish_state,
     publish_observation_group,
@@ -369,8 +370,11 @@ class Services:
         if not settings.supabase_configured:
             raise RuntimeError("SUPABASE_URL and SUPABASE_KEY are required.")
         self.client: Client = create_client(settings.supabase_url, settings.supabase_key)
-        self.repository = HikeJournalRepository(self.client)
         self.storage = StorageService(self.client)
+        self.repository = HikeJournalRepository(
+            self.client,
+            media_url_resolver=self.storage.resolve_download_url,
+        )
         self.mobile_job_store = build_mobile_job_store(self.client)
 
 
@@ -2328,7 +2332,7 @@ def list_hikes() -> list[dict[str, Any]]:
         svc.repository._select_all_rows(
             lambda: (
                 svc.client.table("photos")
-                .select("id,hike_id,public_url,taken_at,created_at")
+                .select("id,hike_id,public_url,storage_path,taken_at,created_at")
                 .in_("hike_id", hike_ids)
                 .order("id")
             )
@@ -3548,6 +3552,36 @@ def _prepare_species_publish_batch(
     return svc, records_by_group, inat_client, _user_context()
 
 
+def _stored_media_image_loader(
+    svc: Services,
+    records: list[tuple[dict[str, Any], dict[str, Any]]],
+) -> Callable[[str], bytes] | None:
+    """Load publishing images inside the API instead of through a public URL."""
+    storage = getattr(svc, "storage", None)
+    if storage is None or not callable(getattr(storage, "download_file", None)):
+        return None
+    paths_by_url: dict[str, str] = {}
+    for _observation, photo in records:
+        public_url = str(photo.get("public_url") or "").strip()
+        storage_path = str(photo.get("storage_path") or "").strip()
+        if not public_url or not storage_path:
+            return None
+        paths_by_url[public_url] = storage_path
+
+    def load(public_url: str) -> bytes:
+        storage_path = paths_by_url.get(public_url)
+        if not storage_path:
+            raise InatRequestError("This field photo is no longer available for publishing.")
+        image_bytes = storage.download_file(storage_path)
+        if not image_bytes:
+            raise RuntimeError("The field photo was empty.")
+        if len(image_bytes) > MAX_PUBLISH_IMAGE_BYTES:
+            raise RuntimeError("The field photo is too large to publish from HikeJournal.")
+        return image_bytes
+
+    return load
+
+
 def _publish_batch_job_payload(job: dict[str, Any]) -> dict[str, Any]:
     return {
         key: value
@@ -3624,6 +3658,10 @@ def _run_species_publish_batch_job(
                 current_group_photo_count=len(records),
             )
             try:
+                publish_options: dict[str, Any] = {}
+                image_loader = _stored_media_image_loader(svc, records)
+                if image_loader is not None:
+                    publish_options["image_loader"] = image_loader
                 posting = publish_observation_group(
                     svc.repository,
                     inat_client,
@@ -3635,6 +3673,7 @@ def _run_species_publish_batch_job(
                     tags=tags,
                     geoprivacy=geoprivacy,
                     captive=captive,
+                    **publish_options,
                 )
             except (InatAuthError, InatConfigurationError, InatRequestError, RuntimeError) as exc:
                 failed_group_count += 1
@@ -3839,6 +3878,10 @@ def publish_species_observation(observation_id: str, payload: PublishInput) -> d
     observation, photo = records[0]
     hike = hikes_by_id.get(str(photo.get("hike_id") or observation.get("hike_id") or ""))
     try:
+        publish_options: dict[str, Any] = {}
+        image_loader = _stored_media_image_loader(svc, records)
+        if image_loader is not None:
+            publish_options["image_loader"] = image_loader
         posting = publish_observation_group(
             svc.repository,
             inat_client,
@@ -3850,6 +3893,7 @@ def publish_species_observation(observation_id: str, payload: PublishInput) -> d
             tags=payload.tags,
             geoprivacy=payload.geoprivacy,
             captive=payload.captive,
+            **publish_options,
         )
     except InatAuthError as exc:
         raise HTTPException(status_code=401, detail=str(exc)) from exc
@@ -4416,6 +4460,7 @@ async def upload_photo(
             .limit(1)
             .execute()
         ).data or []
+        existing = svc.repository.decorate_media_rows(existing)
         if existing:
             existing_scope = str(existing[0].get("hike_id") or EVERYDAY_JOURNAL_ID)
             if existing_scope != hike_id or (
@@ -4511,7 +4556,7 @@ def _get_visible_photo(photo_id: str) -> tuple[Services, dict[str, Any]]:
     rows = response.data or []
     if not rows:
         raise HTTPException(status_code=404, detail="Photo not found.")
-    photo = rows[0]
+    photo = svc.repository.decorate_media_row(rows[0])
     if photo.get("hike_id"):
         _get_visible_hike(svc.repository, str(photo["hike_id"]))
     elif not user_owns_record(photo, _user_context()):

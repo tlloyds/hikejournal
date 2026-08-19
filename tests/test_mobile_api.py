@@ -1334,6 +1334,35 @@ def test_mobile_publish_batch_status_reports_each_group_after_background_work(mo
     assert calls == [["observation-a"], ["observation-b"]]
 
 
+def test_inaturalist_publish_loader_reads_private_storage_directly() -> None:
+    class Storage:
+        def __init__(self):
+            self.downloaded = []
+
+        def download_file(self, storage_path):
+            self.downloaded.append(storage_path)
+            return b"private-image"
+
+    storage = Storage()
+    service = type("Service", (), {"storage": storage})()
+    records = [
+        (
+            {"id": "observation-a"},
+            {
+                "id": "photo-a",
+                "public_url": "https://signed.example/photo-a.jpg?token=test",
+                "storage_path": "hikes/hike-1/photo-a.jpg",
+            },
+        )
+    ]
+
+    loader = mobile_api._stored_media_image_loader(service, records)
+
+    assert loader is not None
+    assert loader(records[0][1]["public_url"]) == b"private-image"
+    assert storage.downloaded == ["hikes/hike-1/photo-a.jpg"]
+
+
 def test_existing_photo_can_be_queued_for_species_review(monkeypatch):
     class Repository:
         photo_status = None

@@ -32,10 +32,48 @@ class StorageService:
 
     def _build_public_url(self, path: str) -> str:
         if self.backend == "r2":
-            return f"{settings.r2_public_base_url}/{path}"
+            if settings.r2_public_base_url:
+                return f"{settings.r2_public_base_url}/{path}"
+            # `photos.public_url` remains non-null for compatibility with older
+            # schemas, but private R2 installations do not need a public HTTP
+            # origin. Reads are resolved through `create_download_url` instead.
+            return f"r2://{self.r2_bucket}/{path}"
         if not self.client:
             raise RuntimeError("Supabase client is required for Supabase storage.")
         return self.client.storage.from_(self.supabase_bucket).get_public_url(path)
+
+    def create_download_url(self, storage_path: str, *, expires_in: int = 86_400) -> str:
+        """Return a time-limited URL without making the object store public."""
+        clean_path = storage_path.strip().lstrip("/")
+        if not clean_path:
+            raise ValueError("The stored media path is missing.")
+        bounded_expiry = max(300, min(int(expires_in), 604_800))
+        if self.backend == "r2":
+            if self._r2_client is None:
+                raise RuntimeError("R2 storage client is not configured.")
+            return str(
+                self._r2_client.generate_presigned_url(
+                    "get_object",
+                    Params={"Bucket": self.r2_bucket, "Key": clean_path},
+                    ExpiresIn=bounded_expiry,
+                )
+            )
+        if not self.client:
+            raise RuntimeError("Supabase client is required for Supabase storage.")
+        response = self.client.storage.from_(self.supabase_bucket).create_signed_url(
+            clean_path,
+            bounded_expiry,
+        )
+        signed_url = response.get("signedURL") or response.get("signedUrl")
+        if not signed_url:
+            raise RuntimeError("The object store did not return a signed media URL.")
+        return str(signed_url)
+
+    def resolve_download_url(self, storage_path: str) -> str:
+        return self.create_download_url(
+            storage_path,
+            expires_in=settings.media_signed_url_ttl_seconds,
+        )
 
     def check_health(self) -> None:
         """Verify that the configured object store is reachable.
@@ -60,7 +98,7 @@ class StorageService:
                 Key=path,
                 Body=file_bytes,
                 ContentType=content_type,
-                CacheControl="public, max-age=3600",
+                CacheControl="private, max-age=3600",
             )
             return path, self._build_public_url(path)
 
@@ -80,7 +118,7 @@ class StorageService:
                 Key=path,
                 Body=file_bytes,
                 ContentType=content_type,
-                CacheControl="public, max-age=3600",
+                CacheControl="private, max-age=3600",
             )
             return path, self._build_public_url(path)
 

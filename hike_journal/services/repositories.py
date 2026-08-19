@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, date, datetime
 import hashlib
 import re
-from typing import Any
+from typing import Any, Callable
 
 from supabase import Client
 
@@ -63,8 +63,37 @@ def _identification_provenance(source: str | None) -> str:
 
 
 class HikeJournalRepository:
-    def __init__(self, client: Client):
+    def __init__(
+        self,
+        client: Client,
+        *,
+        media_url_resolver: Callable[[str], str] | None = None,
+    ):
         self.client = client
+        self.media_url_resolver = media_url_resolver
+
+    def decorate_media_row(self, row: dict[str, Any]) -> dict[str, Any]:
+        """Replace durable object locators with short-lived delivery URLs."""
+        if self.media_url_resolver is None:
+            return row
+        decorated = row
+        for path_key, url_keys in (
+            ("storage_path", ("public_url", "image_url")),
+            ("source_storage_path", ("source_public_url",)),
+        ):
+            storage_path = str(row.get(path_key) or "").strip()
+            applicable_url_keys = [key for key in url_keys if key in row]
+            if not storage_path or not applicable_url_keys:
+                continue
+            if decorated is row:
+                decorated = dict(row)
+            resolved_url = self.media_url_resolver(storage_path)
+            for url_key in applicable_url_keys:
+                decorated[url_key] = resolved_url
+        return decorated
+
+    def decorate_media_rows(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return [self.decorate_media_row(row) for row in rows]
 
     def _select_all_rows(self, query_factory, *, page_size: int = 1000) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
@@ -72,7 +101,7 @@ class HikeJournalRepository:
         while True:
             response = query_factory().range(offset, offset + page_size - 1).execute()
             batch = response.data or []
-            rows.extend(batch)
+            rows.extend(self.decorate_media_rows(batch))
             if len(batch) < page_size:
                 break
             offset += page_size
@@ -92,7 +121,7 @@ class HikeJournalRepository:
                 .order("created_at", desc=True)
                 .execute()
             )
-            return response.data or []
+            return self.decorate_media_rows(response.data or [])
         except Exception:
             response = (
                 self.client.table("hikes")
@@ -111,7 +140,7 @@ class HikeJournalRepository:
                 .order("created_at", desc=True)
                 .execute()
             )
-            return response.data or []
+            return self.decorate_media_rows(response.data or [])
         except Exception:
             return []
 
@@ -134,7 +163,7 @@ class HikeJournalRepository:
                 raise
             return None
         records = response.data or []
-        return records[0] if records else None
+        return self.decorate_media_row(records[0]) if records else None
 
     def create_hike(self, draft: HikeDraft, *, hike_id: str | None = None) -> dict[str, Any]:
         payload = {
@@ -528,7 +557,7 @@ class HikeJournalRepository:
                 # Projects that have not run the scalable map migration still
                 # retain the route import and can be migrated later.
                 pass
-        return saved
+        return self.decorate_media_row(saved)
 
     def delete_hike_route_import(self, hike_id: str) -> dict[str, Any] | None:
         existing = self.get_hike_route_import(hike_id)
@@ -587,7 +616,7 @@ class HikeJournalRepository:
             .range(offset, offset + limit - 1)
             .execute()
         )
-        return response.data or []
+        return self.decorate_media_rows(response.data or [])
 
     def list_standalone_photos(self) -> list[dict[str, Any]]:
         return self._select_all_rows(
@@ -604,7 +633,7 @@ class HikeJournalRepository:
         def query_factory():
             query = (
                 self.client.table("photos")
-                .select("id,hike_id,owner_subject,owner_email,caption,public_url,lat,lng,taken_at,created_at,width,height,exif_json")
+                .select("id,hike_id,owner_subject,owner_email,caption,public_url,storage_path,lat,lng,taken_at,created_at,width,height,exif_json")
                 .not_.is_("lat", "null")
                 .not_.is_("lng", "null")
             )
@@ -825,18 +854,19 @@ class HikeJournalRepository:
             return []
 
     def get_map_photo_detail(self, *, photo_id: str, visible_hike_ids: list[str]) -> dict[str, Any] | None:
-        try:
-            response = self.client.rpc(
-                "map_photo_detail",
-                {"p_photo_id": photo_id, "p_hike_ids": visible_hike_ids},
-            ).execute()
-            payload = response.data
-            if isinstance(payload, list) and len(payload) == 1:
-                payload = payload[0]
-            if isinstance(payload, dict) and payload.get("photo_id"):
-                return payload
-        except Exception:
-            pass
+        if self.media_url_resolver is None:
+            try:
+                response = self.client.rpc(
+                    "map_photo_detail",
+                    {"p_photo_id": photo_id, "p_hike_ids": visible_hike_ids},
+                ).execute()
+                payload = response.data
+                if isinstance(payload, list) and len(payload) == 1:
+                    payload = payload[0]
+                if isinstance(payload, dict) and payload.get("photo_id"):
+                    return payload
+            except Exception:
+                pass
         records = self.list_photo_records_for_ids([photo_id])
         if not records or str(records[0].get("hike_id") or "") not in set(visible_hike_ids):
             return None
@@ -881,7 +911,7 @@ class HikeJournalRepository:
                 .in_("id", chunk_ids)
                 .execute()
             )
-            for row in response.data or []:
+            for row in self.decorate_media_rows(response.data or []):
                 row_id = str(row.get("id") or "")
                 if row_id:
                     rows_by_id[row_id] = row
@@ -889,15 +919,15 @@ class HikeJournalRepository:
 
     def create_photo(self, payload: dict[str, Any]) -> dict[str, Any]:
         response = self.client.table("photos").insert(payload).execute()
-        return response.data[0]
+        return self.decorate_media_row(response.data[0])
 
     def update_photo_caption(self, photo_id: str, caption: str) -> dict[str, Any]:
         response = self.client.table("photos").update({"caption": caption.strip() or None}).eq("id", photo_id).execute()
-        return response.data[0]
+        return self.decorate_media_row(response.data[0])
 
     def update_photo_exif_json(self, photo_id: str, exif_json: dict[str, Any]) -> dict[str, Any]:
         response = self.client.table("photos").update({"exif_json": exif_json}).eq("id", photo_id).execute()
-        return response.data[0]
+        return self.decorate_media_row(response.data[0])
 
     def update_photo_media_metadata(
         self,
@@ -918,15 +948,15 @@ class HikeJournalRepository:
         if exif_json is not None:
             payload["exif_json"] = exif_json
         response = self.client.table("photos").update(payload).eq("id", photo_id).execute()
-        return response.data[0]
+        return self.decorate_media_row(response.data[0])
 
     def update_photo_public_url(self, photo_id: str, public_url: str) -> dict[str, Any]:
         response = self.client.table("photos").update({"public_url": public_url}).eq("id", photo_id).execute()
-        return response.data[0]
+        return self.decorate_media_row(response.data[0])
 
     def update_photo_processing_status(self, photo_id: str, status: str) -> dict[str, Any]:
         response = self.client.table("photos").update({"processing_status": status}).eq("id", photo_id).execute()
-        return response.data[0]
+        return self.decorate_media_row(response.data[0])
 
     def update_photo_processing_statuses(self, photo_ids: list[str], status: str) -> list[dict[str, Any]]:
         normalized_ids = [str(photo_id) for photo_id in photo_ids if str(photo_id).strip()]
@@ -938,7 +968,7 @@ class HikeJournalRepository:
             .in_("id", normalized_ids)
             .execute()
         )
-        return response.data or []
+        return self.decorate_media_rows(response.data or [])
 
     def delete_photo(self, photo_id: str) -> None:
         try:
