@@ -184,7 +184,7 @@ internal fun PlaceProfileScreen(
                 FieldPageLoading(
                     title = if (planningOnly) "Checking trail conditions…" else "Gathering your field notes…",
                     detail = if (planningOnly) {
-                        "Loading weather, river levels, and today’s field briefing."
+                        "Loading weather, nearby water heights, and today’s field briefing."
                     } else {
                         "Reviewing visits, seasons, and the life you recorded here."
                     },
@@ -205,6 +205,7 @@ internal fun PlaceProfileScreen(
                     series = profile.riverGauges,
                     periodDays = riverPeriodDays,
                     loading = riverLoading,
+                    hasCoordinates = profile.latitude != null && profile.longitude != null,
                     onPeriodChange = onRiverPeriodChange,
                 )
             }
@@ -460,14 +461,15 @@ private fun RiverConditionsSection(
     series: List<RiverGaugeSeries>,
     periodDays: Int,
     loading: Boolean,
+    hasCoordinates: Boolean,
     onPeriodChange: (Int) -> Unit,
 ) {
     val uriHandler = LocalUriHandler.current
     Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 24.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("RIVER HEIGHT", style = MaterialTheme.typography.labelMedium, color = TrailText)
-                Text("Your selected USGS gages, nearest first.", style = MaterialTheme.typography.bodyMedium, color = Ink, modifier = Modifier.padding(top = 4.dp))
+                Text("WATER HEIGHT", style = MaterialTheme.typography.labelMedium, color = TrailText)
+                Text("Closest active USGS water gauges, plus any you follow nearby.", style = MaterialTheme.typography.bodyMedium, color = Ink, modifier = Modifier.padding(top = 4.dp))
             }
             listOf(7, 30).forEach { days ->
                 TextButton(
@@ -488,7 +490,11 @@ private fun RiverConditionsSection(
             }
         } else if (series.isEmpty()) {
             Text(
-                "No river gages are selected. Choose suggested or custom USGS sites in Settings.",
+                if (hasCoordinates) {
+                    "No active USGS water gauges were found within 30 miles of this place."
+                } else {
+                    "Add coordinates to this place to find nearby USGS water gauges."
+                },
                 style = MaterialTheme.typography.bodyMedium,
                 color = InkMuted,
                 modifier = Modifier.padding(top = 18.dp),
@@ -512,7 +518,7 @@ private fun RiverConditionsSection(
                 }
             }
             Text(
-                "USGS gage height (parameter 00065). Values may be provisional; a height at one site cannot be compared directly with another or treated as a crossing-safety rating.",
+                "USGS water height (parameter 00065). Values may be provisional; a height at one site cannot be compared directly with another or treated as a crossing-safety rating.",
                 style = MaterialTheme.typography.bodySmall,
                 color = InkMuted,
                 modifier = Modifier.padding(top = 14.dp),

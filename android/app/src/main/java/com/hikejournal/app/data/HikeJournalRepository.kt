@@ -269,8 +269,24 @@ class HikeJournalRepository(context: Context) {
 
     suspend fun loadRiverGauges(profile: PlaceProfile, riverPeriodDays: Int): List<RiverGaugeSeries> =
         coroutineScope {
-            riverGaugePreferences.gauges()
-                .filter(RiverGauge::enabled)
+            val followedGauges = riverGaugePreferences.gauges().filter(RiverGauge::enabled)
+            val nearbyGauges = if (profile.latitude != null && profile.longitude != null) {
+                runCatching {
+                    outdoorConditions.findNearbyRiverGauges(
+                        latitude = profile.latitude,
+                        longitude = profile.longitude,
+                        radiusMiles = NearbyWaterGaugeRadiusMiles,
+                    )
+                }.getOrDefault(emptyList())
+            } else {
+                emptyList()
+            }
+            selectRelevantWaterGauges(
+                nearby = nearbyGauges,
+                followed = followedGauges,
+                originLatitude = profile.latitude,
+                originLongitude = profile.longitude,
+            )
                 .map { gauge ->
                     async {
                         runCatching {
@@ -285,7 +301,7 @@ class HikeJournalRepository(context: Context) {
                                 gauge = gauge,
                                 periodDays = if (riverPeriodDays >= 30) 30 else 7,
                                 readings = emptyList(),
-                                errorMessage = error.message ?: "USGS gage height is temporarily unavailable.",
+                                errorMessage = error.message ?: "USGS water height is temporarily unavailable.",
                             )
                         }
                     }

@@ -102,4 +102,33 @@ class OutdoorConditionsTest {
         assertEquals(4.66, results.first().currentHeightFeet, 0.001)
         assertTrue(results.first().distanceMiles < results.last().distanceMiles)
     }
+
+    @Test
+    fun `relevant water gauges prefer nearby stations and omit distant followed gauges`() {
+        val nearby = listOf(
+            NearbyRiverGauge(
+                gauge = RiverGauge("USGS-NEAR", "Nearby Lake", 44.81, -92.70),
+                distanceMiles = 2.0,
+                currentHeightFeet = 4.2,
+                observedAt = "2026-08-12T14:45:00Z",
+                provisional = false,
+            ),
+        )
+        val followed = listOf(
+            RiverGauge("USGS-FOLLOWED-MN", "Followed Creek", 44.82, -92.71, enabled = true),
+            RiverGauge("USGS-FOLLOWED-FL", "Econlockhatchee River", 28.65, -81.17, enabled = true),
+        )
+
+        val selected = selectRelevantWaterGauges(
+            nearby = nearby,
+            followed = followed,
+            originLatitude = 44.80,
+            originLongitude = -92.70,
+        )
+
+        assertEquals(
+            listOf("USGS-NEAR", "USGS-FOLLOWED-MN"),
+            selected.map(RiverGauge::siteId),
+        )
+    }
 }

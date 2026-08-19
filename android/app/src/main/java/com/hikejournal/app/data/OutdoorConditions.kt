@@ -22,6 +22,8 @@ import org.json.JSONObject
 private const val OpenMeteoForecastUrl = "https://api.open-meteo.com/v1/forecast"
 private const val UsgsApiRoot = "https://api.waterdata.usgs.gov/ogcapi/v0/collections"
 private const val GageHeightParameterCode = "00065"
+internal const val NearbyWaterGaugeRadiusMiles = 30.0
+internal const val AutomaticWaterGaugeLimit = 3
 
 internal class OutdoorConditionsClient {
     private val client = OkHttpClient.Builder()
@@ -71,7 +73,7 @@ internal class OutdoorConditionsClient {
         val latest = JSONObject(request(latestUrl.toString(), "USGS"))
             .optJSONArray("features")
         if (latest == null || latest.length() == 0) {
-            throw IllegalArgumentException("$siteId does not publish a current gage height (USGS parameter 00065).")
+            throw IllegalArgumentException("$siteId does not publish a current water height (USGS parameter 00065).")
         }
         gauge
     }
@@ -301,6 +303,35 @@ internal fun parseNearbyRiverGauges(
         .take(30)
 }
 
+internal fun selectRelevantWaterGauges(
+    nearby: List<NearbyRiverGauge>,
+    followed: List<RiverGauge>,
+    originLatitude: Double?,
+    originLongitude: Double?,
+    radiusMiles: Double = NearbyWaterGaugeRadiusMiles,
+    automaticLimit: Int = AutomaticWaterGaugeLimit,
+): List<RiverGauge> {
+    val automatic = nearby
+        .sortedWith(compareBy<NearbyRiverGauge> { it.distanceMiles }.thenBy { it.gauge.name })
+        .take(automaticLimit)
+        .map { it.gauge.copy(enabled = true) }
+    val relevantFollowed = if (originLatitude != null && originLongitude != null) {
+        followed
+            .filter(RiverGauge::enabled)
+            .filter { gauge ->
+                distanceMiles(originLatitude, originLongitude, gauge.latitude, gauge.longitude) <= radiusMiles
+            }
+            .sortedWith(
+                compareBy<RiverGauge> {
+                    distanceMiles(originLatitude, originLongitude, it.latitude, it.longitude)
+                }.thenBy { it.name },
+            )
+    } else {
+        emptyList()
+    }
+    return (automatic + relevantFollowed).distinctBy(RiverGauge::siteId)
+}
+
 internal fun parseRiverGaugeSeries(
     json: String,
     gauge: RiverGauge,
@@ -326,7 +357,7 @@ internal fun parseRiverGaugeSeries(
         .distinctBy(RiverGaugeReading::observedAt)
         .sortedBy(RiverGaugeReading::observedAt)
     if (readings.isEmpty()) {
-        throw IOException("No gage-height readings were reported for ${gauge.name} in the last $periodDays days.")
+        throw IOException("No water-height readings were reported for ${gauge.name} in the last $periodDays days.")
     }
     val distance = if (placeLatitude != null && placeLongitude != null) {
         distanceMiles(placeLatitude, placeLongitude, gauge.latitude, gauge.longitude)

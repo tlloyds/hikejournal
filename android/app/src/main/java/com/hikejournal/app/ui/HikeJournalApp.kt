@@ -1705,7 +1705,7 @@ private fun PlanningPlaceRow(onOpen: () -> Unit) {
         }
         Column(Modifier.weight(1f).padding(start = 13.dp)) {
             Text("PLAN A VISIT", style = MaterialTheme.typography.labelSmall, color = TrailText)
-            Text("Weather, river levels, and what to look for", style = MaterialTheme.typography.titleMedium, color = Ink)
+            Text("Weather, water levels, and what to look for", style = MaterialTheme.typography.titleMedium, color = Ink)
         }
         Icon(Icons.Rounded.ChevronRight, contentDescription = "Browse place profiles", tint = Fern)
     }
@@ -4389,13 +4389,13 @@ private fun SettingsDialog(
                 }
                 HorizontalDivider(Modifier.padding(top = 18.dp))
                 Text(
-                    "River height",
+                    "Water height",
                     style = MaterialTheme.typography.titleMedium,
                     color = Ink,
                     modifier = Modifier.padding(top = 16.dp),
                 )
                 Text(
-                    "Find active USGS gage-height stations near any saved place—no station code needed.",
+                    "HikeJournal automatically finds the closest active USGS water gauges for each place. Follow a specific gauge when you want to keep it in the mix nearby.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = InkMuted,
                     modifier = Modifier.padding(top = 4.dp, bottom = 6.dp),
@@ -4406,7 +4406,7 @@ private fun SettingsDialog(
                 ) {
                     Icon(Icons.Rounded.LocationOn, null, Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text("Find nearby river gages")
+                    Text("Find nearby water gauges")
                 }
                 riverGauges.filter(RiverGauge::enabled).forEach { gauge ->
                     Row(
@@ -4449,7 +4449,7 @@ private fun SettingsDialog(
                     onClick = { manualGaugeOpen = !manualGaugeOpen },
                     modifier = Modifier.padding(top = 4.dp),
                 ) {
-                    Text(if (manualGaugeOpen) "Hide manual option" else "Add from a USGS page instead")
+                    Text(if (manualGaugeOpen) "Hide specific-gauge option" else "Follow a specific USGS gauge")
                 }
                 AnimatedVisibility(manualGaugeOpen) {
                     Column {
@@ -4476,7 +4476,7 @@ private fun SettingsDialog(
                                 if (riverGaugeError != null) onClearRiverGaugeError()
                             },
                             modifier = Modifier.fillMaxWidth(),
-                            label = { Text("USGS station link") },
+                            label = { Text("USGS gauge link") },
                             supportingText = { Text("A site number like 02233484 also works") },
                             singleLine = true,
                         )
@@ -4497,12 +4497,12 @@ private fun SettingsDialog(
                                 CircularProgressIndicator(Modifier.size(17.dp), color = Moss, strokeWidth = 2.dp)
                                 Spacer(Modifier.width(8.dp))
                             }
-                            Text(if (addingRiverGauge) "Checking USGS…" else "Add river gage")
+                            Text(if (addingRiverGauge) "Checking USGS…" else "Add water gauge")
                         }
                     }
                 }
                 Text(
-                    "USGS gage height is site-specific, often provisional, and is not a flood or crossing-safety rating.",
+                    "USGS water height is site-specific, often provisional, and is not a flood or crossing-safety rating.",
                     style = MaterialTheme.typography.bodySmall,
                     color = InkMuted,
                     modifier = Modifier.padding(top = 8.dp),
@@ -4777,7 +4777,7 @@ private fun RiverGaugeFinderDialog(
             requestCurrentLocation()
         } else {
             locating = false
-            locationError = "Location permission is needed to find river gages near you."
+            locationError = "Location permission is needed to find water gauges near you."
         }
     }
     val availableLocations = remember(locations, query) {
@@ -4789,12 +4789,12 @@ private fun RiverGaugeFinderDialog(
     val monitoredIds = monitoredGauges.filter(RiverGauge::enabled).map(RiverGauge::siteId).toSet()
     AlertDialog(
         onDismissRequest = onBack,
-        title = { Text("Find river gages", style = MaterialTheme.typography.headlineMedium) },
+        title = { Text("Find water gauges", style = MaterialTheme.typography.headlineMedium) },
         text = {
             Column {
                 if (locationName == null) {
                     Text(
-                        "Use your location or choose a saved place. HikeJournal will look for active USGS gage-height stations within 30 miles.",
+                        "Use your location or choose a saved place. HikeJournal will look for active USGS water gauges within 30 miles.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = InkMuted,
                     )
@@ -4883,10 +4883,10 @@ private fun RiverGaugeFinderDialog(
                             horizontalAlignment = Alignment.CenterHorizontally,
                         ) {
                             CircularProgressIndicator(color = Moss, strokeWidth = 2.dp)
-                            Text("Checking nearby USGS stations…", style = MaterialTheme.typography.bodyMedium, color = InkMuted, modifier = Modifier.padding(top = 12.dp))
+                            Text("Checking nearby USGS water gauges…", style = MaterialTheme.typography.bodyMedium, color = InkMuted, modifier = Modifier.padding(top = 12.dp))
                         }
                         error != null -> Text(error, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(vertical = 18.dp))
-                        results.isEmpty() -> Text("No recently reporting gage-height stations were found nearby.", style = MaterialTheme.typography.bodyMedium, color = InkMuted, modifier = Modifier.padding(vertical = 18.dp))
+                        results.isEmpty() -> Text("No recently reporting USGS water gauges were found nearby.", style = MaterialTheme.typography.bodyMedium, color = InkMuted, modifier = Modifier.padding(vertical = 18.dp))
                         else -> LazyColumn(Modifier.fillMaxWidth().heightIn(max = 470.dp).padding(top = 8.dp)) {
                             items(results, key = { it.gauge.siteId }) { candidate ->
                                 val monitored = candidate.gauge.siteId in monitoredIds
