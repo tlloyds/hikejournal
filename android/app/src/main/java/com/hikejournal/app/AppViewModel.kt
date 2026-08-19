@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import com.hikejournal.app.data.Hike
+import com.hikejournal.app.data.AuthAccount
 import com.hikejournal.app.data.HikeDraft
 import com.hikejournal.app.data.HikeDeletionResult
 import com.hikejournal.app.data.HikeJournalRepository
@@ -61,6 +62,7 @@ import com.hikejournal.app.tracking.TrackingRepository
 import com.hikejournal.app.tracking.TrackingSnapshot
 import com.hikejournal.app.tracking.TrackingStatus
 import java.time.Instant
+import java.time.LocalDate
 import java.util.Locale
 import java.util.UUID
 import kotlinx.coroutines.flow.collect
@@ -83,6 +85,10 @@ internal fun shouldRefreshReviewQueueAfterSync(
     connected
 
 data class AppState(
+    val authRequired: Boolean = BuildConfig.GOOGLE_AUTH_ENABLED,
+    val authAccount: AuthAccount? = null,
+    val isAuthLoading: Boolean = false,
+    val authError: String? = null,
     val hikes: List<Hike> = emptyList(),
     val hikeLocations: List<HikeLocation> = emptyList(),
     val isHikeLocationsLoading: Boolean = false,
@@ -174,7 +180,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = HikeJournalRepository(application)
     private val trackingRepository = TrackingRepository.get(application)
     private val appContext = application.applicationContext
-    private val _state = MutableStateFlow(AppState(riverGaugeOptions = repository.riverGauges()))
+    private val _state = MutableStateFlow(
+        AppState(
+            authAccount = repository.authAccount,
+            isAuthLoading = BuildConfig.GOOGLE_AUTH_ENABLED && repository.hasStoredSession,
+            riverGaugeOptions = repository.riverGauges(),
+        ),
+    )
     val state: StateFlow<AppState> = _state.asStateFlow()
     private var observedSpeciesBatchWorkId: UUID? = null
     private var observedPublishBatchWorkId: UUID? = null
@@ -183,6 +195,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private var mapDataValidated = false
     private var loadedTrackingMarksForHikeId: String? = null
     private var reviewQueueRequested = false
+    private var fieldBriefingLocationId: String? = null
 
     val serverUrl: String get() = repository.serverUrl
     val pairingKey: String get() = repository.pairingKey
@@ -276,9 +289,93 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
         observeSpeciesReviewBatchWork()
         observePublishBatchWork()
+        if (BuildConfig.GOOGLE_AUTH_ENABLED) {
+            if (repository.hasStoredSession) restoreAuthenticatedSession() else {
+                _state.update { it.copy(isLoading = false, isAuthLoading = false) }
+            }
+        } else {
+            beginAppLoad()
+        }
+    }
+
+    private fun beginAppLoad() {
         refreshCompanionConfig()
         primeMapData()
         loadInitialLibrary()
+    }
+
+    private fun restoreAuthenticatedSession() {
+        viewModelScope.launch {
+            runCatching { repository.refreshAuthSession() }
+                .onSuccess { account ->
+                    _state.update { it.copy(authAccount = account, isAuthLoading = false, authError = null) }
+                    beginAppLoad()
+                }
+                .onFailure {
+                    _state.update {
+                        AppState(
+                            authRequired = true,
+                            isLoading = false,
+                            isAuthLoading = false,
+                            authError = "Your sign-in expired. Choose your Google account to continue.",
+                            riverGaugeOptions = repository.riverGauges(),
+                        )
+                    }
+                }
+        }
+    }
+
+    fun signInWithGoogle(credential: String, nonce: String) {
+        viewModelScope.launch {
+            _state.update { it.copy(isAuthLoading = true, authError = null) }
+            runCatching { repository.authenticateGoogle(credential, nonce) }
+                .onSuccess { account ->
+                    _state.update { it.copy(authAccount = account, isAuthLoading = false, authError = null, isLoading = true) }
+                    beginAppLoad()
+                }
+                .onFailure { error ->
+                    _state.update { it.copy(isAuthLoading = false, authError = error.userMessage()) }
+                }
+        }
+    }
+
+    fun beginGoogleSignIn() {
+        _state.update { it.copy(isAuthLoading = true, authError = null) }
+    }
+
+    fun reportGoogleSignInError(message: String) {
+        _state.update { it.copy(isAuthLoading = false, authError = message) }
+    }
+
+    fun signOut() {
+        viewModelScope.launch {
+            runCatching { repository.signOut() }
+            _state.value = AppState(
+                authRequired = BuildConfig.GOOGLE_AUTH_ENABLED,
+                isLoading = false,
+                riverGaugeOptions = repository.riverGauges(),
+            )
+        }
+    }
+
+    fun deleteAccount() {
+        viewModelScope.launch {
+            _state.update { it.copy(isAuthLoading = true, error = null) }
+            runCatching { repository.deleteAccount() }
+                .onSuccess {
+                    _state.value = AppState(
+                        authRequired = BuildConfig.GOOGLE_AUTH_ENABLED,
+                        isLoading = false,
+                        notice = "Your HikeJournal account was deleted.",
+                        riverGaugeOptions = repository.riverGauges(),
+                    )
+                }
+                .onFailure { error ->
+                    _state.update {
+                        it.copy(isAuthLoading = false, error = error.userMessage())
+                    }
+                }
+        }
     }
 
     /**
@@ -673,6 +770,34 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                             isHikeLocationsLoading = false,
                             error = error.userMessage(),
                         )
+                    }
+                }
+        }
+    }
+
+    fun addHikeLocation(
+        name: String,
+        latitude: Double?,
+        longitude: Double?,
+        onSaved: () -> Unit = {},
+    ) {
+        viewModelScope.launch {
+            _state.update { it.copy(isHikeLocationsLoading = true, error = null) }
+            runCatching { repository.createHikeLocation(name, latitude, longitude) }
+                .onSuccess { saved ->
+                    _state.update {
+                        it.copy(
+                            hikeLocations = (it.hikeLocations.filterNot { place -> place.id == saved.id } + saved)
+                                .sortedBy { place -> place.name.lowercase(Locale.US) },
+                            isHikeLocationsLoading = false,
+                            notice = "Added ${saved.name} to your places.",
+                        )
+                    }
+                    onSaved()
+                }
+                .onFailure { error ->
+                    _state.update {
+                        it.copy(isHikeLocationsLoading = false, error = error.userMessage())
                     }
                 }
         }
@@ -1874,6 +1999,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun openFieldBriefing(locationId: String) {
+        fieldBriefingLocationId = locationId
         viewModelScope.launch {
             _state.update {
                 it.copy(
@@ -1906,7 +2032,29 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun filterFieldBriefing(iconicTaxa: List<String>) {
+        val locationId = fieldBriefingLocationId ?: _state.value.fieldBriefing?.areaId ?: return
+        val targetDate = _state.value.fieldBriefing?.targetDate ?: LocalDate.now().toString()
+        viewModelScope.launch {
+            _state.update { it.copy(isLongitudinalLoading = true, error = null) }
+            runCatching { repository.loadFieldBriefing(locationId, targetDate, iconicTaxa) }
+                .onSuccess { result ->
+                    _state.update {
+                        it.copy(
+                            fieldBriefing = result.value,
+                            isLongitudinalLoading = false,
+                            isOffline = result.fromCache,
+                        )
+                    }
+                }
+                .onFailure { error ->
+                    _state.update { it.copy(isLongitudinalLoading = false, error = error.userMessage()) }
+                }
+        }
+    }
+
     fun closeFieldBriefing() {
+        fieldBriefingLocationId = null
         _state.update {
             it.copy(
                 fieldBriefing = null,

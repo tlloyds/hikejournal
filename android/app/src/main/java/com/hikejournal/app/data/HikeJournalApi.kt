@@ -28,6 +28,7 @@ internal fun postBodyOrEmpty(body: RequestBody?, jsonMediaType: MediaType): Requ
 
 class HikeJournalApi(private val context: Context) {
     private val connectionPreferences = ConnectionPreferences(context)
+    private val authPreferences = AuthPreferences(context)
     private val client = OkHttpClient.Builder()
         .connectTimeout(12, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
@@ -47,6 +48,59 @@ class HikeJournalApi(private val context: Context) {
             connectionPreferences.setPairingKey(value.trim())
         }
 
+    val authAccount: AuthAccount? get() = authPreferences.session()?.account
+    val hasStoredSession: Boolean get() = authPreferences.session() != null
+
+    suspend fun authenticateGoogle(credential: String, nonce: String): AuthAccount = withContext(Dispatchers.IO) {
+        val response = executeRaw(
+            Request.Builder()
+                .url("${serverUrl}/v1/auth/google")
+                .header("Accept", "application/json")
+                .post(
+                    JSONObject()
+                        .put("credential", credential)
+                        .put("nonce", nonce)
+                        .put("device_id", authPreferences.deviceId())
+                        .toString()
+                        .toRequestBody(jsonMediaType),
+                )
+                .build(),
+        )
+        parseMobileSession(response).also(authPreferences::save).account
+    }
+
+    suspend fun refreshAuthSession(): AuthAccount = withContext(Dispatchers.IO) {
+        refreshSession()?.account ?: throw ApiException("Sign in with Google to continue.", 401)
+    }
+
+    suspend fun signOut() = withContext(Dispatchers.IO) {
+        val session = authPreferences.session()
+        if (session != null) {
+            runCatching {
+                executeRaw(
+                    authenticated(
+                        Request.Builder()
+                            .url("${serverUrl}/v1/auth/logout")
+                            .post(
+                                JSONObject()
+                                    .put("refresh_token", session.refreshToken)
+                                    .toString()
+                                    .toRequestBody(jsonMediaType),
+                            )
+                            .build(),
+                        session.accessToken,
+                    ),
+                )
+            }
+        }
+        authPreferences.clear()
+    }
+
+    suspend fun deleteAccount() = withContext(Dispatchers.IO) {
+        request(path = "/v1/account", method = "DELETE")
+        authPreferences.clear()
+    }
+
     suspend fun getHikesJson(): String = request("/v1/hikes")
 
     suspend fun getCompanionConfig(): CompanionConfig = parseCompanionConfig(
@@ -64,12 +118,32 @@ class HikeJournalApi(private val context: Context) {
 
     suspend fun getHikeLocationsJson(): String = request("/v1/hike-locations")
 
+    suspend fun createHikeLocationJson(name: String, latitude: Double?, longitude: Double?): String = request(
+        path = "/v1/hike-locations",
+        method = "POST",
+        body = JSONObject()
+            .put("name", name)
+            .put("lat", latitude ?: JSONObject.NULL)
+            .put("lng", longitude ?: JSONObject.NULL)
+            .toString()
+            .toRequestBody(jsonMediaType),
+    )
+
     suspend fun getPlaceProfileJson(locationId: String): String =
         request("/v1/places/${locationId.urlEncoded()}/profile")
 
-    suspend fun getFieldBriefingJson(locationId: String, targetDate: String): String = request(
-        "/v1/field-briefing?location_id=${locationId.urlEncoded()}&date=${targetDate.urlEncoded()}",
-    )
+    suspend fun getFieldBriefingJson(
+        locationId: String,
+        targetDate: String,
+        iconicTaxa: List<String> = emptyList(),
+    ): String {
+        val filter = iconicTaxa.distinct().joinToString(",")
+        val query = buildString {
+            append("/v1/field-briefing?location_id=${locationId.urlEncoded()}&date=${targetDate.urlEncoded()}")
+            if (filter.isNotBlank()) append("&iconic_taxon=${filter.urlEncoded()}")
+        }
+        return request(query)
+    }
 
     suspend fun getHikeComparisonJson(hikeId: String, otherHikeId: String): String = request(
         "/v1/hikes/${hikeId.urlEncoded()}/comparison?other_hike_id=${otherHikeId.urlEncoded()}",
@@ -532,7 +606,54 @@ class HikeJournalApi(private val context: Context) {
         execute(builder.build())
     }
 
-    private fun execute(request: Request): String = client.newCall(request).execute().use { response ->
+    private fun execute(request: Request): String {
+        val first = authenticated(request)
+        return try {
+            executeRaw(first)
+        } catch (error: ApiException) {
+            if (error.statusCode != 401 || !BuildConfig.GOOGLE_AUTH_ENABLED) throw error
+            val refreshed = refreshSession() ?: throw error
+            executeRaw(authenticated(request, refreshed.accessToken))
+        }
+    }
+
+    @Synchronized
+    private fun refreshSession(): MobileSession? {
+        val existing = authPreferences.session() ?: return null
+        return try {
+            val response = executeRaw(
+                Request.Builder()
+                    .url("${serverUrl}/v1/auth/refresh")
+                    .header("Accept", "application/json")
+                    .post(
+                        JSONObject()
+                            .put("refresh_token", existing.refreshToken)
+                            .put("device_id", authPreferences.deviceId())
+                            .toString()
+                            .toRequestBody(jsonMediaType),
+                    )
+                    .build(),
+            )
+            parseMobileSession(response).also(authPreferences::save)
+        } catch (_: Exception) {
+            authPreferences.clear()
+            null
+        }
+    }
+
+    private fun authenticated(request: Request, accessToken: String? = authPreferences.session()?.accessToken): Request {
+        val builder = request.newBuilder()
+            .removeHeader("Authorization")
+            .removeHeader("X-HikeJournal-Key")
+        if (BuildConfig.GOOGLE_AUTH_ENABLED) {
+            accessToken?.takeIf(String::isNotBlank)?.let { builder.header("Authorization", "Bearer $it") }
+        } else {
+            builder.header("X-HikeJournal-Key", pairingKey)
+        }
+        return builder.build()
+    }
+
+    private fun executeRaw(request: Request): String = client.newCall(request).execute().use { response ->
         val responseBody = response.body?.string().orEmpty()
         if (!response.isSuccessful) {
             val detail = runCatching { JSONObject(responseBody).optString("detail") }.getOrNull()
@@ -542,6 +663,21 @@ class HikeJournalApi(private val context: Context) {
             )
         }
         responseBody
+    }
+
+    private fun parseMobileSession(json: String): MobileSession {
+        val root = JSONObject(json)
+        val account = root.getJSONObject("account")
+        return MobileSession(
+            accessToken = root.getString("access_token"),
+            refreshToken = root.getString("refresh_token"),
+            account = AuthAccount(
+                subject = account.getString("subject"),
+                email = account.getString("email"),
+                displayName = account.optString("display_name", account.getString("email")),
+                pictureUrl = account.optString("picture_url"),
+            ),
+        )
     }
 
     private fun normalizeServerUrl(value: String): String {

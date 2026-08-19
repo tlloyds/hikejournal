@@ -49,6 +49,7 @@ import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -635,6 +636,7 @@ internal fun FieldBriefingScreen(
     loading: Boolean,
     onBack: () -> Unit,
     onOpenSightings: (BriefingItem) -> Unit,
+    onLifeGroupsChanged: (List<String>) -> Unit,
 ) {
     var previewItem by remember { mutableStateOf<BriefingItem?>(null) }
     var selectedLifeGroups by rememberSaveable(briefing?.areaId, briefing?.targetDate) {
@@ -720,6 +722,13 @@ internal fun FieldBriefingScreen(
                         )
                     }
                 }
+                if (loading) {
+                    LinearProgressIndicator(
+                        modifier = Modifier.fillMaxWidth(),
+                        color = Moss,
+                        trackColor = Line,
+                    )
+                }
             }
             visibleSections.forEach { section ->
                 item {
@@ -770,6 +779,7 @@ internal fun FieldBriefingScreen(
             onApply = {
                 selectedLifeGroups = it
                 lifeFilterOpen = false
+                onLifeGroupsChanged(it)
             },
             onDismiss = { lifeFilterOpen = false },
         )

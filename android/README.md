@@ -7,7 +7,9 @@ the current Supabase database and Cloudflare R2 photo library through the small
 ## Use it tonight
 
 1. For local use, keep the Mac and Android phone on the same Wi-Fi network.
-2. Double-click `start_hikejournal_mobile.command` in the repository root and leave its Terminal window open. For cellular/anywhere use, deploy `deploy/mobile/Dockerfile` and paste its HTTPS address plus pairing key into Android settings.
+2. For the public-style flow, use the hosted API and sign in with Google. The
+   legacy Mac companion and pairing key remain available only for debug builds
+   that omit `GOOGLE_WEB_CLIENT_ID`.
 3. Run `./build_android.command debug`, transfer the resulting
    `dist/HikeJournal-v<version>-debug.apk` to the phone, and open it.
 4. Allow installation from the app you used to open the APK if Android asks.
@@ -16,8 +18,21 @@ the current Supabase database and Cloudflare R2 photo library through the small
 If the Mac receives a different local IP address, open the gear in HikeJournal
 and replace the server address. The API always uses port `8506`.
 
-Native hike recording does not need the companion or a network connection.
-Pairing is needed when queued hikes, routes, and photos are ready to sync.
+Native hike recording does not need a network connection. Google sign-in and a
+hosted API are needed when queued hikes, routes, and photos are ready to sync.
+
+## Included in v0.8.0
+
+- Google Credential Manager sign-in, encrypted rotating mobile sessions, and
+  owner-scoped journals, media, discovery, jobs, and iNaturalist credentials
+- A first-launch field-journal setup guide, public privacy/support pages, and
+  permanent account deletion from both Settings and the web
+- All existing Florida places remain included, while people can add their own
+  named places and coordinates from Settings
+- Life-group choices in “What might I see today?” now refetch matching nearby
+  species instead of filtering an already truncated all-life result
+- Immediate loading feedback while a Field Guide species record opens
+- Android’s system photo picker replaces broad photo/video library permissions
 
 ## Included in v0.7.20
 
@@ -133,12 +148,12 @@ paused state the next time HikeJournal opens.
 - Photo uploads use clear `Upload photos` language and keep picker confirmation above system navigation
 - Journal photos can be multi-selected and sent to Species Review after upload
 - Synced photos automatically swap local file previews for durable remote URLs without reopening the hike
-- One clear `Upload photos` action that opens local phone albums directly,
-  preserving unredacted MediaStore access and album-wide selection for up to 500 files
+- One clear `Upload photos` action that opens Android's system photo picker for
+  up to 100 selected photos and videos
 - A fixed, high-contrast photo confirmation action that remains fully above
   Android gesture and navigation insets
-- Android photo/video, selected-media, legacy storage, and media-location
-  permissions requested together before HikeJournal reads embedded GPS
+- Contextual media-location permission requested before HikeJournal reads
+  embedded GPS; broad photo/video library permissions are not requested
 - Pre-upload GPS verification for every selected file, with missing-location warnings before anything is saved
 - Embedded video location extraction for map-ready clips when the source file provides coordinates
 - Hike-scoped native maps with imported route lines and just that outing's
@@ -171,11 +186,12 @@ paused state the next time HikeJournal opens.
 - Cached review, species, map, and journal reads plus queued hike/photo/caption/review writes when offline
 - Visible sync status with retry and attention states, backed by Room and WorkManager
 - User-managed MapLibre trail packs; satellite pack downloads activate only when a licensed offline style is configured
-- Configurable local or hosted companion address and pairing key
+- Google-authenticated hosted API for release builds, with configurable pairing
+  retained only in the legacy debug path
 - Streamlit deep links for review, maps, and publishing
 
-The app intentionally keeps Supabase and R2 credentials out of the APK.
-The paired companion token only authorizes this narrow local API.
+The app intentionally keeps Supabase, R2, and HikeJournal session-signing
+credentials out of the APK. Release access uses short-lived owner-scoped tokens.
 
 ## Iterate
 
@@ -186,7 +202,8 @@ signed personal release.
 
 Run `./build_android.command personal` for the productionized variant. It
 requires explicit HTTPS `MOBILE_API_URL` and `MOBILE_TRAIL_MAP_STYLE_URL`
-values, never compiles a pairing key, and produces a minified APK plus an AAB.
+values plus a Google web OAuth client ID, never compiles a pairing key, and
+produces a minified APK plus an AAB.
 Debug builds retain the MapLibre demo-style fallback; personal-release builds
 do not. With all four `ANDROID_KEYSTORE_*` values plus the recorded public
 `ANDROID_EXPECTED_SIGNER_SHA256` digest, the command verifies the signed APK

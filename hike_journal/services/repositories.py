@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, date, datetime
+import hashlib
 import re
 from typing import Any
 
@@ -416,6 +417,35 @@ class HikeJournalRepository:
             return rows[0] if rows else payload
         except Exception:
             return None
+
+    def create_user_hike_location(
+        self,
+        name: str,
+        *,
+        owner_subject: str,
+        owner_email: str | None,
+        lat: float | None,
+        lng: float | None,
+    ) -> dict[str, Any]:
+        clean_name = name.strip()
+        owner_prefix = hashlib.sha256(owner_subject.encode("utf-8")).hexdigest()[:12]
+        payload = {
+            "name": clean_name,
+            "slug": f"user-{owner_prefix}-{_slugify_location_name(clean_name)}",
+            "location_type": "user",
+            "source": "user",
+            "source_url": None,
+            "lat": lat,
+            "lng": lng,
+            "aliases": [],
+            "owner_subject": owner_subject,
+            "owner_email": owner_email,
+        }
+        response = self.client.table("hike_locations").upsert(payload, on_conflict="slug").execute()
+        rows = response.data or []
+        if not rows:
+            raise RuntimeError("The place could not be saved.")
+        return rows[0]
 
     def upsert_hike_locations(self, locations: list[dict[str, Any]]) -> int:
         payloads: list[dict[str, Any]] = []

@@ -32,7 +32,8 @@ deployable from a GitHub connection in Cloud Run:
    `hikejournal-git` service. This preserves that service's environment
    variables and public URL.
 6. Under **Variables & Secrets**, add the production values from `.env`:
-   `MOBILE_API_TOKEN`, `MOBILE_OWNER_EMAIL`, `MOBILE_OWNER_SUBJECT`,
+   `GOOGLE_WEB_CLIENT_ID`, `MOBILE_SESSION_SECRET`, and
+   `MOBILE_AUTH_MODE=google`,
    `SUPABASE_URL`, `SUPABASE_KEY`,
    storage settings (`STORAGE_BACKEND` and either the R2 or Supabase values),
    `SPECIES_DISCOVERY_ENABLED=true`, and
@@ -41,16 +42,18 @@ deployable from a GitHub connection in Cloud Run:
    non-commercial endpoint. Set `WEATHER_ENRICHMENT_ENABLED=false` to disable
    it, or configure `OPEN_METEO_FORECAST_URL`, `OPEN_METEO_ARCHIVE_URL`, and
    `OPEN_METEO_API_KEY` for a paid/customer-compatible endpoint.
-   `INAT_ACCESS_TOKEN` is only needed if iNaturalist publishing is enabled; the
+   `MOBILE_SESSION_SECRET` must be a new high-entropy value of at least 32
+   characters and must never be compiled into Android. `INAT_ACCESS_TOKEN` is
+   only needed if iNaturalist publishing is enabled; the
    Nearby species list itself uses public iNaturalist data. To allow
    Android to connect iNaturalist itself, also add `INAT_OAUTH_CLIENT_ID`,
    `INAT_OAUTH_CLIENT_SECRET`, and `MOBILE_INAT_OAUTH_REDIRECT_URI`. Register
    that exact callback URL with the same iNaturalist OAuth application; it must
-   end in `/v1/inat/oauth/callback`. Set `MOBILE_OWNER_SUBJECT` once to a stable,
-   non-email identifier for the personal owner and do not change it after jobs
-   exist. Hosted startup requires an explicit high-entropy pairing token of at
-   least 32 characters plus both owner fields; readiness fails closed when they
-   are absent or weak. Optional `MOBILE_JOB_RECOVERY_INTERVAL_SECONDS` (5-300 seconds) and
+   end in `/v1/inat/oauth/callback`. Legacy single-owner deployments can keep
+   `MOBILE_AUTH_MODE=legacy` with their existing pairing and owner variables
+   during a controlled rollout, but public Android builds require Google mode.
+   Readiness fails closed when the selected authentication configuration is
+   incomplete. Optional `MOBILE_JOB_RECOVERY_INTERVAL_SECONDS` (5-300 seconds) and
    `MOBILE_HEALTH_CACHE_SECONDS` (1-60 seconds) tune the in-process recovery scan
    and readiness cache. Do not commit or upload `.env`.
 7. Set memory to at least **1 GiB** to leave room for photo processing, then
@@ -58,10 +61,11 @@ deployable from a GitHub connection in Cloud Run:
    returns HTTP 200 with `configuration`, `database`, `storage`, and `job_store`
    all `ok`.
 
-Copy that HTTPS URL and the `MOBILE_API_TOKEN` into Android's **Companion
-connection** settings. With the documented repository-wide trigger, future
-pushes to `main` can redeploy the API even for a web-only change. Path-filtered
-mobile deployment triggers remain Track A work.
+Public Android builds use the checked-in HTTPS service URL and Google sign-in;
+they do not expose companion credentials or a pairing screen. With the
+documented repository-wide trigger, future pushes to `main` can redeploy the API
+even for a web-only change. Path-filtered mobile deployment triggers remain
+Track A work.
 
 The personal Android build separately requires an owner-supplied HTTPS
 `MOBILE_TRAIL_MAP_STYLE_URL`. The debug MapLibre demo style is not an accepted
@@ -117,7 +121,14 @@ The container runs as an unprivileged user, contains no `.env` file, exposes onl
 
 ## Production boundary
 
-The pairing key is appropriate for this single-owner build. Before distributing HikeJournal to other people, replace it with Supabase Auth JWT verification and owner-scoped RLS. Do not publish a multi-user build while the legacy permissive database policies remain active.
+Run `sql/public_mobile_accounts_migration.sql` before enabling Google mode. The
+mobile API verifies Google ID tokens against the web OAuth client, issues short
+HikeJournal access tokens with rotating server-stored refresh sessions, and
+scopes journals, standalone media, discovery quests, jobs, iNaturalist
+credentials, and user-managed places to the verified Google subject. Shared
+Florida places deliberately have no owner. The service also publishes stable
+privacy, support, and web account-deletion pages and supports permanent,
+authenticated in-app account deletion.
 
 Job execution still runs inside the API process. When the Supabase migration is
 applied and the durable store is required, database records, request

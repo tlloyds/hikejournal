@@ -18,8 +18,16 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts.OpenDocument
+import androidx.activity.result.contract.ActivityResultContracts.PickMultipleVisualMedia
+import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
 import androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions
+import androidx.credentials.CredentialManager
+import androidx.credentials.CustomCredential
+import androidx.credentials.GetCredentialRequest
+import androidx.credentials.exceptions.GetCredentialCancellationException
+import androidx.credentials.exceptions.GetCredentialException
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
@@ -171,10 +179,10 @@ import com.hikejournal.app.AppViewModel
 import com.hikejournal.app.BuildConfig
 import com.hikejournal.app.LongitudinalDestination
 import com.hikejournal.app.data.Hike
+import com.hikejournal.app.data.AuthAccount
 import com.hikejournal.app.data.HikeDraft
 import com.hikejournal.app.data.HikeLocation
 import com.hikejournal.app.data.HikeLocationSuggestion
-import com.hikejournal.app.data.LocalMediaAccess
 import com.hikejournal.app.data.MapDisplayPreferences
 import com.hikejournal.app.data.MediaLocationSummary
 import com.hikejournal.app.data.NationalScenicTrailOverlays
@@ -188,8 +196,6 @@ import com.hikejournal.app.data.SpeciesLabel
 import com.hikejournal.app.data.SyncAttention
 import com.hikejournal.app.data.TrailOverlayDefinition
 import com.hikejournal.app.data.WeatherSnapshot
-import com.hikejournal.app.data.localMediaAccess
-import com.hikejournal.app.data.requiredLocalMediaPermissions
 import com.hikejournal.app.tracking.TrackingStatus
 import com.hikejournal.app.ui.theme.Fern
 import com.hikejournal.app.ui.theme.Ink
@@ -203,12 +209,15 @@ import com.hikejournal.app.ui.theme.Trail
 import com.hikejournal.app.ui.theme.TrailText
 import java.time.LocalDate
 import java.net.URI
+import java.security.SecureRandom
 import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
 import java.util.Locale
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
+import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 
 private data class HikeMapRequest(
     val hike: Hike?,
@@ -290,6 +299,45 @@ private enum class TrackingPreflightIssue {
 fun HikeJournalApp(viewModel: AppViewModel) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val authScope = rememberCoroutineScope()
+    val credentialManager = remember(context) { CredentialManager.create(context) }
+    val launchGoogleSignIn: () -> Unit = {
+        val nonce = secureGoogleNonce()
+        val option = GetSignInWithGoogleOption.Builder(BuildConfig.GOOGLE_WEB_CLIENT_ID)
+            .setNonce(nonce)
+            .build()
+        val request = GetCredentialRequest.Builder()
+            .addCredentialOption(option)
+            .build()
+        viewModel.beginGoogleSignIn()
+        authScope.launch {
+            try {
+                val result = credentialManager.getCredential(context, request)
+                val credential = result.credential
+                if (
+                    credential is CustomCredential &&
+                    credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
+                ) {
+                    val google = GoogleIdTokenCredential.createFrom(credential.data)
+                    viewModel.signInWithGoogle(google.idToken, nonce)
+                } else {
+                    viewModel.reportGoogleSignInError("Google sign-in returned an unexpected credential.")
+                }
+            } catch (_: GetCredentialCancellationException) {
+                viewModel.reportGoogleSignInError("Google sign-in was cancelled.")
+            } catch (_: GetCredentialException) {
+                viewModel.reportGoogleSignInError("Google sign-in is unavailable on this device right now.")
+            }
+        }
+    }
+    if (state.authRequired && state.authAccount == null) {
+        GoogleSetupGate(
+            loading = state.isAuthLoading,
+            error = state.authError,
+            onSignIn = launchGoogleSignIn,
+        )
+        return
+    }
     val mapDisplayPreferences = remember(context) { MapDisplayPreferences(context) }
     var destination by rememberSaveable { mutableStateOf(TopDestination.Archive) }
     var editingHike by remember { mutableStateOf<Hike?>(null) }
@@ -305,9 +353,6 @@ fun HikeJournalApp(viewModel: AppViewModel) {
     var directReviewItem by remember { mutableStateOf<ReviewItem?>(null) }
     var identifyAfterUpload by remember { mutableStateOf(false) }
     var speciesAssignmentPhoto by remember { mutableStateOf<Photo?>(null) }
-    var localMediaPickerOpen by remember { mutableStateOf(false) }
-    var localMediaPermissionError by remember { mutableStateOf<String?>(null) }
-    var grantedLocalMediaAccess by remember { mutableStateOf<LocalMediaAccess?>(null) }
     var pendingUpload by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var mediaLocationSummary by remember { mutableStateOf<MediaLocationSummary?>(null) }
     var checkingMediaLocations by remember { mutableStateOf(false) }
@@ -398,20 +443,11 @@ fun HikeJournalApp(viewModel: AppViewModel) {
         }
     }
 
-    val localMediaPermissions = rememberLauncherForActivityResult(RequestMultiplePermissions()) {
-        val access = localMediaAccess(context)
-        grantedLocalMediaAccess = access
-        when {
-            !access.canReadMedia -> {
-                localMediaPermissionError =
-                    "Allow HikeJournal to read photos and videos so it can browse originals stored on this phone."
-            }
-            !access.canReadLocations -> {
-                localMediaPermissionError =
-                    "Media access is on, but location details are still off. Enable them to preserve each photo or video’s GPS coordinates."
-            }
-            else -> localMediaPickerOpen = true
-        }
+    val localMediaPicker = rememberLauncherForActivityResult(PickMultipleVisualMedia(maxItems = 100)) { uris ->
+        pendingUpload = uris
+    }
+    val localMediaLocationPermission = rememberLauncherForActivityResult(RequestMultiplePermissions()) {
+        localMediaPicker.launch(PickVisualMediaRequest(PickVisualMedia.ImageAndVideo))
     }
     val trackingPermissions = rememberLauncherForActivityResult(RequestMultiplePermissions()) {
         if (!pendingTrackingStart) return@rememberLauncherForActivityResult
@@ -443,12 +479,13 @@ fun HikeJournalApp(viewModel: AppViewModel) {
         selectedRouteUri = uri
     }
     val launchLocalMediaPicker: () -> Unit = {
-        val access = localMediaAccess(context)
-        grantedLocalMediaAccess = access
-        if (access.readyForOriginals && access.hasFullLibraryAccess) {
-            localMediaPickerOpen = true
+        if (
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+            context.checkSelfPermission(Manifest.permission.ACCESS_MEDIA_LOCATION) != PackageManager.PERMISSION_GRANTED
+        ) {
+            localMediaLocationPermission.launch(arrayOf(Manifest.permission.ACCESS_MEDIA_LOCATION))
         } else {
-            localMediaPermissions.launch(requiredLocalMediaPermissions())
+            localMediaPicker.launch(PickVisualMediaRequest(PickVisualMedia.ImageAndVideo))
         }
     }
     LaunchedEffect(pendingEverydayUpload, state.journal?.id) {
@@ -652,6 +689,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                     loading = state.isLongitudinalLoading,
                     onBack = viewModel::closeFieldBriefing,
                     onOpenSightings = viewModel::openBriefingSightingsMap,
+                    onLifeGroupsChanged = viewModel::filterFieldBriefing,
                 )
                 key.startsWith("place:") -> {
                     val currentPlaceId = state.placeProfile?.locationId
@@ -897,6 +935,32 @@ fun HikeJournalApp(viewModel: AppViewModel) {
             }
         }
 
+        AnimatedVisibility(
+            visible = state.isSpeciesLoading && speciesBrowseContext != null && state.speciesDetail == null,
+            enter = fadeIn(tween(140)),
+            exit = fadeOut(tween(140)),
+            modifier = Modifier.align(Alignment.Center),
+        ) {
+            Surface(
+                color = Paper,
+                shape = RoundedCornerShape(8.dp),
+                shadowElevation = 12.dp,
+            ) {
+                Row(
+                    Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    CircularProgressIndicator(Modifier.size(22.dp), color = Moss, strokeWidth = 2.dp)
+                    Text(
+                        "Opening species record…",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = Ink,
+                        modifier = Modifier.padding(start = 12.dp),
+                    )
+                }
+            }
+        }
+
         if (
             state.journal == null &&
             state.speciesDetail == null &&
@@ -1077,45 +1141,6 @@ fun HikeJournalApp(viewModel: AppViewModel) {
         )
     }
 
-    if (localMediaPickerOpen && state.journal != null) {
-        LocalMediaPickerDialog(
-            access = grantedLocalMediaAccess ?: localMediaAccess(context),
-            onDismiss = { localMediaPickerOpen = false },
-            onConfirm = { uris ->
-                pendingUpload = uris
-                localMediaPickerOpen = false
-            },
-        )
-    }
-
-    localMediaPermissionError?.let { message ->
-        AlertDialog(
-            onDismissRequest = { localMediaPermissionError = null },
-            title = { Text("Phone originals need permission") },
-            text = { Text(message) },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        localMediaPermissionError = null
-                        context.startActivity(
-                            Intent(
-                                android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                                Uri.parse("package:${context.packageName}"),
-                            )
-                        )
-                    },
-                ) {
-                    Text("Open app settings")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { localMediaPermissionError = null }) {
-                    Text("Not now")
-                }
-            },
-        )
-    }
-
     if (photoViewerVisible(selectedPhoto, hikeMapRequest != null)) selectedPhoto?.let { selected ->
         val photo = state.journal?.photos?.firstOrNull { it.id == selected.id } ?: selected
         val photos = state.journal?.photos.orEmpty()
@@ -1243,6 +1268,8 @@ fun HikeJournalApp(viewModel: AppViewModel) {
 
     if (settingsOpen) {
         SettingsDialog(
+            authRequired = state.authRequired,
+            authAccount = state.authAccount,
             currentUrl = viewModel.serverUrl,
             currentKey = viewModel.pairingKey,
             webUrl = state.companionConfig.webUrl,
@@ -1257,6 +1284,8 @@ fun HikeJournalApp(viewModel: AppViewModel) {
             nearbyRiverGaugeError = state.nearbyRiverGaugeError,
             addingRiverGauge = state.isAddingRiverGauge,
             riverGaugeError = state.riverGaugeSettingsError,
+            addingPlace = state.isHikeLocationsLoading,
+            deletingAccount = state.isAuthLoading,
             onDismiss = {
                 settingsOpen = false
                 viewModel.clearNearbyRiverGaugeSearch()
@@ -1265,6 +1294,14 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                 viewModel.updateConnection(url, key)
                 settingsOpen = false
             },
+            onAddPlace = { name, latitude, longitude, onSaved ->
+                viewModel.addHikeLocation(name, latitude, longitude, onSaved)
+            },
+            onSignOut = {
+                settingsOpen = false
+                viewModel.signOut()
+            },
+            onDeleteAccount = viewModel::deleteAccount,
             onTrailOverlayChange = { trailId, selected ->
                 selectedTrailIds = selectedTrailIds.toMutableSet().apply {
                     if (selected) add(trailId) else remove(trailId)
@@ -1303,6 +1340,76 @@ fun HikeJournalApp(viewModel: AppViewModel) {
             onDiscard = viewModel::discardSyncAttention,
             onDismiss = { syncAttentionOpen = false },
         )
+    }
+}
+
+private fun secureGoogleNonce(): String = ByteArray(32)
+    .also(SecureRandom()::nextBytes)
+    .let { java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(it) }
+
+@Composable
+private fun GoogleSetupGate(
+    loading: Boolean,
+    error: String?,
+    onSignIn: () -> Unit,
+) {
+    Box(Modifier.fillMaxSize().background(Parchment)) {
+        MountainField(
+            Modifier
+                .fillMaxWidth()
+                .height(300.dp)
+                .align(Alignment.TopCenter),
+        )
+        Text(
+            "HIKEJOURNAL",
+            style = MaterialTheme.typography.displaySmall,
+            color = Paper,
+            modifier = Modifier.align(Alignment.TopStart).statusBarsPadding().padding(24.dp),
+        )
+        AlertDialog(
+            onDismissRequest = {},
+            title = { Text("Your field journal, ready to roam") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Text(
+                        "A quick setup keeps your outings private and makes the field tools useful wherever you hike.",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = Ink,
+                    )
+                    SetupStep("1", "Sign in with Google", "Your journal syncs to your account across installs.")
+                    SetupStep("2", "Choose your places", "Florida places are included. Add anywhere else from Settings.")
+                    SetupStep("3", "Allow things as you use them", "Location powers hike recording. Photos stay optional, and iNaturalist can be connected later.")
+                    error?.let {
+                        Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            },
+            confirmButton = {
+                Button(onClick = onSignIn, enabled = !loading) {
+                    if (loading) {
+                        CircularProgressIndicator(Modifier.size(18.dp), color = Paper, strokeWidth = 2.dp)
+                        Spacer(Modifier.width(8.dp))
+                    }
+                    Text(if (loading) "Connecting…" else "Sign in with Google")
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun SetupStep(number: String, title: String, detail: String) {
+    Row(verticalAlignment = Alignment.Top) {
+        Box(
+            Modifier.size(28.dp).background(Moss, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(number, style = MaterialTheme.typography.labelMedium, color = Paper)
+        }
+        Column(Modifier.padding(start = 12.dp)) {
+            Text(title, style = MaterialTheme.typography.titleSmall, color = Ink)
+            Text(detail, style = MaterialTheme.typography.bodyMedium, color = InkMuted)
+        }
     }
 }
 
@@ -3793,6 +3900,8 @@ private fun PlaceBrowserDialog(
 
 @Composable
 private fun SettingsDialog(
+    authRequired: Boolean,
+    authAccount: AuthAccount?,
     currentUrl: String,
     currentKey: String,
     webUrl: String,
@@ -3807,8 +3916,13 @@ private fun SettingsDialog(
     nearbyRiverGaugeError: String?,
     addingRiverGauge: Boolean,
     riverGaugeError: String?,
+    addingPlace: Boolean,
+    deletingAccount: Boolean,
     onDismiss: () -> Unit,
     onSave: (String, String) -> Unit,
+    onAddPlace: (String, Double?, Double?, () -> Unit) -> Unit,
+    onSignOut: () -> Unit,
+    onDeleteAccount: () -> Unit,
     onTrailOverlayChange: (String, Boolean) -> Unit,
     onRiverGaugeEnabledChange: (String, Boolean) -> Unit,
     onAddRiverGauge: (String) -> Unit,
@@ -3826,8 +3940,11 @@ private fun SettingsDialog(
     var manualGaugeOpen by rememberSaveable { mutableStateOf(false) }
     var trailPickerOpen by rememberSaveable { mutableStateOf(false) }
     var gaugeFinderOpen by rememberSaveable { mutableStateOf(false) }
+    var placeEditorOpen by rememberSaveable { mutableStateOf(false) }
+    var deleteAccountConfirmation by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
     val openWebUrl = remember(webUrl) { validSettingsWebUrl(webUrl) }
+    val accountServiceUrl = remember(currentUrl) { validSettingsWebUrl(currentUrl) }
     if (trailPickerOpen) {
         TrailOverlayPickerDialog(
             selectedTrailIds = selectedTrailIds,
@@ -3854,33 +3971,103 @@ private fun SettingsDialog(
         )
         return
     }
+    if (placeEditorOpen) {
+        AddPlaceDialog(
+            saving = addingPlace,
+            onSave = { name, latitude, longitude ->
+                onAddPlace(name, latitude, longitude) { placeEditorOpen = false }
+            },
+            onDismiss = { if (!addingPlace) placeEditorOpen = false },
+        )
+        return
+    }
+    if (deleteAccountConfirmation) {
+        AlertDialog(
+            onDismissRequest = { if (!deletingAccount) deleteAccountConfirmation = false },
+            title = { Text("Delete HikeJournal account?") },
+            text = {
+                Text(
+                    "This permanently removes your journal entries, saved places, routes, species records, and stored media. Observations already published to iNaturalist remain there. This cannot be undone.",
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = onDeleteAccount,
+                    enabled = !deletingAccount,
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                ) {
+                    if (deletingAccount) {
+                        CircularProgressIndicator(Modifier.size(17.dp), color = Paper, strokeWidth = 2.dp)
+                        Spacer(Modifier.width(8.dp))
+                    }
+                    Text(if (deletingAccount) "Deleting…" else "Delete permanently")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { deleteAccountConfirmation = false },
+                    enabled = !deletingAccount,
+                ) { Text("Cancel") }
+            },
+        )
+        return
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Settings", style = MaterialTheme.typography.headlineMedium) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
-                Text(
-                    "Companion connection",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = Ink,
-                )
-                Text("Use the Mac on home Wi-Fi, or paste the HTTPS address of your hosted companion for cellular access.", style = MaterialTheme.typography.bodyMedium, color = InkMuted)
-                OutlinedTextField(url, { url = it }, Modifier.fillMaxWidth().padding(top = 14.dp), label = { Text("Server address") }, singleLine = true)
-                OutlinedTextField(
-                    key,
-                    { key = it },
-                    Modifier.fillMaxWidth().padding(top = 10.dp),
-                    label = { Text("Pairing key") },
-                    singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
-                )
-                validation?.let {
+                if (authRequired) {
+                    Text("Account", style = MaterialTheme.typography.titleMedium, color = Ink)
                     Text(
-                        it,
-                        color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodySmall,
+                        authAccount?.displayName ?: "Google account",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = Ink,
                         modifier = Modifier.padding(top = 8.dp),
                     )
+                    Text(
+                        authAccount?.email.orEmpty(),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = InkMuted,
+                    )
+                    if (accountServiceUrl != null) {
+                        Row(Modifier.fillMaxWidth().padding(top = 5.dp)) {
+                            TextButton(
+                                onClick = {
+                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("$accountServiceUrl/privacy")))
+                                },
+                            ) { Text("Privacy") }
+                            TextButton(
+                                onClick = {
+                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("$accountServiceUrl/support")))
+                                },
+                            ) { Text("Support") }
+                        }
+                    }
+                } else {
+                    Text(
+                        "Companion connection",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = Ink,
+                    )
+                    Text("Use the Mac on home Wi-Fi, or paste the HTTPS address of your hosted companion for cellular access.", style = MaterialTheme.typography.bodyMedium, color = InkMuted)
+                    OutlinedTextField(url, { url = it }, Modifier.fillMaxWidth().padding(top = 14.dp), label = { Text("Server address") }, singleLine = true)
+                    OutlinedTextField(
+                        key,
+                        { key = it },
+                        Modifier.fillMaxWidth().padding(top = 10.dp),
+                        label = { Text("Pairing key") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                    )
+                    validation?.let {
+                        Text(
+                            it,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
+                    }
                 }
                 if (openWebUrl != null) {
                     TextButton(
@@ -3893,6 +4080,33 @@ private fun SettingsDialog(
                     }
                 }
                 HorizontalDivider(Modifier.padding(top = 12.dp))
+                Text("Places", style = MaterialTheme.typography.titleMedium, color = Ink, modifier = Modifier.padding(top = 16.dp))
+                Text(
+                    "Florida’s current place library is included. Add trailheads, parks, and preserves anywhere you explore.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = InkMuted,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+                OutlinedButton(
+                    onClick = { placeEditorOpen = true },
+                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                ) {
+                    Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Add a place")
+                }
+                val userPlaces = hikeLocations.filter(HikeLocation::isUserPlace)
+                if (userPlaces.isNotEmpty()) {
+                    Text(
+                        userPlaces.joinToString(" · ") { it.name },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = InkMuted,
+                        modifier = Modifier.padding(top = 8.dp),
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                HorizontalDivider(Modifier.padding(top = 18.dp))
                 Text("iNaturalist", style = MaterialTheme.typography.titleMedium, color = Ink, modifier = Modifier.padding(top = 16.dp))
                 Text(
                     if (inatConnected) "Connected for species recommendations and publishing."
@@ -4072,11 +4286,29 @@ private fun SettingsDialog(
                     modifier = Modifier.fillMaxWidth().padding(top = 20.dp),
                     textAlign = TextAlign.Center,
                 )
+                if (authRequired) {
+                    TextButton(
+                        onClick = onSignOut,
+                        modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                    ) {
+                        Text("Sign out")
+                    }
+                    TextButton(
+                        onClick = { deleteAccountConfirmation = true },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Delete account", color = MaterialTheme.colorScheme.error)
+                    }
+                }
             }
         },
         confirmButton = {
             TextButton(
                 onClick = {
+                    if (authRequired) {
+                        onDismiss()
+                        return@TextButton
+                    }
                     val cleanUrl = url.trim()
                     when (val urlError = connectionUrlError(cleanUrl, allowCleartext = BuildConfig.DEBUG)) {
                         null -> if (key.isBlank()) {
@@ -4088,10 +4320,114 @@ private fun SettingsDialog(
                     }
                 },
             ) {
-                Text("Reconnect")
+                Text(if (authRequired) "Done" else "Reconnect")
             }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = {
+            if (!authRequired) {
+                TextButton(onClick = onDismiss) { Text("Cancel") }
+            }
+        },
+    )
+}
+
+@Composable
+private fun AddPlaceDialog(
+    saving: Boolean,
+    onSave: (String, Double, Double) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var name by rememberSaveable { mutableStateOf("") }
+    var latitude by rememberSaveable { mutableStateOf("") }
+    var longitude by rememberSaveable { mutableStateOf("") }
+    var validation by rememberSaveable { mutableStateOf<String?>(null) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Add a place", style = MaterialTheme.typography.headlineMedium) },
+        text = {
+            Column {
+                Text(
+                    "Save a park, trailhead, or preserve anywhere. Coordinates let HikeJournal build local species briefings.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = InkMuted,
+                )
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = {
+                        name = it
+                        validation = null
+                    },
+                    modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
+                    label = { Text("Place name") },
+                    singleLine = true,
+                )
+                OutlinedTextField(
+                    value = latitude,
+                    onValueChange = {
+                        latitude = it
+                        validation = null
+                    },
+                    modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+                    label = { Text("Latitude") },
+                    placeholder = { Text("28.6419") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    singleLine = true,
+                )
+                OutlinedTextField(
+                    value = longitude,
+                    onValueChange = {
+                        longitude = it
+                        validation = null
+                    },
+                    modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+                    label = { Text("Longitude") },
+                    placeholder = { Text("−81.1214") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    singleLine = true,
+                )
+                Text(
+                    "Tip: press and hold a spot in Google Maps to copy its coordinates.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = InkMuted,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+                validation?.let { message ->
+                    Text(
+                        message,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                enabled = !saving,
+                onClick = {
+                    val parsedLatitude = latitude.trim().toDoubleOrNull()
+                    val parsedLongitude = longitude.trim().toDoubleOrNull()
+                    validation = when {
+                        name.isBlank() -> "Enter a name for this place."
+                        parsedLatitude == null || parsedLongitude == null -> "Enter valid decimal coordinates."
+                        parsedLatitude !in -90.0..90.0 -> "Latitude must be between −90 and 90."
+                        parsedLongitude !in -180.0..180.0 -> "Longitude must be between −180 and 180."
+                        else -> null
+                    }
+                    if (validation == null) {
+                        onSave(name.trim(), parsedLatitude!!, parsedLongitude!!)
+                    }
+                },
+            ) {
+                if (saving) {
+                    CircularProgressIndicator(Modifier.size(17.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(8.dp))
+                }
+                Text(if (saving) "Saving…" else "Save place")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss, enabled = !saving) { Text("Cancel") } },
     )
 }
 

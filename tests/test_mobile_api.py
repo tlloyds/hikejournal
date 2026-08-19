@@ -1963,8 +1963,9 @@ def test_create_species_quest_converts_target_save_failure_to_service_error(monk
         def __init__(self, received_repository):
             assert received_repository is repository
 
-        def resolve_area(self, _repository, area_id):
+        def resolve_area(self, _repository, area_id, *, locations=None):
             assert area_id == "area-1"
+            assert locations == [{"id": "area-1", "name": "Wetland", "lat": 28.1, "lng": -82.2}]
             return {"id": "area-1", "name": "Wetland", "lat": 28.1, "lng": -82.2}
 
         def nearby(self, **_kwargs):

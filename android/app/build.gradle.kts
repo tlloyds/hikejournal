@@ -45,6 +45,7 @@ val configuredMobileApiUrl = configuredValue("MOBILE_API_URL")
 val configuredMobileWebUrl = configuredValue("MOBILE_WEB_URL")
 val configuredTrailMapStyleUrl = configuredValue("MOBILE_TRAIL_MAP_STYLE_URL")
 val configuredSatelliteOfflineStyleUrl = configuredValue("MOBILE_SATELLITE_OFFLINE_STYLE_URL")
+val configuredGoogleWebClientId = configuredValue("GOOGLE_WEB_CLIENT_ID")
 val debugMobileApiUrl = configuredMobileApiUrl ?: "http://192.168.0.157:8506"
 val debugMobileWebUrl = configuredMobileWebUrl ?: "http://192.168.0.157:8505"
 val debugTrailMapStyleUrl = configuredTrailMapStyleUrl
@@ -73,7 +74,7 @@ android {
         applicationId = "com.hikejournal.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 120
+        versionCode = 121
         versionName = releaseVersion
 
         // Safe defaults ensure a newly added non-debug build type cannot inherit a LAN
@@ -83,6 +84,8 @@ android {
         buildConfigField("String", "DEFAULT_WEB_URL", quoted(""))
         buildConfigField("String", "TRAIL_MAP_STYLE_URL", quoted(""))
         buildConfigField("String", "SATELLITE_OFFLINE_STYLE_URL", quoted(""))
+        buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", quoted(""))
+        buildConfigField("boolean", "GOOGLE_AUTH_ENABLED", "false")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -109,6 +112,8 @@ android {
                 "SATELLITE_OFFLINE_STYLE_URL",
                 quoted(configuredSatelliteOfflineStyleUrl.orEmpty()),
             )
+            buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", quoted(configuredGoogleWebClientId.orEmpty()))
+            buildConfigField("boolean", "GOOGLE_AUTH_ENABLED", configuredGoogleWebClientId?.isNotBlank().toString())
         }
         release {
             isMinifyEnabled = true
@@ -126,6 +131,8 @@ android {
                 "SATELLITE_OFFLINE_STYLE_URL",
                 quoted(configuredSatelliteOfflineStyleUrl.orEmpty()),
             )
+            buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", quoted(configuredGoogleWebClientId.orEmpty()))
+            buildConfigField("boolean", "GOOGLE_AUTH_ENABLED", "true")
             signingConfigs.findByName("production")?.let { signingConfig = it }
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
@@ -179,6 +186,9 @@ val validatePersonalReleaseConfiguration = tasks.register("validatePersonalRelea
             configuredSatelliteOfflineStyleUrl,
             required = false,
         )
+        if (configuredGoogleWebClientId?.endsWith(".apps.googleusercontent.com") != true) {
+            throw GradleException("GOOGLE_WEB_CLIENT_ID is required for a public release build.")
+        }
         if (anySigningValueConfigured && !allSigningValuesConfigured) {
             throw GradleException(
                 "Set all four Android signing values, or leave all four unset to build unsigned artifacts.",
@@ -224,6 +234,10 @@ dependencies {
     implementation("androidx.work:work-runtime-ktx:2.10.1")
     implementation("androidx.exifinterface:exifinterface:1.4.1")
     implementation("com.google.android.gms:play-services-location:21.3.0")
+    implementation("androidx.credentials:credentials:1.6.0")
+    implementation("androidx.credentials:credentials-play-services-auth:1.6.0")
+    implementation("com.google.android.libraries.identity.googleid:googleid:1.2.0")
+    implementation("com.google.android.gms:play-services-auth:21.6.0")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")

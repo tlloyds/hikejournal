@@ -175,10 +175,15 @@ class SpeciesDiscoveryService:
         self.now = now or datetime.now(UTC)
 
     @staticmethod
-    def list_areas(repository: HikeJournalRepository, query: str = "") -> list[dict[str, Any]]:
+    def list_areas(
+        repository: HikeJournalRepository,
+        query: str = "",
+        *,
+        locations: list[dict[str, Any]] | None = None,
+    ) -> list[dict[str, Any]]:
         normalized_query = query.strip().casefold()
         areas = []
-        for location in repository.list_hike_locations():
+        for location in (locations if locations is not None else repository.list_hike_locations()):
             try:
                 lat = float(location.get("lat"))
                 lng = float(location.get("lng"))
@@ -200,11 +205,16 @@ class SpeciesDiscoveryService:
         return sorted(areas, key=lambda area: area["name"].casefold())
 
     @staticmethod
-    def resolve_area(repository: HikeJournalRepository, area_id: str) -> dict[str, Any]:
+    def resolve_area(
+        repository: HikeJournalRepository,
+        area_id: str,
+        *,
+        locations: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
         area = next(
             (
                 item
-                for item in SpeciesDiscoveryService.list_areas(repository)
+                for item in SpeciesDiscoveryService.list_areas(repository, locations=locations)
                 if str(item.get("id")) == str(area_id)
             ),
             None,

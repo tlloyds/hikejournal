@@ -55,8 +55,10 @@ The native Android app can now record a hike directly—with an offline GPS rout
 active timer, distance, pause/resume notification, and an `Untitled hike` handoff
 to the existing Journal workflow. Build it with `./build_android.command`; the
 versioned APK is written to `dist/`. The shared release version lives in
-`VERSION` and is used by both Android and the mobile API. Installation, first-recording permissions,
-and companion pairing are documented in [android/README.md](android/README.md).
+`VERSION` and is used by both Android and the mobile API. Public builds use
+Google sign-in and owner-scoped mobile sessions; debug builds can retain the
+legacy companion pairing path during development. Installation and
+first-recording permissions are documented in [android/README.md](android/README.md).
 
 Version 0.7 adds photo-led Place Profiles, personal seasonal history, deterministic
 Field Briefings with public-sightings maps, durable offline Field Marks, hike

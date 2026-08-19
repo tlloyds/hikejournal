@@ -2,6 +2,7 @@ package com.hikejournal.app.data
 
 import android.content.Context
 import android.net.Uri
+import com.hikejournal.app.data.local.OfflineDatabase
 import com.hikejournal.app.tracking.TrackingRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -48,6 +49,37 @@ class HikeJournalRepository(context: Context) {
 
     val serverUrl: String get() = api.serverUrl
     val pairingKey: String get() = api.pairingKey
+    val authAccount: AuthAccount? get() = api.authAccount
+    val hasStoredSession: Boolean get() = api.hasStoredSession
+
+    suspend fun authenticateGoogle(credential: String, nonce: String): AuthAccount =
+        api.authenticateGoogle(credential, nonce)
+
+    suspend fun refreshAuthSession(): AuthAccount = api.refreshAuthSession()
+
+    suspend fun signOut() {
+        api.signOut()
+        clearLocalAccountData()
+    }
+
+    suspend fun deleteAccount() {
+        api.deleteAccount()
+        clearLocalAccountData()
+    }
+
+    private suspend fun clearLocalAccountData() = withContext(Dispatchers.IO) {
+        OfflineDatabase.get(appContext).clearAllTables()
+        listOf(
+            cacheDirectory,
+            File(appContext.filesDir, "field-photos"),
+            File(appContext.filesDir, "field-routes"),
+            File(appContext.filesDir, "tracking/routes"),
+        ).forEach { directory ->
+            directory.listFiles().orEmpty().forEach(File::deleteRecursively)
+        }
+        cacheDirectory.mkdirs()
+        appContext.getSharedPreferences("hikejournal_sync", Context.MODE_PRIVATE).edit().clear().apply()
+    }
 
     suspend fun loadCompanionConfig(): CompanionConfig = api.getCompanionConfig()
 
@@ -152,6 +184,12 @@ class HikeJournalRepository(context: Context) {
         parse = ::parseHikeLocations,
     )
 
+    suspend fun createHikeLocation(
+        name: String,
+        latitude: Double?,
+        longitude: Double?,
+    ): HikeLocation = parseHikeLocation(api.createHikeLocationJson(name, latitude, longitude))
+
     fun riverGauges(): List<RiverGauge> = riverGaugePreferences.gauges()
 
     fun setRiverGaugeEnabled(siteId: String, enabled: Boolean) {
@@ -255,9 +293,13 @@ class HikeJournalRepository(context: Context) {
     suspend fun loadFieldBriefing(
         locationId: String,
         targetDate: String = LocalDate.now().toString(),
+        iconicTaxa: List<String> = emptyList(),
     ): LoadResult<FieldBriefing> = loadWithCache(
-        cacheFile = File(cacheDirectory, "briefing-${"$locationId|$targetDate".hashCode()}.json"),
-        fetch = { api.getFieldBriefingJson(locationId, targetDate) },
+        cacheFile = File(
+            cacheDirectory,
+            "briefing-${"$locationId|$targetDate|${iconicTaxa.sorted().joinToString(",")}".hashCode()}.json",
+        ),
+        fetch = { api.getFieldBriefingJson(locationId, targetDate, iconicTaxa) },
         parse = ::parseFieldBriefing,
     )
 

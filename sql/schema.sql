@@ -1,5 +1,27 @@
 create extension if not exists pgcrypto;
 
+create table if not exists public.app_users (
+    id uuid primary key default gen_random_uuid(),
+    google_subject text not null unique,
+    email text not null,
+    display_name text not null default '',
+    picture_url text,
+    created_at timestamptz not null default now(),
+    last_signed_in_at timestamptz not null default now(),
+    deletion_requested_at timestamptz
+);
+
+create table if not exists public.mobile_user_sessions (
+    id uuid primary key default gen_random_uuid(),
+    user_id uuid not null references public.app_users(id) on delete cascade,
+    device_id text not null,
+    refresh_token_hash text not null unique,
+    created_at timestamptz not null default now(),
+    last_used_at timestamptz not null default now(),
+    expires_at timestamptz not null,
+    revoked_at timestamptz
+);
+
 create table if not exists public.hikes (
     id uuid primary key default gen_random_uuid(),
     title text not null,
@@ -73,6 +95,8 @@ create table if not exists public.hike_locations (
     lat double precision,
     lng double precision,
     aliases jsonb not null default '[]'::jsonb,
+    owner_subject text,
+    owner_email text,
     created_at timestamptz not null default timezone('utc', now())
 );
 
@@ -311,6 +335,8 @@ alter table public.hike_locations add column if not exists source_url text;
 alter table public.hike_locations add column if not exists lat double precision;
 alter table public.hike_locations add column if not exists lng double precision;
 alter table public.hike_locations add column if not exists aliases jsonb not null default '[]'::jsonb;
+alter table public.hike_locations add column if not exists owner_subject text;
+alter table public.hike_locations add column if not exists owner_email text;
 alter table public.hikes drop constraint if exists hikes_cover_photo_id_fkey;
 alter table public.hikes
 add constraint hikes_cover_photo_id_fkey
@@ -378,6 +404,9 @@ on public.species_discovery_snapshots (expires_at);
 create index if not exists hike_collaborators_hike_id_idx on public.hike_collaborators (hike_id);
 create unique index if not exists hike_collaborators_unique_email_idx on public.hike_collaborators (hike_id, lower(collaborator_email));
 create index if not exists hike_locations_lower_name_idx on public.hike_locations (lower(name));
+create index if not exists hike_locations_owner_subject_idx on public.hike_locations (owner_subject);
+create unique index if not exists app_users_lower_email_idx on public.app_users (lower(email));
+create index if not exists mobile_user_sessions_user_idx on public.mobile_user_sessions (user_id, revoked_at, expires_at);
 create index if not exists hike_location_tags_location_id_idx on public.hike_location_tags (location_id);
 
 alter table public.hikes enable row level security;
@@ -394,6 +423,8 @@ alter table public.identification_events enable row level security;
 alter table public.observation_annotations enable row level security;
 alter table public.field_marks enable row level security;
 alter table public.hike_weather_snapshots enable row level security;
+alter table public.app_users enable row level security;
+alter table public.mobile_user_sessions enable row level security;
 alter table public.hikes force row level security;
 alter table public.photos force row level security;
 alter table public.species_observations force row level security;
@@ -408,6 +439,8 @@ alter table public.identification_events force row level security;
 alter table public.observation_annotations force row level security;
 alter table public.field_marks force row level security;
 alter table public.hike_weather_snapshots force row level security;
+alter table public.app_users force row level security;
+alter table public.mobile_user_sessions force row level security;
 
 drop policy if exists "Open single-user access for hikes" on public.hikes;
 drop policy if exists "Open single-user access for photos" on public.photos;

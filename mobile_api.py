@@ -4,6 +4,7 @@ import asyncio
 from collections import defaultdict
 import base64
 from contextlib import asynccontextmanager, suppress
+from contextvars import ContextVar
 from datetime import UTC, date, datetime, timezone
 import hashlib
 import hmac
@@ -20,7 +21,7 @@ from uuid import UUID, uuid4
 
 from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile, status
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
 from supabase import Client, create_client
 
@@ -88,6 +89,19 @@ from hike_journal.services.mobile_jobs import (
     mobile_job_request_fingerprint,
     validate_mobile_job_request,
 )
+from hike_journal.services.mobile_auth import (
+    MobileAuthError,
+    create_google_session,
+    delete_mobile_account,
+    google_web_client_id,
+    mobile_auth_configuration_errors,
+    mobile_auth_mode,
+    mobile_session_secret,
+    refresh_mobile_session,
+    revoke_mobile_session,
+    verify_access_token,
+)
+from hike_journal.public_pages import account_deletion_page, privacy_page, support_page
 from hike_journal.services.species_identification import select_shared_candidate
 from hike_journal.services.repositories import HikeJournalRepository
 from hike_journal.services.discovery import SpeciesDiscoveryService
@@ -155,6 +169,10 @@ def derive_mobile_api_token(supabase_key: str | None = None) -> str:
     return hashlib.sha256(f"{source}:hikejournal-mobile-local-v1".encode()).hexdigest()
 
 
+def _mobile_server_secret() -> str:
+    return mobile_session_secret() if mobile_auth_mode() == "google" else derive_mobile_api_token()
+
+
 def hosted_mobile_policy_enabled() -> bool:
     configured = os.getenv("MOBILE_REQUIRE_EXPLICIT_TOKEN", "").strip().lower()
     return configured in {"1", "true", "yes", "on"} or bool(
@@ -163,9 +181,11 @@ def hosted_mobile_policy_enabled() -> bool:
 
 
 def _hosted_mobile_configuration_errors() -> list[str]:
-    """Return non-secret configuration failures for the hosted personal API."""
+    """Return non-secret configuration failures for the selected hosted auth mode."""
     if not hosted_mobile_policy_enabled():
         return []
+    if mobile_auth_mode() == "google":
+        return mobile_auth_configuration_errors()
     errors: list[str] = []
     token = os.getenv("MOBILE_API_TOKEN", "").strip()
     if len(token) < 32 or len(set(token)) < 12:
@@ -190,6 +210,10 @@ def _validate_hosted_mobile_configuration() -> None:
         raise RuntimeError("Hosted mobile API configuration is invalid: " + "; ".join(errors))
 
 
+def _auth_capabilities() -> tuple[str, ...]:
+    return ("google_auth", "user_places") if mobile_auth_mode() == "google" else ()
+
+
 def mobile_owner_email() -> str | None:
     explicit = os.getenv("MOBILE_OWNER_EMAIL", "").strip().lower()
     if explicit:
@@ -205,6 +229,27 @@ class HikeInput(BaseModel):
     location_name: str = Field(default="", max_length=240)
     notes: str = Field(default="", max_length=20_000)
     location_id: str | None = Field(default=None, max_length=36)
+
+
+class GoogleAuthInput(BaseModel):
+    credential: str = Field(min_length=20, max_length=20_000)
+    device_id: str = Field(min_length=8, max_length=160)
+    nonce: str | None = Field(default=None, min_length=16, max_length=256)
+
+
+class RefreshSessionInput(BaseModel):
+    refresh_token: str = Field(min_length=32, max_length=512)
+    device_id: str = Field(min_length=8, max_length=160)
+
+
+class LogoutInput(BaseModel):
+    refresh_token: str = Field(default="", max_length=512)
+
+
+class HikeLocationInput(BaseModel):
+    name: str = Field(min_length=1, max_length=160)
+    lat: float | None = Field(default=None, ge=-90, le=90)
+    lng: float | None = Field(default=None, ge=-180, le=180)
 
 
 class CaptionInput(BaseModel):
@@ -464,10 +509,26 @@ async def record_request_telemetry(request: Request, call_next: Callable[[Reques
     return response
 
 
-def require_mobile_key(
+_request_user_context: ContextVar[dict[str, Any] | None] = ContextVar(
+    "hikejournal_mobile_user_context",
+    default=None,
+)
+
+
+async def require_mobile_key(
     request: Request,
+    authorization: Annotated[str | None, Header()] = None,
     x_hikejournal_key: Annotated[str | None, Header()] = None,
 ) -> None:
+    if mobile_auth_mode() == "google":
+        scheme, _, credential = (authorization or "").partition(" ")
+        if scheme.casefold() != "bearer" or not credential:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sign in with Google to continue.")
+        try:
+            _request_user_context.set(verify_access_token(credential))
+        except MobileAuthError as exc:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+        return
     expected = derive_mobile_api_token()
     if not expected or not x_hikejournal_key or not hmac.compare_digest(expected, x_hikejournal_key):
         logger.warning(
@@ -475,6 +536,7 @@ def require_mobile_key(
             _request_route_template(request),
         )
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Pairing key is missing or invalid.")
+    _request_user_context.set(None)
 
 
 def get_services() -> Services:
@@ -921,6 +983,9 @@ async def _mobile_job_recovery_loop() -> None:
 
 
 def _user_context() -> dict[str, Any]:
+    authenticated = _request_user_context.get()
+    if authenticated is not None:
+        return authenticated
     email = mobile_owner_email()
     if not email:
         return {"mode": "local-dev", "email": None, "subject": None, "auth_configured": False}
@@ -932,11 +997,22 @@ def _user_context() -> dict[str, Any]:
     }
 
 
+def _visible_hike_locations(repository: HikeJournalRepository) -> list[dict[str, Any]]:
+    context = _user_context()
+    return [
+        location
+        for location in repository.list_hike_locations()
+        if (
+            not location.get("owner_subject") and not location.get("owner_email")
+        ) or user_owns_record(location, context)
+    ]
+
+
 def _visible_hikes(repository: HikeJournalRepository) -> list[dict[str, Any]]:
     visible = filter_hikes_for_user(repository.list_hikes(), _user_context())
     return attach_location_tags_to_hikes(
         visible,
-        repository.list_hike_locations(),
+        _visible_hike_locations(repository),
         repository.list_hike_location_tags(),
     )
 
@@ -1814,7 +1890,7 @@ def _mobile_inat_oauth_record(value: str) -> dict[str, str] | None:
 
 
 def _mobile_inat_token_key() -> str:
-    return hashlib.sha256(f"{derive_mobile_api_token()}:inat-token-v1".encode()).hexdigest()
+    return hashlib.sha256(f"{_mobile_server_secret()}:inat-token-v1".encode()).hexdigest()
 
 
 def _load_mobile_inat_token(email: str | None) -> str:
@@ -1877,7 +1953,7 @@ def _mobile_oauth_state(email: str) -> str:
     payload = base64.urlsafe_b64encode(
         f"{email.lower()}|{int(time.time()) + 600}".encode()
     ).decode().rstrip("=")
-    signature = hmac.new(derive_mobile_api_token().encode(), payload.encode(), hashlib.sha256).hexdigest()
+    signature = hmac.new(_mobile_server_secret().encode(), payload.encode(), hashlib.sha256).hexdigest()
     return f"hj-mobile.{payload}.{signature}"
 
 
@@ -1886,7 +1962,7 @@ def _verify_mobile_oauth_state(state: str) -> str | None:
     if len(parts) != 3 or parts[0] != "hj-mobile":
         return None
     payload, signature = parts[1], parts[2]
-    expected = hmac.new(derive_mobile_api_token().encode(), payload.encode(), hashlib.sha256).hexdigest()
+    expected = hmac.new(_mobile_server_secret().encode(), payload.encode(), hashlib.sha256).hexdigest()
     if not hmac.compare_digest(signature, expected):
         return None
     try:
@@ -2058,6 +2134,110 @@ def health_ready() -> JSONResponse:
     )
 
 
+@app.get("/privacy", response_class=HTMLResponse, include_in_schema=False)
+def public_privacy_policy() -> str:
+    return privacy_page()
+
+
+@app.get("/support", response_class=HTMLResponse, include_in_schema=False)
+def public_support() -> str:
+    return support_page()
+
+
+@app.get("/account-deletion", response_class=HTMLResponse, include_in_schema=False)
+def public_account_deletion() -> str:
+    return account_deletion_page(google_web_client_id())
+
+
+@app.post("/v1/auth/google")
+def authenticate_google(payload: GoogleAuthInput) -> dict[str, Any]:
+    if mobile_auth_mode() != "google":
+        raise HTTPException(status_code=404, detail="Google sign-in is not enabled.")
+    try:
+        return create_google_session(
+            get_services().client,
+            credential=payload.credential,
+            device_id=payload.device_id,
+            nonce=payload.nonce,
+        ).payload()
+    except MobileAuthError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+
+
+@app.post("/v1/auth/refresh")
+def refresh_session(payload: RefreshSessionInput) -> dict[str, Any]:
+    if mobile_auth_mode() != "google":
+        raise HTTPException(status_code=404, detail="Google sign-in is not enabled.")
+    try:
+        return refresh_mobile_session(
+            get_services().client,
+            refresh_token=payload.refresh_token,
+            device_id=payload.device_id,
+        ).payload()
+    except MobileAuthError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+
+
+@app.post("/v1/auth/logout", dependencies=[Depends(require_mobile_key)])
+def logout_session(payload: LogoutInput) -> dict[str, bool]:
+    revoke_mobile_session(get_services().client, refresh_token=payload.refresh_token)
+    return {"signed_out": True}
+
+
+def _account_asset_paths(svc: Services, context: dict[str, Any]) -> list[str]:
+    owned_hikes = [
+        hike
+        for hike in svc.repository.list_hikes()
+        if user_owns_record(hike, context)
+    ]
+    hike_ids = {str(hike.get("id") or "") for hike in owned_hikes if hike.get("id")}
+    photos = [
+        photo
+        for hike_id in hike_ids
+        for photo in svc.repository.list_photos(hike_id)
+    ]
+    photos.extend(
+        photo
+        for photo in svc.repository.list_standalone_photos()
+        if user_owns_record(photo, context)
+    )
+    paths = {
+        str(photo.get("storage_path") or "").strip()
+        for photo in photos
+        if str(photo.get("storage_path") or "").strip()
+    }
+    paths.update(
+        str(route.get("source_storage_path") or "").strip()
+        for route in svc.repository.list_hike_route_imports()
+        if str(route.get("hike_id") or "") in hike_ids
+        and str(route.get("source_storage_path") or "").strip()
+    )
+    return sorted(paths)
+
+
+@app.delete("/v1/account", dependencies=[Depends(require_mobile_key)])
+def delete_account() -> dict[str, bool]:
+    context = _user_context()
+    subject = str(context.get("subject") or "").strip()
+    if not subject:
+        raise HTTPException(status_code=409, detail="A Google-authenticated account is required.")
+    svc = get_services()
+    try:
+        for storage_path in _account_asset_paths(svc, context):
+            svc.storage.delete_file(storage_path)
+    except Exception as exc:
+        logger.exception("Account media cleanup failed subject_hash=%s", hashlib.sha256(subject.encode()).hexdigest()[:12])
+        raise HTTPException(
+            status_code=503,
+            detail="Account deletion paused before database cleanup because stored media could not be removed. Try again.",
+        ) from exc
+    try:
+        delete_mobile_account(svc.client, google_subject=subject)
+    except MobileAuthError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {"deleted": True}
+
+
 @app.get("/v1/operations/health", dependencies=[Depends(require_mobile_key)])
 def operations_health() -> JSONResponse:
     dependencies, ready = _dependency_health_payload()
@@ -2088,14 +2268,20 @@ def operations_metrics() -> dict[str, Any]:
 @app.get("/v1/config", dependencies=[Depends(require_mobile_key)])
 def app_config() -> dict[str, Any]:
     store = _mobile_job_store()
-    capabilities = ["api_contract_v1", "operational_health", "gzip_responses"]
+    capabilities = ["api_contract_v1", "operational_health", "gzip_responses", *_auth_capabilities()]
     if not isinstance(store, InMemoryMobileJobStore):
         capabilities.append("durable_background_jobs")
-    return build_mobile_config(
+    return {
+        **build_mobile_config(
         web_url=os.getenv("MOBILE_WEB_URL", "http://192.168.0.157:8505"),
         api_version=MOBILE_API_VERSION,
         additional_capabilities=capabilities,
-    )
+        ),
+        "authentication": {
+            "mode": mobile_auth_mode(),
+            "google_client_id": google_web_client_id() if mobile_auth_mode() == "google" else None,
+        },
+    }
 
 
 @app.get("/v1/inat/oauth/start", dependencies=[Depends(require_mobile_key)])
@@ -2196,19 +2382,51 @@ def list_hikes() -> list[dict[str, Any]]:
 
 @app.get("/v1/hike-locations", dependencies=[Depends(require_mobile_key)])
 def list_hike_locations() -> list[dict[str, Any]]:
-    """Return the imported location library for native hike creation."""
+    """Return the shared Florida catalog plus the signed-in user's places."""
     return [
         {
             "id": str(location.get("id") or ""),
             "name": str(location.get("name") or ""),
             "lat": _library_coordinate(location.get("lat"), minimum=-90.0, maximum=90.0),
             "lng": _library_coordinate(location.get("lng"), minimum=-180.0, maximum=180.0),
+            **(
+                {"is_user_place": True}
+                if location.get("owner_subject") or location.get("owner_email")
+                else {}
+            ),
         }
         for location in canonicalize_hike_locations(
-            get_services().repository.list_hike_locations()
+            _visible_hike_locations(get_services().repository)
         )
         if location.get("id") and str(location.get("name") or "").strip()
     ]
+
+
+@app.post("/v1/hike-locations", dependencies=[Depends(require_mobile_key)], status_code=201)
+def create_hike_location(payload: HikeLocationInput) -> dict[str, Any]:
+    owner = _user_context()
+    subject = str(owner.get("subject") or "").strip()
+    if not subject:
+        raise HTTPException(status_code=409, detail="Sign in before adding a place.")
+    if (payload.lat is None) != (payload.lng is None):
+        raise HTTPException(status_code=422, detail="Add both latitude and longitude, or leave both blank.")
+    try:
+        location = get_services().repository.create_user_hike_location(
+            payload.name,
+            owner_subject=subject,
+            owner_email=str(owner.get("email") or "").strip().lower() or None,
+            lat=payload.lat,
+            lng=payload.lng,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="HikeJournal could not save that place.") from exc
+    return {
+        "id": str(location.get("id") or ""),
+        "name": str(location.get("name") or payload.name.strip()),
+        "lat": _library_coordinate(location.get("lat"), minimum=-90.0, maximum=90.0),
+        "lng": _library_coordinate(location.get("lng"), minimum=-180.0, maximum=180.0),
+        "is_user_place": True,
+    }
 
 
 def _library_coordinate(value: Any, *, minimum: float, maximum: float) -> float | None:
@@ -2243,7 +2461,7 @@ def _analytics_hikes(svc: Services) -> list[dict[str, Any]]:
 @app.get("/v1/places/{location_id}/profile", dependencies=[Depends(require_mobile_key)])
 def get_place_profile(location_id: str) -> dict[str, Any]:
     svc = get_services()
-    locations = svc.repository.list_hike_locations()
+    locations = _visible_hike_locations(svc.repository)
     canonical_id = canonical_location_id_map(locations).get(location_id, location_id)
     location = next(
         (
@@ -2268,13 +2486,18 @@ def get_field_briefing(
     location_id: str = Query(min_length=1, max_length=64),
     target_date: date = Query(alias="date"),
     radius_km: int = Query(default=10),
+    iconic_taxon: str | None = Query(default=None, max_length=160),
     limit: int = Query(default=18, ge=1, le=50),
 ) -> dict[str, Any]:
     _require_discovery_enabled()
     svc = get_services()
     try:
         normalized_radius = normalize_radius(radius_km)
-        area = SpeciesDiscoveryService.resolve_area(svc.repository, location_id)
+        area = SpeciesDiscoveryService.resolve_area(
+            svc.repository,
+            location_id,
+            locations=_visible_hike_locations(svc.repository),
+        )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     observations, photos_by_id = _discovery_collection_data(svc)
@@ -2283,7 +2506,7 @@ def get_field_briefing(
             area=area,
             target_date=target_date,
             radius_km=normalized_radius,
-            iconic_taxon=None,
+            iconic_taxon=iconic_taxon,
             observations=observations,
             photos_by_id=photos_by_id,
             limit=50,
@@ -2358,7 +2581,11 @@ def list_species() -> list[dict[str, Any]]:
 def list_discovery_areas(q: str = Query(default="", max_length=160)) -> list[dict[str, Any]]:
     _require_discovery_enabled()
     svc = get_services()
-    return SpeciesDiscoveryService.list_areas(svc.repository, q)
+    return SpeciesDiscoveryService.list_areas(
+        svc.repository,
+        q,
+        locations=_visible_hike_locations(svc.repository),
+    )
 
 
 @app.get("/v1/discovery/nearby", dependencies=[Depends(require_mobile_key)])
@@ -2382,7 +2609,11 @@ def get_nearby_species(
     service = SpeciesDiscoveryService(svc.repository)
     if area_id:
         try:
-            area = service.resolve_area(svc.repository, area_id)
+            area = service.resolve_area(
+                svc.repository,
+                area_id,
+                locations=_visible_hike_locations(svc.repository),
+            )
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
     else:
@@ -2430,7 +2661,11 @@ def get_nearby_species_sightings(
     service = SpeciesDiscoveryService(svc.repository)
     if area_id:
         try:
-            area = service.resolve_area(svc.repository, area_id)
+            area = service.resolve_area(
+                svc.repository,
+                area_id,
+                locations=_visible_hike_locations(svc.repository),
+            )
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
     else:
@@ -2479,7 +2714,11 @@ def create_species_quest(payload: SpeciesQuestInput) -> dict[str, Any]:
     context = _user_context()
     service = SpeciesDiscoveryService(svc.repository)
     try:
-        area = service.resolve_area(svc.repository, payload.area_id)
+        area = service.resolve_area(
+            svc.repository,
+            payload.area_id,
+            locations=_visible_hike_locations(svc.repository),
+        )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     linked_hike_id = _normalize_client_uuid(payload.linked_hike_id, field_name="linked_hike_id")
@@ -3993,7 +4232,7 @@ def _sync_hike_location_tags(
     hike: dict[str, Any],
     payload: HikeInput,
 ) -> None:
-    locations = repository.list_hike_locations()
+    locations = _visible_hike_locations(repository)
     canonical_ids = canonical_location_id_map(locations)
     location_ids = (
         [canonical_ids[payload.location_id]]
@@ -4179,7 +4418,9 @@ async def upload_photo(
         ).data or []
         if existing:
             existing_scope = str(existing[0].get("hike_id") or EVERYDAY_JOURNAL_ID)
-            if existing_scope != hike_id:
+            if existing_scope != hike_id or (
+                is_standalone and not user_owns_record(existing[0], _user_context())
+            ):
                 raise HTTPException(status_code=409, detail="This photo ID belongs to another hike.")
             return _photo_payload(existing[0])
     original = await file.read(MAX_UPLOAD_BYTES + 1)
@@ -4273,7 +4514,7 @@ def _get_visible_photo(photo_id: str) -> tuple[Services, dict[str, Any]]:
     photo = rows[0]
     if photo.get("hike_id"):
         _get_visible_hike(svc.repository, str(photo["hike_id"]))
-    elif mobile_owner_email() and str(photo.get("owner_email") or "").lower() != mobile_owner_email():
+    elif not user_owns_record(photo, _user_context()):
         raise HTTPException(status_code=404, detail="Photo not found.")
     return svc, photo
 
