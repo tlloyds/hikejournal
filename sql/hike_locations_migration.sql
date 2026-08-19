@@ -5,6 +5,12 @@ create table if not exists public.hike_locations (
     location_type text,
     source text,
     source_url text,
+    source_slug text,
+    state text,
+    region text,
+    county text,
+    manager_name text,
+    manager_type text,
     lat double precision,
     lng double precision,
     aliases jsonb not null default '[]'::jsonb,
@@ -22,11 +28,18 @@ create table if not exists public.hike_location_tags (
 alter table public.hike_locations add column if not exists location_type text;
 alter table public.hike_locations add column if not exists source text;
 alter table public.hike_locations add column if not exists source_url text;
+alter table public.hike_locations add column if not exists source_slug text;
+alter table public.hike_locations add column if not exists state text;
+alter table public.hike_locations add column if not exists region text;
+alter table public.hike_locations add column if not exists county text;
+alter table public.hike_locations add column if not exists manager_name text;
+alter table public.hike_locations add column if not exists manager_type text;
 alter table public.hike_locations add column if not exists lat double precision;
 alter table public.hike_locations add column if not exists lng double precision;
 alter table public.hike_locations add column if not exists aliases jsonb not null default '[]'::jsonb;
 
 create index if not exists hike_locations_lower_name_idx on public.hike_locations (lower(name));
+create index if not exists hike_locations_state_lower_name_idx on public.hike_locations (state, lower(name));
 create index if not exists hike_location_tags_location_id_idx on public.hike_location_tags (location_id);
 
 alter table public.hike_locations enable row level security;

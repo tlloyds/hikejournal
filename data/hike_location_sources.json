@@ -1,0 +1,72 @@
+{
+  "cfl_hike_planner_places": {
+    "coverage": [
+      "FL"
+    ],
+    "attribution_requirement": "confirm_with_publisher",
+    "fields_used": [
+      "name",
+      "representative_coordinate"
+    ],
+    "license_status": "redistribution_permission_required_before_public_release",
+    "publisher": "FloridaHikes",
+    "retrieved_at": "unknown",
+    "role": "historical_curated_seed",
+    "source_url": "https://floridahikes.com/",
+    "update_cadence": "paused_pending_permission"
+  },
+  "cfl_hike_planner_routes": {
+    "coverage": [
+      "FL"
+    ],
+    "attribution_requirement": "confirm_with_publisher",
+    "fields_used": [
+      "name",
+      "representative_coordinate"
+    ],
+    "license_status": "redistribution_permission_required_before_public_release",
+    "publisher": "FloridaHikes",
+    "retrieved_at": "unknown",
+    "role": "historical_curated_seed",
+    "source_url": "https://floridahikes.com/",
+    "update_cadence": "paused_pending_permission"
+  },
+  "usgs_national_digital_trails": {
+    "coverage": "all_50_states",
+    "attribution_requirement": "source_disclosure",
+    "fields_used": [
+      "name",
+      "alternate_name",
+      "pedestrian_use",
+      "designation",
+      "length",
+      "representative_coordinate",
+      "permanent_identifier"
+    ],
+    "license_status": "public_domain",
+    "publisher": "U.S. Geological Survey",
+    "retrieved_at": "2026-08-19",
+    "role": "nationwide_baseline",
+    "source_url": "https://www.usgs.gov/national-digital-trails/usgs-trails-explorer",
+    "update_cadence": "before_each_release"
+  },
+  "usgs_pad_us": {
+    "coverage": "all_50_states",
+    "attribution_requirement": "source_disclosure",
+    "fields_used": [
+      "unit_name",
+      "public_access",
+      "acreage",
+      "designation",
+      "manager_type",
+      "representative_coordinate",
+      "object_identifier"
+    ],
+    "license_status": "public_domain",
+    "publisher": "U.S. Geological Survey",
+    "retrieved_at": "2026-08-19",
+    "role": "open_access_federal_state_local_and_nonprofit_places",
+    "source_url": "https://www.usgs.gov/programs/gap-analysis-project/science/pad-us-data-overview",
+    "update_cadence": "before_each_release"
+  }
+}

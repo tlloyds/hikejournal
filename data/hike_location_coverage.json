@@ -1,0 +1,410 @@
+{
+  "minimum_state_locations": 94,
+  "state_count": 50,
+  "states": {
+    "AK": {
+      "non_federal_public_lands": 75,
+      "sources": {
+        "usgs_national_digital_trails": 175,
+        "usgs_pad_us": 75
+      },
+      "total": 250
+    },
+    "AL": {
+      "non_federal_public_lands": 75,
+      "sources": {
+        "usgs_national_digital_trails": 175,
+        "usgs_pad_us": 75
+      },
+      "total": 250
+    },
+    "AR": {
+      "non_federal_public_lands": 74,
+      "sources": {
+        "usgs_national_digital_trails": 175,
+        "usgs_pad_us": 75
+      },
+      "total": 250
+    },
+    "AZ": {
+      "non_federal_public_lands": 75,
+      "sources": {
+        "usgs_national_digital_trails": 175,
+        "usgs_pad_us": 75
+      },
+      "total": 250
+    },
+    "CA": {
+      "non_federal_public_lands": 76,
+      "sources": {
+        "usgs_national_digital_trails": 174,
+        "usgs_pad_us": 76
+      },
+      "total": 250
+    },
+    "CO": {
+      "non_federal_public_lands": 75,
+      "sources": {
+        "usgs_national_digital_trails": 175,
+        "usgs_pad_us": 75
+      },
+      "total": 250
+    },
+    "CT": {
+      "non_federal_public_lands": 74,
+      "sources": {
+        "usgs_national_digital_trails": 175,
+        "usgs_pad_us": 75
+      },
+      "total": 250
+    },
+    "DE": {
+      "non_federal_public_lands": 65,
+      "sources": {
+        "usgs_national_digital_trails": 174,
+        "usgs_pad_us": 65
+      },
+      "total": 239
+    },
+    "FL": {
+      "non_federal_public_lands": 65,
+      "sources": {
+        "cfl_hike_planner_places": 8,
+        "cfl_hike_planner_routes": 438,
+        "manual_curated": 5,
+        "usgs_national_digital_trails": 173,
+        "usgs_pad_us": 65
+      },
+      "total": 689
+    },
+    "GA": {
+      "non_federal_public_lands": 75,
+      "sources": {
+        "usgs_national_digital_trails": 175,
+        "usgs_pad_us": 75
+      },
+      "total": 250
+    },
+    "HI": {
+      "non_federal_public_lands": 74,
+      "sources": {
+        "usgs_national_digital_trails": 175,
+        "usgs_pad_us": 75
+      },
+      "total": 250
+    },
+    "IA": {
+      "non_federal_public_lands": 75,
+      "sources": {
+        "usgs_national_digital_trails": 175,
+        "usgs_pad_us": 75
+      },
+      "total": 250
+    },
+    "ID": {
+      "non_federal_public_lands": 87,
+      "sources": {
+        "usgs_national_digital_trails": 163,
+        "usgs_pad_us": 87
+      },
+      "total": 250
+    },
+    "IL": {
+      "non_federal_public_lands": 163,
+      "sources": {
+        "usgs_national_digital_trails": 87,
+        "usgs_pad_us": 163
+      },
+      "total": 250
+    },
+    "IN": {
+      "non_federal_public_lands": 75,
+      "sources": {
+        "usgs_national_digital_trails": 175,
+        "usgs_pad_us": 75
+      },
+      "total": 250
+    },
+    "KS": {
+      "non_federal_public_lands": 231,
+      "sources": {
+        "usgs_national_digital_trails": 19,
+        "usgs_pad_us": 231
+      },
+      "total": 250
+    },
+    "KY": {
+      "non_federal_public_lands": 75,
+      "sources": {
+        "usgs_national_digital_trails": 175,
+        "usgs_pad_us": 75
+      },
+      "total": 250
+    },
+    "LA": {
+      "non_federal_public_lands": 168,
+      "sources": {
+        "usgs_national_digital_trails": 81,
+        "usgs_pad_us": 169
+      },
+      "total": 250
+    },
+    "MA": {
+      "non_federal_public_lands": 1,
+      "sources": {
+        "usgs_national_digital_trails": 109,
+        "usgs_pad_us": 141
+      },
+      "total": 250
+    },
+    "MD": {
+      "non_federal_public_lands": 76,
+      "sources": {
+        "usgs_national_digital_trails": 174,
+        "usgs_pad_us": 76
+      },
+      "total": 250
+    },
+    "ME": {
+      "non_federal_public_lands": 46,
+      "sources": {
+        "usgs_national_digital_trails": 110,
+        "usgs_pad_us": 48
+      },
+      "total": 158
+    },
+    "MI": {
+      "non_federal_public_lands": 82,
+      "sources": {
+        "usgs_national_digital_trails": 168,
+        "usgs_pad_us": 82
+      },
+      "total": 250
+    },
+    "MN": {
+      "non_federal_public_lands": 76,
+      "sources": {
+        "usgs_national_digital_trails": 174,
+        "usgs_pad_us": 76
+      },
+      "total": 250
+    },
+    "MO": {
+      "non_federal_public_lands": 30,
+      "sources": {
+        "usgs_national_digital_trails": 175,
+        "usgs_pad_us": 75
+      },
+      "total": 250
+    },
+    "MS": {
+      "non_federal_public_lands": 114,
+      "sources": {
+        "usgs_national_digital_trails": 91,
+        "usgs_pad_us": 126
+      },
+      "total": 217
+    },
+    "MT": {
+      "non_federal_public_lands": 83,
+      "sources": {
+        "usgs_national_digital_trails": 166,
+        "usgs_pad_us": 84
+      },
+      "total": 250
+    },
+    "NC": {
+      "non_federal_public_lands": 11,
+      "sources": {
+        "usgs_national_digital_trails": 175,
+        "usgs_pad_us": 75
+      },
+      "total": 250
+    },
+    "ND": {
+      "non_federal_public_lands": 76,
+      "sources": {
+        "usgs_national_digital_trails": 174,
+        "usgs_pad_us": 76
+      },
+      "total": 250
+    },
+    "NE": {
+      "non_federal_public_lands": 206,
+      "sources": {
+        "usgs_national_digital_trails": 44,
+        "usgs_pad_us": 206
+      },
+      "total": 250
+    },
+    "NH": {
+      "non_federal_public_lands": 39,
+      "sources": {
+        "usgs_national_digital_trails": 175,
+        "usgs_pad_us": 75
+      },
+      "total": 250
+    },
+    "NJ": {
+      "non_federal_public_lands": 73,
+      "sources": {
+        "usgs_national_digital_trails": 175,
+        "usgs_pad_us": 75
+      },
+      "total": 250
+    },
+    "NM": {
+      "non_federal_public_lands": 75,
+      "sources": {
+        "usgs_national_digital_trails": 175,
+        "usgs_pad_us": 75
+      },
+      "total": 250
+    },
+    "NV": {
+      "non_federal_public_lands": 75,
+      "sources": {
+        "usgs_national_digital_trails": 175,
+        "usgs_pad_us": 75
+      },
+      "total": 250
+    },
+    "NY": {
+      "non_federal_public_lands": 76,
+      "sources": {
+        "usgs_national_digital_trails": 174,
+        "usgs_pad_us": 76
+      },
+      "total": 250
+    },
+    "OH": {
+      "non_federal_public_lands": 76,
+      "sources": {
+        "usgs_national_digital_trails": 174,
+        "usgs_pad_us": 76
+      },
+      "total": 250
+    },
+    "OK": {
+      "non_federal_public_lands": 172,
+      "sources": {
+        "usgs_national_digital_trails": 78,
+        "usgs_pad_us": 172
+      },
+      "total": 250
+    },
+    "OR": {
+      "non_federal_public_lands": 75,
+      "sources": {
+        "usgs_national_digital_trails": 175,
+        "usgs_pad_us": 75
+      },
+      "total": 250
+    },
+    "PA": {
+      "non_federal_public_lands": 58,
+      "sources": {
+        "usgs_national_digital_trails": 175,
+        "usgs_pad_us": 75
+      },
+      "total": 250
+    },
+    "RI": {
+      "non_federal_public_lands": 64,
+      "sources": {
+        "usgs_national_digital_trails": 27,
+        "usgs_pad_us": 67
+      },
+      "total": 94
+    },
+    "SC": {
+      "non_federal_public_lands": 88,
+      "sources": {
+        "usgs_national_digital_trails": 161,
+        "usgs_pad_us": 89
+      },
+      "total": 250
+    },
+    "SD": {
+      "non_federal_public_lands": 85,
+      "sources": {
+        "usgs_national_digital_trails": 165,
+        "usgs_pad_us": 85
+      },
+      "total": 250
+    },
+    "TN": {
+      "non_federal_public_lands": 76,
+      "sources": {
+        "usgs_national_digital_trails": 174,
+        "usgs_pad_us": 76
+      },
+      "total": 250
+    },
+    "TX": {
+      "non_federal_public_lands": 58,
+      "sources": {
+        "usgs_national_digital_trails": 175,
+        "usgs_pad_us": 75
+      },
+      "total": 250
+    },
+    "UT": {
+      "non_federal_public_lands": 75,
+      "sources": {
+        "usgs_national_digital_trails": 175,
+        "usgs_pad_us": 75
+      },
+      "total": 250
+    },
+    "VA": {
+      "non_federal_public_lands": 67,
+      "sources": {
+        "usgs_national_digital_trails": 174,
+        "usgs_pad_us": 76
+      },
+      "total": 250
+    },
+    "VT": {
+      "non_federal_public_lands": 5,
+      "sources": {
+        "usgs_national_digital_trails": 175,
+        "usgs_pad_us": 75
+      },
+      "total": 250
+    },
+    "WA": {
+      "non_federal_public_lands": 75,
+      "sources": {
+        "usgs_national_digital_trails": 175,
+        "usgs_pad_us": 75
+      },
+      "total": 250
+    },
+    "WI": {
+      "non_federal_public_lands": 79,
+      "sources": {
+        "usgs_national_digital_trails": 171,
+        "usgs_pad_us": 79
+      },
+      "total": 250
+    },
+    "WV": {
+      "non_federal_public_lands": 75,
+      "sources": {
+        "usgs_national_digital_trails": 175,
+        "usgs_pad_us": 75
+      },
+      "total": 250
+    },
+    "WY": {
+      "non_federal_public_lands": 75,
+      "sources": {
+        "usgs_national_digital_trails": 175,
+        "usgs_pad_us": 75
+      },
+      "total": 250
+    }
+  },
+  "total_locations": 12647
+}

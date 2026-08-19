@@ -92,6 +92,12 @@ create table if not exists public.hike_locations (
     location_type text,
     source text,
     source_url text,
+    source_slug text,
+    state text,
+    region text,
+    county text,
+    manager_name text,
+    manager_type text,
     lat double precision,
     lng double precision,
     aliases jsonb not null default '[]'::jsonb,
@@ -332,6 +338,12 @@ alter table public.hike_route_imports add column if not exists updated_at timest
 alter table public.hike_locations add column if not exists location_type text;
 alter table public.hike_locations add column if not exists source text;
 alter table public.hike_locations add column if not exists source_url text;
+alter table public.hike_locations add column if not exists source_slug text;
+alter table public.hike_locations add column if not exists state text;
+alter table public.hike_locations add column if not exists region text;
+alter table public.hike_locations add column if not exists county text;
+alter table public.hike_locations add column if not exists manager_name text;
+alter table public.hike_locations add column if not exists manager_type text;
 alter table public.hike_locations add column if not exists lat double precision;
 alter table public.hike_locations add column if not exists lng double precision;
 alter table public.hike_locations add column if not exists aliases jsonb not null default '[]'::jsonb;
@@ -404,6 +416,7 @@ on public.species_discovery_snapshots (expires_at);
 create index if not exists hike_collaborators_hike_id_idx on public.hike_collaborators (hike_id);
 create unique index if not exists hike_collaborators_unique_email_idx on public.hike_collaborators (hike_id, lower(collaborator_email));
 create index if not exists hike_locations_lower_name_idx on public.hike_locations (lower(name));
+create index if not exists hike_locations_state_lower_name_idx on public.hike_locations (state, lower(name));
 create index if not exists hike_locations_owner_subject_idx on public.hike_locations (owner_subject);
 create unique index if not exists app_users_lower_email_idx on public.app_users (lower(email));
 create index if not exists mobile_user_sessions_user_idx on public.mobile_user_sessions (user_id, revoked_at, expires_at);

@@ -814,7 +814,7 @@ def render_location_library_sidebar_tools(repository: HikeJournalRepository, hik
         if action_cols[0].button("Import", key="sidebar_import_location_library", use_container_width=True):
             imported_count = repository.upsert_hike_locations(load_seed_hike_locations())
             invalidate_data_cache()
-            st.session_state.location_library_notice = f"Imported {imported_count} mapped Central Florida locations."
+            st.session_state.location_library_notice = f"Imported {imported_count} mapped locations across all 50 states."
             st.rerun()
         if action_cols[1].button("Auto-tag", key="sidebar_autotag_hike_locations", use_container_width=True):
             latest_locations = fetch_hike_locations()

@@ -124,6 +124,10 @@ SPECIES_PUBLISH_JOB_TYPE = "species-publish-batch"
 MOBILE_JOB_MAX_LOCAL_WORKERS = 4
 MOBILE_REVIEW_JOB_LEASE_SECONDS = 180
 MOBILE_JOB_CACHE_FINGERPRINT_KEY = "_request_fingerprint"
+US_STATE_CODES = frozenset(
+    "AL AK AZ AR CA CO CT DE FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS "
+    "MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY".split()
+)
 MOBILE_API_VERSION = Path(__file__).resolve().with_name("VERSION").read_text(encoding="utf-8").strip()
 if not MOBILE_API_VERSION:
     raise RuntimeError("VERSION must contain the mobile API release version")
@@ -2385,8 +2389,35 @@ def list_hikes() -> list[dict[str, Any]]:
 
 
 @app.get("/v1/hike-locations", dependencies=[Depends(require_mobile_key)])
-def list_hike_locations() -> list[dict[str, Any]]:
-    """Return the shared Florida catalog plus the signed-in user's places."""
+def list_hike_locations(
+    state: Annotated[str | None, Query(min_length=2, max_length=2)] = None,
+) -> list[dict[str, Any]]:
+    """Return one state pack plus the signed-in user's personal places."""
+    explicit_state = bool(str(state or "").strip())
+    state_code = str(state or "FL").strip().upper()
+    if state_code not in US_STATE_CODES:
+        raise HTTPException(status_code=422, detail="Use a two-letter U.S. state code.")
+    visible_locations = _visible_hike_locations(get_services().repository)
+    visible_locations = [
+        location
+        for location in visible_locations
+        if (
+            location.get("owner_subject")
+            or location.get("owner_email")
+            or str(location.get("state") or "").upper() == state_code
+            # Existing Florida rows gain their state on the first nationwide
+            # seed import. A request without the new state parameter comes from
+            # an older client, so preserve its legacy Florida-sized response.
+            or (
+                state_code == "FL"
+                and not location.get("state")
+                and (
+                    not explicit_state
+                    or str(location.get("source") or "").startswith("cfl_")
+                )
+            )
+        )
+    ]
     return [
         {
             "id": str(location.get("id") or ""),
@@ -2394,13 +2425,18 @@ def list_hike_locations() -> list[dict[str, Any]]:
             "lat": _library_coordinate(location.get("lat"), minimum=-90.0, maximum=90.0),
             "lng": _library_coordinate(location.get("lng"), minimum=-180.0, maximum=180.0),
             **(
+                {"state": str(location.get("state") or "").upper()}
+                if location.get("state")
+                else {}
+            ),
+            **(
                 {"is_user_place": True}
                 if location.get("owner_subject") or location.get("owner_email")
                 else {}
             ),
         }
         for location in canonicalize_hike_locations(
-            _visible_hike_locations(get_services().repository)
+            visible_locations
         )
         if location.get("id") and str(location.get("name") or "").strip()
     ]

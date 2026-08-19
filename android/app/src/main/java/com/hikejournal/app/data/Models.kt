@@ -231,6 +231,7 @@ data class HikeLocation(
     val latitude: Double? = null,
     val longitude: Double? = null,
     val isUserPlace: Boolean = false,
+    val stateCode: String? = null,
 )
 
 data class SpeciesRecord(
@@ -693,6 +694,7 @@ private fun parseHikeLocation(item: JSONObject): HikeLocation = HikeLocation(
     latitude = item.optNullableDouble("lat")?.takeIf { it.isFinite() && it in -90.0..90.0 },
     longitude = item.optNullableDouble("lng")?.takeIf { it.isFinite() && it in -180.0..180.0 },
     isUserPlace = item.optBoolean("is_user_place"),
+    stateCode = normalizeUsStateCode(item.optString("state")),
 )
 
 fun parseHike(json: String): Hike = parseHike(JSONObject(json))

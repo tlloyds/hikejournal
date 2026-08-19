@@ -12,6 +12,7 @@ The active delivery plan is split into three compatibility-gated tracks:
 - [Track C: Google Play publication](docs/roadmaps/TRACK_C_GOOGLE_PLAY.md)
 - [Track A operations and restore runbook](docs/TRACK_A_OPERATIONS_RUNBOOK.md)
 - [Android artifact verification](docs/ANDROID_ARTIFACT_VERIFICATION.md)
+- [Nationwide location library](docs/NATIONWIDE_LOCATION_LIBRARY.md)
 
 The [roadmap overview](docs/roadmaps/README.md) defines the shared no-regression
 invariant, sequencing, evidence requirements, and webapp boundaries.
@@ -85,6 +86,8 @@ If you already have a running project from the earlier single-observation versio
   the 24-hour shared iNaturalist cache, and owner-scoped Field Quests
 - [sql/longitudinal_intelligence_migration.sql](sql/longitudinal_intelligence_migration.sql)
   for Place/season analytics, Field Marks, phenophases, and identification history
+- [sql/nationwide_hike_locations_migration.sql](sql/nationwide_hike_locations_migration.sql)
+  for state-scoped trail packs and nationwide location provenance
 
 ## Environment
 

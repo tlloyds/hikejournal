@@ -196,6 +196,8 @@ import com.hikejournal.app.data.SpeciesRecord
 import com.hikejournal.app.data.SpeciesLabel
 import com.hikejournal.app.data.SyncAttention
 import com.hikejournal.app.data.TrailOverlayDefinition
+import com.hikejournal.app.data.UnitedStates
+import com.hikejournal.app.data.detectCurrentUsState
 import com.hikejournal.app.data.WeatherSnapshot
 import com.hikejournal.app.tracking.TrackingStatus
 import com.hikejournal.app.ui.theme.Fern
@@ -341,6 +343,10 @@ fun HikeJournalApp(viewModel: AppViewModel) {
             error = state.authError,
             onSignIn = launchGoogleSignIn,
         )
+        return
+    }
+    if (state.locationLibraryStateCode == null) {
+        LocationLibrarySetupGate(onSelectState = viewModel::selectLocationState)
         return
     }
     val mapDisplayPreferences = remember(context) { MapDisplayPreferences(context) }
@@ -1281,6 +1287,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
             companionVersion = state.companionConfig.apiVersion,
             inatConnected = state.publishQueue.connected,
             selectedTrailIds = selectedTrailIds,
+            locationLibraryStateCode = state.locationLibraryStateCode.orEmpty(),
             hikeLocations = state.hikeLocations,
             riverGauges = state.riverGaugeOptions,
             nearbyRiverGauges = state.nearbyRiverGauges,
@@ -1313,6 +1320,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                 }
                 mapDisplayPreferences.setTrailSelected(trailId, selected)
             },
+            onLocationStateChange = viewModel::selectLocationState,
             onRiverGaugeEnabledChange = viewModel::setRiverGaugeEnabled,
             onAddRiverGauge = viewModel::addRiverGauge,
             onFindRiverGauges = viewModel::findRiverGaugesNear,
@@ -1382,7 +1390,7 @@ private fun GoogleSetupGate(
                         color = Ink,
                     )
                     SetupStep("1", "Sign in with Google", "Your journal syncs to your account across installs.")
-                    SetupStep("2", "Choose your places", "Florida places are included. Add anywhere else from Settings.")
+                    SetupStep("2", "Choose your state", "Load a focused trail library for where you hike. You can change it anytime.")
                     SetupStep("3", "Allow things as you use them", "Location powers hike recording. Photos stay optional, and iNaturalist can be connected later.")
                     error?.let {
                         Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
@@ -1396,6 +1404,133 @@ private fun GoogleSetupGate(
                         Spacer(Modifier.width(8.dp))
                     }
                     Text(if (loading) "Connecting…" else "Sign in with Google")
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun LocationLibrarySetupGate(onSelectState: (String) -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var selectedStateCode by rememberSaveable { mutableStateOf<String?>(null) }
+    var stateMenuOpen by rememberSaveable { mutableStateOf(false) }
+    var detecting by rememberSaveable { mutableStateOf(false) }
+    var detectionError by rememberSaveable { mutableStateOf<String?>(null) }
+    val detectState: () -> Unit = {
+        detecting = true
+        detectionError = null
+        scope.launch {
+            runCatching { detectCurrentUsState(context) }
+                .onSuccess { stateCode ->
+                    detecting = false
+                    selectedStateCode = stateCode
+                }
+                .onFailure { error ->
+                    detecting = false
+                    detectionError = error.message ?: "Choose your state from the list."
+                }
+        }
+    }
+    val locationPermission = rememberLauncherForActivityResult(RequestMultiplePermissions()) { grants ->
+        if (grants.values.any { it }) {
+            detectState()
+        } else {
+            detectionError = "Location was not allowed. Choose your state from the list."
+        }
+    }
+    val selectedStateName = UnitedStates.firstOrNull { it.code == selectedStateCode }?.name.orEmpty()
+
+    Box(Modifier.fillMaxSize().background(Parchment)) {
+        MountainField(
+            Modifier.fillMaxWidth().height(300.dp).align(Alignment.TopCenter),
+        )
+        Text(
+            "HIKEJOURNAL",
+            style = MaterialTheme.typography.displaySmall,
+            color = Paper,
+            modifier = Modifier.align(Alignment.TopStart).statusBarsPadding().padding(24.dp),
+        )
+        AlertDialog(
+            onDismissRequest = {},
+            title = { Text("Bring the right trails") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        "Choose a state to download its place library. HikeJournal keeps this focused so search and GPS suggestions stay fast.",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = Ink,
+                    )
+                    ExposedDropdownMenuBox(
+                        expanded = stateMenuOpen,
+                        onExpandedChange = { stateMenuOpen = it },
+                    ) {
+                        OutlinedTextField(
+                            value = selectedStateName,
+                            onValueChange = {},
+                            modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable),
+                            label = { Text("State") },
+                            placeholder = { Text("Choose a state") },
+                            trailingIcon = {
+                                androidx.compose.material3.ExposedDropdownMenuDefaults.TrailingIcon(stateMenuOpen)
+                            },
+                            readOnly = true,
+                        )
+                        ExposedDropdownMenu(
+                            expanded = stateMenuOpen,
+                            onDismissRequest = { stateMenuOpen = false },
+                        ) {
+                            UnitedStates.forEach { state ->
+                                DropdownMenuItem(
+                                    text = { Text(state.name) },
+                                    onClick = {
+                                        selectedStateCode = state.code
+                                        stateMenuOpen = false
+                                        detectionError = null
+                                    },
+                                )
+                            }
+                        }
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            if (
+                                context.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+                                context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                            ) {
+                                detectState()
+                            } else {
+                                locationPermission.launch(arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION))
+                            }
+                        },
+                        enabled = !detecting,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        if (detecting) {
+                            CircularProgressIndicator(Modifier.size(17.dp), color = Moss, strokeWidth = 2.dp)
+                        } else {
+                            Icon(Icons.Rounded.LocationOn, contentDescription = null, modifier = Modifier.size(18.dp))
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        Text(if (detecting) "Finding your state…" else "Use current location")
+                    }
+                    detectionError?.let {
+                        Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                    }
+                    Text(
+                        "Only the state result is saved. Your coordinates are not sent to HikeJournal.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = InkMuted,
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = { selectedStateCode?.let(onSelectState) },
+                    enabled = selectedStateCode != null && !detecting,
+                ) {
+                    Text("Load places")
                 }
             },
         )
@@ -3913,6 +4048,7 @@ private fun SettingsDialog(
     companionVersion: String?,
     inatConnected: Boolean,
     selectedTrailIds: Set<String>,
+    locationLibraryStateCode: String,
     hikeLocations: List<HikeLocation>,
     riverGauges: List<RiverGauge>,
     nearbyRiverGauges: List<NearbyRiverGauge>,
@@ -3929,6 +4065,7 @@ private fun SettingsDialog(
     onSignOut: () -> Unit,
     onDeleteAccount: () -> Unit,
     onTrailOverlayChange: (String, Boolean) -> Unit,
+    onLocationStateChange: (String) -> Unit,
     onRiverGaugeEnabledChange: (String, Boolean) -> Unit,
     onAddRiverGauge: (String) -> Unit,
     onFindRiverGauges: (HikeLocation) -> Unit,
@@ -3946,10 +4083,38 @@ private fun SettingsDialog(
     var trailPickerOpen by rememberSaveable { mutableStateOf(false) }
     var gaugeFinderOpen by rememberSaveable { mutableStateOf(false) }
     var placeEditorOpen by rememberSaveable { mutableStateOf(false) }
+    var locationStateMenuOpen by rememberSaveable { mutableStateOf(false) }
+    var detectingLocationState by rememberSaveable { mutableStateOf(false) }
+    var locationStateError by rememberSaveable { mutableStateOf<String?>(null) }
     var deleteAccountConfirmation by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val openWebUrl = remember(webUrl) { validSettingsWebUrl(webUrl) }
     val accountServiceUrl = remember(currentUrl) { validSettingsWebUrl(currentUrl) }
+    val locationStateName = UnitedStates.firstOrNull { it.code == locationLibraryStateCode }?.name
+        ?: locationLibraryStateCode
+    val detectLocationState: () -> Unit = {
+        detectingLocationState = true
+        locationStateError = null
+        scope.launch {
+            runCatching { detectCurrentUsState(context) }
+                .onSuccess { stateCode ->
+                    detectingLocationState = false
+                    onLocationStateChange(stateCode)
+                }
+                .onFailure { error ->
+                    detectingLocationState = false
+                    locationStateError = error.message ?: "Choose your state from the list."
+                }
+        }
+    }
+    val locationPermission = rememberLauncherForActivityResult(RequestMultiplePermissions()) { grants ->
+        if (grants.values.any { it }) {
+            detectLocationState()
+        } else {
+            locationStateError = "Location was not allowed. Choose your state from the list."
+        }
+    }
     if (trailPickerOpen) {
         TrailOverlayPickerDialog(
             selectedTrailIds = selectedTrailIds,
@@ -4087,11 +4252,66 @@ private fun SettingsDialog(
                 HorizontalDivider(Modifier.padding(top = 12.dp))
                 Text("Places", style = MaterialTheme.typography.titleMedium, color = Ink, modifier = Modifier.padding(top = 16.dp))
                 Text(
-                    "Florida’s current place library is included. Add trailheads, parks, and preserves anywhere you explore.",
+                    "$locationStateName hiking places are loaded for search and GPS suggestions. Change the state whenever your hiking plans move.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = InkMuted,
                     modifier = Modifier.padding(top = 4.dp),
                 )
+                ExposedDropdownMenuBox(
+                    expanded = locationStateMenuOpen,
+                    onExpandedChange = { locationStateMenuOpen = it },
+                    modifier = Modifier.padding(top = 12.dp),
+                ) {
+                    OutlinedTextField(
+                        value = locationStateName,
+                        onValueChange = {},
+                        modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable),
+                        label = { Text("Place library state") },
+                        trailingIcon = {
+                            androidx.compose.material3.ExposedDropdownMenuDefaults.TrailingIcon(locationStateMenuOpen)
+                        },
+                        readOnly = true,
+                    )
+                    ExposedDropdownMenu(
+                        expanded = locationStateMenuOpen,
+                        onDismissRequest = { locationStateMenuOpen = false },
+                    ) {
+                        UnitedStates.forEach { state ->
+                            DropdownMenuItem(
+                                text = { Text(state.name) },
+                                onClick = {
+                                    locationStateMenuOpen = false
+                                    locationStateError = null
+                                    onLocationStateChange(state.code)
+                                },
+                            )
+                        }
+                    }
+                }
+                TextButton(
+                    onClick = {
+                        if (
+                            context.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+                            context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                        ) {
+                            detectLocationState()
+                        } else {
+                            locationPermission.launch(arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION))
+                        }
+                    },
+                    enabled = !detectingLocationState,
+                ) {
+                    if (detectingLocationState) {
+                        CircularProgressIndicator(Modifier.size(16.dp), color = Moss, strokeWidth = 2.dp)
+                    } else {
+                        Icon(Icons.Rounded.LocationOn, contentDescription = null, modifier = Modifier.size(17.dp))
+                    }
+                    Spacer(Modifier.width(7.dp))
+                    Text(if (detectingLocationState) "Finding your state…" else "Use current location")
+                }
+                locationStateError?.let {
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                }
                 OutlinedButton(
                     onClick = { placeEditorOpen = true },
                     modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
@@ -4111,6 +4331,12 @@ private fun SettingsDialog(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
+                Text(
+                    "Place library: USGS trails and open-access public lands (public domain), plus curated state sources.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = InkMuted,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
                 HorizontalDivider(Modifier.padding(top = 18.dp))
                 Text("iNaturalist", style = MaterialTheme.typography.titleMedium, color = Ink, modifier = Modifier.padding(top = 16.dp))
                 Text(

@@ -1746,6 +1746,70 @@ def test_native_hike_locations_returns_imported_library(monkeypatch):
     ]
 
 
+def test_native_hike_locations_returns_selected_state_and_personal_places(monkeypatch):
+    repository = type(
+        "Repository",
+        (),
+        {
+            "list_hike_locations": lambda _self: [
+                {
+                    "id": "florida-1",
+                    "name": "Florida Trail",
+                    "state": "FL",
+                    "lat": 28.0,
+                    "lng": -82.0,
+                },
+                {
+                    "id": "maine-1",
+                    "name": "Acadia Loop",
+                    "state": "ME",
+                    "lat": 44.0,
+                    "lng": -68.0,
+                },
+                {
+                    "id": "personal-1",
+                    "name": "Family Woods",
+                    "owner_subject": "person-1",
+                    "lat": 43.0,
+                    "lng": -70.0,
+                },
+            ]
+        },
+    )()
+    monkeypatch.setattr(
+        "mobile_api.get_services",
+        lambda: type("Service", (), {"repository": repository})(),
+    )
+    monkeypatch.setattr(
+        "mobile_api._user_context",
+        lambda: {"mode": "google", "subject": "person-1", "email": "hiker@example.com"},
+    )
+
+    assert list_hike_locations("me") == [
+        {
+            "id": "maine-1",
+            "name": "Acadia Loop",
+            "lat": 44.0,
+            "lng": -68.0,
+            "state": "ME",
+        },
+        {
+            "id": "personal-1",
+            "name": "Family Woods",
+            "lat": 43.0,
+            "lng": -70.0,
+            "is_user_place": True,
+        },
+    ]
+
+
+def test_native_hike_locations_rejects_non_state_code():
+    with pytest.raises(HTTPException) as error:
+        list_hike_locations("XX")
+
+    assert error.value.status_code == 422
+
+
 def test_create_hike_correlates_selected_imported_location(monkeypatch):
     location_id = "22222222-2222-4222-8222-222222222222"
 

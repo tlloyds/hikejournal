@@ -91,6 +91,7 @@ data class AppState(
     val authError: String? = null,
     val hikes: List<Hike> = emptyList(),
     val hikeLocations: List<HikeLocation> = emptyList(),
+    val locationLibraryStateCode: String? = null,
     val isHikeLocationsLoading: Boolean = false,
     val journal: Hike? = null,
     val species: List<SpeciesRecord> = emptyList(),
@@ -184,6 +185,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         AppState(
             authAccount = repository.authAccount,
             isAuthLoading = BuildConfig.GOOGLE_AUTH_ENABLED && repository.hasStoredSession,
+            locationLibraryStateCode = repository.selectedLocationStateCode,
             riverGaugeOptions = repository.riverGauges(),
         ),
     )
@@ -318,6 +320,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                             isLoading = false,
                             isAuthLoading = false,
                             authError = "Your sign-in expired. Choose your Google account to continue.",
+                            locationLibraryStateCode = repository.selectedLocationStateCode,
                             riverGaugeOptions = repository.riverGauges(),
                         )
                     }
@@ -353,6 +356,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             _state.value = AppState(
                 authRequired = BuildConfig.GOOGLE_AUTH_ENABLED,
                 isLoading = false,
+                locationLibraryStateCode = repository.selectedLocationStateCode,
                 riverGaugeOptions = repository.riverGauges(),
             )
         }
@@ -367,6 +371,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         authRequired = BuildConfig.GOOGLE_AUTH_ENABLED,
                         isLoading = false,
                         notice = "Your HikeJournal account was deleted.",
+                        locationLibraryStateCode = repository.selectedLocationStateCode,
                         riverGaugeOptions = repository.riverGauges(),
                     )
                 }
@@ -747,14 +752,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun loadHikeLocations() {
+    fun loadHikeLocations(force: Boolean = false) {
+        val stateCode = _state.value.locationLibraryStateCode ?: return
         if (
             _state.value.isHikeLocationsLoading ||
-            _state.value.hikeLocations.any { it.latitude != null && it.longitude != null }
+            !force && _state.value.hikeLocations.any { it.stateCode == stateCode }
         ) return
         _state.update { it.copy(isHikeLocationsLoading = true) }
         viewModelScope.launch {
-            runCatching { repository.loadHikeLocations() }
+            runCatching { repository.loadHikeLocations(stateCode) }
                 .onSuccess { result ->
                     _state.update {
                         it.copy(
@@ -773,6 +779,22 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
         }
+    }
+
+    fun selectLocationState(stateCode: String) {
+        runCatching { repository.selectLocationState(stateCode) }
+            .onFailure { error ->
+                _state.update { it.copy(error = error.userMessage()) }
+                return
+            }
+        _state.update {
+            it.copy(
+                locationLibraryStateCode = repository.selectedLocationStateCode,
+                hikeLocations = emptyList(),
+                error = null,
+            )
+        }
+        loadHikeLocations(force = true)
     }
 
     fun addHikeLocation(
@@ -2198,13 +2220,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 val locations = if (cachedLocations.any { it.latitude != null && it.longitude != null }) {
                     cachedLocations
                 } else {
-                    runCatching { repository.loadHikeLocations() }
-                        .getOrNull()
-                        ?.also { result ->
-                            _state.update { it.copy(hikeLocations = result.value, isOffline = result.fromCache) }
-                        }
-                        ?.value
-                        .orEmpty()
+                    val stateCode = _state.value.locationLibraryStateCode
+                    val loaded = stateCode?.let {
+                        runCatching { repository.loadHikeLocations(it) }.getOrNull()
+                    }
+                    loaded?.also { result ->
+                        _state.update { it.copy(hikeLocations = result.value, isOffline = result.fromCache) }
+                    }?.value.orEmpty()
                 }
                 val locationSuggestion = suggestHikeLocation(allRouteSegments, locations)
                 val durationSeconds = ((finalizing.activeElapsedMs + 500L) / 1_000L).coerceAtLeast(0L)
@@ -2763,7 +2785,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun updateConnection(serverUrl: String, pairingKey: String) {
         repository.updateConnection(serverUrl, pairingKey)
         mapDataValidated = false
-        _state.update { AppState() }
+        _state.update { AppState(locationLibraryStateCode = repository.selectedLocationStateCode) }
         refreshCompanionConfig()
         refreshLibrary(initial = true)
     }

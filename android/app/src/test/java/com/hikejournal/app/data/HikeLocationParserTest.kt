@@ -8,14 +8,21 @@ class HikeLocationParserTest {
     fun `imported hike locations keep stable ids and names`() {
         val locations = parseHikeLocations(
             """[
-                {"id":"location-1","name":"Alafia Scrub Preserve","lat":27.8609,"lng":-82.3359},
+                {"id":"location-1","name":"Alafia Scrub Preserve","lat":27.8609,"lng":-82.3359,"state":"FL"},
                 {"id":"","name":"Ignored"}
             ]""",
         )
 
         assertEquals(
-            listOf(HikeLocation("location-1", "Alafia Scrub Preserve", 27.8609, -82.3359)),
+            listOf(HikeLocation("location-1", "Alafia Scrub Preserve", 27.8609, -82.3359, stateCode = "FL")),
             locations,
         )
+    }
+
+    @Test
+    fun `state names and codes normalize for setup and geocoding`() {
+        assertEquals("ME", normalizeUsStateCode("me"))
+        assertEquals("ME", usStateCodeForName("Maine"))
+        assertEquals(null, normalizeUsStateCode("DC"))
     }
 }

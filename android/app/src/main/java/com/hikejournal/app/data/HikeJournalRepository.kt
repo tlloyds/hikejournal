@@ -40,6 +40,7 @@ class HikeJournalRepository(context: Context) {
     private val appContext = context.applicationContext
     private val api = HikeJournalApi(appContext)
     private val riverGaugePreferences = RiverGaugePreferences(appContext)
+    private val locationLibraryPreferences = LocationLibraryPreferences(appContext)
     private val outdoorConditions = OutdoorConditionsClient()
     private val fieldQueue = FieldOperationQueue(appContext)
     private val trackingRepository = TrackingRepository.get(appContext)
@@ -178,9 +179,15 @@ class HikeJournalRepository(context: Context) {
         return fieldQueue.overlayHikes(hikes.values.toList())
     }
 
-    suspend fun loadHikeLocations(): LoadResult<List<HikeLocation>> = loadWithCache(
-        cacheFile = File(cacheDirectory, "hike-locations.json"),
-        fetch = api::getHikeLocationsJson,
+    val selectedLocationStateCode: String? get() = locationLibraryPreferences.selectedStateCode()
+
+    fun selectLocationState(stateCode: String) {
+        locationLibraryPreferences.setSelectedStateCode(stateCode)
+    }
+
+    suspend fun loadHikeLocations(stateCode: String): LoadResult<List<HikeLocation>> = loadWithCache(
+        cacheFile = File(cacheDirectory, "hike-locations-${normalizeUsStateCode(stateCode)}.json"),
+        fetch = { api.getHikeLocationsJson(stateCode) },
         parse = ::parseHikeLocations,
     )
 

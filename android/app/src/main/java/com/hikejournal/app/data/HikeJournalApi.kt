@@ -116,7 +116,9 @@ class HikeJournalApi(private val context: Context) {
 
     suspend fun getHikeRouteJson(hikeId: String): String = request("/v1/hikes/$hikeId/route")
 
-    suspend fun getHikeLocationsJson(): String = request("/v1/hike-locations")
+    suspend fun getHikeLocationsJson(stateCode: String): String = request(
+        "/v1/hike-locations?state=${normalizeUsStateCode(stateCode).orEmpty().urlEncoded()}",
+    )
 
     suspend fun createHikeLocationJson(name: String, latitude: Double?, longitude: Double?): String = request(
         path = "/v1/hike-locations",
