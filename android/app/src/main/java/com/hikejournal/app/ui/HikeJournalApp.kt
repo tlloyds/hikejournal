@@ -14,6 +14,7 @@ import android.location.LocationManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import android.util.Log
 import androidx.compose.runtime.DisposableEffect
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
@@ -323,9 +324,13 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                 } else {
                     viewModel.reportGoogleSignInError("Google sign-in returned an unexpected credential.")
                 }
-            } catch (_: GetCredentialCancellationException) {
-                viewModel.reportGoogleSignInError("Google sign-in was cancelled.")
-            } catch (_: GetCredentialException) {
+            } catch (error: GetCredentialCancellationException) {
+                // Google also reports relying-party configuration failures as a
+                // cancellation. Do not imply that the hiker pressed Cancel.
+                Log.w("HikeJournalAuth", "Google credential flow did not finish", error)
+                viewModel.reportGoogleSignInError("Google sign-in did not finish. Please try again.")
+            } catch (error: GetCredentialException) {
+                Log.e("HikeJournalAuth", "Google credential flow is unavailable", error)
                 viewModel.reportGoogleSignInError("Google sign-in is unavailable on this device right now.")
             }
         }

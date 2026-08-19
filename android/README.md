@@ -21,6 +21,20 @@ and replace the server address. The API always uses port `8506`.
 Native hike recording does not need a network connection. Google sign-in and a
 hosted API are needed when queued hikes, routes, and photos are ready to sync.
 
+When local APK upgrades use an Android signing lineage, register an Android
+OAuth client for both the current release certificate and the previous
+certificate in the same Google Cloud project as the web OAuth client. Google
+Credential Manager may validate either certificate while the transition remains
+supported.
+
+## Included in v0.8.2
+
+- Local upgrades recognize both certificates in HikeJournal's signing lineage
+  during Google sign-in, and credential failures no longer mislabel a provider
+  rejection as a user cancellation
+- Streamlit creates private-media delivery links after reading cached database
+  rows, so an old cache cannot keep serving disabled public R2 addresses
+
 ## Included in v0.8.1
 
 - Google sign-in now uses the dedicated HikeJournal Public OAuth project and is
