@@ -184,6 +184,7 @@ import com.hikejournal.app.data.AuthAccount
 import com.hikejournal.app.data.HikeDraft
 import com.hikejournal.app.data.HikeLocation
 import com.hikejournal.app.data.HikeLocationSuggestion
+import com.hikejournal.app.data.GettingStartedPreferences
 import com.hikejournal.app.data.MapDisplayPreferences
 import com.hikejournal.app.data.MediaLocationSummary
 import com.hikejournal.app.data.NationalScenicTrailOverlays
@@ -349,12 +350,34 @@ fun HikeJournalApp(viewModel: AppViewModel) {
         LocationLibrarySetupGate(onSelectState = viewModel::selectLocationState)
         return
     }
+    val gettingStartedPreferences = remember(context) { GettingStartedPreferences(context) }
+    val gettingStartedAccountKey = state.authAccount?.subject ?: "local"
+    var gettingStartedOpen by rememberSaveable { mutableStateOf(false) }
+    var createEntryOpen by remember { mutableStateOf(false) }
+    LaunchedEffect(gettingStartedAccountKey, state.locationLibraryStateCode) {
+        if (!gettingStartedPreferences.hasSeen(gettingStartedAccountKey)) {
+            gettingStartedOpen = true
+        }
+    }
+    if (gettingStartedOpen) {
+        GettingStartedScreen(
+            onDismiss = {
+                gettingStartedPreferences.markSeen(gettingStartedAccountKey)
+                gettingStartedOpen = false
+            },
+            onStartOuting = {
+                gettingStartedPreferences.markSeen(gettingStartedAccountKey)
+                gettingStartedOpen = false
+                createEntryOpen = true
+            },
+        )
+        return
+    }
     val mapDisplayPreferences = remember(context) { MapDisplayPreferences(context) }
     var destination by rememberSaveable { mutableStateOf(TopDestination.Archive) }
     var editingHike by remember { mutableStateOf<Hike?>(null) }
     var trackedHikeLocationSuggestion by remember { mutableStateOf<HikeLocationSuggestion?>(null) }
     var creatingHike by remember { mutableStateOf(false) }
-    var createEntryOpen by remember { mutableStateOf(false) }
     var pendingEverydayUpload by remember { mutableStateOf(false) }
     var settingsOpen by remember { mutableStateOf(false) }
     var placeBrowserOpen by remember { mutableStateOf(false) }
@@ -1298,6 +1321,10 @@ fun HikeJournalApp(viewModel: AppViewModel) {
             riverGaugeError = state.riverGaugeSettingsError,
             addingPlace = state.isHikeLocationsLoading,
             deletingAccount = state.isAuthLoading,
+            onOpenGettingStarted = {
+                settingsOpen = false
+                gettingStartedOpen = true
+            },
             onDismiss = {
                 settingsOpen = false
                 viewModel.clearNearbyRiverGaugeSearch()
@@ -4064,6 +4091,7 @@ private fun SettingsDialog(
     onAddPlace: (String, Double?, Double?, () -> Unit) -> Unit,
     onSignOut: () -> Unit,
     onDeleteAccount: () -> Unit,
+    onOpenGettingStarted: () -> Unit,
     onTrailOverlayChange: (String, Boolean) -> Unit,
     onLocationStateChange: (String) -> Unit,
     onRiverGaugeEnabledChange: (String, Boolean) -> Unit,
@@ -4248,6 +4276,25 @@ private fun SettingsDialog(
                         Spacer(Modifier.width(7.dp))
                         Text("Open HikeJournal on the web")
                     }
+                }
+                HorizontalDivider(Modifier.padding(top = 12.dp))
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable(onClick = onOpenGettingStarted)
+                        .padding(vertical = 15.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("How HikeJournal works", style = MaterialTheme.typography.titleMedium, color = Ink)
+                        Text(
+                            "Reopen the quick guide to tracking, sightings, species, maps, and sharing.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = InkMuted,
+                            modifier = Modifier.padding(top = 3.dp),
+                        )
+                    }
+                    Icon(Icons.Rounded.ChevronRight, contentDescription = "Open getting started guide", tint = Fern)
                 }
                 HorizontalDivider(Modifier.padding(top = 12.dp))
                 Text("Places", style = MaterialTheme.typography.titleMedium, color = Ink, modifier = Modifier.padding(top = 16.dp))
