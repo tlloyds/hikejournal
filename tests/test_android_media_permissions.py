@@ -5,7 +5,7 @@ from xml.etree import ElementTree
 ANDROID_NAMESPACE = "{http://schemas.android.com/apk/res/android}"
 
 
-def test_android_uses_system_picker_without_broad_media_permissions() -> None:
+def test_android_declares_permissions_for_gps_safe_phone_originals() -> None:
     manifest = ElementTree.parse("android/app/src/main/AndroidManifest.xml").getroot()
     permissions = {
         element.attrib[f"{ANDROID_NAMESPACE}name"]: element.attrib
@@ -13,11 +13,14 @@ def test_android_uses_system_picker_without_broad_media_permissions() -> None:
     }
 
     assert "android.permission.ACCESS_MEDIA_LOCATION" in permissions
-    assert "android.permission.READ_MEDIA_IMAGES" not in permissions
-    assert "android.permission.READ_MEDIA_VIDEO" not in permissions
-    assert "android.permission.READ_MEDIA_VISUAL_USER_SELECTED" not in permissions
-    assert "android.permission.READ_EXTERNAL_STORAGE" not in permissions
+    assert "android.permission.READ_MEDIA_IMAGES" in permissions
+    assert "android.permission.READ_MEDIA_VIDEO" in permissions
+    assert "android.permission.READ_MEDIA_VISUAL_USER_SELECTED" in permissions
+    assert permissions["android.permission.READ_EXTERNAL_STORAGE"][
+        f"{ANDROID_NAMESPACE}maxSdkVersion"
+    ] == "32"
 
     app = Path("android/app/src/main/java/com/hikejournal/app/ui/HikeJournalApp.kt").read_text()
-    assert "PickMultipleVisualMedia" in app
-    assert "PickVisualMedia.ImageAndVideo" in app
+    assert "LocalMediaPickerDialog" in app
+    assert "requiredLocalMediaPermissions" in app
+    assert "inspectMediaLocations" in app

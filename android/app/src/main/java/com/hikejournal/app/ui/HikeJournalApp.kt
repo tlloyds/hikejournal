@@ -19,10 +19,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts.OpenDocument
-import androidx.activity.result.contract.ActivityResultContracts.PickMultipleVisualMedia
-import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
 import androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions
 import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
@@ -185,6 +182,7 @@ import com.hikejournal.app.data.HikeDraft
 import com.hikejournal.app.data.HikeLocation
 import com.hikejournal.app.data.HikeLocationSuggestion
 import com.hikejournal.app.data.GettingStartedPreferences
+import com.hikejournal.app.data.LocalMediaAccess
 import com.hikejournal.app.data.MapDisplayPreferences
 import com.hikejournal.app.data.MediaLocationSummary
 import com.hikejournal.app.data.NationalScenicTrailOverlays
@@ -200,6 +198,8 @@ import com.hikejournal.app.data.TrailOverlayDefinition
 import com.hikejournal.app.data.UnitedStates
 import com.hikejournal.app.data.detectCurrentUsState
 import com.hikejournal.app.data.WeatherSnapshot
+import com.hikejournal.app.data.localMediaAccess
+import com.hikejournal.app.data.requiredLocalMediaPermissions
 import com.hikejournal.app.tracking.TrackingStatus
 import com.hikejournal.app.ui.theme.Fern
 import com.hikejournal.app.ui.theme.Ink
@@ -387,6 +387,9 @@ fun HikeJournalApp(viewModel: AppViewModel) {
     var directReviewItem by remember { mutableStateOf<ReviewItem?>(null) }
     var identifyAfterUpload by remember { mutableStateOf(false) }
     var speciesAssignmentPhoto by remember { mutableStateOf<Photo?>(null) }
+    var localMediaPickerOpen by remember { mutableStateOf(false) }
+    var localMediaPermissionError by remember { mutableStateOf<String?>(null) }
+    var grantedLocalMediaAccess by remember { mutableStateOf<LocalMediaAccess?>(null) }
     var pendingUpload by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var mediaLocationSummary by remember { mutableStateOf<MediaLocationSummary?>(null) }
     var checkingMediaLocations by remember { mutableStateOf(false) }
@@ -477,11 +480,20 @@ fun HikeJournalApp(viewModel: AppViewModel) {
         }
     }
 
-    val localMediaPicker = rememberLauncherForActivityResult(PickMultipleVisualMedia(maxItems = 100)) { uris ->
-        pendingUpload = uris
-    }
-    val localMediaLocationPermission = rememberLauncherForActivityResult(RequestMultiplePermissions()) {
-        localMediaPicker.launch(PickVisualMediaRequest(PickVisualMedia.ImageAndVideo))
+    val localMediaPermissions = rememberLauncherForActivityResult(RequestMultiplePermissions()) {
+        val access = localMediaAccess(context)
+        grantedLocalMediaAccess = access
+        when {
+            !access.canReadMedia -> {
+                localMediaPermissionError =
+                    "Allow HikeJournal to read photos and videos so it can browse originals stored on this phone."
+            }
+            !access.canReadLocations -> {
+                localMediaPermissionError =
+                    "Photo access was granted, but photo-location access is still off. Enable it so HikeJournal can read embedded GPS coordinates."
+            }
+            else -> localMediaPickerOpen = true
+        }
     }
     val trackingPermissions = rememberLauncherForActivityResult(RequestMultiplePermissions()) {
         if (!pendingTrackingStart) return@rememberLauncherForActivityResult
@@ -513,13 +525,12 @@ fun HikeJournalApp(viewModel: AppViewModel) {
         selectedRouteUri = uri
     }
     val launchLocalMediaPicker: () -> Unit = {
-        if (
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
-            context.checkSelfPermission(Manifest.permission.ACCESS_MEDIA_LOCATION) != PackageManager.PERMISSION_GRANTED
-        ) {
-            localMediaLocationPermission.launch(arrayOf(Manifest.permission.ACCESS_MEDIA_LOCATION))
+        val access = localMediaAccess(context)
+        grantedLocalMediaAccess = access
+        if (access.readyForOriginals && access.hasFullLibraryAccess) {
+            localMediaPickerOpen = true
         } else {
-            localMediaPicker.launch(PickVisualMediaRequest(PickVisualMedia.ImageAndVideo))
+            localMediaPermissions.launch(requiredLocalMediaPermissions())
         }
     }
     LaunchedEffect(pendingEverydayUpload, state.journal?.id) {
@@ -1171,6 +1182,45 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                     },
                 )
                 pendingUpload = emptyList()
+            },
+        )
+    }
+
+    if (localMediaPickerOpen && state.journal != null) {
+        LocalMediaPickerDialog(
+            access = grantedLocalMediaAccess ?: localMediaAccess(context),
+            onDismiss = { localMediaPickerOpen = false },
+            onConfirm = { uris ->
+                pendingUpload = uris
+                localMediaPickerOpen = false
+            },
+        )
+    }
+
+    localMediaPermissionError?.let { message ->
+        AlertDialog(
+            onDismissRequest = { localMediaPermissionError = null },
+            title = { Text("Phone originals need permission") },
+            text = { Text(message) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        localMediaPermissionError = null
+                        context.startActivity(
+                            Intent(
+                                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                Uri.parse("package:${context.packageName}"),
+                            ),
+                        )
+                    },
+                ) {
+                    Text("Open app settings")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { localMediaPermissionError = null }) {
+                    Text("Not now")
+                }
             },
         )
     }

@@ -24,3 +24,9 @@
   requires it). Never attach `-debug` or `-unsigned` artifacts.
 - Keep this guidance in sync when the release workflow changes so future Codex
   requests do not leave the API and APK versions out of step.
+- The Android photo upload path must keep the GPS-safe phone-original browser
+  (`LocalMediaPickerDialog`/`LocalMediaLibrary`) wired into the journal. Do not
+  replace it with a system/Google Photos-only picker: cloud-provider URIs may
+  redact EXIF GPS, which breaks photo maps and coordinate-backed iNaturalist
+  publishing. Any Play permission change must go through the photo/video
+  permissions declaration review, not by removing this path.

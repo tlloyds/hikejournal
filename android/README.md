@@ -53,7 +53,9 @@ supported.
 - Life-group choices in “What might I see today?” now refetch matching nearby
   species instead of filtering an already truncated all-life result
 - Immediate loading feedback while a Field Guide species record opens
-- Android’s system photo picker replaces broad photo/video library permissions
+- GPS-safe phone-original browsing remains the release path; the app requests
+  Android photo/video and media-location access because its core journal flow
+  reads embedded coordinates for maps and iNaturalist submissions
 
 ## Included in v0.7.20
 
@@ -169,12 +171,16 @@ paused state the next time HikeJournal opens.
 - Photo uploads use clear `Upload photos` language and keep picker confirmation above system navigation
 - Journal photos can be multi-selected and sent to Species Review after upload
 - Synced photos automatically swap local file previews for durable remote URLs without reopening the hike
-- One clear `Upload photos` action that opens Android's system photo picker for
-  up to 100 selected photos and videos
+- One clear `Upload photos` action that opens HikeJournal's phone-original
+  browser for local albums and up to 500 selected photos/videos
 - A fixed, high-contrast photo confirmation action that remains fully above
   Android gesture and navigation insets
-- Contextual media-location permission requested before HikeJournal reads
-  embedded GPS; broad photo/video library permissions are not requested
+- Photo/video and media-location permissions are requested before HikeJournal
+  reads embedded GPS; Google Photos cloud-picker items can redact coordinates,
+  so they are not the default upload path
+- A Google Play submission must complete the current photo/video permissions
+  declaration and reviewer evidence for this core GPS-backed journal flow;
+  using a custom picker alone does not waive that requirement
 - Pre-upload GPS verification for every selected file, with missing-location warnings before anything is saved
 - Embedded video location extraction for map-ready clips when the source file provides coordinates
 - Hike-scoped native maps with imported route lines and just that outing's
