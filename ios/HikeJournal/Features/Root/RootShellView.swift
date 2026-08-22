@@ -223,6 +223,15 @@ private struct RecordingHomeView: View {
                 model.consumeDeepLink()
             }
         }
+        .task(id: recording.phase) {
+            guard recording.phase != .idle, recording.phase != .finished else { return }
+            await model.maps.start()
+            guard recording.phase == .recording else { return }
+            while !Task.isCancelled {
+                await recording.refreshSnapshot()
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+            }
+        }
     }
 
     private var trailhead: some View {
@@ -291,20 +300,7 @@ private struct RecordingHomeView: View {
     private var activeRecorder: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                RouteTraceView(segments: recording.snapshot?.routeSegments ?? [])
-                    .frame(height: 270)
-                    .background(Color(red: 0.06, green: 0.15, blue: 0.11))
-                    .overlay(alignment: .topLeading) {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(recording.phase == .paused ? "PAUSED" : "RECORDING")
-                                .font(HikeJournalTheme.label(12))
-                                .tracking(1.5)
-                            Text(recording.phase == .paused ? "The route is safe." : "Following your line.")
-                                .font(HikeJournalTheme.display(32, relativeTo: .title))
-                        }
-                        .foregroundStyle(Color(red: 1, green: 0.97, blue: 0.89))
-                        .padding(22)
-                    }
+                recordingMap
 
                 VStack(alignment: .leading, spacing: 0) {
                     HStack(alignment: .top, spacing: 26) {
@@ -382,6 +378,60 @@ private struct RecordingHomeView: View {
             }
         }
         .scrollIndicators(.hidden)
+    }
+
+    @ViewBuilder
+    private var recordingMap: some View {
+        ZStack(alignment: .topLeading) {
+            if let style = model.maps.style,
+               let surface = try? HikeJournalMapSurface(
+                   scene: recordingScene,
+                   style: style,
+                   styleCredential: model.maps.styleCredential,
+                   cameraBehavior: .fitOnEveryUpdate,
+                   cameraPadding: EdgeInsets(top: 62, leading: 28, bottom: 52, trailing: 28)
+               ) {
+                surface
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                RouteTraceView(segments: recording.snapshot?.routeSegments ?? [])
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color(red: 0.06, green: 0.15, blue: 0.11))
+            }
+
+            LinearGradient(
+                colors: [.black.opacity(0.62), .black.opacity(0.08), .clear],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .frame(height: 128)
+            .allowsHitTesting(false)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(recording.phase == .paused ? "PAUSED" : "RECORDING")
+                    .font(HikeJournalTheme.label(12))
+                    .tracking(1.5)
+                Text(recording.phase == .paused ? "The route is safe." : "Following your line.")
+                    .font(HikeJournalTheme.display(32, relativeTo: .title))
+            }
+            .foregroundStyle(Color(red: 1, green: 0.97, blue: 0.89))
+            .padding(22)
+        }
+        .frame(height: 330)
+        .clipped()
+    }
+
+    private var recordingScene: MapScene {
+        JournalMapSceneFactory.make(
+            // Keep the tracking camera focused on the active outing rather
+            // than fitting every saved journal point into the initial view.
+            routes: [],
+            hikes: [],
+            details: [:],
+            sightings: [],
+            tracking: recording.snapshot,
+            selectedTrailOverlayIDs: model.maps.selectedTrailOverlayIDs
+        )
     }
 
     @ViewBuilder
@@ -588,6 +638,8 @@ private extension HikeJournalTracking.FieldMarkType {
         case .wildlife: "Wildlife"
         case .plant: "Plant"
         case .trailCondition: "Trail condition"
+        case .bridge: "Bridge"
+        case .boardwalk: "Boardwalk"
         case .water: "Water"
         case .campsite: "Campsite"
         case .hazard: "Hazard"

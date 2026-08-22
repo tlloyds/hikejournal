@@ -294,6 +294,8 @@ internal fun hikeMapSightings(hike: Hike?, focusedPhoto: Photo?): List<Sighting>
                 "wildlife" -> "Wildlife"
                 "plant" -> "Plant"
                 "trail_condition" -> "Trail condition"
+                "bridge" -> "Bridge"
+                "boardwalk" -> "Boardwalk"
                 "water" -> "Water"
                 "campsite" -> "Campsite"
                 "hazard" -> "Hazard"

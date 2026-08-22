@@ -474,6 +474,8 @@ private fun FieldMarkDialog(
         "wildlife" to "Wildlife",
         "plant" to "Plant",
         "trail_condition" to "Trail",
+        "bridge" to "Bridge",
+        "boardwalk" to "Boardwalk",
         "water" to "Water",
         "campsite" to "Campsite",
         "hazard" to "Hazard",
@@ -531,6 +533,8 @@ private fun fieldMarkLabel(markType: String): String = when (markType) {
     "wildlife" -> "Wildlife"
     "plant" -> "Plant"
     "trail_condition" -> "Trail condition"
+    "bridge" -> "Bridge"
+    "boardwalk" -> "Boardwalk"
     "water" -> "Water"
     "campsite" -> "Campsite"
     "hazard" -> "Hazard"

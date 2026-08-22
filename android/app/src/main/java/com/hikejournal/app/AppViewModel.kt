@@ -2914,6 +2914,8 @@ private fun fieldMarkLabel(markType: String): String = when (markType) {
     "wildlife" -> "Wildlife"
     "plant" -> "Plant"
     "trail_condition" -> "Trail condition"
+    "bridge" -> "Bridge"
+    "boardwalk" -> "Boardwalk"
     "water" -> "Water"
     "campsite" -> "Campsite"
     "hazard" -> "Hazard"

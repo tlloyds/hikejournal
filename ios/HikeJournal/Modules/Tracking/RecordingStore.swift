@@ -243,6 +243,21 @@ final class RecordingStore: ObservableObject {
         errorMessage = nil
     }
 
+    /// Refreshes the clock-driven part of the active snapshot even when Core
+    /// Location has not delivered another fix yet. The recorder owns the
+    /// monotonic clock, so this does not create or persist a GPS point.
+    func refreshSnapshot() async {
+        guard phase == .recording, let recorder else { return }
+        do {
+            if let current = try await recorder.currentSnapshot() {
+                snapshot = current
+            }
+        } catch {
+            // A location tick should never turn a healthy recording into an
+            // error state just because the display refresh missed a read.
+        }
+    }
+
     private func ingest(_ sample: LocationSample, receivedAt: Date) async {
         guard let recorder else { return }
         do {

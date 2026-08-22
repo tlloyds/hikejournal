@@ -267,6 +267,8 @@ public enum FieldMarkType: String, Codable, CaseIterable, Sendable {
   case wildlife
   case plant
   case trailCondition = "trail_condition"
+  case bridge
+  case boardwalk
   case water
   case campsite
   case hazard
