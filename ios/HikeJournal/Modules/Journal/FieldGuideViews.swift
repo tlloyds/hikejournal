@@ -65,15 +65,23 @@ struct FieldGuideWorkspaceView: View {
                     }
                 }
             }
-            .task(id: model.selectedTab) {
-                // TabView constructs every tab up front. Keep the guide's
-                // heavyweight requests off the journal screen and cancel them
-                // when the user leaves this tab.
+            .task(id: "\(model.selectedTab)-\(section.rawValue)") {
+                // Keep the initial guide request isolated. The species,
+                // sightings, review, and publishing endpoints all fan out to
+                // the same large account dataset; firing them together makes
+                // the server contend with duplicate work and leaves the guide
+                // stuck behind unrelated sections.
                 guard model.selectedTab == .fieldGuide else { return }
-                async let guide: Void = journal.refreshFieldGuide()
-                async let quests: Void = journal.loadQuests()
-                async let workflow: Void = journal.loadReviewAndPublishing()
-                _ = await (guide, quests, workflow)
+                switch section {
+                case .guide, .sightings:
+                    await journal.refreshFieldGuide()
+                case .quests:
+                    await journal.loadQuests()
+                case .review, .publish:
+                    await journal.loadReviewAndPublishing()
+                case .discover:
+                    break
+                }
             }
             .refreshable { await refreshSection() }
             .alert(

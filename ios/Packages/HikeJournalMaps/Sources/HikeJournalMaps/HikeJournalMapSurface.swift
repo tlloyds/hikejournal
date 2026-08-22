@@ -65,6 +65,12 @@
             cameraPadding: cameraPadding,
             onSelectPoint: onSelectPoint
           )
+          // MapLibre exposes every rendered feature to UIKit accessibility.
+          // A national trail can contain thousands of segments, so exposing
+          // that internal tree makes accessibility traversal recurse for a
+          // very long time. The map-details list is the detailed accessible
+          // alternative; keep the canvas itself as one map element.
+          .accessibilityElement(children: .ignore)
           .accessibilityLabel(Text(accessibility.summary))
           .accessibilityHint(Text("Explore the map visually or use the map details list."))
 
@@ -193,6 +199,9 @@
       private var currentScene = MapScene()
       private var selectedTrailIDs: Set<String> = []
       private var styleURL: URL?
+      private var routeTask: Task<Void, Never>?
+      private var routeGeneration = UUID()
+      private var routeStyleIdentifiers: [(source: String, layer: String)] = []
       private var trailTask: Task<Void, Never>?
       private var trailGeneration = UUID()
       private var trailStyleIdentifiers: [(source: String, layer: String)] = []
@@ -240,6 +249,7 @@
         onSelectPoint: ((MapPoint) -> Void)?
       ) {
         self.mapView = mapView
+        let routesChanged = currentScene.routes != scene.routes
         currentScene = scene
         latestScene = scene
         latestCameraBehavior = cameraBehavior
@@ -255,6 +265,10 @@
           hasFitCamera = false
         }
         replaceAnnotations(on: mapView, scene: scene)
+
+        if routesChanged || styleChanged {
+          reloadRouteOverlays(on: mapView, scene: scene)
+        }
 
         switch cameraBehavior {
         case .fitOnce where mapDidFinishLoading && !hasFitCamera:
@@ -273,8 +287,14 @@
       }
 
       func stop() {
+        routeTask?.cancel()
+        routeTask = nil
         trailTask?.cancel()
         trailTask = nil
+        if let style = mapView?.style {
+          removeRouteLayers(from: style)
+          removeTrailLayers(from: style)
+        }
         mapView = nil
       }
 
@@ -293,6 +313,12 @@
 
       func mapView(_ mapView: MLNMapView, didFinishLoading style: MLNStyle) {
         configureSatelliteBasemap(on: style)
+        // Re-add the annotations after the imagery layer so MapLibre places
+        // point markers above the satellite raster. Recorded routes use an
+        // explicit style layer below those markers; MapLibre's polyline
+        // annotation layer otherwise remains underneath the raster.
+        replaceAnnotations(on: mapView, scene: latestScene)
+        reloadRouteOverlays(on: mapView, scene: latestScene)
         reloadTrailOverlays(on: mapView)
       }
 
@@ -430,6 +456,34 @@
         )
       }
 
+      private func reloadRouteOverlays(on mapView: MLNMapView, scene: MapScene) {
+        routeTask?.cancel()
+        routeGeneration = UUID()
+        let generation = routeGeneration
+        removeRouteLayers(from: mapView.style)
+        guard !scene.routes.isEmpty, mapView.style != nil else { return }
+
+        routeTask = Task { [weak self, weak mapView] in
+          guard let self else { return }
+          do {
+            let shape = try await Self.prepareRouteShape(routes: scene.routes)
+            guard !Task.isCancelled, generation == routeGeneration,
+              let mapView, let style = mapView.style
+            else {
+              return
+            }
+            try addRoutes(shape: shape, to: style)
+          } catch is CancellationError {
+            return
+          } catch {
+            // Route rendering is isolated from the satellite basemap and
+            // point annotations so malformed route data cannot take down the
+            // map surface.
+            return
+          }
+        }
+      }
+
       private func reloadTrailOverlays(on mapView: MLNMapView) {
         trailTask?.cancel()
         trailGeneration = UUID()
@@ -449,7 +503,13 @@
               else {
                 return
               }
-              try addTrail(definition, data: data, to: style)
+              let shape = try await Self.prepareTrailShape(data: data)
+              guard !Task.isCancelled, generation == trailGeneration,
+                let style = mapView.style
+              else {
+                return
+              }
+              try addTrail(definition, shape: shape, to: style)
             } catch is CancellationError {
               return
             } catch {
@@ -458,6 +518,28 @@
             }
           }
         }
+      }
+
+      private func addRoutes(shape: MLNShape, to style: MLNStyle) throws {
+        let sourceID = "hike-journal-routes-source"
+        let layerID = "hike-journal-routes-layer"
+        if let existingLayer = style.layer(withIdentifier: layerID) {
+          style.removeLayer(existingLayer)
+        }
+        if let existingSource = style.source(withIdentifier: sourceID) {
+          style.removeSource(existingSource)
+        }
+        let source = MLNShapeSource(identifier: sourceID, shape: shape, options: nil)
+        let layer = MLNLineStyleLayer(identifier: layerID, source: source)
+        layer.lineColor = NSExpression(
+          forConstantValue: UIColor(red: 0.08, green: 0.38, blue: 0.23, alpha: 0.96)
+        )
+        layer.lineWidth = NSExpression(forConstantValue: 4.0)
+        layer.lineJoin = NSExpression(forConstantValue: "round")
+        layer.lineCap = NSExpression(forConstantValue: "round")
+        style.addSource(source)
+        style.addLayer(layer)
+        routeStyleIdentifiers = [(sourceID, layerID)]
       }
 
       private func configureSatelliteBasemap(on style: MLNStyle) {
@@ -480,12 +562,45 @@
         let layer = MLNRasterStyleLayer(identifier: layerID, source: source)
         layer.rasterOpacity = NSExpression(forConstantValue: 1.0)
         style.addSource(source)
+        // Add imagery after the configured vector style, then re-add our
+        // annotations above it in didFinishLoading(_:). This keeps the
+        // satellite tiles as the visual base without hiding routes or points.
         style.addLayer(layer)
+      }
+
+      private nonisolated static func prepareRouteShape(routes: [RecordedRoute]) async throws
+        -> MLNShape
+      {
+        let prepared = try await Task.detached(priority: .userInitiated) {
+          let data = try routeGeoJSONData(routes: routes)
+          return try PreparedRouteShape(
+            shape: MLNShape(data: data, encoding: String.Encoding.utf8.rawValue)
+          )
+        }.value
+        return prepared.shape
+      }
+
+      private nonisolated static func routeGeoJSONData(routes: [RecordedRoute]) throws -> Data {
+        let coordinates = routes.flatMap { route in
+          route.segments.map { segment in
+            segment.coordinates.map { [$0.longitude, $0.latitude] }
+          }
+        }
+        return try JSONSerialization.data(
+          withJSONObject: ["type": "MultiLineString", "coordinates": coordinates]
+        )
+      }
+
+      private nonisolated static func prepareTrailShape(data: Data) async throws -> MLNShape {
+        let prepared = try await Task.detached(priority: .userInitiated) {
+          try PreparedTrailShape(shape: MLNShape(data: data, encoding: String.Encoding.utf8.rawValue))
+        }.value
+        return prepared.shape
       }
 
       private func addTrail(
         _ definition: NationalScenicTrailDefinition,
-        data: Data,
+        shape: MLNShape,
         to style: MLNStyle
       ) throws {
         let sourceID = "hike-journal-trail-source-\(definition.id)"
@@ -496,18 +611,44 @@
         if let existingSource = style.source(withIdentifier: sourceID) {
           style.removeSource(existingSource)
         }
-        let shape = try MLNShape(data: data, encoding: String.Encoding.utf8.rawValue)
         let source = MLNShapeSource(identifier: sourceID, shape: shape, options: nil)
         let layer = MLNLineStyleLayer(identifier: layerID, source: source)
         layer.lineColor = NSExpression(
           forConstantValue: UIColor(red: 0.91, green: 0.39, blue: 0.08, alpha: 0.94)
         )
         layer.lineWidth = NSExpression(forConstantValue: 3.0)
-        layer.lineJoin = NSExpression(forConstantValue: MLNLineJoin.round)
-        layer.lineCap = NSExpression(forConstantValue: MLNLineCap.round)
+        // MapLibre accepts the documented string constants here. Boxing the
+        // Swift-imported enum directly produces __SwiftValue, which MapLibre
+        // cannot unwrap and which crashes when the overlay is added.
+        layer.lineJoin = NSExpression(forConstantValue: "round")
+        layer.lineCap = NSExpression(forConstantValue: "round")
         style.addSource(source)
         style.addLayer(layer)
         trailStyleIdentifiers.append((sourceID, layerID))
+      }
+
+      private struct PreparedTrailShape: @unchecked Sendable {
+        let shape: MLNShape
+      }
+
+      private struct PreparedRouteShape: @unchecked Sendable {
+        let shape: MLNShape
+      }
+
+      private func removeRouteLayers(from style: MLNStyle?) {
+        guard let style else {
+          routeStyleIdentifiers.removeAll()
+          return
+        }
+        for identifier in routeStyleIdentifiers {
+          if let layer = style.layer(withIdentifier: identifier.layer) {
+            style.removeLayer(layer)
+          }
+          if let source = style.source(withIdentifier: identifier.source) {
+            style.removeSource(source)
+          }
+        }
+        routeStyleIdentifiers.removeAll()
       }
 
       private func removeTrailLayers(from style: MLNStyle?) {

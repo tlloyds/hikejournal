@@ -198,7 +198,7 @@ struct JournalLibraryView: View {
 
     private var journalList: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
+            LazyVStack(alignment: .leading, spacing: 0) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("HIKEJOURNAL")
                         .font(HikeJournalTheme.display(38, relativeTo: .largeTitle))
