@@ -236,6 +236,7 @@ struct JournalLibraryView: View {
             .padding(.bottom, 42)
             .animation(.snappy(duration: 0.34), value: visibleHikes.map(\.id))
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .scrollIndicators(.hidden)
     }
 
@@ -517,7 +518,7 @@ struct JournalHikeDetailView: View {
 
     private func detail(_ hike: Hike) -> some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 0) {
                 hero(hike)
                 VStack(alignment: .leading, spacing: 26) {
                     if !hike.notes.isEmpty {
@@ -638,7 +639,9 @@ struct JournalHikeDetailView: View {
                 .padding(22)
                 .padding(.bottom, 34)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .scrollIndicators(.hidden)
     }
 

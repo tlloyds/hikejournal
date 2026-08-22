@@ -114,13 +114,19 @@ class HikeJournalRepository:
     def decorate_media_rows(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return [self.decorate_media_row(row) for row in rows]
 
-    def _select_all_rows(self, query_factory, *, page_size: int = 1000) -> list[dict[str, Any]]:
+    def _select_all_rows(
+        self,
+        query_factory,
+        *,
+        page_size: int = 1000,
+        decorate: bool = True,
+    ) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
         offset = 0
         while True:
             response = query_factory().range(offset, offset + page_size - 1).execute()
             batch = response.data or []
-            rows.extend(self.decorate_media_rows(batch))
+            rows.extend(self.decorate_media_rows(batch) if decorate else batch)
             if len(batch) < page_size:
                 break
             offset += page_size
@@ -964,6 +970,21 @@ class HikeJournalRepository:
     def list_photo_hike_refs(self) -> list[dict[str, Any]]:
         return self._select_all_rows(
             lambda: self.client.table("photos").select("hike_id,owner_subject,owner_email")
+        )
+
+    def list_photo_index_for_hikes(self, hike_ids: list[str]) -> list[dict[str, Any]]:
+        """Return the lightweight photo index without signing every media URL."""
+        normalized_ids = [str(hike_id) for hike_id in hike_ids if str(hike_id).strip()]
+        if not normalized_ids:
+            return []
+        return self._select_all_rows(
+            lambda: (
+                self.client.table("photos")
+                .select("id,hike_id,public_url,storage_path,taken_at,created_at")
+                .in_("hike_id", normalized_ids)
+                .order("id")
+            ),
+            decorate=False,
         )
 
     def list_photo_storage_records(self) -> list[dict[str, Any]]:

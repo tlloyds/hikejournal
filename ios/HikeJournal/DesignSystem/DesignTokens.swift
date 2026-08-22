@@ -67,6 +67,7 @@ struct ParchmentBackground: View {
             ContourPattern(color: HikeJournalTheme.moss.opacity(0.055))
         }
         .ignoresSafeArea()
+        .allowsHitTesting(false)
         .accessibilityHidden(true)
     }
 }

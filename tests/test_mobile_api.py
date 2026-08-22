@@ -397,6 +397,56 @@ def test_hike_list_resolves_selected_cover_missing_from_bulk_photo_scan(monkeypa
     assert payload[0]["cover_url"] == "https://img/selected.jpg"
 
 
+def test_hike_list_only_decorates_selected_cover_from_lightweight_photo_index(monkeypatch):
+    hike_id = "11111111-1111-4111-8111-111111111111"
+    cover_id = "22222222-2222-4222-8222-222222222222"
+    photo_rows = [
+        {
+            "id": cover_id,
+            "hike_id": hike_id,
+            "public_url": "r2://photos/cover.jpg",
+            "storage_path": "photos/cover.jpg",
+            "taken_at": "2026-08-01T10:00:00Z",
+            "created_at": "2026-08-01T10:00:00Z",
+        },
+        {
+            "id": "33333333-3333-4333-8333-333333333333",
+            "hike_id": hike_id,
+            "public_url": "r2://photos/other.jpg",
+            "storage_path": "photos/other.jpg",
+            "taken_at": "2026-08-01T10:01:00Z",
+            "created_at": "2026-08-01T10:01:00Z",
+        },
+    ]
+
+    class Repository:
+        def list_photo_index_for_hikes(self, hike_ids):
+            assert hike_ids == [hike_id]
+            return photo_rows
+
+        def decorate_media_row(self, photo):
+            return {**photo, "public_url": f"https://signed.example/{photo['id']}"}
+
+        def list_hike_weather_snapshots(self):
+            return []
+
+    service = type("Service", (), {"repository": Repository(), "client": object()})()
+    monkeypatch.setattr("mobile_api.get_services", lambda: service)
+    monkeypatch.setattr(
+        "mobile_api._visible_hikes",
+        lambda _repository: [{"id": hike_id, "title": "Pine Loop", "cover_photo_id": cover_id}],
+    )
+    monkeypatch.setattr("mobile_api._visible_species_data", lambda _service: ([], {}, {}))
+    monkeypatch.setattr(
+        "mobile_api._standalone_hike_payload",
+        lambda _service: {"id": "everyday", "title": "Everyday sightings"},
+    )
+
+    payload = list_hikes()
+
+    assert payload[0]["cover_url"] == f"https://signed.example/{cover_id}"
+
+
 def test_main_map_routes_include_visible_hike_tracks(monkeypatch):
     class Repository:
         def list_hike_route_imports(self):

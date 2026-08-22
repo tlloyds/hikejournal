@@ -1500,7 +1500,7 @@ def _hike_payload(
     cover_photo: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     cover_id = str(hike.get("cover_photo_id") or "")
-    cover = cover_photo if str((cover_photo or {}).get("id") or "") == cover_id else None
+    cover = cover_photo if cover_photo and (not cover_id or str(cover_photo.get("id") or "") == cover_id) else None
     if cover is None and cover_id:
         cover = next((photo for photo in photos if str(photo.get("id")) == cover_id), None)
     if cover is None and not cover_id and photos:
@@ -1692,6 +1692,48 @@ def _visible_species_data(
     scoped_cache[cache_key] = (current_time, result)
     _species_data_cache = scoped_cache
     return result
+
+
+def _visible_species_counts_by_hike(
+    svc: Services,
+    visible_hike_ids: set[str],
+) -> dict[str, int]:
+    """Count confirmed species for the journal list without signing media URLs."""
+    list_observations = getattr(svc.repository, "list_lightweight_observations", None)
+    if not callable(list_observations):
+        observations, _, _ = _visible_species_data(svc)
+        buckets: dict[str, set[str]] = defaultdict(set)
+        for observation in observations:
+            hike_id = str(observation.get("hike_id") or "")
+            if hike_id in visible_hike_ids:
+                buckets[hike_id].add(_species_key(observation))
+        return {hike_id: len(keys) for hike_id, keys in buckets.items()}
+
+    context = _user_context()
+    observations = list_observations(status="confirmed")
+    visible_observations = [
+        observation
+        for observation in observations
+        if record_visible_for_user(observation, visible_hike_ids, context)
+    ]
+    photos_by_id: dict[str, dict[str, Any]] = {}
+    unresolved_photo_ids = [
+        str(observation.get("photo_id"))
+        for observation in visible_observations
+        if not observation.get("hike_id") and observation.get("photo_id")
+    ]
+    if unresolved_photo_ids:
+        photos = svc.repository.list_photo_records_for_ids(unresolved_photo_ids)
+        photos_by_id = {str(photo.get("id")): photo for photo in photos if photo.get("id")}
+
+    buckets: dict[str, set[str]] = defaultdict(set)
+    for observation in visible_observations:
+        hike_id = str(observation.get("hike_id") or "")
+        if not hike_id:
+            hike_id = str(photos_by_id.get(str(observation.get("photo_id") or ""), {}).get("hike_id") or "")
+        if hike_id in visible_hike_ids:
+            buckets[hike_id].add(_species_key(observation))
+    return {hike_id: len(keys) for hike_id, keys in buckets.items()}
 
 
 def _build_species_payloads(
@@ -2886,18 +2928,22 @@ def list_hikes() -> list[dict[str, Any]]:
     hikes = _visible_hikes(svc.repository)
     hike_ids = [str(hike["id"]) for hike in hikes]
     weather_by_hike = _weather_payloads(svc.repository, hike_ids)
-    photo_rows = (
-        svc.repository._select_all_rows(
-            lambda: (
-                svc.client.table("photos")
-                .select("id,hike_id,public_url,storage_path,taken_at,created_at")
-                .in_("hike_id", hike_ids)
-                .order("id")
+    if hike_ids:
+        list_photo_index = getattr(svc.repository, "list_photo_index_for_hikes", None)
+        if callable(list_photo_index):
+            photo_rows = list_photo_index(hike_ids)
+        else:
+            # Keep lightweight test doubles and older repository adapters working.
+            photo_rows = svc.repository._select_all_rows(
+                lambda: (
+                    svc.client.table("photos")
+                    .select("id,hike_id,public_url,storage_path,taken_at,created_at")
+                    .in_("hike_id", hike_ids)
+                    .order("id")
+                )
             )
-        )
-        if hike_ids
-        else []
-    )
+    else:
+        photo_rows = []
     photos_by_hike: dict[str, list[dict[str, Any]]] = defaultdict(list)
     photos_by_id: dict[str, dict[str, Any]] = {}
     for photo in photo_rows:
@@ -2917,13 +2963,7 @@ def list_hikes() -> list[dict[str, Any]]:
             photo_id = str(photo.get("id") or "")
             if photo_id:
                 photos_by_id[photo_id] = photo
-    confirmed_observations, species_photos_by_id, _ = _visible_species_data(svc)
-    species_by_hike: dict[str, set[str]] = defaultdict(set)
-    for observation in confirmed_observations:
-        photo = species_photos_by_id.get(str(observation.get("photo_id") or ""))
-        hike_id = str((photo or {}).get("hike_id") or observation.get("hike_id") or "")
-        if hike_id:
-            species_by_hike[hike_id].add(_species_key(observation))
+    species_count_by_hike = _visible_species_counts_by_hike(svc, set(hike_ids))
     outing_payloads = []
     for hike in hikes:
         hike_id = str(hike["id"])
@@ -2931,10 +2971,22 @@ def list_hikes() -> list[dict[str, Any]]:
         selected_cover = photos_by_id.get(cover_id)
         if str((selected_cover or {}).get("hike_id") or "") != hike_id:
             selected_cover = None
+        if selected_cover is None and not cover_id:
+            selected_cover = max(
+                photos_by_hike.get(hike_id, []),
+                key=lambda photo: (
+                    str(photo.get("taken_at") or ""),
+                    str(photo.get("created_at") or ""),
+                ),
+                default=None,
+            )
+        decorate_media_row = getattr(svc.repository, "decorate_media_row", None)
+        if selected_cover is not None and callable(decorate_media_row):
+            selected_cover = decorate_media_row(selected_cover)
         payload = _hike_payload(
             hike,
             photos=photos_by_hike.get(hike_id, []),
-            species_count=len(species_by_hike.get(hike_id, set())),
+            species_count=species_count_by_hike.get(hike_id, 0),
             cover_photo=selected_cover,
         )
         payload["weather"] = weather_by_hike.get(hike_id)
