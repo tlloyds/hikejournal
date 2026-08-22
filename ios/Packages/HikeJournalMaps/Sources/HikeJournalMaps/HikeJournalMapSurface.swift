@@ -43,21 +43,52 @@
       attributions = values.filter { seen.insert($0.id).inserted }
     }
 
-    public var body: some View {
+  public var body: some View {
       VStack(spacing: 4) {
-        MapLibreRepresentable(
-          scene: scene,
-          styleURL: styleURL,
-          cameraBehavior: cameraBehavior,
-          cameraPadding: cameraPadding,
-          onSelectPoint: onSelectPoint
-        )
-        .accessibilityLabel(Text(accessibility.summary))
-        .accessibilityHint(Text("Explore the map visually or use the map details list."))
+        ZStack(alignment: .topTrailing) {
+          MapLibreRepresentable(
+            scene: scene,
+            styleURL: styleURL,
+            cameraBehavior: cameraBehavior,
+            cameraPadding: cameraPadding,
+            onSelectPoint: onSelectPoint
+          )
+          .accessibilityLabel(Text(accessibility.summary))
+          .accessibilityHint(Text("Explore the map visually or use the map details list."))
+
+          MapZoomControls()
+        }
 
         MapAttributionLinks(attributions: attributions)
       }
     }
+  }
+
+  private struct MapZoomControls: View {
+    var body: some View {
+      VStack(spacing: 0) {
+        Button(action: { NotificationCenter.default.post(name: .hikeJournalMapZoomIn, object: nil) }) {
+          Image(systemName: "plus")
+        }
+        .accessibilityLabel("Zoom in")
+
+        Divider()
+
+        Button(action: { NotificationCenter.default.post(name: .hikeJournalMapZoomOut, object: nil) }) {
+          Image(systemName: "minus")
+        }
+        .accessibilityLabel("Zoom out")
+      }
+      .font(.headline.weight(.semibold))
+      .frame(width: 42, height: 84)
+      .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10))
+      .padding(12)
+    }
+  }
+
+  private extension Notification.Name {
+    static let hikeJournalMapZoomIn = Notification.Name("HikeJournalMapZoomIn")
+    static let hikeJournalMapZoomOut = Notification.Name("HikeJournalMapZoomOut")
   }
 
   public struct MapAttributionLinks: View {
@@ -100,6 +131,10 @@
     func makeUIView(context: Context) -> MLNMapView {
       let mapView = MLNMapView(frame: .zero, styleURL: styleURL)
       mapView.delegate = context.coordinator
+      mapView.isZoomEnabled = true
+      mapView.isScrollEnabled = true
+      mapView.isRotateEnabled = true
+      mapView.isPitchEnabled = true
       mapView.showsLogoView = true
       mapView.showsAttributionButton = true
       mapView.compassViewPosition = .topRight
@@ -150,7 +185,39 @@
       private var trailGeneration = UUID()
       private var trailStyleIdentifiers: [(source: String, layer: String)] = []
       private var hasFitCamera = false
+      private var mapDidFinishLoading = false
+      private var latestScene = MapScene()
+      private var latestCameraBehavior: MapCameraBehavior = .fitOnce
+      private var latestCameraPadding = EdgeInsets(top: 40, leading: 32, bottom: 48, trailing: 32)
+      private var zoomObserverTokens: [NSObjectProtocol] = []
+      private weak var mapView: MLNMapView?
       private var onSelectPoint: ((MapPoint) -> Void)?
+
+      override init() {
+        super.init()
+        zoomObserverTokens = [
+          NotificationCenter.default.addObserver(
+            forName: .hikeJournalMapZoomIn,
+            object: nil,
+            queue: .main
+          ) { [weak self] _ in
+            self?.adjustZoom(by: 1)
+          },
+          NotificationCenter.default.addObserver(
+            forName: .hikeJournalMapZoomOut,
+            object: nil,
+            queue: .main
+          ) { [weak self] _ in
+            self?.adjustZoom(by: -1)
+          }
+        ]
+      }
+
+      deinit {
+        for token in zoomObserverTokens {
+          NotificationCenter.default.removeObserver(token)
+        }
+      }
 
       func update(
         mapView: MLNMapView,
@@ -160,17 +227,25 @@
         cameraPadding: EdgeInsets,
         onSelectPoint: ((MapPoint) -> Void)?
       ) {
+        self.mapView = mapView
         currentScene = scene
+        latestScene = scene
+        latestCameraBehavior = cameraBehavior
+        latestCameraPadding = cameraPadding
         self.onSelectPoint = onSelectPoint
+        mapView.isZoomEnabled = true
+        mapView.isScrollEnabled = true
         let styleChanged = self.styleURL != styleURL
         if styleChanged {
           self.styleURL = styleURL
           mapView.styleURL = styleURL
+          mapDidFinishLoading = false
+          hasFitCamera = false
         }
         replaceAnnotations(on: mapView, scene: scene)
 
         switch cameraBehavior {
-        case .fitOnce where !hasFitCamera:
+        case .fitOnce where mapDidFinishLoading && !hasFitCamera:
           fitCamera(on: mapView, scene: scene, padding: cameraPadding, animated: false)
           hasFitCamera = !scene.allCoordinates.isEmpty
         case .fitOnEveryUpdate:
@@ -188,6 +263,20 @@
       func stop() {
         trailTask?.cancel()
         trailTask = nil
+        mapView = nil
+      }
+
+      func mapViewDidFinishLoadingMap(_ mapView: MLNMapView) {
+        mapDidFinishLoading = true
+        if latestCameraBehavior == .fitOnce && !hasFitCamera {
+          fitCamera(
+            on: mapView,
+            scene: latestScene,
+            padding: latestCameraPadding,
+            animated: false
+          )
+          hasFitCamera = !latestScene.allCoordinates.isEmpty
+        }
       }
 
       func mapView(_ mapView: MLNMapView, didFinishLoading style: MLNStyle) {
@@ -317,6 +406,14 @@
           ),
           animated: animated,
           completionHandler: nil
+        )
+      }
+
+      private func adjustZoom(by delta: Double) {
+        guard let mapView else { return }
+        mapView.setZoomLevel(
+          min(mapView.maximumZoomLevel, max(mapView.minimumZoomLevel, mapView.zoomLevel + delta)),
+          animated: true
         )
       }
 

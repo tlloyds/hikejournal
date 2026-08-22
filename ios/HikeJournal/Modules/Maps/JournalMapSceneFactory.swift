@@ -12,8 +12,12 @@ enum JournalMapSceneFactory {
         tracking: TrackingSnapshot?,
         selectedTrailOverlayIDs: Set<String>
     ) -> MapScene {
+        // The list and detail caches intentionally overlap while a journal is
+        // opening. Keep the richer detail title when the same hike appears in
+        // both collections instead of trapping on a duplicate dictionary key.
         let titles = Dictionary(
-            uniqueKeysWithValues: (hikes + Array(details.values)).map { ($0.id, $0.title) }
+            (hikes + Array(details.values)).map { ($0.id, $0.title) },
+            uniquingKeysWith: { _, detailTitle in detailTitle }
         )
         var routes: [RecordedRoute] = sourceRoutes.compactMap { route in
             recordedRoute(

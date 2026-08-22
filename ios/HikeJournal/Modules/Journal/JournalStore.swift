@@ -33,6 +33,7 @@ final class JournalStore: ObservableObject {
     private weak var sync: SyncStore?
     private var phaseObservation: AnyCancellable?
     private var accountTask: Task<Void, Never>?
+    private var loadedAccountIdentity: String?
     private var started = false
 
     init(
@@ -1245,13 +1246,22 @@ final class JournalStore: ObservableObject {
     }
 
     private func accountChanged(_ phase: AuthenticationPhase) async {
-        accountTask?.cancel()
         switch phase {
         case .restoring:
             return
         case .signedOut:
+            accountTask?.cancel()
+            accountTask = nil
+            loadedAccountIdentity = nil
             clearAccountData()
-        case .signedIn:
+        case let .signedIn(account):
+            let identity = account.userID ?? account.subject
+            // Authentication restore and startJournal can both observe the
+            // same signed-in phase. Do not cancel the first network refresh
+            // and then let the second call return on isRefreshingHikes.
+            guard loadedAccountIdentity != identity || accountTask == nil else { return }
+            accountTask?.cancel()
+            loadedAccountIdentity = identity
             accountTask = Task { @MainActor [weak self] in
                 await self?.refreshHikes()
             }

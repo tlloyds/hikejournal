@@ -195,71 +195,51 @@ struct JournalLibraryView: View {
     }
 
     private var journalList: some View {
-        List {
-            VStack(alignment: .leading, spacing: 3) {
-                Text("HIKEJOURNAL")
-                    .font(HikeJournalTheme.display(38, relativeTo: .largeTitle))
-                    .foregroundStyle(HikeJournalTheme.moss)
-                Text(listSummary)
-                    .font(HikeJournalTheme.body(16))
-                    .foregroundStyle(HikeJournalTheme.inkMuted)
-            }
-            .padding(.horizontal, 22)
-            .padding(.top, 14)
-            .padding(.bottom, 18)
-            .listRowInsets(EdgeInsets())
-            .listRowSeparator(.hidden)
-            .listRowBackground(Color.clear)
-
-            if let message = journal.statusMessage {
-                Label(message, systemImage: "icloud.slash")
-                    .font(HikeJournalTheme.body(14))
-                    .foregroundStyle(HikeJournalTheme.inkMuted)
-                    .padding(.horizontal, 22)
-                    .padding(.bottom, 14)
-                    .accessibilityElement(children: .combine)
-                    .listRowInsets(EdgeInsets())
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.clear)
-            }
-
-            ForEach(visibleHikes) { hike in
-                NavigationLink(value: hike.id) {
-                    JournalRow(hike: hike)
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("HIKEJOURNAL")
+                        .font(HikeJournalTheme.display(38, relativeTo: .largeTitle))
+                        .foregroundStyle(HikeJournalTheme.moss)
+                    Text(listSummary)
+                        .font(HikeJournalTheme.body(16))
+                        .foregroundStyle(HikeJournalTheme.inkMuted)
                 }
-                .buttonStyle(.plain)
-                .contextMenu {
-                    Button(hike.isArchived ? "Return to journal" : "Archive") {
-                        Task { await journal.setArchived(id: hike.id, archived: !hike.isArchived) }
-                    }
-                    ShareLink(item: shareText(hike))
-                    Button("Delete", role: .destructive) {
-                        Task { await journal.deleteHike(id: hike.id) }
-                    }
+                .padding(.horizontal, 22)
+                .padding(.top, 14)
+                .padding(.bottom, 18)
+
+                if let message = journal.statusMessage {
+                    Label(message, systemImage: "icloud.slash")
+                        .font(HikeJournalTheme.body(14))
+                        .foregroundStyle(HikeJournalTheme.inkMuted)
+                        .padding(.horizontal, 22)
+                        .padding(.bottom, 14)
+                        .accessibilityElement(children: .combine)
                 }
-                .listRowInsets(EdgeInsets())
-                .listRowSeparator(.hidden)
-                .listRowBackground(Color.clear)
 
-                Divider()
-                    .overlay(HikeJournalTheme.line)
-                    .padding(.leading, 22)
-                    .listRowInsets(EdgeInsets())
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.clear)
+                ForEach(visibleHikes) { hike in
+                    NavigationLink(value: hike.id) {
+                        JournalRow(hike: hike)
+                    }
+                    .buttonStyle(.plain)
+                    .contextMenu {
+                        Button(hike.isArchived ? "Return to journal" : "Archive") {
+                            Task { await journal.setArchived(id: hike.id, archived: !hike.isArchived) }
+                        }
+                        ShareLink(item: shareText(hike))
+                        Button("Delete", role: .destructive) {
+                            Task { await journal.deleteHike(id: hike.id) }
+                        }
+                    }
+                    Divider().overlay(HikeJournalTheme.line).padding(.leading, 22)
+                }
             }
-
-            Color.clear
-                .frame(height: 42)
-                .listRowInsets(EdgeInsets())
-                .listRowSeparator(.hidden)
-                .listRowBackground(Color.clear)
+            .padding(.bottom, 42)
         }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
-        .background(Color.clear)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .scrollIndicators(.hidden)
+        .scrollBounceBehavior(.basedOnSize)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .animation(.snappy(duration: 0.34), value: visibleHikes.map(\.id))
     }
 
@@ -540,8 +520,8 @@ struct JournalHikeDetailView: View {
     }
 
     private func detail(_ hike: Hike) -> some View {
-        List {
-            VStack(alignment: .leading, spacing: 0) {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) {
                 hero(hike)
                 VStack(alignment: .leading, spacing: 26) {
                     if !hike.notes.isEmpty {
@@ -663,15 +643,9 @@ struct JournalHikeDetailView: View {
                 .padding(.bottom, 34)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .listRowInsets(EdgeInsets())
-            .listRowSeparator(.hidden)
-            .listRowBackground(Color.clear)
         }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
-        .background(Color.clear)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .scrollIndicators(.hidden)
+        .scrollBounceBehavior(.basedOnSize)
     }
 
     private func hero(_ hike: Hike) -> some View {
