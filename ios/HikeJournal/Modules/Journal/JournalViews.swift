@@ -196,7 +196,7 @@ struct JournalLibraryView: View {
 
     private var journalList: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 0) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("HIKEJOURNAL")
                         .font(HikeJournalTheme.display(38, relativeTo: .largeTitle))
@@ -238,7 +238,7 @@ struct JournalLibraryView: View {
             .padding(.bottom, 42)
         }
         .scrollIndicators(.hidden)
-        .scrollBounceBehavior(.basedOnSize)
+        .scrollDisabled(false)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .animation(.snappy(duration: 0.34), value: visibleHikes.map(\.id))
     }
@@ -521,7 +521,7 @@ struct JournalHikeDetailView: View {
 
     private func detail(_ hike: Hike) -> some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 0) {
                 hero(hike)
                 VStack(alignment: .leading, spacing: 26) {
                     if !hike.notes.isEmpty {
@@ -645,7 +645,7 @@ struct JournalHikeDetailView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .scrollIndicators(.hidden)
-        .scrollBounceBehavior(.basedOnSize)
+        .scrollDisabled(false)
     }
 
     private func hero(_ hike: Hike) -> some View {

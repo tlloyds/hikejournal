@@ -50,7 +50,8 @@ final class JournalStore: ObservableObject {
             .removeDuplicates()
             .sink { [weak self] phase in
                 Task { @MainActor [weak self] in
-                    await self?.accountChanged(phase)
+                    guard let self, self.started else { return }
+                    await self.accountChanged(phase)
                 }
             }
     }

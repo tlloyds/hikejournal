@@ -19,7 +19,8 @@ final class SyncStore: ObservableObject {
     private let now: @Sendable () -> Date
 
     private var phaseObservation: AnyCancellable?
-    private var phaseChangeTask: Task<Void, Never>?
+    private var phaseConfigurationTask: Task<Void, Never>?
+    private var requestedPhase: AuthenticationPhase?
     private var drainTask: Task<SyncDrainResult, Error>?
     private var currentAccountID: String?
     private var accountGeneration = UUID()
@@ -53,7 +54,7 @@ final class SyncStore: ObservableObject {
     }
 
     deinit {
-        phaseChangeTask?.cancel()
+        phaseConfigurationTask?.cancel()
         drainTask?.cancel()
     }
 
@@ -98,7 +99,7 @@ final class SyncStore: ObservableObject {
             await self?.connectivityReturned()
         }
         if let authentication {
-            await configure(for: authentication.phase)
+            await requestAccountConfiguration(authentication.phase)
         }
     }
 
@@ -135,10 +136,24 @@ final class SyncStore: ObservableObject {
     }
 
     private func queueAccountChange(_ phase: AuthenticationPhase) {
-        phaseChangeTask?.cancel()
-        phaseChangeTask = Task { @MainActor [weak self] in
-            await self?.configure(for: phase)
+        Task { @MainActor [weak self] in
+            await self?.requestAccountConfiguration(phase)
         }
+    }
+
+    private func requestAccountConfiguration(_ phase: AuthenticationPhase) async {
+        requestedPhase = phase
+        if phaseConfigurationTask == nil {
+            phaseConfigurationTask = Task { @MainActor [weak self] in
+                guard let self else { return }
+                while let phase = self.requestedPhase {
+                    self.requestedPhase = nil
+                    await self.configure(for: phase)
+                }
+                self.phaseConfigurationTask = nil
+            }
+        }
+        await phaseConfigurationTask?.value
     }
 
     private func configure(for phase: AuthenticationPhase) async {
