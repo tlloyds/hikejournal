@@ -645,6 +645,7 @@ struct JournalHikeDetailView: View {
                 }
                 .padding(22)
                 .padding(.bottom, 34)
+                .background(HikeJournalTheme.paper)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -656,6 +657,7 @@ struct JournalHikeDetailView: View {
         ZStack(alignment: .bottomLeading) {
             JournalRemoteImage(urlString: hike.coverUrl, fallback: "mountain.2.fill")
                 .frame(height: 285)
+                .clipped()
                 .overlay {
                     LinearGradient(
                         colors: [.black.opacity(0.04), .black.opacity(0.72)],
@@ -683,6 +685,9 @@ struct JournalHikeDetailView: View {
             .foregroundStyle(Color(red: 1, green: 0.98, blue: 0.92))
             .padding(22)
         }
+        .frame(maxWidth: .infinity)
+        .frame(height: 285)
+        .clipped()
         .accessibilityElement(children: .combine)
     }
 
