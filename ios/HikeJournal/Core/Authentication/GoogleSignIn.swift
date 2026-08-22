@@ -67,8 +67,8 @@ final class GoogleSignInCoordinator: GoogleSignInAuthorizing {
             serverClientID: serverClientID
         )
         if !didConfigureProvider {
-            try await configure(provider)
             didConfigureProvider = true
+            await prewarmAppCheck(provider)
         }
 
         return try await withCheckedThrowingContinuation { continuation in
@@ -102,14 +102,14 @@ final class GoogleSignInCoordinator: GoogleSignInAuthorizing {
         GIDSignIn.sharedInstance.signOut()
     }
 
-    private func configure(_ provider: GIDSignIn) async throws {
-        try await withCheckedThrowingContinuation { continuation in
-            provider.configure { error in
-                if error == nil {
-                    continuation.resume(returning: ())
-                } else {
-                    continuation.resume(throwing: GoogleSignInAuthorizationError.providerFailure)
-                }
+    private func prewarmAppCheck(_ provider: GIDSignIn) async {
+        await withCheckedContinuation { continuation in
+            provider.configure { _ in
+                // App Check preparation is an optimization, not an authentication
+                // prerequisite. App Attest is unavailable in Simulator and can also
+                // fail transiently on a device; GoogleSignIn still performs the
+                // interactive authorization flow and handles token fallback itself.
+                continuation.resume()
             }
         }
     }
