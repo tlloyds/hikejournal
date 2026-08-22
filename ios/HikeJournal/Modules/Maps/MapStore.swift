@@ -37,7 +37,14 @@ final class MapStore: ObservableObject {
     @Published private(set) var errorMessage: String?
     @Published var selectedTrailOverlayIDs: Set<String> {
         didSet {
-            selectedTrailOverlayIDs = selectedTrailOverlayIDs.intersection(Self.validTrailIDs)
+            let sanitized = selectedTrailOverlayIDs.intersection(Self.validTrailIDs)
+            // Assigning the property unconditionally from didSet recursively
+            // re-enters the setter. Trail selection used to crash SwiftUI after
+            // thousands of Published mutations when a trail button was tapped.
+            if sanitized != selectedTrailOverlayIDs {
+                selectedTrailOverlayIDs = sanitized
+                return
+            }
             defaults.set(Array(selectedTrailOverlayIDs).sorted(), forKey: Self.trailPreferenceKey)
         }
     }

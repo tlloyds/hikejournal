@@ -437,7 +437,7 @@ private struct RouteSketch: View {
 }
 
 @MainActor
-private enum HikeShareMapSnapshotter {
+enum HikeShareMapSnapshotter {
     static func snapshot(routeSegments: [[RoutePoint]]) async -> UIImage? {
         let segments = routeSegments.map { $0.filter(valid) }.filter { $0.count >= 2 }
         let points = segments.flatMap { $0 }

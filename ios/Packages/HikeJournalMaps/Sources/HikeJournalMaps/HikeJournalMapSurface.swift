@@ -36,12 +36,24 @@
       self.onSelectPoint = onSelectPoint
       accessibility = MapAccessibility.snapshot(for: scene)
 
-      var values = [style.attribution]
+      var values = [style.attribution, Self.satelliteAttribution]
       values += NationalScenicTrailCatalog.selected(ids: scene.selectedTrailOverlayIDs)
         .flatMap(\.sourceAttributions)
       var seen: Set<String> = []
       attributions = values.filter { seen.insert($0.id).inserted }
     }
+
+    private static let satelliteAttribution: MapAttribution = {
+      // The imagery layer is intentionally owned by the map surface so the
+      // configured vector style remains useful as a fallback while imagery
+      // tiles load. Keep the provider credit visible alongside the style's
+      // existing attribution.
+      try! MapAttribution(
+        id: "esri-world-imagery",
+        title: "Esri World Imagery",
+        url: URL(string: "https://www.esri.com/en-us/legal/terms/full-master-agreement")!
+      )
+    }()
 
   public var body: some View {
       VStack(spacing: 4) {
@@ -280,6 +292,7 @@
       }
 
       func mapView(_ mapView: MLNMapView, didFinishLoading style: MLNStyle) {
+        configureSatelliteBasemap(on: style)
         reloadTrailOverlays(on: mapView)
       }
 
@@ -445,6 +458,29 @@
             }
           }
         }
+      }
+
+      private func configureSatelliteBasemap(on style: MLNStyle) {
+        let sourceID = "hike-journal-satellite-source"
+        let layerID = "hike-journal-satellite-layer"
+        if let existingLayer = style.layer(withIdentifier: layerID) {
+          style.removeLayer(existingLayer)
+        }
+        if let existingSource = style.source(withIdentifier: sourceID) {
+          style.removeSource(existingSource)
+        }
+
+        let source = MLNRasterTileSource(
+          identifier: sourceID,
+          tileURLTemplates: [
+            "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+          ],
+          options: [MLNTileSourceOption.tileSize: 256]
+        )
+        let layer = MLNRasterStyleLayer(identifier: layerID, source: source)
+        layer.rasterOpacity = NSExpression(forConstantValue: 1.0)
+        style.addSource(source)
+        style.addLayer(layer)
       }
 
       private func addTrail(

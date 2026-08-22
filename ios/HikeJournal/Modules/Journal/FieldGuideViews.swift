@@ -65,7 +65,11 @@ struct FieldGuideWorkspaceView: View {
                     }
                 }
             }
-            .task {
+            .task(id: model.selectedTab) {
+                // TabView constructs every tab up front. Keep the guide's
+                // heavyweight requests off the journal screen and cancel them
+                // when the user leaves this tab.
+                guard model.selectedTab == .fieldGuide else { return }
                 async let guide: Void = journal.refreshFieldGuide()
                 async let quests: Void = journal.loadQuests()
                 async let workflow: Void = journal.loadReviewAndPublishing()
@@ -75,21 +79,21 @@ struct FieldGuideWorkspaceView: View {
             .alert(
                 "Field Guide needs attention",
                 isPresented: Binding(
-                    get: { journal.errorMessage != nil || oauth.errorMessage != nil },
+                    get: { journal.fieldGuideErrorMessage != nil || oauth.errorMessage != nil },
                     set: {
                         if !$0 {
-                            journal.clearError()
+                            journal.clearFieldGuideError()
                             oauth.clearError()
                         }
                     }
                 )
             ) {
                 Button("OK") {
-                    journal.clearError()
+                    journal.clearFieldGuideError()
                     oauth.clearError()
                 }
             } message: {
-                Text(journal.errorMessage ?? oauth.errorMessage ?? "")
+                Text(journal.fieldGuideErrorMessage ?? oauth.errorMessage ?? "")
             }
         }
     }

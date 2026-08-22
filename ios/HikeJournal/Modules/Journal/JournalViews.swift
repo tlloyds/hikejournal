@@ -1,7 +1,9 @@
 import AVKit
+import Foundation
 import HikeJournalDomain
 import HikeJournalPersistence
 import SwiftUI
+import UIKit
 import UniformTypeIdentifiers
 
 struct JournalLibraryView: View {
@@ -535,7 +537,7 @@ struct JournalHikeDetailView: View {
 
                     if !hike.routeSegments.isEmpty {
                         JournalSection(title: "Route") {
-                            JournalRouteSketch(segments: hike.routeSegments)
+                            JournalRouteMap(segments: hike.routeSegments)
                                 .frame(height: 230)
                             Text("\(hike.routeSegments.flatMap { $0 }.count) saved GPS points · \(hike.routeSegments.count) \(hike.routeSegments.count == 1 ? "segment" : "segments")")
                                 .font(HikeJournalTheme.body(14))
@@ -578,6 +580,8 @@ struct JournalHikeDetailView: View {
                                     )
                                 }
                             }
+                            .padding(.top, 12)
+                            .frame(maxWidth: .infinity)
                         }
                         if media.isImporting {
                             ProgressView(value: media.progress) {
@@ -848,27 +852,29 @@ private struct JournalPhotoTile: View {
     }
 
     private var tile: some View {
-            ZStack(alignment: .bottomLeading) {
-                JournalRemoteImage(urlString: photo.url, fallback: photo.contentType.hasPrefix("video/") ? "video" : "photo")
-                    .aspectRatio(1, contentMode: .fill)
-                    .clipped()
-                LinearGradient(colors: [.clear, .black.opacity(0.66)], startPoint: .center, endPoint: .bottom)
-                VStack(alignment: .leading, spacing: 2) {
-                    if isCover { Label("Cover", systemImage: "bookmark.fill") }
-                    if let species = photo.species.first(where: \.isPrimary) ?? photo.species.first {
-                        Text(species.commonName.isEmpty ? species.scientificName : species.commonName).lineLimit(1)
-                    } else if !photo.caption.isEmpty {
-                        Text(photo.caption).lineLimit(2)
-                    }
-                    if photo.contentType.hasPrefix("video/") {
-                        Label("Video", systemImage: "play.fill")
-                    }
+        ZStack(alignment: .bottomLeading) {
+            JournalRemoteImage(urlString: photo.url, fallback: photo.contentType.hasPrefix("video/") ? "video" : "photo")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            LinearGradient(colors: [.clear, .black.opacity(0.66)], startPoint: .center, endPoint: .bottom)
+            VStack(alignment: .leading, spacing: 2) {
+                if isCover { Label("Cover", systemImage: "bookmark.fill") }
+                if let species = photo.species.first(where: \.isPrimary) ?? photo.species.first {
+                    Text(species.commonName.isEmpty ? species.scientificName : species.commonName).lineLimit(1)
+                } else if !photo.caption.isEmpty {
+                    Text(photo.caption).lineLimit(2)
                 }
-                .font(HikeJournalTheme.label(12, relativeTo: .caption))
-                .foregroundStyle(.white)
-                .padding(8)
+                if photo.contentType.hasPrefix("video/") {
+                    Label("Video", systemImage: "play.fill")
+                }
             }
-            .contentShape(Rectangle())
+            .font(HikeJournalTheme.label(12, relativeTo: .caption))
+            .foregroundStyle(.white)
+            .padding(8)
+        }
+        .frame(maxWidth: .infinity)
+        .aspectRatio(1, contentMode: .fit)
+        .clipped()
+        .contentShape(Rectangle())
     }
 }
 
@@ -1486,19 +1492,80 @@ private struct HikeComparisonSheet: View {
     }
 }
 
+@MainActor
+private final class JournalImageLoader: ObservableObject {
+    @Published private(set) var image: UIImage?
+    @Published private(set) var isLoading = false
+
+    private static let cache = NSCache<NSURL, UIImage>()
+    private let urlString: String
+    private var task: Task<Void, Never>?
+
+    init(urlString: String) {
+        self.urlString = urlString
+    }
+
+    func load() {
+        guard !isLoading, let url = URL(string: urlString), !urlString.isEmpty else { return }
+        if let cached = Self.cache.object(forKey: url as NSURL) {
+            image = cached
+            return
+        }
+
+        isLoading = true
+        task = Task { @MainActor [weak self] in
+            defer { self?.isLoading = false }
+            do {
+                var request = URLRequest(url: url)
+                request.cachePolicy = .returnCacheDataElseLoad
+                request.timeoutInterval = 30
+                let (data, response) = try await URLSession.shared.data(for: request)
+                try Task.checkCancellation()
+                guard let http = response as? HTTPURLResponse,
+                      (200...299).contains(http.statusCode),
+                      let loaded = UIImage(data: data) else { return }
+                Self.cache.setObject(loaded, forKey: url as NSURL)
+                self?.image = loaded
+            } catch is CancellationError {
+                return
+            } catch {
+                return
+            }
+        }
+    }
+
+    deinit {
+        task?.cancel()
+    }
+}
+
 struct JournalRemoteImage: View {
     let urlString: String
     let fallback: String
+    @StateObject private var loader: JournalImageLoader
+
+    init(urlString: String, fallback: String) {
+        self.urlString = urlString
+        self.fallback = fallback
+        _loader = StateObject(wrappedValue: JournalImageLoader(urlString: urlString))
+    }
 
     var body: some View {
-        AsyncImage(url: URL(string: urlString)) { phase in
-            switch phase {
-            case .success(let image): image.resizable().scaledToFill()
-            case .empty: ZStack { Color(red: 0.12, green: 0.22, blue: 0.15); ProgressView().tint(.white) }
-            case .failure: fallbackView
-            @unknown default: fallbackView
+        Group {
+            if let image = loader.image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+            } else if loader.isLoading {
+                ZStack {
+                    Color(red: 0.12, green: 0.22, blue: 0.15)
+                    ProgressView().tint(.white)
+                }
+            } else {
+                fallbackView
             }
         }
+        .task { loader.load() }
     }
 
     private var fallbackView: some View {
@@ -1552,40 +1619,37 @@ private struct JournalSection<Content: View>: View {
     }
 }
 
-private struct JournalRouteSketch: View {
+private struct JournalRouteMap: View {
     let segments: [[RoutePoint]]
+    @State private var image: UIImage?
 
     var body: some View {
-        GeometryReader { proxy in
-            let points = segments.flatMap { $0 }
-            let minLat = points.map(\.latitude).min() ?? 0
-            let maxLat = points.map(\.latitude).max() ?? 1
-            let minLng = points.map(\.longitude).min() ?? 0
-            let maxLng = points.map(\.longitude).max() ?? 1
-            ZStack {
-                Color(red: 0.07, green: 0.17, blue: 0.12)
-                BrandLandscape().opacity(0.14)
-                ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
-                    Path { path in
-                        for (index, point) in segment.enumerated() {
-                            let x = 18 + normalized(point.longitude, min: minLng, max: maxLng) * (proxy.size.width - 36)
-                            let y = 18 + (1 - normalized(point.latitude, min: minLat, max: maxLat)) * (proxy.size.height - 36)
-                            if index == 0 { path.move(to: CGPoint(x: x, y: y)) }
-                            else { path.addLine(to: CGPoint(x: x, y: y)) }
-                        }
+        ZStack {
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .overlay {
+                        LinearGradient(
+                            colors: [.clear, .black.opacity(0.22)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
                     }
-                    .stroke(HikeJournalTheme.trail, style: StrokeStyle(lineWidth: 4, lineCap: .round, lineJoin: .round))
+            } else {
+                ZStack {
+                    Color(red: 0.07, green: 0.17, blue: 0.12)
+                    ProgressView().tint(.white)
                 }
             }
+        }
+        .clipped()
+        .task(id: segments.count) {
+            image = await HikeShareMapSnapshotter.snapshot(routeSegments: segments)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Recorded route")
         .accessibilityValue("\(segments.count) segments and \(segments.flatMap { $0 }.count) GPS points")
-    }
-
-    private func normalized(_ value: Double, min: Double, max: Double) -> CGFloat {
-        guard max - min > 0.000_001 else { return 0.5 }
-        return CGFloat((value - min) / (max - min))
     }
 }
 

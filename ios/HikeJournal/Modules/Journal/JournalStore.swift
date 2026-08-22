@@ -25,6 +25,8 @@ final class JournalStore: ObservableObject {
     @Published private(set) var showingCachedData = false
     @Published private(set) var statusMessage: String?
     @Published private(set) var errorMessage: String?
+    @Published private(set) var fieldGuideStatusMessage: String?
+    @Published private(set) var fieldGuideErrorMessage: String?
     @Published private(set) var pendingCelebration: FieldCelebration?
 
     private let authentication: AuthenticationStore
@@ -172,6 +174,8 @@ final class JournalStore: ObservableObject {
         let loadKey = "field-guide"
         guard activeLoads.insert(loadKey).inserted else { return }
         defer { activeLoads.remove(loadKey) }
+        fieldGuideErrorMessage = nil
+        fieldGuideStatusMessage = nil
         let cachedSpecies: [SpeciesRecord]? = await cachedValue(
             [SpeciesRecord].self,
             database: context.database,
@@ -186,12 +190,13 @@ final class JournalStore: ObservableObject {
         )
         if let cachedSpecies { species = cachedSpecies }
         if let cachedSightings { sightings = cachedSightings }
+
+        var speciesLoaded = false
+        var sightingsLoaded = false
         do {
-            async let speciesRequest = api.species()
-            async let sightingsRequest = api.sightings()
-            let (remoteSpecies, remoteSightings) = try await (speciesRequest, sightingsRequest)
+            let remoteSpecies = try await api.species()
             species = remoteSpecies
-            sightings = remoteSightings
+            speciesLoaded = true
             try await cache(
                 remoteSpecies,
                 database: context.database,
@@ -199,6 +204,15 @@ final class JournalStore: ObservableObject {
                 key: "all",
                 lifetime: 60 * 60
             )
+        } catch is CancellationError {
+            return
+        } catch {
+            fieldGuideErrorMessage = readable(error)
+        }
+        do {
+            let remoteSightings = try await api.sightings()
+            sightings = remoteSightings
+            sightingsLoaded = true
             try await cache(
                 remoteSightings,
                 database: context.database,
@@ -209,8 +223,16 @@ final class JournalStore: ObservableObject {
         } catch is CancellationError {
             return
         } catch {
-            if cachedSpecies == nil && cachedSightings == nil { errorMessage = readable(error) }
-            else { statusMessage = "Field Guide is showing its saved offline copy." }
+            if fieldGuideErrorMessage == nil {
+                fieldGuideErrorMessage = readable(error)
+            }
+        }
+        if !speciesLoaded || !sightingsLoaded {
+            if cachedSpecies != nil || cachedSightings != nil {
+                fieldGuideStatusMessage = "Field Guide is showing its saved offline copy."
+            }
+        } else {
+            fieldGuideStatusMessage = nil
         }
     }
 
@@ -1234,6 +1256,8 @@ final class JournalStore: ObservableObject {
 
     func clearError() { errorMessage = nil }
 
+    func clearFieldGuideError() { fieldGuideErrorMessage = nil }
+
     var quotaAllowsNewHike: Bool {
         guard let entitlement = authentication.entitlement,
               let limit = entitlement.limits.cloudHikes else { return true }
@@ -1300,6 +1324,8 @@ final class JournalStore: ObservableObject {
         showingCachedData = false
         statusMessage = nil
         errorMessage = nil
+        fieldGuideStatusMessage = nil
+        fieldGuideErrorMessage = nil
         pendingCelebration = nil
     }
 
@@ -1407,9 +1433,9 @@ final class JournalStore: ObservableObject {
     private enum Cache {
         static let hikes = "hikes"
         static let hike = "hike-detail"
-        static let species = "species"
-        static let speciesDetail = "species-detail"
-        static let sightings = "sightings"
+        static let species = "species-v2"
+        static let speciesDetail = "species-detail-v2"
+        static let sightings = "sightings-v2"
         static let routes = "routes"
         static let locations = "locations"
         static let placeProfile = "place-profile"
