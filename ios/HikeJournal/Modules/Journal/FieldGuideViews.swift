@@ -449,7 +449,9 @@ struct SpeciesDetailView: View {
     private var speciesHero: some View {
         ZStack(alignment: .bottomLeading) {
             JournalRemoteImage(urlString: value.coverUrl, fallback: iconicSymbol(value.iconicTaxonName))
+                .frame(maxWidth: .infinity)
                 .frame(height: 300)
+                .clipped()
                 .overlay {
                     LinearGradient(colors: [.clear, .black.opacity(0.76)], startPoint: .center, endPoint: .bottom)
                 }
@@ -466,6 +468,9 @@ struct SpeciesDetailView: View {
             .foregroundStyle(Color(red: 1, green: 0.98, blue: 0.92))
             .padding(22)
         }
+        .frame(maxWidth: .infinity)
+        .frame(height: 300)
+        .clipped()
     }
 
     private var canSeePhenology: Bool {
