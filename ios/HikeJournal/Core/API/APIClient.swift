@@ -404,6 +404,10 @@ actor APIClient: AuthenticationAPI {
         }
 
         var urlRequest = URLRequest(url: url)
+        // API state is already cached explicitly per account by the offline
+        // store. Do not let URLSession reuse a response from another account
+        // or an earlier entitlement/media state.
+        urlRequest.cachePolicy = .reloadIgnoringLocalCacheData
         urlRequest.httpMethod = request.method.rawValue
         urlRequest.httpBody = request.body
         urlRequest.timeoutInterval = request.timeoutInterval
