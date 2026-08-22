@@ -858,29 +858,30 @@ private struct JournalPhotoTile: View {
     }
 
     private var tile: some View {
-        ZStack(alignment: .bottomLeading) {
-            JournalRemoteImage(urlString: photo.url, fallback: photo.contentType.hasPrefix("video/") ? "video" : "photo")
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            LinearGradient(colors: [.clear, .black.opacity(0.66)], startPoint: .center, endPoint: .bottom)
-            VStack(alignment: .leading, spacing: 2) {
-                if isCover { Label("Cover", systemImage: "bookmark.fill") }
-                if let species = photo.species.first(where: \.isPrimary) ?? photo.species.first {
-                    Text(species.commonName.isEmpty ? species.scientificName : species.commonName).lineLimit(1)
-                } else if !photo.caption.isEmpty {
-                    Text(photo.caption).lineLimit(2)
-                }
-                if photo.contentType.hasPrefix("video/") {
-                    Label("Video", systemImage: "play.fill")
+        Color.clear
+            .aspectRatio(1, contentMode: .fit)
+            .overlay {
+                ZStack(alignment: .bottomLeading) {
+                    JournalRemoteImage(urlString: photo.url, fallback: photo.contentType.hasPrefix("video/") ? "video" : "photo")
+                    LinearGradient(colors: [.clear, .black.opacity(0.66)], startPoint: .center, endPoint: .bottom)
+                    VStack(alignment: .leading, spacing: 2) {
+                        if isCover { Label("Cover", systemImage: "bookmark.fill") }
+                        if let species = photo.species.first(where: \.isPrimary) ?? photo.species.first {
+                            Text(species.commonName.isEmpty ? species.scientificName : species.commonName).lineLimit(1)
+                        } else if !photo.caption.isEmpty {
+                            Text(photo.caption).lineLimit(2)
+                        }
+                        if photo.contentType.hasPrefix("video/") {
+                            Label("Video", systemImage: "play.fill")
+                        }
+                    }
+                    .font(HikeJournalTheme.label(12, relativeTo: .caption))
+                    .foregroundStyle(.white)
+                    .padding(8)
                 }
             }
-            .font(HikeJournalTheme.label(12, relativeTo: .caption))
-            .foregroundStyle(.white)
-            .padding(8)
-        }
-        .frame(maxWidth: .infinity)
-        .aspectRatio(1, contentMode: .fit)
-        .clipped()
-        .contentShape(Rectangle())
+            .clipped()
+            .contentShape(Rectangle())
     }
 }
 
@@ -903,9 +904,6 @@ private struct JournalObservationRow: View {
                         .italic()
                         .foregroundStyle(HikeJournalTheme.inkMuted)
                 }
-                Text(friendlyObservationProvenance(species.provenance))
-                    .font(HikeJournalTheme.body(12))
-                    .foregroundStyle(HikeJournalTheme.trailText)
             }
             Spacer()
             Image(systemName: "chevron.right")
@@ -914,7 +912,7 @@ private struct JournalObservationRow: View {
         }
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
-        .accessibilityHint("Opens the observation and identification history")
+        .accessibilityHint("Opens the observation")
     }
 }
 
@@ -1041,24 +1039,6 @@ private struct JournalMediaDetailView: View {
                     .italic()
                     .foregroundStyle(Color.white.opacity(0.72))
             }
-            Text(friendlyObservationProvenance(species.provenance))
-                .font(HikeJournalTheme.label(12))
-                .tracking(0.5)
-                .foregroundStyle(Color(red: 0.58, green: 0.70, blue: 0.57))
-
-            if !species.identificationHistory.isEmpty {
-                Text("IDENTIFICATION HISTORY")
-                    .font(HikeJournalTheme.label(11))
-                    .tracking(1.2)
-                    .foregroundStyle(Color(red: 0.58, green: 0.70, blue: 0.57))
-                    .padding(.top, 8)
-                ForEach(species.identificationHistory.prefix(5)) { event in
-                    Text("\(event.createdAt.map { String($0.prefix(10)) } ?? "Undated") · \(friendlyObservationProvenance(event.source)) → \(event.commonName.isEmpty ? event.scientificName : event.commonName)")
-                        .font(HikeJournalTheme.body(13))
-                        .foregroundStyle(Color.white.opacity(0.76))
-                }
-            }
-
             if !species.wikipediaSummary.isEmpty {
                 Text("FROM WIKIPEDIA")
                     .font(HikeJournalTheme.label(11))
@@ -1273,17 +1253,6 @@ private struct KnownSpeciesAssignmentView: View {
             }
             assigningID = nil
         }
-    }
-}
-
-private func friendlyObservationProvenance(_ value: String) -> String {
-    switch value.lowercased() {
-    case "user": "Your field note"
-    case "known_species": "Known species"
-    case "inat", "inaturalist", "inat_recommendation": "iNaturalist"
-    case "manual": "Manual identification"
-    case "legacy_import": "Earlier HikeJournal record"
-    default: value.replacingOccurrences(of: "_", with: " ").capitalized
     }
 }
 

@@ -986,7 +986,7 @@ private struct PlaceLifeSection: View {
                             }
                         }
                     } label: {
-                        Text("\(group.name) · \(group.count)")
+                        Text("\(friendlyPlaceTaxon(group.name)) · \(group.count)")
                             .font(HikeJournalTheme.label(16, relativeTo: .headline))
                             .foregroundStyle(HikeJournalTheme.ink)
                     }
@@ -995,6 +995,23 @@ private struct PlaceLifeSection: View {
                 }
             }
         }
+    }
+}
+
+private func friendlyPlaceTaxon(_ value: String) -> String {
+    switch value.lowercased() {
+    case "plantae": "Plants"
+    case "aves": "Birds"
+    case "mammalia": "Mammals"
+    case "fungi": "Fungi"
+    case "insecta": "Insects"
+    case "arachnida": "Arachnids"
+    case "reptilia": "Reptiles"
+    case "amphibia": "Amphibians"
+    case "actinopterygii": "Fish"
+    case "mollusca": "Mollusks"
+    case "animalia": "Other animals"
+    default: value.isEmpty ? "Other" : value
     }
 }
 

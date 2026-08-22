@@ -3427,31 +3427,6 @@ private fun PhotoViewer(
                 ) {
                 identifiedSpecies?.let { species ->
                     Text(species.commonName.ifBlank { species.scientificName }, style = MaterialTheme.typography.titleMedium, color = Color(0xFFBFD2B9))
-                    if (species.provenance.isNotBlank()) {
-                        Text(
-                            friendlyProvenance(species.provenance),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = Color(0xFF91AA8C),
-                            modifier = Modifier.padding(top = 4.dp),
-                        )
-                    }
-                    if (species.observationId != null && species.identificationHistory.isNotEmpty()) {
-                        Text(
-                            "IDENTIFICATION HISTORY",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = Color(0xFF91AA8C),
-                            modifier = Modifier.padding(top = 14.dp),
-                        )
-                        species.identificationHistory.take(3).forEach { event ->
-                            Text(
-                                "${event.createdAt?.take(10).orEmpty()} · ${friendlyProvenance(event.source)} → " +
-                                    event.commonName.ifBlank { event.scientificName },
-                                style = MaterialTheme.typography.bodySmall,
-                                color = Color(0xFFBFD2B9),
-                                modifier = Modifier.padding(top = 3.dp),
-                            )
-                        }
-                    }
                 }
                 if (onViewMap != null) {
                     OutlinedButton(
@@ -5063,16 +5038,6 @@ private fun formatDate(raw: String): String = try {
     LocalDate.parse(raw).format(DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.US))
 } catch (_: Exception) {
     raw
-}
-
-private fun friendlyProvenance(value: String): String = when (value) {
-    "user" -> "You"
-    "inat_computer_vision" -> "iNaturalist suggestion"
-    "inat_lookup" -> "iNaturalist taxon lookup"
-    "inat_community" -> "iNaturalist community"
-    "external_expert" -> "External expert"
-    "imported_record" -> "Imported record"
-    else -> "Legacy record"
 }
 
 private fun formatTakenAt(raw: String?): String {
