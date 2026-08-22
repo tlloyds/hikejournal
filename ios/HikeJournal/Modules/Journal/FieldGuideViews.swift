@@ -896,7 +896,7 @@ private struct SpeciesReviewList: View {
                 ContentUnavailableView(
                     "Review queue is clear",
                     systemImage: "checkmark.seal",
-                    description: Text("Media queued for identification appears here with provenance and confidence.")
+                    description: Text("Media queued for identification appears here with its identification provenance.")
                 )
             } else {
                 ScrollView {
@@ -949,10 +949,6 @@ private struct ReviewItemView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(candidate.commonName).font(HikeJournalTheme.label(15, relativeTo: .headline))
                             Text(candidate.scientificName).font(HikeJournalTheme.body(12)).italic()
-                            if let confidence = normalizedReviewConfidence(candidate.confidence) {
-                                Text("Suggestion confidence \(confidence.formatted(.percent.precision(.fractionLength(0))))")
-                                    .font(HikeJournalTheme.body(12)).foregroundStyle(HikeJournalTheme.inkMuted)
-                            }
                         }
                         Spacer()
                         Button(index == 0 ? "Confirm" : "Choose") {

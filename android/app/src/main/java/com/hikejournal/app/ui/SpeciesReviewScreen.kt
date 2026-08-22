@@ -513,8 +513,6 @@ private fun ReviewItemContent(
 ) {
     var selectedIndex by remember(item.id) { mutableIntStateOf(0) }
     val selected = item.candidates.getOrNull(selectedIndex)
-    val confidenceUsesFractionalScale = usesFractionalConfidenceScale(item.candidates.map { it.confidence })
-
     LazyColumn(Modifier.fillMaxSize().padding(bottom = 84.dp)) {
         item {
             Box(Modifier.fillMaxWidth().height(390.dp).background(Moss)) {
@@ -603,7 +601,6 @@ private fun ReviewItemContent(
                         CandidateRow(
                             candidate = candidate,
                             selected = selectedIndex == candidateIndex,
-                            usesFractionalConfidenceScale = confidenceUsesFractionalScale,
                             onClick = { selectedIndex = candidateIndex },
                         )
                     }
@@ -673,7 +670,6 @@ internal fun reviewPhotoIsSynced(item: ReviewItem): Boolean =
 private fun CandidateRow(
     candidate: ReviewCandidate,
     selected: Boolean,
-    usesFractionalConfidenceScale: Boolean,
     onClick: () -> Unit,
 ) {
     Row(
@@ -686,13 +682,6 @@ private fun CandidateRow(
             if (candidate.scientificName.isNotBlank()) {
                 Text(candidate.scientificName, style = MaterialTheme.typography.bodyMedium, color = InkMuted, fontStyle = FontStyle.Italic)
             }
-        }
-        candidate.confidence?.let {
-            Text(
-                formatConfidencePercent(it, usesFractionalConfidenceScale),
-                style = MaterialTheme.typography.labelMedium,
-                color = if (selected) Moss else InkMuted,
-            )
         }
     }
 }

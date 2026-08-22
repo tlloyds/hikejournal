@@ -538,6 +538,7 @@ struct JournalHikeDetailView: View {
                     if !hike.routeSegments.isEmpty {
                         JournalSection(title: "Route") {
                             JournalRouteMap(segments: hike.routeSegments)
+                                .frame(maxWidth: .infinity)
                                 .frame(height: 230)
                             Text("\(hike.routeSegments.flatMap { $0 }.count) saved GPS points · \(hike.routeSegments.count) \(hike.routeSegments.count == 1 ? "segment" : "segments")")
                                 .font(HikeJournalTheme.body(14))
@@ -902,7 +903,7 @@ private struct JournalObservationRow: View {
                         .italic()
                         .foregroundStyle(HikeJournalTheme.inkMuted)
                 }
-                Text("\(friendlyObservationConfidence(species.confidence)) · \(friendlyObservationProvenance(species.provenance))")
+                Text(friendlyObservationProvenance(species.provenance))
                     .font(HikeJournalTheme.body(12))
                     .foregroundStyle(HikeJournalTheme.trailText)
             }
@@ -926,7 +927,6 @@ private struct JournalMediaDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var showingCaption = false
     @State private var showingKnownSpecies = false
-    @State private var showingNaturalHistory = false
     @State private var showingDelete = false
     @State private var working = false
 
@@ -1001,20 +1001,6 @@ private struct JournalMediaDetailView: View {
                     hikeID: hikeID
                 )
             }
-            .sheet(isPresented: $showingNaturalHistory) {
-                if let species = primarySpecies, let observationID = species.observationId {
-                    NaturalHistoryEditor(species: species) { confidence, phenophases in
-                        let saved = await journal.updateNaturalHistory(
-                            observationID: observationID,
-                            hikeID: hikeID,
-                            confidence: confidence,
-                            phenophases: phenophases
-                        )
-                        if saved { await journal.loadHike(id: hikeID, force: true) }
-                        return saved
-                    }
-                }
-            }
             .confirmationDialog("Delete this media item?", isPresented: $showingDelete) {
                 Button("Delete from HikeJournal", role: .destructive) {
                     Task {
@@ -1055,16 +1041,10 @@ private struct JournalMediaDetailView: View {
                     .italic()
                     .foregroundStyle(Color.white.opacity(0.72))
             }
-            Text("\(friendlyObservationConfidence(species.confidence)) · \(friendlyObservationProvenance(species.provenance))")
+            Text(friendlyObservationProvenance(species.provenance))
                 .font(HikeJournalTheme.label(12))
                 .tracking(0.5)
                 .foregroundStyle(Color(red: 0.58, green: 0.70, blue: 0.57))
-
-            if !species.phenophases.isEmpty {
-                Text(species.phenophases.map(friendlyPhenophase).joined(separator: " · "))
-                    .font(HikeJournalTheme.body(15))
-                    .foregroundStyle(.white)
-            }
 
             if !species.identificationHistory.isEmpty {
                 Text("IDENTIFICATION HISTORY")
@@ -1077,18 +1057,6 @@ private struct JournalMediaDetailView: View {
                         .font(HikeJournalTheme.body(13))
                         .foregroundStyle(Color.white.opacity(0.76))
                 }
-            }
-
-            if let _ = species.observationId {
-                Button {
-                    showingNaturalHistory = true
-                } label: {
-                    Label("Confidence & phenophase", systemImage: "leaf.circle")
-                        .frame(maxWidth: .infinity, minHeight: 46)
-                }
-                .buttonStyle(.bordered)
-                .tint(Color(red: 0.72, green: 0.82, blue: 0.69))
-                .padding(.top, 5)
             }
 
             if !species.wikipediaSummary.isEmpty {
@@ -1115,6 +1083,26 @@ private struct JournalMediaDetailView: View {
                 .font(HikeJournalTheme.display(28, relativeTo: .title2))
                 .foregroundStyle(.white)
             Button {
+                working = true
+                Task {
+                    _ = await journal.identifyPhotoWithINaturalist(photoID: currentPhoto.id, hikeID: hikeID)
+                    working = false
+                }
+            } label: {
+                Label(
+                    working ? "Asking iNaturalist…" : "Identify with iNaturalist",
+                    systemImage: "sparkle.magnifyingglass"
+                )
+                .frame(maxWidth: .infinity, minHeight: 46)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(Color(red: 0.72, green: 0.82, blue: 0.69))
+            .disabled(working)
+            Text("The photo will be placed in Species Review with iNaturalist’s suggestion.")
+                .font(HikeJournalTheme.body(13))
+                .foregroundStyle(Color.white.opacity(0.72))
+
+            Button {
                 showingKnownSpecies = true
             } label: {
                 Label("Assign known species", systemImage: "checkmark.seal")
@@ -1123,27 +1111,25 @@ private struct JournalMediaDetailView: View {
             .buttonStyle(.bordered)
             .tint(Color(red: 0.72, green: 0.82, blue: 0.69))
 
-            Button {
-                let queued = currentPhoto.processingStatus != "in_review"
+            if currentPhoto.processingStatus == "in_review" {
+                Button {
                 working = true
                 Task {
                     _ = await journal.queueSpeciesReview(
                         photoID: currentPhoto.id,
                         hikeID: hikeID,
-                        queued: queued
+                        queued: false
                     )
                     working = false
                 }
-            } label: {
-                Label(
-                    currentPhoto.processingStatus == "in_review" ? "Remove from species review" : "Add to species review",
-                    systemImage: currentPhoto.processingStatus == "in_review" ? "checkmark.circle.fill" : "sparkle.magnifyingglass"
-                )
-                .frame(maxWidth: .infinity, minHeight: 46)
+                } label: {
+                    Label("Remove from species review", systemImage: "checkmark.circle.fill")
+                        .frame(maxWidth: .infinity, minHeight: 46)
+                }
+                .buttonStyle(.bordered)
+                .tint(Color(red: 0.72, green: 0.82, blue: 0.69))
+                .disabled(working)
             }
-            .buttonStyle(.bordered)
-            .tint(Color(red: 0.72, green: 0.82, blue: 0.69))
-            .disabled(working)
         }
     }
 
@@ -1290,101 +1276,6 @@ private struct KnownSpeciesAssignmentView: View {
     }
 }
 
-private struct NaturalHistoryEditor: View {
-    let species: SpeciesLabel
-    let save: (String, [String]) async -> Bool
-
-    @Environment(\.dismiss) private var dismiss
-    @State private var confidence: String
-    @State private var phenophases: Set<String>
-    @State private var saving = false
-
-    init(species: SpeciesLabel, save: @escaping (String, [String]) async -> Bool) {
-        self.species = species
-        self.save = save
-        _confidence = State(initialValue: species.confidence)
-        _phenophases = State(initialValue: Set(species.phenophases))
-    }
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section("Identification confidence") {
-                    Picker("Confidence", selection: $confidence) {
-                        ForEach(confidenceOptions, id: \.value) { option in
-                            Text(option.label).tag(option.value)
-                        }
-                    }
-                    .pickerStyle(.inline)
-                    .labelsHidden()
-                }
-
-                if species.iconicTaxonName.localizedCaseInsensitiveContains("plant") {
-                    Section("Plant phenophase · optional") {
-                        ForEach(phenophaseOptions, id: \.value) { option in
-                            Toggle(option.label, isOn: Binding(
-                                get: { phenophases.contains(option.value) },
-                                set: { enabled in
-                                    if enabled { phenophases.insert(option.value) }
-                                    else { phenophases.remove(option.value) }
-                                }
-                            ))
-                        }
-                    }
-                }
-
-                Section {
-                    Text("These labels describe this observation; they do not claim a species-wide season.")
-                        .font(HikeJournalTheme.body(14))
-                        .foregroundStyle(HikeJournalTheme.inkMuted)
-                }
-            }
-            .font(HikeJournalTheme.body())
-            .scrollContentBackground(.hidden)
-            .background(ParchmentBackground())
-            .navigationTitle("Natural-history detail")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(saving ? "Saving…" : "Save") {
-                        saving = true
-                        Task {
-                            if await save(confidence, phenophases.sorted()) { dismiss() }
-                            saving = false
-                        }
-                    }
-                    .disabled(saving)
-                }
-            }
-        }
-    }
-
-    private let confidenceOptions = [
-        (value: "tentative", label: "Tentative"),
-        (value: "likely", label: "Likely"),
-        (value: "confident", label: "Confident"),
-        (value: "externally_confirmed", label: "Externally confirmed"),
-    ]
-
-    private let phenophaseOptions = [
-        (value: "vegetative", label: "Vegetative"),
-        (value: "budding", label: "Budding"),
-        (value: "flowering", label: "Flowering"),
-        (value: "fruiting", label: "Fruiting"),
-        (value: "senescent", label: "Senescent"),
-    ]
-}
-
-private func friendlyObservationConfidence(_ value: String) -> String {
-    switch value.lowercased() {
-    case "likely": "Likely"
-    case "confident": "Confident"
-    case "externally_confirmed": "Externally confirmed"
-    default: "Tentative"
-    }
-}
-
 private func friendlyObservationProvenance(_ value: String) -> String {
     switch value.lowercased() {
     case "user": "Your field note"
@@ -1394,10 +1285,6 @@ private func friendlyObservationProvenance(_ value: String) -> String {
     case "legacy_import": "Earlier HikeJournal record"
     default: value.replacingOccurrences(of: "_", with: " ").capitalized
     }
-}
-
-private func friendlyPhenophase(_ value: String) -> String {
-    value.replacingOccurrences(of: "_", with: " ").capitalized
 }
 
 private struct WeatherSummaryView: View {
@@ -1561,6 +1448,7 @@ struct JournalRemoteImage: View {
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFill()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if loader.isLoading {
                 ZStack {
                     Color(red: 0.12, green: 0.22, blue: 0.15)
@@ -1648,6 +1536,7 @@ private struct JournalRouteMap: View {
                 }
             }
         }
+        .frame(maxWidth: .infinity)
         .clipped()
         .task(id: segments.count) {
             image = await HikeShareMapSnapshotter.snapshot(routeSegments: segments)
