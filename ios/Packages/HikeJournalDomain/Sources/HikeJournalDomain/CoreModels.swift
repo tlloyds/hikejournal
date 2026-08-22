@@ -34,7 +34,17 @@ public struct MapRoute: Codable, Equatable, Sendable {
     public init(from decoder: Decoder) throws {
         let values = try decoder.domainContainer()
         hikeId = values.string("hikeId")
-        segments = try values.array([RoutePoint].self, "routeSegments").filter { $0.count >= 2 }
+        let serverSegments = try values.array([RoutePoint].self, "routeSegments")
+        let cachedSegments = serverSegments.isEmpty
+            ? try values.array([RoutePoint].self, "segments")
+            : serverSegments
+        segments = cachedSegments.filter { $0.count >= 2 }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: DomainKey.self)
+        try values.encode(hikeId, forKey: DomainKey("hike_id"))
+        try values.encode(segments, forKey: DomainKey("route_segments"))
     }
 }
 

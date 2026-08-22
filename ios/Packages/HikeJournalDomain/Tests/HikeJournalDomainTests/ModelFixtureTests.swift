@@ -74,6 +74,12 @@ final class ModelFixtureTests: XCTestCase {
         XCTAssertEqual(hike.photoCount, 7)
         XCTAssertEqual(routes.first?.hikeId, "hike-1")
         XCTAssertEqual(routes.first?.segments.first?.count, 2)
+
+        let cachedRouteData = try HikeJournalDomainJSON.encode(try XCTUnwrap(routes.first))
+        let cachedRouteJSON = try XCTUnwrap(String(data: cachedRouteData, encoding: .utf8))
+        XCTAssertTrue(cachedRouteJSON.contains("\"route_segments\""))
+        let cachedRoute = try HikeJournalDomainJSON.decode(MapRoute.self, from: cachedRouteData)
+        XCTAssertEqual(cachedRoute, try XCTUnwrap(routes.first))
     }
 
     func testPhotoParsesMixedPhenophasesHistoryAndMarkup() throws {
