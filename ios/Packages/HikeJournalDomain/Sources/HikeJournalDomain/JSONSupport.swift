@@ -61,8 +61,15 @@ extension Decoder {
 }
 
 extension KeyedDecodingContainer where Key == DomainKey {
+    private func resolvedKey(_ name: String) -> DomainKey {
+        let exact = DomainKey(name)
+        guard !contains(exact) else { return exact }
+        let snakeCase = DomainKey(name.domainSnakeCased)
+        return contains(snakeCase) ? snakeCase : exact
+    }
+
     func string(_ name: String, default defaultValue: String = "") -> String {
-        let key = DomainKey(name)
+        let key = resolvedKey(name)
         guard contains(key), (try? decodeNil(forKey: key)) != true else { return defaultValue }
         if let value = try? decode(String.self, forKey: key) { return value }
         if let value = try? decode(Int64.self, forKey: key) { return String(value) }
@@ -83,7 +90,7 @@ extension KeyedDecodingContainer where Key == DomainKey {
     }
 
     func optionalInteger(_ name: String) -> Int? {
-        let key = DomainKey(name)
+        let key = resolvedKey(name)
         guard contains(key), (try? decodeNil(forKey: key)) != true else { return nil }
         if let value = try? decode(Int.self, forKey: key) { return value }
         if let value = try? decode(Int64.self, forKey: key), let converted = Int(exactly: value) {
@@ -104,7 +111,7 @@ extension KeyedDecodingContainer where Key == DomainKey {
     }
 
     func optionalInt64(_ name: String) -> Int64? {
-        let key = DomainKey(name)
+        let key = resolvedKey(name)
         guard contains(key), (try? decodeNil(forKey: key)) != true else { return nil }
         if let value = try? decode(Int64.self, forKey: key) { return value }
         if let value = try? decode(Int.self, forKey: key) { return Int64(value) }
@@ -123,7 +130,7 @@ extension KeyedDecodingContainer where Key == DomainKey {
     }
 
     func optionalDouble(_ name: String) -> Double? {
-        let key = DomainKey(name)
+        let key = resolvedKey(name)
         guard contains(key), (try? decodeNil(forKey: key)) != true else { return nil }
         let decoded: Double?
         if let value = try? decode(Double.self, forKey: key) {
@@ -139,7 +146,7 @@ extension KeyedDecodingContainer where Key == DomainKey {
     }
 
     func boolean(_ name: String, default defaultValue: Bool = false) -> Bool {
-        let key = DomainKey(name)
+        let key = resolvedKey(name)
         guard contains(key), (try? decodeNil(forKey: key)) != true else { return defaultValue }
         if let value = try? decode(Bool.self, forKey: key) { return value }
         if let value = try? decode(Int.self, forKey: key) { return value != 0 }
@@ -154,7 +161,7 @@ extension KeyedDecodingContainer where Key == DomainKey {
     }
 
     func optionalBoolean(_ name: String) -> Bool? {
-        let key = DomainKey(name)
+        let key = resolvedKey(name)
         guard contains(key), (try? decodeNil(forKey: key)) != true else { return nil }
         if let value = try? decode(Bool.self, forKey: key) { return value }
         if let value = try? decode(Int.self, forKey: key) { return value != 0 }
@@ -172,28 +179,28 @@ extension KeyedDecodingContainer where Key == DomainKey {
         _ type: Value.Type = Value.self,
         _ name: String
     ) throws -> Value {
-        try decode(type, forKey: DomainKey(name))
+        try decode(type, forKey: resolvedKey(name))
     }
 
     func optionalValue<Value: Decodable>(
         _ type: Value.Type = Value.self,
         _ name: String
     ) throws -> Value? {
-        try decodeIfPresent(type, forKey: DomainKey(name))
+        try decodeIfPresent(type, forKey: resolvedKey(name))
     }
 
     func array<Value: Decodable>(
         _ type: Value.Type = Value.self,
         _ name: String
     ) throws -> [Value] {
-        try decodeIfPresent([Value].self, forKey: DomainKey(name)) ?? []
+        try decodeIfPresent([Value].self, forKey: resolvedKey(name)) ?? []
     }
 
     func dictionary<Value: Decodable>(
         _ type: Value.Type = Value.self,
         _ name: String
     ) throws -> [String: Value] {
-        try decodeIfPresent([String: Value].self, forKey: DomainKey(name)) ?? [:]
+        try decodeIfPresent([String: Value].self, forKey: resolvedKey(name)) ?? [:]
     }
 }
 
@@ -207,6 +214,26 @@ func encodeDomain<Value: Encodable>(
 }
 
 extension String {
+    fileprivate var domainSnakeCased: String {
+        var output = ""
+        let characters = Array(self)
+        for (index, character) in characters.enumerated() {
+            if character.isUppercase {
+                let previous = index > 0 ? characters[index - 1] : nil
+                let next = index + 1 < characters.count ? characters[index + 1] : nil
+                if index > 0,
+                   previous?.isLowercase == true ||
+                    (previous?.isUppercase == true && next?.isLowercase == true) {
+                    output.append("_")
+                }
+                output.append(contentsOf: character.lowercased())
+            } else {
+                output.append(character)
+            }
+        }
+        return output
+    }
+
     var domainTrimmed: String {
         trimmingCharacters(in: .whitespacesAndNewlines)
     }

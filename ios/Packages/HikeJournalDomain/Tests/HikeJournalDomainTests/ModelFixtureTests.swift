@@ -54,6 +54,28 @@ final class ModelFixtureTests: XCTestCase {
         ).count, 1)
     }
 
+    func testDomainModelsDecodeServerSnakeCaseWithPlainJSONDecoder() throws {
+        let decoder = JSONDecoder()
+        let hike = try decoder.decode(
+            Hike.self,
+            from: Data(
+                #"{"id":"hike-1","title":"Pine Loop","hike_date":"2026-08-01","cover_url":"https://example.test/cover.jpg","cover_photo_id":"photo-1","photo_count":7,"species_count":2,"is_archived":false,"is_standalone":false}"#.utf8
+            )
+        )
+        let routes = try decoder.decode(
+            [MapRoute].self,
+            from: Data(
+                #"[{"hike_id":"hike-1","route_segments":[[{"lat":28.1,"lng":-82.1},{"lat":28.2,"lng":-82.2}]]}]"#.utf8
+            )
+        )
+
+        XCTAssertEqual(hike.coverUrl, "https://example.test/cover.jpg")
+        XCTAssertEqual(hike.coverPhotoId, "photo-1")
+        XCTAssertEqual(hike.photoCount, 7)
+        XCTAssertEqual(routes.first?.hikeId, "hike-1")
+        XCTAssertEqual(routes.first?.segments.first?.count, 2)
+    }
+
     func testPhotoParsesMixedPhenophasesHistoryAndMarkup() throws {
         let photo = try HikeJournalDomainJSON.decode(
             Photo.self,
