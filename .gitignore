@@ -12,3 +12,8 @@ dist/
 android/.kotlin/
 *.jks
 *.keystore
+# iOS local credentials and per-user Xcode state
+ios/Config/Secrets.xcconfig
+ios/**/xcuserdata/
+ios/**/*.xcuserstate
+ios/Packages/**/.build/

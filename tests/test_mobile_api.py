@@ -524,7 +524,7 @@ def test_mobile_route_upload_saves_tcx_and_returns_map_segments(monkeypatch):
     }
 
 
-def test_mobile_route_upload_accepts_only_native_gps_source(monkeypatch):
+def test_mobile_route_upload_accepts_native_android_and_ios_gps_sources(monkeypatch):
     class Repository:
         def get_hike_route_import(self, _hike_id):
             return None
@@ -546,6 +546,11 @@ def test_mobile_route_upload_accepts_only_native_gps_source(monkeypatch):
             files={"file": ("recording.tcx", b"<TrainingCenterDatabase/>", "application/xml")},
             data={"source_type": "hikejournal_android_gps"},
         )
+        ios_response = TestClient(app).post(
+            "/v1/hikes/hike-1/route",
+            files={"file": ("recording.tcx", b"<TrainingCenterDatabase/>", "application/xml")},
+            data={"source_type": "hikejournal_ios_gps"},
+        )
         invalid_response = TestClient(app).post(
             "/v1/hikes/hike-1/route",
             files={"file": ("recording.tcx", b"<TrainingCenterDatabase/>", "application/xml")},
@@ -555,7 +560,8 @@ def test_mobile_route_upload_accepts_only_native_gps_source(monkeypatch):
         app.dependency_overrides.pop(require_mobile_key, None)
 
     assert native_response.status_code == 201
-    assert captured == {"source_type": "hikejournal_android_gps"}
+    assert ios_response.status_code == 201
+    assert captured == {"source_type": "hikejournal_ios_gps"}
     assert invalid_response.status_code == 422
 
 
@@ -620,6 +626,15 @@ def test_photo_upload_uses_picker_metadata_when_file_exif_is_redacted(monkeypatc
     repository = Repository()
     service = type("Service", (), {"repository": repository, "storage": Storage()})()
     monkeypatch.setattr("mobile_api.get_services", lambda: service)
+    monkeypatch.setattr(
+        "mobile_api._user_context",
+        lambda: {
+            "mode": "google",
+            "user_id": "11111111-1111-4111-8111-111111111111",
+            "subject": "google-subject-1",
+            "email": "hiker@example.com",
+        },
+    )
     monkeypatch.setattr("mobile_api._get_visible_hike", lambda _repository, _hike_id: {"id": "hike-1"})
     monkeypatch.setattr(
         "mobile_api.extract_metadata",
@@ -662,6 +677,9 @@ def test_photo_upload_uses_picker_metadata_when_file_exif_is_redacted(monkeypatc
     assert repository.created["taken_at"] == "2026-07-19T14:32:10+00:00"
     assert repository.created["lat"] == 28.5
     assert repository.created["lng"] == -81.25
+    assert repository.created["owner_user_id"] == "11111111-1111-4111-8111-111111111111"
+    assert repository.created["owner_subject"] == "google-subject-1"
+    assert repository.created["owner_email"] == "hiker@example.com"
     assert repository.created["exif_json"]["picker_taken_at"] == "2026-07-19T14:32:10+00:00"
 
 
@@ -1815,9 +1833,11 @@ def test_create_hike_correlates_selected_imported_location(monkeypatch):
 
     class Repository:
         location_tags = None
+        created_draft = None
 
         def create_hike(self, draft, hike_id=None):
             assert draft.location_name == "Alafia Scrub Preserve"
+            self.created_draft = draft
             return {
                 "id": "11111111-1111-4111-8111-111111111111",
                 "title": draft.title,
@@ -1840,7 +1860,12 @@ def test_create_hike_correlates_selected_imported_location(monkeypatch):
     )
     monkeypatch.setattr(
         "mobile_api._user_context",
-        lambda: {"subject": None, "email": None},
+        lambda: {
+            "mode": "google",
+            "user_id": "11111111-1111-4111-8111-111111111111",
+            "subject": "google-subject-1",
+            "email": "hiker@example.com",
+        },
     )
     monkeypatch.setattr("mobile_api._invalidate_species_data_cache", lambda: None)
 
@@ -1855,6 +1880,10 @@ def test_create_hike_correlates_selected_imported_location(monkeypatch):
 
     assert result["location_name"] == "Alafia Scrub Preserve"
     assert repository.location_tags == (result["id"], [location_id])
+    assert repository.created_draft.owner_user_id == "11111111-1111-4111-8111-111111111111"
+    assert repository.created_draft.owner_subject == "google-subject-1"
+    assert repository.created_draft.owner_email == "hiker@example.com"
+    assert mobile_api.EXISTING_MOBILE_ENTITLEMENT_ENFORCEMENT_ENABLED is False
 
 
 def test_current_location_discovery_rounds_coordinates_before_query(monkeypatch):

@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TrainingCenterDatabase xmlns="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2 http://www.garmin.com/xmlschemas/TrainingCenterDatabasev2.xsd">
+  <Activities>
+    <Activity Sport="Other">
+      <Id>1970-01-01T00:00:00Z</Id>
+      <Lap StartTime="1970-01-01T00:00:00Z">
+        <TotalTimeSeconds>65.500000</TotalTimeSeconds>
+        <DistanceMeters>42.500000</DistanceMeters>
+        <Intensity>Active</Intensity>
+        <Track>
+          <Trackpoint>
+            <Time>1970-01-01T00:00:00Z</Time>
+            <Position>
+              <LatitudeDegrees>40.000000</LatitudeDegrees>
+              <LongitudeDegrees>-74.000000</LongitudeDegrees>
+            </Position>
+            <AltitudeMeters>100.000000</AltitudeMeters>
+          </Trackpoint>
+          <Trackpoint>
+            <Time>1970-01-01T00:00:05Z</Time>
+            <Position>
+              <LatitudeDegrees>40.000100</LatitudeDegrees>
+              <LongitudeDegrees>-74.000000</LongitudeDegrees>
+            </Position>
+            <AltitudeMeters>100.500000</AltitudeMeters>
+          </Trackpoint>
+        </Track>
+        <Track>
+          <Trackpoint>
+            <Time>1970-01-01T00:00:15Z</Time>
+            <Position>
+              <LatitudeDegrees>40.000300</LatitudeDegrees>
+              <LongitudeDegrees>-74.000000</LongitudeDegrees>
+            </Position>
+            <AltitudeMeters>101.250000</AltitudeMeters>
+          </Trackpoint>
+          <Trackpoint>
+            <Time>1970-01-01T00:00:20.500Z</Time>
+            <Position>
+              <LatitudeDegrees>40.000400</LatitudeDegrees>
+              <LongitudeDegrees>-74.000000</LongitudeDegrees>
+            </Position>
+          </Trackpoint>
+        </Track>
+        <TriggerMethod>Manual</TriggerMethod>
+      </Lap>
+    </Activity>
+  </Activities>
+</TrainingCenterDatabase>

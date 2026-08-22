@@ -29,6 +29,67 @@ def test_visibility_respects_owner_and_visible_hike_scope() -> None:
     assert not record_visible_for_user({"hike_id": "theirs"}, {"mine"}, context)
 
 
+def test_durable_subject_takes_precedence_over_conflicting_email() -> None:
+    context = {
+        "mode": "google",
+        "email": "reused@example.com",
+        "subject": "current-subject",
+        "auth_configured": True,
+    }
+    conflicting = {
+        "id": "not-mine",
+        "owner_subject": "different-subject",
+        "owner_email": "reused@example.com",
+    }
+    legacy_email_only = {
+        "id": "legacy-mine",
+        "owner_subject": None,
+        "owner_email": "reused@example.com",
+    }
+
+    assert filter_hikes_for_user([conflicting, legacy_email_only], context) == [legacy_email_only]
+    assert not record_visible_for_user(conflicting, set(), context)
+    assert record_visible_for_user(legacy_email_only, set(), context)
+
+    apple_context = {
+        **context,
+        "mode": "apple",
+        "identity_provider": "apple",
+        "subject": "apple:current-subject",
+    }
+    assert filter_hikes_for_user([legacy_email_only], apple_context) == []
+    assert not record_visible_for_user(legacy_email_only, set(), apple_context)
+
+
+def test_canonical_user_id_takes_precedence_over_legacy_subject_and_email() -> None:
+    current = {
+        "mode": "google",
+        "identity_provider": "google",
+        "user_id": "11111111-1111-4111-8111-111111111111",
+        "subject": "shared-subject",
+        "email": "shared@example.com",
+        "auth_configured": True,
+    }
+    canonical_other_user = {
+        "id": "other",
+        "owner_user_id": "22222222-2222-4222-8222-222222222222",
+        "owner_subject": "shared-subject",
+        "owner_email": "shared@example.com",
+    }
+    canonical_current_user = {
+        "id": "mine",
+        "owner_user_id": current["user_id"],
+        "owner_subject": "stale-subject",
+        "owner_email": "stale@example.com",
+    }
+
+    assert filter_hikes_for_user(
+        [canonical_other_user, canonical_current_user], current
+    ) == [canonical_current_user]
+    assert not record_visible_for_user(canonical_other_user, set(), current)
+    assert record_visible_for_user(canonical_current_user, set(), current)
+
+
 def test_library_filter_searches_location_tags_and_preserves_sorting() -> None:
     hikes = [
         {"id": "older", "title": "Loop", "hike_date": "2025-01-01", "created_at": "1", "is_archived": False, "location_tags": [{"name": "Black Bear Wilderness"}]},

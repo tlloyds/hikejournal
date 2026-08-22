@@ -14,6 +14,7 @@ class HikeDraft:
     notes: str
     owner_subject: str | None = None
     owner_email: str | None = None
+    owner_user_id: str | None = None
 
 
 @dataclass(slots=True)

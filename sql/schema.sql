@@ -235,6 +235,17 @@ create table if not exists public.species_discovery_snapshots (
     created_at timestamptz not null default timezone('utc', now())
 );
 
+create table if not exists public.outdoor_condition_snapshots (
+    cache_key text primary key,
+    kind text not null check (kind in ('forecast', 'nearby_usgs', 'usgs_series')),
+    algorithm_version text not null,
+    payload jsonb not null,
+    collected_at timestamptz not null,
+    expires_at timestamptz not null,
+    created_at timestamptz not null default timezone('utc', now()),
+    updated_at timestamptz not null default timezone('utc', now())
+);
+
 create table if not exists public.species_quests (
     id uuid primary key default gen_random_uuid(),
     owner_subject text,
@@ -382,6 +393,12 @@ create trigger species_quests_touch_updated_at
 before update on public.species_quests
 for each row execute procedure public.touch_updated_at();
 
+drop trigger if exists outdoor_condition_snapshots_touch_updated_at
+on public.outdoor_condition_snapshots;
+create trigger outdoor_condition_snapshots_touch_updated_at
+before update on public.outdoor_condition_snapshots
+for each row execute procedure public.touch_updated_at();
+
 create index if not exists hikes_date_idx on public.hikes (hike_date desc);
 create index if not exists hikes_owner_subject_idx on public.hikes (owner_subject);
 create index if not exists hikes_owner_email_idx on public.hikes (owner_email);
@@ -413,6 +430,8 @@ create index if not exists species_quests_status_idx on public.species_quests (s
 create index if not exists species_quest_taxa_taxon_id_idx on public.species_quest_taxa (taxon_id);
 create index if not exists species_discovery_snapshots_expires_at_idx
 on public.species_discovery_snapshots (expires_at);
+create index if not exists outdoor_condition_snapshots_expires_at_idx
+on public.outdoor_condition_snapshots (expires_at);
 create index if not exists hike_collaborators_hike_id_idx on public.hike_collaborators (hike_id);
 create unique index if not exists hike_collaborators_unique_email_idx on public.hike_collaborators (hike_id, lower(collaborator_email));
 create index if not exists hike_locations_lower_name_idx on public.hike_locations (lower(name));
@@ -430,6 +449,7 @@ alter table public.hike_route_imports enable row level security;
 alter table public.hike_locations enable row level security;
 alter table public.hike_location_tags enable row level security;
 alter table public.species_discovery_snapshots enable row level security;
+alter table public.outdoor_condition_snapshots enable row level security;
 alter table public.species_quests enable row level security;
 alter table public.species_quest_taxa enable row level security;
 alter table public.identification_events enable row level security;
@@ -446,6 +466,7 @@ alter table public.hike_route_imports force row level security;
 alter table public.hike_locations force row level security;
 alter table public.hike_location_tags force row level security;
 alter table public.species_discovery_snapshots force row level security;
+alter table public.outdoor_condition_snapshots force row level security;
 alter table public.species_quests force row level security;
 alter table public.species_quest_taxa force row level security;
 alter table public.identification_events force row level security;
@@ -471,6 +492,7 @@ revoke all privileges on table public.hike_route_imports from anon, authenticate
 revoke all privileges on table public.hike_locations from anon, authenticated;
 revoke all privileges on table public.hike_location_tags from anon, authenticated;
 revoke all privileges on table public.species_discovery_snapshots from anon, authenticated;
+revoke all privileges on table public.outdoor_condition_snapshots from anon, authenticated;
 revoke all privileges on table public.species_quests from anon, authenticated;
 revoke all privileges on table public.species_quest_taxa from anon, authenticated;
 revoke all privileges on table public.identification_events from anon, authenticated;

@@ -164,6 +164,7 @@ def test_combine_tcx_route_imports_keeps_separate_segments() -> None:
         (1, None, "mapmyrun_tcx"),
         (2, None, "mapmyrun_tcx_collection"),
         (1, "hikejournal_android_gps", "hikejournal_android_gps"),
+        (1, "hikejournal_ios_gps", "hikejournal_ios_gps"),
     ],
 )
 def test_route_sync_sets_legacy_and_native_source_types(

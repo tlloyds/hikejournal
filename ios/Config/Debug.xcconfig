@@ -1,0 +1,10 @@
+#include "Base.xcconfig"
+
+SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG
+ENABLE_TESTABILITY = YES
+GCC_OPTIMIZATION_LEVEL = 0
+SWIFT_OPTIMIZATION_LEVEL = -Onone
+HIKEJOURNAL_API_BASE_URL = http:/$()/127.0.0.1:8506
+
+// Local values intentionally load last so they can override Debug defaults.
+#include? "Secrets.xcconfig"

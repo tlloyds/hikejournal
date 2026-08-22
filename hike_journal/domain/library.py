@@ -38,25 +38,55 @@ def normalize_email(value: Any) -> str | None:
     return text or None
 
 
+def _allows_legacy_email_ownership(user_context: dict[str, Any]) -> bool:
+    provider = str(
+        user_context.get("identity_provider") or user_context.get("mode") or ""
+    ).strip().lower()
+    # Email-only ownership predates provider-neutral accounts and belongs to the
+    # historical Google compatibility path. A new provider reporting the same
+    # address must not inherit those rows.
+    return provider in {"", "google", "legacy", "local", "local-dev"}
+
+
 def filter_hikes_for_user(
     hikes: list[dict[str, Any]],
     user_context: dict[str, Any],
 ) -> list[dict[str, Any]]:
     if user_context["mode"] == "local-dev":
         return hikes
+    user_id = str(user_context.get("user_id") or "").strip()
     email = normalize_email(user_context.get("email"))
     subject = user_context.get("subject")
     visible = []
     for hike in hikes:
         owner_email = normalize_email(hike.get("owner_email"))
         owner_subject = hike.get("owner_subject")
-        if owner_subject and subject and owner_subject == subject:
+        owner_user_id = str(hike.get("owner_user_id") or "").strip()
+        # Canonical account ownership is authoritative. A durable provider
+        # subject is the compatibility authority when the new column is empty;
+        # neither may be overridden by a matching/recycled email.
+        if owner_user_id:
+            if user_id and owner_user_id == user_id:
+                visible.append(hike)
+            continue
+        if owner_subject:
+            if subject and owner_subject == subject:
+                visible.append(hike)
+            continue
+        if (
+            _allows_legacy_email_ownership(user_context)
+            and owner_email
+            and email
+            and owner_email == email
+        ):
             visible.append(hike)
             continue
-        if owner_email and email and owner_email == email:
-            visible.append(hike)
-            continue
-        if not owner_email and not owner_subject and not user_context["auth_configured"]:
+        if (
+            not owner_user_id
+            and not owner_email
+            and not owner_subject
+            and not user_context["auth_configured"]
+        ):
             visible.append(hike)
     return visible
 
@@ -64,13 +94,22 @@ def filter_hikes_for_user(
 def user_owns_record(record: dict[str, Any], user_context: dict[str, Any]) -> bool:
     if user_context["mode"] == "local-dev":
         return True
+    user_id = str(user_context.get("user_id") or "").strip()
     email = normalize_email(user_context.get("email"))
     subject = user_context.get("subject")
+    owner_user_id = str(record.get("owner_user_id") or "").strip()
     owner_email = normalize_email(record.get("owner_email"))
     owner_subject = record.get("owner_subject")
-    if owner_subject and subject and owner_subject == subject:
-        return True
-    if owner_email and email and owner_email == email:
+    if owner_user_id:
+        return bool(user_id and owner_user_id == user_id)
+    if owner_subject:
+        return bool(subject and owner_subject == subject)
+    if (
+        _allows_legacy_email_ownership(user_context)
+        and owner_email
+        and email
+        and owner_email == email
+    ):
         return True
     return False
 

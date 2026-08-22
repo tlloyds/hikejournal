@@ -6,6 +6,7 @@ import base64
 from contextlib import asynccontextmanager, suppress
 from contextvars import ContextVar
 from datetime import UTC, date, datetime, timezone
+from functools import lru_cache
 import hashlib
 import hmac
 import logging
@@ -22,7 +23,7 @@ from uuid import UUID, uuid4
 from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile, status
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from supabase import Client, create_client
 
 from hike_journal.config import settings
@@ -56,6 +57,15 @@ from hike_journal.services.image_processing import optimize_image
 from hike_journal.media import is_supported_video_upload, video_content_type
 from hike_journal.mobile_contract import MOBILE_CONTRACT_VERSION, build_mobile_config
 from hike_journal.services.api_runtime import RequestMetrics, run_dependency_probes
+from hike_journal.services.app_store_server import (
+    MAX_SIGNED_DATA_LENGTH,
+    AppStoreAccountLinkError,
+    AppStoreConfigurationError,
+    AppStoreNotificationNotLinked,
+    AppStoreServerVerifier,
+    AppStoreVerificationError,
+    build_app_store_server_verifier_from_environment,
+)
 from hike_journal.services.inat import (
     InatAuthError,
     InatClient,
@@ -78,6 +88,16 @@ from hike_journal.services.inat_publishing import (
     publish_single_observation,
 )
 from hike_journal.services.encounters import build_publish_encounter_plan
+from hike_journal.services.entitlements import (
+    ClientPlatform,
+    EntitlementService,
+    EntitlementStoreError,
+    FeatureAccessDecision,
+    QuotaReservationDecision,
+    QuotaResource,
+    SupabaseEntitlementStore,
+    feature_access,
+)
 from hike_journal.services.mobile_jobs import (
     InMemoryMobileJobStore,
     MobileJobIdempotencyConflict,
@@ -92,6 +112,8 @@ from hike_journal.services.mobile_jobs import (
 )
 from hike_journal.services.mobile_auth import (
     MobileAuthError,
+    apple_auth_configuration_errors,
+    create_apple_session,
     create_google_session,
     delete_mobile_account,
     google_web_client_id,
@@ -106,6 +128,7 @@ from hike_journal.public_pages import account_deletion_page, privacy_page, suppo
 from hike_journal.services.species_identification import select_shared_candidate
 from hike_journal.services.repositories import HikeJournalRepository
 from hike_journal.services.discovery import SpeciesDiscoveryService
+from hike_journal.services.outdoor_conditions import OutdoorConditionsService
 from hike_journal.services.storage import StorageService
 from hike_journal.services.taxonomy import ensure_observation_taxonomy
 from hike_journal.services.weather import (
@@ -124,6 +147,11 @@ SPECIES_PUBLISH_JOB_TYPE = "species-publish-batch"
 MOBILE_JOB_MAX_LOCAL_WORKERS = 4
 MOBILE_REVIEW_JOB_LEASE_SECONDS = 180
 MOBILE_JOB_CACHE_FINGERPRINT_KEY = "_request_fingerprint"
+# The current Android API surface predates server entitlements. Its commercial
+# migration is intentionally observe-only until a separately deployed flow can
+# supply cryptographically verified purchase/migration evidence. Existing
+# routes therefore do not call the reservation or feature-decision helpers yet.
+EXISTING_MOBILE_ENTITLEMENT_ENFORCEMENT_ENABLED = False
 US_STATE_CODES = frozenset(
     "AL AK AZ AR CA CO CT DE FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS "
     "MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY".split()
@@ -216,7 +244,12 @@ def _validate_hosted_mobile_configuration() -> None:
 
 
 def _auth_capabilities() -> tuple[str, ...]:
-    return ("google_auth", "user_places") if mobile_auth_mode() == "google" else ()
+    if mobile_auth_mode() != "google":
+        return ()
+    capabilities = ["google_auth", "provider_neutral_identity", "user_places"]
+    if not apple_auth_configuration_errors():
+        capabilities.append("apple_auth")
+    return tuple(capabilities)
 
 
 def mobile_owner_email() -> str | None:
@@ -242,6 +275,13 @@ class GoogleAuthInput(BaseModel):
     nonce: str | None = Field(default=None, min_length=16, max_length=256)
 
 
+class AppleAuthInput(BaseModel):
+    identity_token: str = Field(min_length=20, max_length=20_000)
+    device_id: str = Field(min_length=8, max_length=160)
+    nonce: str = Field(min_length=16, max_length=256)
+    display_name: str | None = Field(default=None, max_length=160)
+
+
 class RefreshSessionInput(BaseModel):
     refresh_token: str = Field(min_length=32, max_length=512)
     device_id: str = Field(min_length=8, max_length=160)
@@ -249,6 +289,38 @@ class RefreshSessionInput(BaseModel):
 
 class LogoutInput(BaseModel):
     refresh_token: str = Field(default="", max_length=512)
+
+
+class StoreKitTransactionSyncInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    signedTransaction: str = Field(
+        min_length=5,
+        max_length=MAX_SIGNED_DATA_LENGTH,
+    )
+    signedRenewalInfo: str | None = Field(
+        default=None,
+        min_length=5,
+        max_length=MAX_SIGNED_DATA_LENGTH,
+    )
+
+
+class AppStoreNotificationInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    signedPayload: str = Field(
+        min_length=5,
+        max_length=MAX_SIGNED_DATA_LENGTH,
+    )
+
+
+class AppTransactionVerificationInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    signedAppTransaction: str = Field(
+        min_length=5,
+        max_length=MAX_SIGNED_DATA_LENGTH,
+    )
 
 
 class HikeLocationInput(BaseModel):
@@ -379,13 +451,18 @@ class Services:
             self.client,
             media_url_resolver=self.storage.resolve_download_url,
         )
+        self.entitlement_store = SupabaseEntitlementStore(self.client)
+        self.entitlements = EntitlementService(self.entitlement_store)
         self.mobile_job_store = build_mobile_job_store(self.client)
 
 
 services: Services | None = None
-_species_data_cache: tuple[
-    float,
-    tuple[list[dict[str, Any]], dict[str, dict[str, Any]], dict[str, dict[str, Any]]],
+_species_data_cache: dict[
+    str,
+    tuple[
+        float,
+        tuple[list[dict[str, Any]], dict[str, dict[str, Any]], dict[str, dict[str, Any]]],
+    ],
 ] | None = None
 _species_batch_jobs: dict[str, dict[str, Any]] = {}
 _species_batch_jobs_lock = Lock()
@@ -404,6 +481,22 @@ class MobileJobLeaseLost(RuntimeError):
 def _invalidate_species_data_cache() -> None:
     global _species_data_cache
     _species_data_cache = None
+
+
+def _species_data_cache_key(context: dict[str, Any]) -> str:
+    user_id = str(context.get("user_id") or "").strip()
+    subject = str(context.get("subject") or "").strip()
+    email = str(context.get("email") or "").strip().lower()
+    mode = str(context.get("mode") or "anonymous").strip()
+    if user_id:
+        stable_owner = f"uid:{user_id}"
+    elif subject:
+        stable_owner = f"subject:{subject}"
+    elif email:
+        stable_owner = f"email:{email}"
+    else:
+        stable_owner = f"mode:{mode}"
+    return hashlib.sha256(stable_owner.encode("utf-8")).hexdigest()
 
 
 @asynccontextmanager
@@ -551,6 +644,23 @@ def get_services() -> Services:
     if services is None:
         raise HTTPException(status_code=503, detail="Mobile services are starting.")
     return services
+
+
+@lru_cache(maxsize=1)
+def get_app_store_server_verifier() -> AppStoreServerVerifier:
+    """Build Apple verification only when an Apple endpoint is first used."""
+
+    return build_app_store_server_verifier_from_environment()
+
+
+def _require_app_store_server_verifier() -> AppStoreServerVerifier:
+    try:
+        return get_app_store_server_verifier()
+    except AppStoreConfigurationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="App Store server verification is not configured.",
+        ) from exc
 
 
 def _mobile_job_store() -> MobileJobStore:
@@ -1005,6 +1115,102 @@ def _user_context() -> dict[str, Any]:
     }
 
 
+def current_entitlement_user_id(
+    svc: Services,
+    *,
+    context: dict[str, Any] | None = None,
+) -> str:
+    """Resolve the canonical account without ever treating email as identity."""
+    owner = context if context is not None else _user_context()
+    user_id = str(owner.get("user_id") or "").strip()
+    if user_id:
+        return user_id
+
+    # Access tokens minted before uid/idp claims carry the historical Google
+    # subject. Keep those tokens usable through the non-destructive shadow
+    # column; Apple and other providers must reauthenticate rather than fall
+    # back to an email or a Google subject lookup.
+    subject = str(owner.get("subject") or "").strip()
+    provider = str(
+        owner.get("identity_provider") or owner.get("mode") or ""
+    ).strip().lower()
+    if not subject or provider not in {"", "google", "legacy", "local", "local-dev"}:
+        raise HTTPException(
+            status_code=409,
+            detail="Sign in again to attach this session to your HikeJournal account.",
+        )
+    try:
+        response = (
+            svc.client.table("app_users")
+            .select("id")
+            .eq("google_subject", subject)
+            .limit(1)
+            .execute()
+        )
+    except Exception as exc:
+        raise EntitlementStoreError(
+            "Could not resolve the account for entitlement access."
+        ) from exc
+    rows = response.data or []
+    resolved_user_id = str(rows[0].get("id") or "").strip() if rows else ""
+    if not resolved_user_id:
+        raise HTTPException(
+            status_code=409,
+            detail="Sign in again to attach this session to your HikeJournal account.",
+        )
+    return resolved_user_id
+
+
+def entitlement_feature_decision(
+    svc: Services,
+    feature: str,
+    *,
+    server_platform: ClientPlatform = ClientPlatform.UNKNOWN,
+    trusted_legacy_paid_android: bool = False,
+) -> FeatureAccessDecision:
+    """Return a server decision; callers must not derive trust from request data."""
+    user_id = current_entitlement_user_id(svc)
+    snapshot = svc.entitlements.snapshot(user_id)
+    return feature_access(
+        snapshot,
+        feature,
+        platform=server_platform,
+        trusted_legacy_paid_android=trusted_legacy_paid_android,
+    )
+
+
+def reserve_entitlement_quota(
+    svc: Services,
+    *,
+    resource: QuotaResource,
+    request_id: str,
+    resource_id: str,
+    ttl_seconds: int = 900,
+) -> QuotaReservationDecision:
+    """Reserve one canonical user's cloud quota for a future enforced write."""
+    return svc.entitlements.reserve_quota(
+        user_id=current_entitlement_user_id(svc),
+        resource=resource,
+        request_id=request_id,
+        resource_id=resource_id,
+        ttl_seconds=ttl_seconds,
+    )
+
+
+def release_entitlement_quota(
+    svc: Services,
+    *,
+    resource: QuotaResource,
+    request_id: str,
+) -> bool:
+    """Release a failed future write's idempotent quota reservation."""
+    return svc.entitlements.release_quota(
+        user_id=current_entitlement_user_id(svc),
+        resource=resource,
+        request_id=request_id,
+    )
+
+
 def _visible_hike_locations(repository: HikeJournalRepository) -> list[dict[str, Any]]:
     context = _user_context()
     return [
@@ -1096,12 +1302,7 @@ def _discovery_collection_data(
 def _quest_visible_for_context(quest: dict[str, Any], context: dict[str, Any]) -> bool:
     if context.get("mode") == "local-dev":
         return True
-    subject = str(context.get("subject") or "")
-    email = str(context.get("email") or "").strip().lower()
-    return bool(
-        (subject and subject == str(quest.get("owner_subject") or ""))
-        or (email and email == str(quest.get("owner_email") or "").strip().lower())
-    )
+    return user_owns_record(quest, context)
 
 
 def _get_visible_quest(svc: Services, quest_id: str) -> dict[str, Any]:
@@ -1444,12 +1645,22 @@ def _visible_species_data(
     svc: Services,
 ) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
     global _species_data_cache
-    if _species_data_cache and time.monotonic() - _species_data_cache[0] < 90:
-        return _species_data_cache[1]
+    context = _user_context()
+    cache_key = _species_data_cache_key(context)
+    scoped_cache = _species_data_cache if isinstance(_species_data_cache, dict) else {}
+    current_time = time.monotonic()
+    scoped_cache = {
+        key: value
+        for key, value in scoped_cache.items()
+        if current_time - value[0] < 90
+    }
+    cached = scoped_cache.get(cache_key)
+    if cached:
+        _species_data_cache = scoped_cache
+        return cached[1]
     hikes = _visible_hikes(svc.repository)
     hikes_by_id = {str(hike["id"]): hike for hike in hikes}
     visible_hike_ids = set(hikes_by_id)
-    context = _user_context()
     observation_rows = svc.repository.list_lightweight_observations(status="confirmed")
     observations = [
         observation
@@ -1475,7 +1686,11 @@ def _visible_species_data(
         if str(observation.get("photo_id") or "") in photos_by_id
     ]
     result = (observations, photos_by_id, hikes_by_id)
-    _species_data_cache = (time.monotonic(), result)
+    if cache_key not in scoped_cache and len(scoped_cache) >= 256:
+        oldest_key = min(scoped_cache, key=lambda key: scoped_cache[key][0])
+        scoped_cache.pop(oldest_key, None)
+    scoped_cache[cache_key] = (current_time, result)
+    _species_data_cache = scoped_cache
     return result
 
 
@@ -1740,7 +1955,15 @@ def _download_photo_for_cv(svc: Services, photo: dict[str, Any]) -> bytes:
 def _mobile_inat_client() -> InatClient:
     owner = _user_context()
     email = owner.get("email")
-    mobile_token = _load_mobile_inat_token(email)
+    user_id = str(owner.get("user_id") or "").strip()
+    provider = str(owner.get("identity_provider") or owner.get("mode") or "").strip().lower()
+    mobile_token = (
+        _load_mobile_inat_token_for_user(user_id)
+        if user_id
+        else _load_mobile_inat_token(email)
+    )
+    if not mobile_token and user_id and provider in {"", "google", "legacy"}:
+        mobile_token = _load_mobile_inat_token(email)
     token_record = _mobile_inat_oauth_record(mobile_token)
     if token_record:
         oauth_access_token = str(token_record.get("oauth_access_token") or "")
@@ -1753,18 +1976,42 @@ def _mobile_inat_client() -> InatClient:
             refreshed = refresh_oauth_access_token(refresh_token=refresh_token)
             if not refreshed.get("refresh_token"):
                 refreshed["refresh_token"] = refresh_token
-            _save_mobile_inat_oauth_token(get_services(), email=email, token_payload=refreshed)
+            if user_id:
+                try:
+                    _save_mobile_inat_oauth_token_for_user(
+                        get_services(), user_id=user_id, token_payload=refreshed
+                    )
+                except InatConfigurationError:
+                    if provider not in {"", "google", "legacy"} or not email:
+                        raise
+                    _save_mobile_inat_oauth_token(
+                        get_services(), email=email, token_payload=refreshed
+                    )
+            else:
+                _save_mobile_inat_oauth_token(get_services(), email=email, token_payload=refreshed)
             mobile_token = fetch_api_token_for_oauth_access_token(str(refreshed.get("access_token") or ""))
     # Older Android builds saved the short-lived OAuth token directly. The v1
     # write API needs the JWT returned by /users/api_token; reads can still
     # succeed with the OAuth token, which made this look connected until post.
     if mobile_token and mobile_token.count(".") != 2:
         mobile_token = fetch_api_token_for_oauth_access_token(mobile_token)
-        if email:
+        if user_id:
+            try:
+                _save_mobile_inat_token_for_user(
+                    get_services(), user_id=user_id, access_token=mobile_token
+                )
+            except InatConfigurationError:
+                if provider not in {"", "google", "legacy"} or not email:
+                    raise
+                _save_mobile_inat_token(
+                    get_services(), email=email, access_token=mobile_token
+                )
+        elif email:
             _save_mobile_inat_token(get_services(), email=email, access_token=mobile_token)
+    legacy_email = email if provider in {"", "google", "legacy"} else None
     access_token = mobile_token or resolve_access_token_for_user(
         subject=owner.get("subject"),
-        email=email,
+        email=legacy_email,
     ) or settings.inat_access_token
     return InatClient(access_token=access_token, base_url=settings.inat_base_url)
 
@@ -1914,6 +2161,19 @@ def _load_mobile_inat_token(email: str | None) -> str:
         return ""
 
 
+def _load_mobile_inat_token_for_user(user_id: str | None) -> str:
+    if not user_id or services is None:
+        return ""
+    try:
+        response = services.client.rpc(
+            "load_mobile_inat_token_for_user",
+            {"p_user_id": user_id, "p_encryption_key": _mobile_inat_token_key()},
+        ).execute()
+        return str(response.data or "").strip()
+    except Exception:
+        return ""
+
+
 def _save_mobile_inat_token(svc: Services, *, email: str, access_token: str) -> None:
     try:
         svc.client.rpc(
@@ -1927,6 +2187,27 @@ def _save_mobile_inat_token(svc: Services, *, email: str, access_token: str) -> 
     except Exception as exc:
         raise InatConfigurationError(
             "The mobile iNaturalist credentials table is not ready. Apply sql/mobile_inat_oauth_migration.sql, then try again."
+        ) from exc
+
+
+def _save_mobile_inat_token_for_user(
+    svc: Services,
+    *,
+    user_id: str,
+    access_token: str,
+) -> None:
+    try:
+        svc.client.rpc(
+            "save_mobile_inat_token_for_user",
+            {
+                "p_user_id": user_id,
+                "p_access_token": access_token,
+                "p_encryption_key": _mobile_inat_token_key(),
+            },
+        ).execute()
+    except Exception as exc:
+        raise InatConfigurationError(
+            "The provider-neutral iNaturalist credential store is not ready. Apply sql/provider_neutral_identity_migration.sql."
         ) from exc
 
 
@@ -1949,6 +2230,28 @@ def _save_mobile_inat_oauth_token(svc: Services, *, email: str, token_payload: d
     )
 
 
+def _save_mobile_inat_oauth_token_for_user(
+    svc: Services,
+    *,
+    user_id: str,
+    token_payload: dict[str, Any],
+) -> None:
+    oauth_access_token = str(token_payload.get("access_token") or "").strip()
+    if not oauth_access_token:
+        raise InatAuthError("iNaturalist OAuth did not return a usable access token.")
+    _save_mobile_inat_token_for_user(
+        svc,
+        user_id=user_id,
+        access_token=json.dumps(
+            {
+                "oauth_access_token": oauth_access_token,
+                "refresh_token": str(token_payload.get("refresh_token") or "").strip(),
+            },
+            separators=(",", ":"),
+        ),
+    )
+
+
 def _mobile_oauth_redirect_uri() -> str:
     configured = os.getenv("MOBILE_INAT_OAUTH_REDIRECT_URI", "").strip()
     if configured:
@@ -1957,29 +2260,70 @@ def _mobile_oauth_redirect_uri() -> str:
     return f"{public_url}/v1/inat/oauth/callback" if public_url else ""
 
 
-def _mobile_oauth_state(email: str) -> str:
-    payload = base64.urlsafe_b64encode(
-        f"{email.lower()}|{int(time.time()) + 600}".encode()
-    ).decode().rstrip("=")
-    signature = hmac.new(_mobile_server_secret().encode(), payload.encode(), hashlib.sha256).hexdigest()
-    return f"hj-mobile.{payload}.{signature}"
+def _mobile_oauth_state(
+    email: str,
+    *,
+    user_id: str | None = None,
+    identity_provider: str | None = None,
+) -> str:
+    expires_at = int(time.time()) + 600
+    canonical_user_id = str(user_id or "").strip()
+    if canonical_user_id:
+        prefix = "hj-mobile-user"
+        raw_payload = json.dumps(
+            {
+                "uid": canonical_user_id,
+                "idp": str(identity_provider or "").strip().lower(),
+                "email": email.lower(),
+                "exp": expires_at,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+    else:
+        # Exact legacy state payload retained for old Google sessions.
+        prefix = "hj-mobile"
+        raw_payload = f"{email.lower()}|{expires_at}"
+    payload = base64.urlsafe_b64encode(raw_payload.encode()).decode().rstrip("=")
+    signed_value = f"{prefix}.{payload}" if canonical_user_id else payload
+    signature = hmac.new(
+        _mobile_server_secret().encode(), signed_value.encode(), hashlib.sha256
+    ).hexdigest()
+    return f"{prefix}.{payload}.{signature}"
 
 
-def _verify_mobile_oauth_state(state: str) -> str | None:
+def _verify_mobile_oauth_state(state: str) -> dict[str, str | None] | None:
     parts = state.split(".")
-    if len(parts) != 3 or parts[0] != "hj-mobile":
+    if len(parts) != 3 or parts[0] not in {"hj-mobile", "hj-mobile-user"}:
         return None
-    payload, signature = parts[1], parts[2]
-    expected = hmac.new(_mobile_server_secret().encode(), payload.encode(), hashlib.sha256).hexdigest()
+    prefix, payload, signature = parts
+    signed_value = f"{prefix}.{payload}" if prefix == "hj-mobile-user" else payload
+    expected = hmac.new(
+        _mobile_server_secret().encode(), signed_value.encode(), hashlib.sha256
+    ).hexdigest()
     if not hmac.compare_digest(signature, expected):
         return None
     try:
         decoded = base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)).decode()
+        if prefix == "hj-mobile-user":
+            value = json.loads(decoded)
+            user_id = str(value.get("uid") or "").strip()
+            email = str(value.get("email") or "").strip().lower()
+            expires_at = int(value.get("exp"))
+            if str(UUID(user_id)) != user_id.lower():
+                return None
+            if expires_at < int(time.time()):
+                return None
+            return {
+                "user_id": user_id,
+                "identity_provider": str(value.get("idp") or "").strip().lower() or None,
+                "email": email or None,
+            }
         email, expires_at = decoded.rsplit("|", 1)
         if int(expires_at) < int(time.time()) or not email:
             return None
-        return email.lower()
-    except (ValueError, UnicodeDecodeError):
+        return {"user_id": None, "identity_provider": "google", "email": email.lower()}
+    except (AttributeError, TypeError, ValueError, UnicodeDecodeError, json.JSONDecodeError):
         return None
 
 
@@ -2172,6 +2516,29 @@ def authenticate_google(payload: GoogleAuthInput) -> dict[str, Any]:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
 
 
+@app.post("/v1/auth/apple")
+def authenticate_apple(payload: AppleAuthInput) -> dict[str, Any]:
+    if mobile_auth_mode() != "google":
+        raise HTTPException(status_code=404, detail="Account sign-in is not enabled.")
+    configuration_errors = apple_auth_configuration_errors()
+    if configuration_errors:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Sign in with Apple server configuration is incomplete: "
+            + "; ".join(configuration_errors),
+        )
+    try:
+        return create_apple_session(
+            get_services().client,
+            identity_token=payload.identity_token,
+            device_id=payload.device_id,
+            nonce=payload.nonce,
+            display_name=payload.display_name,
+        ).payload()
+    except MobileAuthError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+
+
 @app.post("/v1/auth/refresh")
 def refresh_session(payload: RefreshSessionInput) -> dict[str, Any]:
     if mobile_auth_mode() != "google":
@@ -2227,23 +2594,178 @@ def _account_asset_paths(svc: Services, context: dict[str, Any]) -> list[str]:
 def delete_account() -> dict[str, bool]:
     context = _user_context()
     subject = str(context.get("subject") or "").strip()
-    if not subject:
-        raise HTTPException(status_code=409, detail="A Google-authenticated account is required.")
+    user_id = str(context.get("user_id") or "").strip()
+    if not user_id and not subject:
+        raise HTTPException(status_code=409, detail="A signed-in HikeJournal account is required.")
     svc = get_services()
     try:
         for storage_path in _account_asset_paths(svc, context):
             svc.storage.delete_file(storage_path)
     except Exception as exc:
-        logger.exception("Account media cleanup failed subject_hash=%s", hashlib.sha256(subject.encode()).hexdigest()[:12])
+        owner_key = user_id or subject
+        logger.exception("Account media cleanup failed owner_hash=%s", hashlib.sha256(owner_key.encode()).hexdigest()[:12])
         raise HTTPException(
             status_code=503,
             detail="Account deletion paused before database cleanup because stored media could not be removed. Try again.",
         ) from exc
     try:
-        delete_mobile_account(svc.client, google_subject=subject)
+        delete_mobile_account(svc.client, user_id=user_id, google_subject=subject)
     except MobileAuthError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     return {"deleted": True}
+
+
+@app.get("/v1/me/entitlement", dependencies=[Depends(require_mobile_key)])
+def get_my_entitlement() -> dict[str, Any]:
+    """Return server-authoritative plan, feature, limit, and usage state."""
+    svc = get_services()
+    try:
+        user_id = current_entitlement_user_id(svc)
+        return svc.entitlements.snapshot(user_id).to_payload()
+    except HTTPException:
+        raise
+    except EntitlementStoreError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.post(
+    "/v1/storekit/transactions/sync",
+    dependencies=[Depends(require_mobile_key)],
+)
+def sync_storekit_transaction(
+    payload: StoreKitTransactionSyncInput,
+) -> dict[str, Any]:
+    """Verify, link, and idempotently project one signed StoreKit transaction."""
+
+    svc = get_services()
+    verifier = _require_app_store_server_verifier()
+    try:
+        user_id = current_entitlement_user_id(svc)
+        projection = verifier.verify_and_project_transaction_for_account(
+            payload.signedTransaction,
+            authenticated_user_id=user_id,
+            signed_renewal_info=payload.signedRenewalInfo,
+        )
+        svc.entitlements.apply_projection(projection)
+        return svc.entitlements.snapshot(user_id).to_payload()
+    except HTTPException:
+        raise
+    except AppStoreAccountLinkError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="The verified App Store transaction is not linked to this account.",
+        ) from exc
+    except AppStoreVerificationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="The App Store transaction could not be verified.",
+        ) from exc
+    except EntitlementStoreError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
+
+
+def _entitlement_event_outcome(result: dict[str, Any]) -> str:
+    if bool(result.get("duplicate")):
+        return "duplicate"
+    if bool(result.get("stale")):
+        return "stale"
+    if bool(result.get("applied")):
+        return "applied"
+    return "recorded"
+
+
+@app.post("/v1/app-store/notifications/v2")
+def receive_app_store_notification(
+    payload: AppStoreNotificationInput,
+) -> dict[str, Any]:
+    """Verify Notification V2 and apply it only through a durable Apple link."""
+
+    svc = get_services()
+    verifier = _require_app_store_server_verifier()
+    try:
+        resolved = verifier.verify_resolve_and_project_notification(
+            payload.signedPayload,
+            resolver=svc.entitlement_store,
+        )
+        if resolved.projection is None:
+            outcome = "none"
+        else:
+            result = svc.entitlements.apply_projection(resolved.projection)
+            outcome = _entitlement_event_outcome(result)
+        return {
+            "accepted": True,
+            "notification_uuid": resolved.envelope.notification_uuid,
+            "entitlement_event": outcome,
+        }
+    except AppStoreNotificationNotLinked as exc:
+        # Initial account linkage and Apple's notification can race. A non-2xx
+        # response with Retry-After lets Apple safely redeliver after sync.
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Subscription linkage is not ready; retry this notification later.",
+            headers={"Retry-After": "60"},
+        ) from exc
+    except AppStoreAccountLinkError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="The App Store notification conflicts with an existing account link.",
+        ) from exc
+    except AppStoreVerificationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="The App Store notification could not be verified.",
+        ) from exc
+    except EntitlementStoreError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Entitlement storage is temporarily unavailable.",
+            headers={"Retry-After": "60"},
+        ) from exc
+
+
+@app.post(
+    "/v1/storekit/app-transaction/verify",
+    dependencies=[Depends(require_mobile_key)],
+)
+def verify_storekit_app_transaction(
+    payload: AppTransactionVerificationInput,
+) -> dict[str, Any]:
+    """Return bounded iOS app evidence without granting any entitlement."""
+
+    svc = get_services()
+    verifier = _require_app_store_server_verifier()
+    try:
+        # A valid HikeJournal session remains mandatory. AppTransaction proves
+        # the signed app receipt, not the person's account or paid plan.
+        current_entitlement_user_id(svc)
+        evidence = verifier.verify_app_transaction(payload.signedAppTransaction)
+    except HTTPException:
+        raise
+    except AppStoreVerificationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="The signed AppTransaction could not be verified.",
+        ) from exc
+    except EntitlementStoreError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
+    return {
+        "verified": True,
+        "app_transaction_id": evidence.app_transaction_id,
+        "app_apple_id": evidence.app_apple_id,
+        "bundle_id": evidence.bundle_id,
+        "environment": evidence.environment,
+        "application_version": evidence.application_version,
+        "original_application_version": evidence.original_application_version,
+        "receipt_created_at": evidence.receipt_created_at.isoformat(),
+        "original_purchased_at": evidence.original_purchased_at.isoformat(),
+        "original_platform": evidence.original_platform,
+    }
 
 
 @app.get("/v1/operations/health", dependencies=[Depends(require_mobile_key)])
@@ -2296,23 +2818,36 @@ def app_config() -> dict[str, Any]:
 def start_mobile_inat_oauth() -> dict[str, str]:
     owner = _user_context()
     email = str(owner.get("email") or "").strip().lower()
+    user_id = str(owner.get("user_id") or "").strip()
+    identity_provider = str(
+        owner.get("identity_provider") or owner.get("mode") or ""
+    ).strip().lower()
     redirect_uri = _mobile_oauth_redirect_uri()
-    if not email:
+    if not user_id and not email:
         raise HTTPException(status_code=409, detail="Set MOBILE_OWNER_EMAIL before connecting iNaturalist on Android.")
     if not settings.inat_oauth_configured:
         raise HTTPException(status_code=409, detail="Configure the iNaturalist OAuth client ID and secret on the mobile companion service.")
     if not redirect_uri:
         raise HTTPException(status_code=409, detail="Configure MOBILE_INAT_OAUTH_REDIRECT_URI for the mobile companion service.")
     try:
-        return {"authorize_url": build_oauth_authorize_url(state=_mobile_oauth_state(email), redirect_uri=redirect_uri)}
+        return {
+            "authorize_url": build_oauth_authorize_url(
+                state=_mobile_oauth_state(
+                    email,
+                    user_id=user_id or None,
+                    identity_provider=identity_provider or None,
+                ),
+                redirect_uri=redirect_uri,
+            )
+        }
     except InatConfigurationError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @app.get("/v1/inat/oauth/callback")
 def finish_mobile_inat_oauth(code: str | None = None, state: str | None = None, error: str | None = None):
-    email = _verify_mobile_oauth_state(state or "")
-    if not email:
+    owner = _verify_mobile_oauth_state(state or "")
+    if not owner:
         return RedirectResponse("hikejournal://inat?status=error&message=expired")
     if error:
         return RedirectResponse("hikejournal://inat?status=error&message=cancelled")
@@ -2320,7 +2855,26 @@ def finish_mobile_inat_oauth(code: str | None = None, state: str | None = None, 
         return RedirectResponse("hikejournal://inat?status=error&message=missing_code")
     try:
         token_payload = exchange_oauth_code(code=code, redirect_uri=_mobile_oauth_redirect_uri())
-        _save_mobile_inat_oauth_token(get_services(), email=email, token_payload=token_payload)
+        user_id = str(owner.get("user_id") or "").strip()
+        email = str(owner.get("email") or "").strip().lower()
+        identity_provider = str(owner.get("identity_provider") or "").strip().lower()
+        if user_id:
+            try:
+                _save_mobile_inat_oauth_token_for_user(
+                    get_services(), user_id=user_id, token_payload=token_payload
+                )
+            except InatConfigurationError:
+                if identity_provider != "google" or not email:
+                    raise
+                _save_mobile_inat_oauth_token(
+                    get_services(), email=email, token_payload=token_payload
+                )
+        elif email:
+            _save_mobile_inat_oauth_token(
+                get_services(), email=email, token_payload=token_payload
+            )
+        else:
+            raise InatConfigurationError("The HikeJournal account identity is incomplete.")
     except (InatConfigurationError, InatAuthError, InatRequestError) as exc:
         return RedirectResponse("hikejournal://inat?status=error&message=authorization_failed")
     return RedirectResponse("hikejournal://inat?status=connected")
@@ -2519,6 +3073,48 @@ def get_place_profile(location_id: str) -> dict[str, Any]:
         if any(str(tag.get("id") or "") == canonical_id for tag in hike.get("location_tags") or [])
     ]
     return build_place_profile(location, hikes, _dated_visible_observations(svc))
+
+
+@app.get(
+    "/v1/places/{location_id}/conditions",
+    dependencies=[Depends(require_mobile_key)],
+)
+def get_place_conditions(
+    location_id: str,
+    river_days: int = Query(default=7),
+    followed_gauge_id: list[str] = Query(default=[]),
+) -> dict[str, Any]:
+    """Return shared, short-lived forecast and USGS planning conditions."""
+    svc = get_services()
+    locations = _visible_hike_locations(svc.repository)
+    canonical_id = canonical_location_id_map(locations).get(location_id, location_id)
+    location = next(
+        (
+            item
+            for item in canonicalize_hike_locations(locations)
+            if str(item.get("id") or "") == canonical_id
+        ),
+        None,
+    )
+    if location is None:
+        raise HTTPException(status_code=404, detail="Place not found.")
+    latitude = _validate_picker_coordinate(
+        location.get("lat"), minimum=-90, maximum=90, label="latitude"
+    )
+    longitude = _validate_picker_coordinate(
+        location.get("lng"), minimum=-180, maximum=180, label="longitude"
+    )
+    if latitude is None or longitude is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Add coordinates to this place before loading live conditions.",
+        )
+    return OutdoorConditionsService(svc.repository).place_conditions(
+        latitude,
+        longitude,
+        period_days=30 if river_days >= 30 else 7,
+        followed_site_ids=followed_gauge_id[:20],
+    )
 
 
 @app.get("/v1/field-briefing", dependencies=[Depends(require_mobile_key)])
@@ -4344,6 +4940,7 @@ def create_hike(payload: HikeInput) -> dict[str, Any]:
             notes=payload.notes,
             owner_subject=owner.get("subject"),
             owner_email=owner.get("email"),
+            owner_user_id=owner.get("user_id"),
         ),
         hike_id=client_hike_id,
     )
@@ -4373,7 +4970,10 @@ def update_hike(hike_id: str, payload: HikeInput) -> dict[str, Any]:
 async def upload_hike_route(
     hike_id: str,
     file: Annotated[UploadFile, File()],
-    source_type: Annotated[Literal["hikejournal_android_gps"] | None, Form()] = None,
+    source_type: Annotated[
+        Literal["hikejournal_android_gps", "hikejournal_ios_gps"] | None,
+        Form(),
+    ] = None,
 ) -> dict[str, Any]:
     """Save a TCX track for a hike so the native map can render its route."""
     svc = get_services()
@@ -4559,6 +5159,7 @@ async def upload_photo(
             {
                 **({"id": normalized_photo_id} if normalized_photo_id else {}),
                 "hike_id": None if is_standalone else hike_id,
+                "owner_user_id": owner.get("user_id"),
                 "owner_subject": owner.get("subject"),
                 "owner_email": owner.get("email"),
                 "storage_path": storage_path,

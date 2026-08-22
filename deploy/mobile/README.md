@@ -85,6 +85,72 @@ The container installs `requirements-mobile.txt`, not the Streamlit dependency
 set. This is a deployment boundary, not a data split: mobile and web still share
 the Supabase schema, object storage, and domain/service modules.
 
+## App Store signed-data verification
+
+Before enabling iOS subscription synchronization or App Store Server
+Notifications V2, apply `sql/provider_neutral_identity_migration.sql` followed
+by `sql/entitlements_migration.sql`. The container pins Apple's official Python
+App Store Server Library at `3.1.2`; do not downgrade it because earlier
+versions lack the current OCSP-response freshness fix.
+
+Configure these backend-only values:
+
+- `APPLE_APP_STORE_BUNDLE_ID=com.hikejournal.app`
+- `APPLE_APP_STORE_ENVIRONMENT=Sandbox` or `Production`
+- `APPLE_APP_STORE_APP_ID=<numeric App Store Connect Apple ID>` for Production
+- `APPLE_APP_STORE_ROOT_CA_PATHS=<comma-separated absolute DER certificate paths>`
+- `APPLE_APP_STORE_ONLINE_CHECKS=true`
+
+Download current Apple Root CA certificates from the
+[Apple PKI page](https://www.apple.com/certificateauthority/) and mount the
+`.cer` files into Cloud Run as read-only secret volumes. Do
+not copy certificates or App Store server credentials into the iOS target.
+Production configuration refuses to start without a positive app Apple ID and
+online revocation checks. The backend also rejects `Xcode` and `LocalTesting`
+environments because Apple's library intentionally skips signature verification
+for those local payloads; use App Store Sandbox for end-to-end server testing.
+
+An authenticated initial subscription sync must send Apple's signed transaction
+JWS and may send signed renewal-info JWS. The StoreKit purchase must use the
+canonical `app_users.id` UUID as `appAccountToken`; the backend requires the
+Apple-signed token to equal the authenticated account before linking the
+`originalTransactionId`. Later Notification V2 events resolve only through that
+stored original-transaction link. They never create an account link from an
+unrecognized notification or a client ownership boolean.
+
+The official library also verifies StoreKit's signed `AppTransaction` JWS. That
+result is cryptographic evidence for the configured iOS bundle/environment and
+contains the app transaction ID, numeric app Apple ID, application versions,
+receipt/original-purchase dates, and original platform. It must be combined with
+an already authenticated HikeJournal session; it is not an account identity or
+subscription entitlement by itself.
+
+The FastAPI integration exposes three narrow endpoints:
+
+1. Authenticated `POST /v1/storekit/transactions/sync` accepts JSON
+   `{ "signedTransaction": "<JWS>", "signedRenewalInfo": "<optional JWS>" }`,
+   takes `user_id` only from the verified access token, calls
+   `verify_and_project_transaction_for_account(..., authenticated_user_id=user_id)`,
+   atomically applies the returned projection, and returns a fresh entitlement
+   snapshot.
+2. Unauthenticated `POST /v1/app-store/notifications/v2` accepts exactly JSON
+   `{ "signedPayload": "<Notification V2 JWS>" }`, calls
+   `verify_resolve_and_project_notification(...)` with the durable
+   `SupabaseEntitlementStore` original-transaction resolver, and applies a
+   non-null projection. A valid `TEST`/non-transaction notification is
+   acknowledged without a projection. Invalid JWS and identity conflicts do
+   not update access. An original transaction not yet linked during an initial
+   sync race receives HTTP 503 plus `Retry-After` so Apple can redeliver it.
+3. Authenticated `POST /v1/storekit/app-transaction/verify` accepts JSON
+   `{ "signedAppTransaction": "<AppTransaction JWS>" }` and returns bounded
+   signed-app evidence from `verify_app_transaction(...)`. It never creates an
+   entitlement and never serves as an Android paid-access bypass.
+
+The iOS app should finish a StoreKit transaction only after the authenticated
+sync succeeds. An unlinked notification should receive a retryable response and
+operator visibility so Apple can redeliver it after initial account linkage;
+the webhook must not repair linkage from a client flag or unrecognized token.
+
 ## Operational endpoints
 
 - `GET /health` preserves the legacy APK/platform response.

@@ -281,6 +281,16 @@ class Settings:
     ).rstrip("/")
     open_meteo_api_key: str = os.getenv("OPEN_METEO_API_KEY", "")
     weather_request_timeout_seconds: float = float(os.getenv("WEATHER_REQUEST_TIMEOUT_SECONDS", "20"))
+    usgs_water_api_root: str = os.getenv(
+        "USGS_WATER_API_ROOT",
+        "https://api.waterdata.usgs.gov/ogcapi/v0/collections",
+    ).rstrip("/")
+    outdoor_forecast_cache_minutes: int = int(
+        os.getenv("OUTDOOR_FORECAST_CACHE_MINUTES", "15")
+    )
+    outdoor_usgs_cache_minutes: int = int(
+        os.getenv("OUTDOOR_USGS_CACHE_MINUTES", "10")
+    )
 
     @property
     def supabase_configured(self) -> bool:

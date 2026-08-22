@@ -1,4 +1,9 @@
+from datetime import date
+
+import pytest
+
 from hike_journal.domain.map_data import MapViewport
+from hike_journal.models import HikeDraft
 from hike_journal.services.repositories import HikeJournalRepository, LIGHTWEIGHT_OBSERVATION_COLUMNS
 
 
@@ -120,3 +125,181 @@ def test_media_rows_use_signed_delivery_urls_without_changing_stored_values() ->
         "https://signed.example/hikes/hike-1/photo-1.jpg?token=test"
     )
     assert original["public_url"] == "https://public.example/photo-1.jpg"
+
+
+def test_hike_create_persists_canonical_and_legacy_ownership_together() -> None:
+    inserted: list[dict] = []
+
+    class Table:
+        def insert(self, payload):
+            inserted.append(payload)
+            return self
+
+        def execute(self):
+            return type("Response", (), {"data": [{"id": "hike-1", **inserted[-1]}]})()
+
+    class Client:
+        @staticmethod
+        def table(name):
+            assert name == "hikes"
+            return Table()
+
+    repository = HikeJournalRepository(client=Client())
+    result = repository.create_hike(
+        HikeDraft(
+            title="Canonical hike",
+            hike_date=date(2026, 8, 21),
+            distance_miles=4.2,
+            location_name="Pine Loop",
+            notes="",
+            owner_user_id="11111111-1111-4111-8111-111111111111",
+            owner_subject="google-subject-1",
+            owner_email="hiker@example.com",
+        )
+    )
+
+    assert result["owner_user_id"] == "11111111-1111-4111-8111-111111111111"
+    assert inserted == [
+        {
+            "title": "Canonical hike",
+            "hike_date": "2026-08-21",
+            "distance_miles": 4.2,
+            "location_name": "Pine Loop",
+            "notes": None,
+            "owner_subject": "google-subject-1",
+            "owner_email": "hiker@example.com",
+            "owner_user_id": "11111111-1111-4111-8111-111111111111",
+        }
+    ]
+
+
+def test_hike_and_photo_writes_retry_without_only_new_owner_column() -> None:
+    attempts: list[tuple[str, dict]] = []
+
+    class Table:
+        def __init__(self, name):
+            self.name = name
+
+        def insert(self, payload):
+            attempts.append((self.name, payload))
+            return self
+
+        def execute(self):
+            payload = attempts[-1][1]
+            if "owner_user_id" in payload:
+                raise RuntimeError("column owner_user_id does not exist")
+            return type("Response", (), {"data": [{"id": f"{self.name}-1", **payload}]})()
+
+    class Client:
+        @staticmethod
+        def table(name):
+            return Table(name)
+
+    repository = HikeJournalRepository(client=Client())
+    draft = HikeDraft(
+        title="Rolling deploy",
+        hike_date=date(2026, 8, 21),
+        distance_miles=None,
+        location_name="",
+        notes="",
+        owner_user_id="11111111-1111-4111-8111-111111111111",
+        owner_subject="google-subject-1",
+        owner_email="hiker@example.com",
+    )
+    hike = repository.create_hike(draft)
+    photo = repository.create_photo(
+        {
+            "hike_id": "hikes-1",
+            "owner_user_id": draft.owner_user_id,
+            "owner_subject": draft.owner_subject,
+            "owner_email": draft.owner_email,
+        }
+    )
+
+    assert hike["owner_subject"] == "google-subject-1"
+    assert photo["owner_email"] == "hiker@example.com"
+    assert [name for name, _payload in attempts] == ["hikes", "hikes", "photos", "photos"]
+    assert "owner_user_id" not in attempts[1][1]
+    assert attempts[1][1]["owner_subject"] == "google-subject-1"
+    assert "owner_user_id" not in attempts[3][1]
+    assert attempts[3][1]["owner_email"] == "hiker@example.com"
+
+
+@pytest.mark.parametrize(
+    "failures",
+    [
+        ["database connection timed out"],
+        ["column owner_user_id does not exist", "duplicate key violates unique constraint"],
+    ],
+)
+def test_hike_create_never_retries_anonymous_after_non_schema_errors(failures) -> None:
+    attempts: list[dict] = []
+
+    class Table:
+        def insert(self, payload):
+            attempts.append(payload)
+            return self
+
+        def execute(self):
+            raise RuntimeError(failures[len(attempts) - 1])
+
+    class Client:
+        @staticmethod
+        def table(_name):
+            return Table()
+
+    draft = HikeDraft(
+        title="Do not duplicate",
+        hike_date=date(2026, 8, 21),
+        distance_miles=None,
+        location_name="",
+        notes="",
+        owner_user_id="11111111-1111-4111-8111-111111111111",
+        owner_subject="google-subject-1",
+        owner_email="hiker@example.com",
+    )
+
+    with pytest.raises(RuntimeError, match=failures[-1]):
+        HikeJournalRepository(client=Client()).create_hike(draft)
+
+    assert len(attempts) == len(failures)
+    assert attempts[-1]["owner_subject"] == "google-subject-1"
+    assert attempts[-1]["owner_email"] == "hiker@example.com"
+
+
+def test_hike_create_strips_all_legacy_ownership_only_for_confirmed_old_schema() -> None:
+    attempts: list[dict] = []
+
+    class Table:
+        def insert(self, payload):
+            attempts.append(payload)
+            return self
+
+        def execute(self):
+            if len(attempts) == 1:
+                raise RuntimeError("column owner_user_id does not exist")
+            if len(attempts) == 2:
+                raise RuntimeError("column owner_subject does not exist")
+            return type("Response", (), {"data": [{"id": "legacy-hike", **attempts[-1]}]})()
+
+    class Client:
+        @staticmethod
+        def table(_name):
+            return Table()
+
+    result = HikeJournalRepository(client=Client()).create_hike(
+        HikeDraft(
+            title="Old schema",
+            hike_date=date(2026, 8, 21),
+            distance_miles=None,
+            location_name="",
+            notes="",
+            owner_user_id="11111111-1111-4111-8111-111111111111",
+            owner_subject="google-subject-1",
+            owner_email="hiker@example.com",
+        )
+    )
+
+    assert result["id"] == "legacy-hike"
+    assert len(attempts) == 3
+    assert {"owner_user_id", "owner_subject", "owner_email"}.isdisjoint(attempts[-1])

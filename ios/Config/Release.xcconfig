@@ -1,0 +1,8 @@
+#include "Base.xcconfig"
+
+SWIFT_COMPILATION_MODE = wholemodule
+SWIFT_OPTIMIZATION_LEVEL = -O
+VALIDATE_PRODUCT = YES
+
+// Local values intentionally load last so they can override public defaults.
+#include? "Secrets.xcconfig"

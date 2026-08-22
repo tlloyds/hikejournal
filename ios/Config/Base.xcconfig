@@ -1,0 +1,19 @@
+#include "Version.xcconfig"
+
+PRODUCT_NAME = HikeJournal
+CURRENT_PROJECT_VERSION = 1
+IPHONEOS_DEPLOYMENT_TARGET = 17.0
+SWIFT_VERSION = 5.0
+
+// Public, non-secret defaults. URLs use $() to keep // from becoming a comment.
+HIKEJOURNAL_CALLBACK_SCHEME = hikejournal
+HIKEJOURNAL_API_KEY =
+HIKEJOURNAL_MAP_STYLE_URL = https:/$()/demotiles.maplibre.org/style.json
+HIKEJOURNAL_MAP_ATTRIBUTION_TITLE = OpenStreetMap contributors
+HIKEJOURNAL_MAP_ATTRIBUTION_URL = https:/$()/www.openstreetmap.org/copyright
+HIKEJOURNAL_MAP_STYLE_TOKEN =
+HIKEJOURNAL_MAP_STYLE_TOKEN_QUERY_ITEM_NAME =
+HIKEJOURNAL_WEB_BASE_URL =
+GOOGLE_IOS_CLIENT_ID = CONFIGURE_ME.apps.googleusercontent.com
+GOOGLE_SERVER_CLIENT_ID = CONFIGURE_ME.apps.googleusercontent.com
+GOOGLE_REVERSED_CLIENT_ID = com.googleusercontent.apps.CONFIGURE_ME

@@ -14,7 +14,14 @@ from hike_journal.services.tcx import (
 )
 
 
-NATIVE_GPS_SOURCE_TYPE = "hikejournal_android_gps"
+ANDROID_NATIVE_GPS_SOURCE_TYPE = "hikejournal_android_gps"
+IOS_NATIVE_GPS_SOURCE_TYPE = "hikejournal_ios_gps"
+# Keep the original constant as a compatibility alias for code that treated Android as
+# the only native recorder before the iOS application existed.
+NATIVE_GPS_SOURCE_TYPE = ANDROID_NATIVE_GPS_SOURCE_TYPE
+NATIVE_GPS_SOURCE_TYPES = frozenset(
+    {ANDROID_NATIVE_GPS_SOURCE_TYPE, IOS_NATIVE_GPS_SOURCE_TYPE}
+)
 LEGACY_TCX_SOURCE_TYPE = "mapmyrun_tcx"
 LEGACY_TCX_COLLECTION_SOURCE_TYPE = "mapmyrun_tcx_collection"
 
@@ -128,7 +135,7 @@ def sync_hike_route_import(
     source_type: str | None = None,
 ) -> tuple[dict[str, Any] | None, str | None]:
     active_route_import = existing_route_import
-    if source_type is not None and source_type != NATIVE_GPS_SOURCE_TYPE:
+    if source_type is not None and source_type not in NATIVE_GPS_SOURCE_TYPES:
         return active_route_import, "Route source type is not supported."
     parsed: ParsedTcxRouteImport | None = None
     file_bytes: bytes | None = None

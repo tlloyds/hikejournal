@@ -1,0 +1,122 @@
+{
+  "appPolicies" : {
+    "eula" : "",
+    "policies" : [
+      {
+        "locale" : "en_US",
+        "policyText" : "",
+        "policyURL" : "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/"
+      }
+    ]
+  },
+  "identifier" : "484A504C",
+  "nonRenewingSubscriptions" : [
+
+  ],
+  "products" : [
+
+  ],
+  "settings" : {
+    "_askToBuyEnabled" : false,
+    "_billingGracePeriodEnabled" : false,
+    "_billingIssuesEnabled" : false,
+    "_disableDialogs" : false,
+    "_failTransactionsEnabled" : false,
+    "_locale" : "en_US",
+    "_renewalBillingIssuesEnabled" : false,
+    "_storefront" : "USA"
+  },
+  "subscriptionGroups" : [
+    {
+      "id" : "484A504C",
+      "localizations" : [
+
+      ],
+      "name" : "HikeJournal Plus",
+      "subscriptions" : [
+        {
+          "adHocOffers" : [
+
+          ],
+          "billingPlans" : [
+            {
+              "billingPlanType" : "BILLED_UPFRONT",
+              "commitmentDisplayPrice" : "49.99",
+              "displayPrice" : "49.99",
+              "internalID" : "484A4101",
+              "isEnabled" : true
+            }
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "49.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "484A4102",
+          "introductoryOffers" : [
+
+          ],
+          "localizations" : [
+            {
+              "description" : "Full HikeJournal features with expanded cloud journals and media.",
+              "displayName" : "HikeJournal Plus Annual",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.hikejournal.app.plus.annual",
+          "recurringSubscriptionPeriod" : "P1Y",
+          "referenceName" : "HikeJournal Plus Annual",
+          "subscriptionGroupID" : "484A504C",
+          "type" : "RecurringSubscription",
+          "winbackOffers" : [
+
+          ]
+        },
+        {
+          "adHocOffers" : [
+
+          ],
+          "billingPlans" : [
+            {
+              "billingPlanType" : "BILLED_UPFRONT",
+              "commitmentDisplayPrice" : "4.99",
+              "displayPrice" : "4.99",
+              "internalID" : "484A4D01",
+              "isEnabled" : true
+            }
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "4.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "484A4D02",
+          "introductoryOffers" : [
+
+          ],
+          "localizations" : [
+            {
+              "description" : "Full HikeJournal features with expanded cloud journals and media.",
+              "displayName" : "HikeJournal Plus Monthly",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.hikejournal.app.plus.monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "HikeJournal Plus Monthly",
+          "subscriptionGroupID" : "484A504C",
+          "type" : "RecurringSubscription",
+          "winbackOffers" : [
+
+          ]
+        }
+      ]
+    }
+  ],
+  "version" : {
+    "major" : 6,
+    "minor" : 3
+  }
+}

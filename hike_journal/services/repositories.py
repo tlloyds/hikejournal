@@ -62,6 +62,25 @@ def _identification_provenance(source: str | None) -> str:
     return "imported_record"
 
 
+def _missing_schema_column(exc: Exception, column: str) -> bool:
+    message = str(exc).lower()
+    return column in message and any(
+        marker in message
+        for marker in ("column", "does not exist", "schema cache", "pgrst204")
+    )
+
+
+def _missing_owner_user_id_column(exc: Exception) -> bool:
+    return _missing_schema_column(exc, "owner_user_id")
+
+
+def _missing_legacy_owner_column(exc: Exception) -> bool:
+    return any(
+        _missing_schema_column(exc, column)
+        for column in ("owner_subject", "owner_email")
+    )
+
+
 class HikeJournalRepository:
     def __init__(
         self,
@@ -174,13 +193,30 @@ class HikeJournalRepository:
             "notes": draft.notes.strip() or None,
             "owner_subject": draft.owner_subject,
             "owner_email": draft.owner_email,
+            "owner_user_id": draft.owner_user_id,
         }
         if hike_id:
             payload["id"] = hike_id
         try:
             response = self.client.table("hikes").insert(payload).execute()
-        except Exception:
-            legacy_payload = {key: value for key, value in payload.items() if key not in {"owner_subject", "owner_email"}}
+        except Exception as exc:
+            if _missing_owner_user_id_column(exc):
+                provider_legacy_payload = {
+                    key: value for key, value in payload.items() if key != "owner_user_id"
+                }
+                try:
+                    response = self.client.table("hikes").insert(provider_legacy_payload).execute()
+                    return response.data[0]
+                except Exception as legacy_exc:
+                    if not _missing_legacy_owner_column(legacy_exc):
+                        raise
+            elif not _missing_legacy_owner_column(exc):
+                raise
+            legacy_payload = {
+                key: value
+                for key, value in payload.items()
+                if key not in {"owner_user_id", "owner_subject", "owner_email"}
+            }
             response = self.client.table("hikes").insert(legacy_payload).execute()
         return response.data[0]
 
@@ -243,6 +279,32 @@ class HikeJournalRepository:
         try:
             response = (
                 self.client.table("species_discovery_snapshots")
+                .upsert(payload, on_conflict="cache_key")
+                .execute()
+            )
+        except Exception:
+            return None
+        rows = response.data or []
+        return rows[0] if rows else None
+
+    def get_outdoor_condition_snapshot(self, cache_key: str) -> dict[str, Any] | None:
+        try:
+            response = (
+                self.client.table("outdoor_condition_snapshots")
+                .select("*")
+                .eq("cache_key", cache_key)
+                .limit(1)
+                .execute()
+            )
+        except Exception:
+            return None
+        rows = response.data or []
+        return rows[0] if rows else None
+
+    def upsert_outdoor_condition_snapshot(self, payload: dict[str, Any]) -> dict[str, Any] | None:
+        try:
+            response = (
+                self.client.table("outdoor_condition_snapshots")
                 .upsert(payload, on_conflict="cache_key")
                 .execute()
             )
@@ -930,7 +992,15 @@ class HikeJournalRepository:
         return [rows_by_id[photo_id] for photo_id in normalized_ids if photo_id in rows_by_id]
 
     def create_photo(self, payload: dict[str, Any]) -> dict[str, Any]:
-        response = self.client.table("photos").insert(payload).execute()
+        try:
+            response = self.client.table("photos").insert(payload).execute()
+        except Exception as exc:
+            if not _missing_owner_user_id_column(exc):
+                raise
+            legacy_payload = {
+                key: value for key, value in payload.items() if key != "owner_user_id"
+            }
+            response = self.client.table("photos").insert(legacy_payload).execute()
         return self.decorate_media_row(response.data[0])
 
     def update_photo_caption(self, photo_id: str, caption: str) -> dict[str, Any]:
