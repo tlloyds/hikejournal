@@ -621,7 +621,7 @@ private struct PlaceProfileView: View {
                 followedGaugeIDs: riverGauges.followedIDs,
                 force: force
             )
-            profile = result.value
+            profile = result.value.withResolvedName(fallback: target.name)
             fromCache = result.fromCache
             errorMessage = nil
         } catch is CancellationError {
@@ -1544,4 +1544,36 @@ private extension ISO8601DateFormatter {
         formatter.dateFormat = "yyyy-MM-dd"
         return formatter
     }()
+}
+
+private extension PlaceProfile {
+    func withResolvedName(fallback: String) -> PlaceProfile {
+        let cleanFallback = fallback.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanFallback.isEmpty,
+              cleanName.isEmpty || cleanName.caseInsensitiveCompare("Unknown place") == .orderedSame else {
+            return self
+        }
+        return PlaceProfile(
+            locationId: locationId,
+            name: cleanFallback,
+            latitude: latitude,
+            longitude: longitude,
+            firstVisit: firstVisit,
+            latestVisit: latestVisit,
+            outingCount: outingCount,
+            totalDistanceMiles: totalDistanceMiles,
+            totalDurationSeconds: totalDurationSeconds,
+            observationCount: observationCount,
+            speciesCount: speciesCount,
+            taxonCounts: taxonCounts,
+            taxonGroups: taxonGroups,
+            seasonalHistory: seasonalHistory,
+            visits: visits,
+            guidance: guidance,
+            forecast: forecast,
+            riverGauges: riverGauges,
+            liveConditionsNotice: liveConditionsNotice
+        )
+    }
 }

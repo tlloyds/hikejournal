@@ -285,7 +285,11 @@ final class JournalStore: ObservableObject {
             key: cacheKey
         )
         if let cached { locations = cached }
+        let cachedNeedsCoordinateRefresh = cached?.contains { location in
+            !location.isUserPlace && (location.latitude == nil || location.longitude == nil)
+        } ?? false
         if !force,
+           !cachedNeedsCoordinateRefresh,
            let resource = try? await context.database.cachedResource(namespace: Cache.locations, key: cacheKey),
            resource.isFresh(at: Date()), cached != nil { return }
         do {
@@ -857,8 +861,11 @@ final class JournalStore: ObservableObject {
             namespace: Cache.placeProfile,
             key: cacheKey
         )
+        let cachedNeedsRefresh = cached?.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            .caseInsensitiveCompare("Unknown place") == .orderedSame
         if !force,
            let cached,
+           !cachedNeedsRefresh,
            let resource = try? await context.database.cachedResource(namespace: Cache.placeProfile, key: cacheKey),
            resource.isFresh(at: Date()) {
             return LoadResult(value: cached, fromCache: true)
