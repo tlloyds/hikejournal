@@ -64,6 +64,36 @@ final class MediaAttachmentStore: ObservableObject {
             return
         }
 
+        let work = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.performImport(
+                identifiers,
+                hikeID: cleanHikeID,
+                caption: caption,
+                queueForReview: queueForReview,
+                representation: representation,
+                canonicalUserID: canonicalUserID,
+                offlineStores: offlineStores
+            )
+        }
+        task = work
+        await withTaskCancellationHandler(operation: {
+            await work.value
+        }, onCancel: {
+            work.cancel()
+        })
+        task = nil
+    }
+
+    private func performImport(
+        _ identifiers: [String],
+        hikeID: String,
+        caption: String,
+        queueForReview: Bool,
+        representation: MediaRepresentationPolicy,
+        canonicalUserID: String,
+        offlineStores: OfflineStoreCoordinator
+    ) async {
         isImporting = true
         defer { isImporting = false }
         do {
@@ -80,7 +110,7 @@ final class MediaAttachmentStore: ObservableObject {
             let database = try await offlineStores.database(canonicalUserID: canonicalUserID)
             let operations = try makeOperations(
                 batch: batch,
-                hikeID: cleanHikeID,
+                hikeID: hikeID,
                 caption: caption,
                 queueForReview: queueForReview
             )

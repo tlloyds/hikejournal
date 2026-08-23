@@ -1,5 +1,6 @@
 import AuthenticationServices
 import HikeJournalDomain
+import HikeJournalMaps
 import SwiftUI
 import UIKit
 
@@ -123,9 +124,9 @@ struct FieldGuideWorkspaceView: View {
         case .sightings:
             SightingsList(model: model, sightings: filteredSightings)
         case .discover:
-            DiscoveryWorkspace(journal: journal, initialQuery: search)
+            DiscoveryWorkspace(model: model, journal: journal, initialQuery: search)
         case .quests:
-            QuestList(journal: journal, quests: filteredQuests)
+            QuestList(model: model, journal: journal, quests: filteredQuests)
         case .review:
             SpeciesReviewList(journal: journal, items: filteredReview)
         case .publish:
@@ -558,13 +559,9 @@ private struct SightingsList: View {
                 LazyVStack(spacing: 0) {
                     ForEach(sightings) { sighting in
                         Group {
-                            if let hikeID = sighting.hikeId {
-                                NavigationLink {
-                                    JournalHikeDetailView(model: model, hikeID: hikeID)
-                                } label: { SightingRow(sighting: sighting) }
-                            } else {
-                                SightingRow(sighting: sighting)
-                            }
+                            NavigationLink {
+                                SightingPhotoViewer(sighting: sighting)
+                            } label: { SightingRow(sighting: sighting) }
                         }
                         .buttonStyle(.plain)
                         Divider().overlay(HikeJournalTheme.line).padding(.leading, 22)
@@ -594,9 +591,11 @@ private struct SightingRow: View {
                 Text("\(sighting.hikeTitle) · \(JournalDate.display(sighting.hikeDate))")
                     .font(HikeJournalTheme.body(13))
                     .foregroundStyle(HikeJournalTheme.inkMuted)
-                Label(String(format: "%.5f, %.5f", sighting.latitude, sighting.longitude), systemImage: "mappin")
-                    .font(HikeJournalTheme.body(12))
-                    .foregroundStyle(HikeJournalTheme.trailText)
+                if let latitude = sighting.latitude, let longitude = sighting.longitude {
+                    Label(String(format: "%.5f, %.5f", latitude, longitude), systemImage: "mappin")
+                        .font(HikeJournalTheme.body(12))
+                        .foregroundStyle(HikeJournalTheme.trailText)
+                }
             }
             Spacer()
         }
@@ -607,7 +606,68 @@ private struct SightingRow: View {
     }
 }
 
+private struct SightingPhotoViewer: View {
+    let sighting: Sighting
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        ZStack {
+            Color(red: 0.06, green: 0.10, blue: 0.08).ignoresSafeArea()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    JournalRemoteImage(urlString: sighting.url, fallback: "photo")
+                        .scaledToFit()
+                        .frame(maxWidth: .infinity, minHeight: 280)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(sighting.speciesName.isEmpty ? "Unidentified sighting" : sighting.speciesName)
+                            .font(HikeJournalTheme.display(30, relativeTo: .title))
+                            .foregroundStyle(.white)
+                        if !sighting.scientificName.isEmpty {
+                            Text(sighting.scientificName)
+                                .font(HikeJournalTheme.body(15))
+                                .italic()
+                                .foregroundStyle(Color.white.opacity(0.72))
+                        }
+                        Text("\(sighting.hikeTitle) · \(JournalDate.display(sighting.hikeDate))")
+                            .font(HikeJournalTheme.body(14))
+                            .foregroundStyle(Color.white.opacity(0.72))
+                        if !sighting.locationName.isEmpty {
+                            Text(sighting.locationName)
+                                .font(HikeJournalTheme.body(14))
+                                .foregroundStyle(Color.white.opacity(0.72))
+                        }
+                        if let latitude = sighting.latitude, let longitude = sighting.longitude {
+                            Label(String(format: "%.5f, %.5f", latitude, longitude), systemImage: "mappin.and.ellipse")
+                                .font(HikeJournalTheme.body(13))
+                                .foregroundStyle(Color.white.opacity(0.62))
+                        }
+                        if !sighting.caption.isEmpty {
+                            Divider().overlay(Color.white.opacity(0.20))
+                            Text(sighting.caption)
+                                .font(HikeJournalTheme.body(16))
+                                .foregroundStyle(Color.white.opacity(0.86))
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 28)
+                }
+            }
+            .scrollIndicators(.hidden)
+        }
+        .navigationTitle("Field photo")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarColorScheme(.dark, for: .navigationBar)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Done") { dismiss() }
+            }
+        }
+    }
+}
+
 private struct DiscoveryWorkspace: View {
+    @ObservedObject var model: AppModel
     @ObservedObject var journal: JournalStore
     @State private var query: String
     @State private var selectedArea: DiscoveryArea?
@@ -615,9 +675,16 @@ private struct DiscoveryWorkspace: View {
     @State private var radiusKM = 10
     @State private var iconicTaxon = "All"
     @State private var loading = false
+    @State private var areaSearchLoading = false
     @State private var creatingQuest = false
+    @State private var previewTaxon: DiscoveryTaxon?
+    @State private var previewNearby: NearbySpecies?
+    @State private var currentLatitude: Double?
+    @State private var currentLongitude: Double?
+    @State private var locationError: String?
 
-    init(journal: JournalStore, initialQuery: String) {
+    init(model: AppModel, journal: JournalStore, initialQuery: String) {
+        self.model = model
         self.journal = journal
         _query = State(initialValue: initialQuery)
     }
@@ -635,19 +702,54 @@ private struct DiscoveryWorkspace: View {
                         .foregroundStyle(HikeJournalTheme.ink)
                 }
 
-                TextField("Park, preserve, or area", text: $query)
-                    .textFieldStyle(.roundedBorder)
-                    .task(id: query) {
-                        try? await Task.sleep(for: .milliseconds(350))
-                        guard !Task.isCancelled else { return }
-                        await journal.searchDiscoveryAreas(query)
+                HStack {
+                    TextField("Park, preserve, or area", text: $query)
+                        .submitLabel(.search)
+                        .onSubmit { searchAreas() }
+                    if areaSearchLoading { ProgressView().tint(HikeJournalTheme.trailText) }
+                }
+                .textFieldStyle(.roundedBorder)
+                .task(id: query) {
+                    let clean = query.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard currentLatitude == nil else { return }
+                    guard clean.count >= 2 else {
+                        areaSearchLoading = false
+                        return
                     }
+                    areaSearchLoading = true
+                    try? await Task.sleep(for: .milliseconds(350))
+                    guard !Task.isCancelled else { return }
+                    await journal.searchDiscoveryAreas(query)
+                    areaSearchLoading = false
+                }
+
+                Button {
+                    useCurrentLocation()
+                } label: {
+                    Label("Use current location", systemImage: "location.fill")
+                }
+                .font(HikeJournalTheme.label(14, relativeTo: .headline))
+                .foregroundStyle(HikeJournalTheme.trailText)
+
+                if let locationError {
+                    Text(locationError)
+                        .font(HikeJournalTheme.body(13))
+                        .foregroundStyle(HikeJournalTheme.error)
+                }
+
+                if currentLatitude != nil {
+                    Label("Using your current location", systemImage: "location.fill")
+                        .font(HikeJournalTheme.body(13))
+                        .foregroundStyle(HikeJournalTheme.moss)
+                }
 
                 if selectedArea == nil {
                     ForEach(journal.discoveryAreas.prefix(6)) { area in
                         Button {
                             selectedArea = area
                             query = area.name
+                            currentLatitude = nil
+                            currentLongitude = nil
                         } label: {
                             HStack {
                                 Image(systemName: "mappin.circle.fill")
@@ -679,7 +781,7 @@ private struct DiscoveryWorkspace: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(TrailButtonStyle())
-                .disabled(selectedArea == nil || loading)
+                .disabled((selectedArea == nil && currentLatitude == nil) || loading)
 
                 if let nearby = journal.nearbySpecies {
                     Divider().overlay(HikeJournalTheme.line)
@@ -701,7 +803,13 @@ private struct DiscoveryWorkspace: View {
                     .disabled(creatingQuest)
 
                     ForEach(nearby.taxa) { taxon in
-                        DiscoveryTaxonRow(taxon: taxon)
+                        Button {
+                            previewNearby = nearby
+                            previewTaxon = taxon
+                        } label: {
+                            DiscoveryTaxonRow(taxon: taxon)
+                        }
+                        .buttonStyle(.plain)
                         Divider().overlay(HikeJournalTheme.line)
                     }
                     Text(nearby.sourceGuidance)
@@ -713,19 +821,66 @@ private struct DiscoveryWorkspace: View {
             .padding(.bottom, 36)
         }
         .scrollIndicators(.hidden)
+        .sheet(item: $previewTaxon) { taxon in
+            if let nearby = previewNearby {
+                DiscoveryTaxonDetailView(
+                    model: model,
+                    journal: journal,
+                    taxon: taxon,
+                    sightingsRequest: { try await journal.nearbySightings(nearby: nearby, taxonID: taxon.taxonId) }
+                )
+            }
+        }
     }
 
     private func discover() {
-        guard let selectedArea else { return }
+        guard selectedArea != nil || currentLatitude != nil else { return }
         loading = true
         Task {
             await journal.discoverNearbySpecies(
-                areaID: selectedArea.id,
+                areaID: selectedArea?.id,
                 date: JournalDate.api(date),
                 radiusKM: radiusKM,
                 iconicTaxa: iconicTaxon == "All" ? [] : [iconicTaxon],
+                latitude: currentLatitude,
+                longitude: currentLongitude,
                 limit: 50
             )
+            loading = false
+        }
+    }
+
+    private func searchAreas() {
+        areaSearchLoading = true
+        Task {
+            await journal.searchDiscoveryAreas(query)
+            areaSearchLoading = false
+        }
+    }
+
+    private func useCurrentLocation() {
+        locationError = nil
+        areaSearchLoading = false
+        loading = true
+        Task {
+            do {
+                let location = try await model.currentLocation()
+                selectedArea = nil
+                query = "Current location"
+                currentLatitude = location.coordinate.latitude
+                currentLongitude = location.coordinate.longitude
+                await journal.discoverNearbySpecies(
+                    areaID: nil,
+                    date: JournalDate.api(date),
+                    radiusKM: radiusKM,
+                    iconicTaxa: iconicTaxon == "All" ? [] : [iconicTaxon],
+                    latitude: currentLatitude,
+                    longitude: currentLongitude,
+                    limit: 50
+                )
+            } catch {
+                locationError = (error as? LocalizedError)?.errorDescription ?? "HikeJournal couldn't read your current location."
+            }
             loading = false
         }
     }
@@ -775,7 +930,146 @@ private struct DiscoveryTaxonRow: View {
     }
 }
 
+private struct DiscoveryTaxonDetailView: View {
+    @ObservedObject var model: AppModel
+    @ObservedObject var journal: JournalStore
+    let taxon: DiscoveryTaxon
+    let sightingsRequest: () async throws -> QuestSightingsMap
+    @Environment(\.dismiss) private var dismiss
+    @State private var sightings: QuestSightingsMap?
+    @State private var currentLocation: MapCurrentLocation?
+    @State private var loadingSightings = false
+    @State private var errorMessage: String?
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                ParchmentBackground()
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 18) {
+                        JournalRemoteImage(
+                            urlString: taxon.collectionPhotoUrl ?? taxon.referencePhoto?.url ?? "",
+                            fallback: iconicSymbol(taxon.iconicTaxonName)
+                        )
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 260)
+                        .clipped()
+
+                        Text(taxon.commonName)
+                            .font(HikeJournalTheme.display(34, relativeTo: .largeTitle))
+                            .foregroundStyle(HikeJournalTheme.ink)
+                        Text(taxon.scientificName)
+                            .font(HikeJournalTheme.body(16))
+                            .italic()
+                            .foregroundStyle(HikeJournalTheme.inkMuted)
+                        if !taxon.matchReason.isEmpty {
+                            Text(taxon.matchReason)
+                                .font(HikeJournalTheme.body(15))
+                                .foregroundStyle(HikeJournalTheme.inkMuted)
+                        }
+                        if !taxon.wikipediaSummary.isEmpty {
+                            Text(taxon.wikipediaSummary)
+                                .font(HikeJournalTheme.body(16))
+                                .foregroundStyle(HikeJournalTheme.ink)
+                        }
+                        if let url = URL(string: taxon.wikipediaUrl), !taxon.wikipediaUrl.isEmpty {
+                            Link("Read species notes", destination: url)
+                                .font(HikeJournalTheme.label(14, relativeTo: .headline))
+                                .foregroundStyle(HikeJournalTheme.trailText)
+                        }
+
+                        Button {
+                            loadSightings()
+                        } label: {
+                            Label(loadingSightings ? "Loading sightings…" : "View sightings", systemImage: "map")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(TrailButtonStyle())
+                        .disabled(loadingSightings)
+
+                        if let errorMessage {
+                            Text(errorMessage)
+                                .font(HikeJournalTheme.body(13))
+                                .foregroundStyle(HikeJournalTheme.error)
+                        }
+
+                        if let sightings {
+                            Text("\(sightings.mappedCount) mapped iNaturalist sightings")
+                                .font(HikeJournalTheme.label(14, relativeTo: .headline))
+                                .foregroundStyle(HikeJournalTheme.moss)
+                            if let style = model.maps.style,
+                               let surface = try? HikeJournalMapSurface(
+                                   scene: mapScene(sightings),
+                                   style: style,
+                                   styleCredential: model.maps.styleCredential,
+                                   cameraBehavior: .fitOnce
+                               ) {
+                                surface.frame(height: 340)
+                            }
+                            Text(sightings.sourceGuidance)
+                                .font(HikeJournalTheme.body(12))
+                                .foregroundStyle(HikeJournalTheme.inkMuted)
+                        }
+                    }
+                    .padding(22)
+                    .padding(.bottom, 36)
+                }
+                .scrollIndicators(.hidden)
+            }
+            .navigationTitle("Species details")
+            .navigationBarTitleDisplayMode(.inline)
+            .task { await model.maps.start() }
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } }
+            }
+        }
+    }
+
+    private func loadSightings() {
+        loadingSightings = true
+        errorMessage = nil
+        Task {
+            do {
+                let result = try await sightingsRequest()
+                sightings = result
+                if let location = try? await model.currentLocation(),
+                   let coordinate = try? GeoCoordinate(
+                       latitude: location.coordinate.latitude,
+                       longitude: location.coordinate.longitude
+                   ) {
+                    currentLocation = try? MapCurrentLocation(
+                        coordinate: coordinate,
+                        horizontalAccuracyMeters: max(0, location.horizontalAccuracy),
+                        recordedAt: location.timestamp
+                    )
+                }
+            } catch {
+                errorMessage = (error as? LocalizedError)?.errorDescription ?? "iNaturalist sightings could not be loaded."
+            }
+            loadingSightings = false
+        }
+    }
+
+    private func mapScene(_ result: QuestSightingsMap) -> MapScene {
+        let points = result.sightings.compactMap { sighting -> MapPoint? in
+            guard let coordinate = try? GeoCoordinate(
+                latitude: sighting.latitude,
+                longitude: sighting.longitude
+            ) else { return nil }
+            return try? MapPoint(
+                id: "inat:\(sighting.id)",
+                kind: .discovery,
+                title: result.commonName,
+                detail: sighting.placeGuess,
+                coordinate: coordinate
+            )
+        }
+        return MapScene(currentLocation: currentLocation, points: points)
+    }
+}
+
 private struct QuestList: View {
+    @ObservedObject var model: AppModel
     @ObservedObject var journal: JournalStore
     let quests: [FieldQuest]
 
@@ -791,7 +1085,7 @@ private struct QuestList: View {
                 LazyVStack(spacing: 0) {
                     ForEach(quests) { quest in
                         NavigationLink {
-                            QuestDetailView(journal: journal, quest: quest)
+                            QuestDetailView(model: model, journal: journal, quest: quest)
                         } label: {
                             HStack(spacing: 15) {
                                 ZStack {
@@ -828,9 +1122,11 @@ private struct QuestList: View {
 
 private struct QuestDetailView: View {
     @Environment(\.dismiss) private var dismiss
+    @ObservedObject var model: AppModel
     @ObservedObject var journal: JournalStore
     @State var quest: FieldQuest
     @State private var showingDelete = false
+    @State private var previewTaxon: DiscoveryTaxon?
 
     var body: some View {
         ScrollView {
@@ -845,7 +1141,12 @@ private struct QuestDetailView: View {
                 Text("\(quest.progress.remainingCount) still to notice")
                     .font(HikeJournalTheme.label(14, relativeTo: .subheadline))
                 Divider().overlay(HikeJournalTheme.line)
-                ForEach(quest.taxa) { taxon in DiscoveryTaxonRow(taxon: taxon) }
+                ForEach(quest.taxa) { taxon in
+                    Button { previewTaxon = taxon } label: {
+                        DiscoveryTaxonRow(taxon: taxon)
+                    }
+                    .buttonStyle(.plain)
+                }
             }
             .padding(22)
             .padding(.bottom, 36)
@@ -881,12 +1182,21 @@ private struct QuestDetailView: View {
             }
             Button("Cancel", role: .cancel) {}
         }
+        .sheet(item: $previewTaxon) { taxon in
+            DiscoveryTaxonDetailView(
+                model: model,
+                journal: journal,
+                taxon: taxon,
+                sightingsRequest: { try await journal.questSightings(questID: quest.id, taxonID: taxon.taxonId) }
+            )
+        }
     }
 }
 
 private struct SpeciesReviewList: View {
     @ObservedObject var journal: JournalStore
     let items: [ReviewItem]
+    @State private var managingGroups = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -909,12 +1219,24 @@ private struct SpeciesReviewList: View {
                             .font(HikeJournalTheme.body(13))
                             .foregroundStyle(HikeJournalTheme.inkMuted)
                     }
+                    if journal.isReviewBatchWorking {
+                        Button("Stop identification", role: .cancel) {
+                            Task { await journal.cancelReviewBatch() }
+                        }
+                        .font(HikeJournalTheme.label(14, relativeTo: .subheadline))
+                        .foregroundStyle(HikeJournalTheme.error)
+                    }
                     Button(journal.isReviewBatchWorking ? "Identification running…" : "Identify \(waitingCount) waiting photo\(waitingCount == 1 ? "" : "s")") {
                         Task { await journal.startReviewBatchRecommendations() }
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(HikeJournalTheme.moss)
                     .disabled(journal.isReviewBatchWorking || waitingCount == 0)
+                    if !journal.isReviewBatchWorking && waitingCount > 0 {
+                        Button("Manage groups") { managingGroups = true }
+                            .font(HikeJournalTheme.label(14, relativeTo: .subheadline))
+                            .foregroundStyle(HikeJournalTheme.moss)
+                    }
                 }
                 .padding(.horizontal, 22)
                 .padding(.vertical, 16)
@@ -941,6 +1263,14 @@ private struct SpeciesReviewList: View {
                 .scrollIndicators(.hidden)
             }
         }
+        .sheet(isPresented: $managingGroups) {
+            ReviewGroupingPlanner(
+                items: items.filter { $0.candidates.isEmpty },
+                journal: journal
+            ) {
+                managingGroups = false
+            }
+        }
     }
 
     private var waitingCount: Int {
@@ -948,10 +1278,99 @@ private struct SpeciesReviewList: View {
     }
 }
 
+private struct ReviewGroupingPlanner: View {
+    let items: [ReviewItem]
+    @ObservedObject var journal: JournalStore
+    let close: () -> Void
+    @State private var separatePhotoIDs: Set<String> = []
+
+    private var proposedGroups: [ReviewPhotoGroup] {
+        splitReviewPhotoGroups(
+            buildReviewPhotoGroups(items),
+            separatePhotoIds: separatePhotoIDs
+        )
+    }
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                ParchmentBackground()
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 18) {
+                        Text("MANAGE GROUPS")
+                            .font(HikeJournalTheme.label(11))
+                            .tracking(1.1)
+                            .foregroundStyle(HikeJournalTheme.trailText)
+                        Text("Photos from the same outing can share one identification request. Split any photo that deserves its own suggestion.")
+                            .font(HikeJournalTheme.body(15))
+                            .foregroundStyle(HikeJournalTheme.inkMuted)
+                        Text("\(items.count) waiting · \(proposedGroups.count) identification request\(proposedGroups.count == 1 ? "" : "s")")
+                            .font(HikeJournalTheme.label(14, relativeTo: .headline))
+                            .foregroundStyle(HikeJournalTheme.moss)
+
+                        ForEach(Array(proposedGroups.enumerated()), id: \.offset) { index, group in
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text(group.items.count > 1 ? "Group \(index + 1) · \(group.items.count) photos" : "Individual photo")
+                                    .font(HikeJournalTheme.label(14, relativeTo: .headline))
+                                ForEach(group.items) { item in
+                                    HStack(spacing: 10) {
+                                        JournalRemoteImage(urlString: item.photo.url, fallback: "photo")
+                                            .frame(width: 52, height: 52)
+                                            .clipped()
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(item.hikeTitle)
+                                                .font(HikeJournalTheme.body(13))
+                                            Text(JournalDate.display(item.hikeDate))
+                                                .font(HikeJournalTheme.body(12))
+                                                .foregroundStyle(HikeJournalTheme.inkMuted)
+                                        }
+                                        Spacer()
+                                        if group.items.count > 1 {
+                                            Button(separatePhotoIDs.contains(item.id) ? "Keep grouped" : "Split") {
+                                                if separatePhotoIDs.contains(item.id) {
+                                                    separatePhotoIDs.remove(item.id)
+                                                } else {
+                                                    separatePhotoIDs.insert(item.id)
+                                                }
+                                            }
+                                            .font(HikeJournalTheme.label(12, relativeTo: .caption))
+                                            .foregroundStyle(HikeJournalTheme.trailText)
+                                        }
+                                    }
+                                }
+                            }
+                            .padding(14)
+                            .background(HikeJournalTheme.paper.opacity(0.72))
+                            .overlay(RoundedRectangle(cornerRadius: 12).stroke(HikeJournalTheme.line))
+                        }
+                    }
+                    .padding(22)
+                    .padding(.bottom, 36)
+                }
+            }
+            .navigationTitle("Review groups")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) { Button("Cancel") { close() } }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Identify") {
+                        Task {
+                            await journal.startReviewBatchRecommendations(groups: proposedGroups.map(\.photoIds))
+                            close()
+                        }
+                    }
+                    .disabled(journal.isReviewBatchWorking || proposedGroups.isEmpty)
+                }
+            }
+        }
+    }
+}
+
 private struct ReviewItemView: View {
     @ObservedObject var journal: JournalStore
     let item: ReviewItem
     @State private var working = false
+    @State private var recommendationTask: Task<Void, Never>?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -962,11 +1381,24 @@ private struct ReviewItemView: View {
             Text("\(JournalDate.display(item.hikeDate)) · \(item.locationName)")
                 .font(HikeJournalTheme.body(13)).foregroundStyle(HikeJournalTheme.inkMuted)
             if item.candidates.isEmpty {
-                Button(working ? "Requesting…" : "Ask iNaturalist for suggestions") {
-                    working = true
-                    Task {
-                        _ = await journal.requestReviewRecommendation(photoID: item.photo.id)
-                        working = false
+                Group {
+                    if working {
+                        Button("Stop asking", role: .cancel) {
+                            recommendationTask?.cancel()
+                            recommendationTask = nil
+                            working = false
+                        }
+                    } else {
+                        Button("Ask iNaturalist for suggestions") {
+                            working = true
+                            recommendationTask = Task { @MainActor in
+                                defer {
+                                    working = false
+                                    recommendationTask = nil
+                                }
+                                _ = await journal.requestReviewRecommendation(photoID: item.photo.id)
+                            }
+                        }
                     }
                 }
                 .buttonStyle(.bordered)
@@ -996,6 +1428,7 @@ private struct ReviewItemView: View {
                     .disabled(working)
             }
         }
+        .onDisappear { recommendationTask?.cancel() }
     }
 
     private func decide(action: String, candidate: ReviewCandidate?) {
@@ -1068,6 +1501,13 @@ private struct PublishingWorkspace: View {
                                 Text("Published \(status.processedPhotoCount) of \(status.totalPhotos) photos")
                                     .font(HikeJournalTheme.body(13))
                                     .foregroundStyle(HikeJournalTheme.inkMuted)
+                            }
+                            if journal.isPublishBatchWorking {
+                                Button("Stop publishing", role: .cancel) {
+                                    Task { await journal.cancelPublishBatch() }
+                                }
+                                .font(HikeJournalTheme.label(14, relativeTo: .subheadline))
+                                .foregroundStyle(HikeJournalTheme.error)
                             }
 
                             Picker("Location privacy", selection: $bulkGeoprivacy) {
@@ -1148,6 +1588,7 @@ private struct PublishItemView: View {
     let item: PublishItem
     let connected: Bool
     @State private var working = false
+    @State private var publishTask: Task<Void, Never>?
     @State private var geoprivacy = "open"
 
     var body: some View {
@@ -1174,26 +1615,39 @@ private struct PublishItemView: View {
                     }
                     .font(HikeJournalTheme.body(12))
                     .disabled(journal.isPublishBatchWorking)
-                    Button(working ? "Publishing…" : "Publish") {
-                        working = true
-                        Task {
-                            _ = await journal.publishObservation(
-                                id: item.id,
-                                options: PublishOptions(
-                                    observationIds: [item.id],
-                                    geoprivacy: geoprivacy
-                                )
-                            )
+                    if working {
+                        Button("Stop publishing", role: .cancel) {
+                            publishTask?.cancel()
+                            publishTask = nil
                             working = false
                         }
-                    }
-                    .font(HikeJournalTheme.label(13, relativeTo: .subheadline))
-                    .disabled(!connected || working || journal.isPublishBatchWorking)
-                }
+                        .font(HikeJournalTheme.label(13, relativeTo: .subheadline))
+                    } else {
+                        Button("Publish") {
+                            working = true
+                            publishTask = Task { @MainActor in
+                                defer {
+                                    working = false
+                                    publishTask = nil
+                                }
+                                _ = await journal.publishObservation(
+                                    id: item.id,
+                                    options: PublishOptions(
+                                        observationIds: [item.id],
+                                        geoprivacy: geoprivacy
+                                    )
+                                )
+                            }
+                        }
+                        .font(HikeJournalTheme.label(13, relativeTo: .subheadline))
+                        .disabled(!connected || journal.isPublishBatchWorking)
             }
+        }
+    }
             Spacer()
         }
         .accessibilityElement(children: .combine)
+        .onDisappear { publishTask?.cancel() }
     }
 }
 

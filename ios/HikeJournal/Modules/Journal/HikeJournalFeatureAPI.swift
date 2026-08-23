@@ -129,6 +129,7 @@ protocol HikeJournalFeatureAPI: Sendable {
     func requestReviewRecommendation(photoID: String) async throws -> ReviewItem
     func startReviewBatch(groups: [[String]], clientRequestID: String) async throws -> ReviewBatchStatus
     func reviewBatchStatus(jobID: String) async throws -> ReviewBatchStatus
+    func cancelReviewBatch(jobID: String) async throws -> ReviewBatchStatus
     func decideReview(
         photoID: String,
         observationID: String?,
@@ -143,6 +144,7 @@ protocol HikeJournalFeatureAPI: Sendable {
         clientRequestID: String
     ) async throws -> PublishBatchStatus
     func publishBatchStatus(jobID: String) async throws -> PublishBatchStatus
+    func cancelPublishBatch(jobID: String) async throws -> PublishBatchStatus
     func inaturalistAuthorizationURL() async throws -> URL
 }
 
@@ -187,11 +189,13 @@ struct UnavailableHikeJournalFeatureAPI: HikeJournalFeatureAPI {
     func requestReviewRecommendation(photoID: String) async throws -> ReviewItem { try unavailable() }
     func startReviewBatch(groups: [[String]], clientRequestID: String) async throws -> ReviewBatchStatus { try unavailable() }
     func reviewBatchStatus(jobID: String) async throws -> ReviewBatchStatus { try unavailable() }
+    func cancelReviewBatch(jobID: String) async throws -> ReviewBatchStatus { try unavailable() }
     func decideReview(photoID: String, observationID: String?, action: String, candidate: ReviewCandidate?) async throws -> ReviewDecisionResponse { try unavailable() }
     func publishQueue() async throws -> PublishQueue { try unavailable() }
     func publishObservation(id: String, options: PublishOptions) async throws -> PublishItem { try unavailable() }
     func startPublishBatch(groups: [[String]], options: PublishOptions, clientRequestID: String) async throws -> PublishBatchStatus { try unavailable() }
     func publishBatchStatus(jobID: String) async throws -> PublishBatchStatus { try unavailable() }
+    func cancelPublishBatch(jobID: String) async throws -> PublishBatchStatus { try unavailable() }
     func inaturalistAuthorizationURL() async throws -> URL { try unavailable() }
 }
 
@@ -472,6 +476,16 @@ extension APIClient: HikeJournalFeatureAPI {
         )
     }
 
+    func cancelReviewBatch(jobID: String) async throws -> ReviewBatchStatus {
+        try await send(
+            APIRequest(
+                method: .post,
+                path: "/v1/species/review/batch-recommendation/\(try apiPathSegment(jobID))/cancel",
+                body: Data("{}".utf8)
+            )
+        )
+    }
+
     func decideReview(
         photoID: String,
         observationID: String?,
@@ -543,6 +557,16 @@ extension APIClient: HikeJournalFeatureAPI {
     func publishBatchStatus(jobID: String) async throws -> PublishBatchStatus {
         try await send(
             APIRequest(path: "/v1/species/publish/batch/\(try apiPathSegment(jobID))")
+        )
+    }
+
+    func cancelPublishBatch(jobID: String) async throws -> PublishBatchStatus {
+        try await send(
+            APIRequest(
+                method: .post,
+                path: "/v1/species/publish/batch/\(try apiPathSegment(jobID))/cancel",
+                body: Data("{}".utf8)
+            )
         )
     }
 

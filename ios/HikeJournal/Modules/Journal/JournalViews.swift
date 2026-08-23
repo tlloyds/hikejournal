@@ -925,6 +925,7 @@ private struct JournalMediaDetailView: View {
     @State private var showingKnownSpecies = false
     @State private var showingDelete = false
     @State private var working = false
+    @State private var recommendationTask: Task<Void, Never>?
     @State private var recommendation: ReviewItem?
 
     var body: some View {
@@ -1136,25 +1137,35 @@ private struct JournalMediaDetailView: View {
             Text("Unidentified field photo")
                 .font(HikeJournalTheme.display(28, relativeTo: .title2))
                 .foregroundStyle(.white)
-            Button {
-                guard !working else { return }
-                working = true
-                Task {
-                    recommendation = await journal.identifyPhotoWithINaturalist(
-                        photoID: currentPhoto.id,
-                        hikeID: hikeID
-                    )
+            if working {
+                Button("Stop asking", role: .cancel) {
+                    recommendationTask?.cancel()
+                    recommendationTask = nil
                     working = false
                 }
-            } label: {
-                Label(
-                    working ? "Asking iNaturalist…" : "Identify with iNaturalist",
-                    systemImage: "sparkle.magnifyingglass"
-                )
                 .frame(maxWidth: .infinity, minHeight: 46)
+                .buttonStyle(.borderedProminent)
+                .tint(Color(red: 0.72, green: 0.82, blue: 0.69))
+            } else {
+                Button {
+                    working = true
+                    recommendationTask = Task { @MainActor in
+                        defer {
+                            working = false
+                            recommendationTask = nil
+                        }
+                        recommendation = await journal.identifyPhotoWithINaturalist(
+                            photoID: currentPhoto.id,
+                            hikeID: hikeID
+                        )
+                    }
+                } label: {
+                    Label("Identify with iNaturalist", systemImage: "sparkle.magnifyingglass")
+                        .frame(maxWidth: .infinity, minHeight: 46)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(Color(red: 0.72, green: 0.82, blue: 0.69))
             }
-            .buttonStyle(.borderedProminent)
-            .tint(Color(red: 0.72, green: 0.82, blue: 0.69))
             Text("The photo will be placed in Species Review with iNaturalist’s suggestion.")
                 .font(HikeJournalTheme.body(13))
                 .foregroundStyle(Color.white.opacity(0.72))
@@ -1188,6 +1199,7 @@ private struct JournalMediaDetailView: View {
                 .disabled(working)
             }
         }
+        .onDisappear { recommendationTask?.cancel() }
     }
 
     private var mediaActions: some View {

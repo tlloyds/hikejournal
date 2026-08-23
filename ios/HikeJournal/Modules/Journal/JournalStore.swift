@@ -387,6 +387,14 @@ final class JournalStore: ObservableObject {
         }
     }
 
+    func nearbySightings(nearby: NearbySpecies, taxonID: Int64) async throws -> QuestSightingsMap {
+        try await api.nearbySightings(nearby: nearby, taxonID: taxonID)
+    }
+
+    func questSightings(questID: String, taxonID: Int64) async throws -> QuestSightingsMap {
+        try await api.questSightings(questID: questID, taxonID: taxonID)
+    }
+
     @discardableResult
     func createQuest(_ draft: SpeciesQuestDraft) async -> FieldQuest? {
         do {
@@ -476,10 +484,16 @@ final class JournalStore: ObservableObject {
     }
 
     @discardableResult
-    func startReviewBatchRecommendations() async -> Bool {
+    func startReviewBatchRecommendations(groups plannedGroups: [[String]]? = nil) async -> Bool {
         guard !isReviewBatchWorking else { return false }
         let waiting = reviewItems.filter { $0.candidates.isEmpty }
-        let groups = buildReviewPhotoGroups(waiting).map(\.photoIds)
+        let waitingIDs = Set(waiting.map(\.id))
+        let groups = (plannedGroups ?? buildReviewPhotoGroups(waiting).map(\.photoIds))
+            .map { group in
+                var seen = Set<String>()
+                return group.filter { waitingIDs.contains($0) && seen.insert($0).inserted }
+            }
+            .filter { !$0.isEmpty }
         guard !groups.isEmpty else {
             errorMessage = "Every photo in this review queue already has a suggestion."
             return false
@@ -515,6 +529,20 @@ final class JournalStore: ObservableObject {
             return true
         } catch is CancellationError {
             return false
+        } catch {
+            errorMessage = readable(error)
+            return false
+        }
+    }
+
+    @discardableResult
+    func cancelReviewBatch() async -> Bool {
+        guard let status = reviewBatchStatus, isReviewBatchWorking else { return false }
+        do {
+            let cancelled = try await api.cancelReviewBatch(jobID: status.jobId)
+            reviewBatchStatus = cancelled
+            await persistReviewBatch(cancelled)
+            return true
         } catch {
             errorMessage = readable(error)
             return false
@@ -565,6 +593,20 @@ final class JournalStore: ObservableObject {
             return true
         } catch is CancellationError {
             return false
+        } catch {
+            errorMessage = readable(error)
+            return false
+        }
+    }
+
+    @discardableResult
+    func cancelPublishBatch() async -> Bool {
+        guard let status = publishBatchStatus, isPublishBatchWorking else { return false }
+        do {
+            let cancelled = try await api.cancelPublishBatch(jobID: status.jobId)
+            publishBatchStatus = cancelled
+            await persistPublishBatch(cancelled)
+            return true
         } catch {
             errorMessage = readable(error)
             return false
@@ -685,6 +727,8 @@ final class JournalStore: ObservableObject {
                 reviewItems.insert(item, at: 0)
             }
             return item
+        } catch is CancellationError {
+            return nil
         } catch {
             errorMessage = readable(error)
             return nil
@@ -752,6 +796,8 @@ final class JournalStore: ObservableObject {
                 publishQueue = queue
             }
             return item
+        } catch is CancellationError {
+            return nil
         } catch {
             errorMessage = readable(error)
             return nil

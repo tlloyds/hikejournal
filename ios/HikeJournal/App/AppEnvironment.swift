@@ -207,6 +207,10 @@ final class AppModel: ObservableObject {
         locationPermission.requestWhenInUse()
     }
 
+    func currentLocation() async throws -> CLLocation {
+        try await locationPermission.requestCurrentLocation()
+    }
+
     func restoreRecording() async {
         await recording.restoreIfNeeded()
     }

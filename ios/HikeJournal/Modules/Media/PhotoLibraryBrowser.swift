@@ -81,6 +81,7 @@ struct PhotoLibraryBrowser: View {
     @StateObject private var model: PhotoLibraryBrowserModel
     @State private var isImporting = false
     @State private var errorMessage: String?
+    @State private var importTask: Task<Void, Never>?
 
     let importSelection: ([String]) async throws -> Void
 
@@ -113,7 +114,11 @@ struct PhotoLibraryBrowser: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                    if isImporting {
+                        Button("Stop", role: .cancel) { importTask?.cancel() }
+                    } else {
+                        Button("Cancel") { dismiss() }
+                    }
                 }
                 if model.authorization == .authorized || model.authorization == .limited {
                     ToolbarItem(placement: .confirmationAction) {
@@ -134,7 +139,11 @@ struct PhotoLibraryBrowser: View {
             }
         }
         .onAppear { model.start() }
-        .onDisappear { model.stop() }
+        .onDisappear {
+            importTask?.cancel()
+            importTask = nil
+            model.stop()
+        }
     }
 
     private var permissionPrimer: some View {
@@ -254,15 +263,18 @@ struct PhotoLibraryBrowser: View {
         let identifiers = model.orderedSelection()
         guard !identifiers.isEmpty else { return }
         isImporting = true
-        Task {
+        importTask = Task { @MainActor in
+            defer {
+                isImporting = false
+                importTask = nil
+            }
             do {
                 try await importSelection(identifiers)
-                isImporting = false
+                guard !Task.isCancelled else { return }
                 dismiss()
             } catch is CancellationError {
-                isImporting = false
+                return
             } catch {
-                isImporting = false
                 errorMessage = (error as? LocalizedError)?.errorDescription
                     ?? "HikeJournal couldn't secure those items."
             }

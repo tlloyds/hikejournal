@@ -78,13 +78,15 @@ enum JournalMapSceneFactory {
             let detail = [sighting.hikeTitle, sighting.locationName]
                 .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
                 .joined(separator: " · ")
-            if let point = mapPoint(
+            if let latitude = sighting.latitude,
+               let longitude = sighting.longitude,
+               let point = mapPoint(
                 id: "media:\(sighting.id)",
                 kind: kind,
                 title: title,
                 detail: detail,
-                latitude: sighting.latitude,
-                longitude: sighting.longitude
+                latitude: latitude,
+                longitude: longitude
             ) {
                 pointsByID[point.id] = point
             }

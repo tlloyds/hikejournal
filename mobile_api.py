@@ -36,8 +36,10 @@ from hike_journal.domain.discovery import (
 from hike_journal.domain.library import filter_hikes_for_user, record_visible_for_user, user_owns_record
 from hike_journal.domain.locations import (
     attach_location_tags_to_hikes,
+    canonical_location_slug,
     canonical_location_id_map,
     canonicalize_hike_locations,
+    load_seed_hike_locations,
     suggest_location_ids_for_hike,
 )
 from hike_journal.domain.longitudinal import (
@@ -769,6 +771,16 @@ def _persist_mobile_job_update(job_id: str, **updates: Any) -> MobileJobRecord |
     return updated
 
 
+def _mobile_job_cancelled(job_id: str, *, job_type: str) -> bool:
+    record = _get_mobile_job(job_id, job_type=job_type)
+    if record is not None:
+        return record.state == "cancelled" or str(record.payload.get("state") or "").lower() == "cancelled"
+    cache = _species_batch_jobs if job_type == SPECIES_REVIEW_JOB_TYPE else _species_publish_jobs
+    lock = _species_batch_jobs_lock if job_type == SPECIES_REVIEW_JOB_TYPE else _species_publish_jobs_lock
+    with lock:
+        return str((cache.get(job_id) or {}).get("state") or "").lower() == "cancelled"
+
+
 def _claim_mobile_job(job_id: str, *, job_type: str) -> bool:
     _clear_mobile_job_lease_owner()
     store = _mobile_job_store()
@@ -1213,13 +1225,44 @@ def release_entitlement_quota(
 
 def _visible_hike_locations(repository: HikeJournalRepository) -> list[dict[str, Any]]:
     context = _user_context()
-    return [
-        location
-        for location in repository.list_hike_locations()
-        if (
-            not location.get("owner_subject") and not location.get("owner_email")
-        ) or user_owns_record(location, context)
-    ]
+    return _enrich_library_location_coordinates(
+        [
+            location
+            for location in repository.list_hike_locations()
+            if (
+                not location.get("owner_subject") and not location.get("owner_email")
+            ) or user_owns_record(location, context)
+        ]
+    )
+
+
+def _enrich_library_location_coordinates(
+    locations: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Fill coordinates from the checked-in library when a row is incomplete.
+
+    Older hosted seed rows were imported before coordinates became mandatory for
+    planning. Keep their database IDs (which are referenced by hikes), but use
+    the canonical seed coordinates for planning and place profiles.
+    """
+    seed_by_slug = {
+        canonical_location_slug(item): item
+        for item in load_seed_hike_locations()
+    }
+    enriched: list[dict[str, Any]] = []
+    for location in locations:
+        current = dict(location)
+        if _library_coordinate(current.get("lat"), minimum=-90.0, maximum=90.0) is None or _library_coordinate(
+            current.get("lng"), minimum=-180.0, maximum=180.0
+        ) is None:
+            seed = seed_by_slug.get(canonical_location_slug(current))
+            if seed:
+                if _library_coordinate(current.get("lat"), minimum=-90.0, maximum=90.0) is None:
+                    current["lat"] = seed.get("lat")
+                if _library_coordinate(current.get("lng"), minimum=-180.0, maximum=180.0) is None:
+                    current["lng"] = seed.get("lng")
+        enriched.append(current)
+    return enriched
 
 
 def _visible_hikes(repository: HikeJournalRepository) -> list[dict[str, Any]]:
@@ -3020,7 +3063,9 @@ def list_hike_locations(
     state_code = str(state or "FL").strip().upper()
     if state_code not in US_STATE_CODES:
         raise HTTPException(status_code=422, detail="Use a two-letter U.S. state code.")
-    visible_locations = _visible_hike_locations(get_services().repository)
+    visible_locations = _enrich_library_location_coordinates(
+        _visible_hike_locations(get_services().repository)
+    )
     visible_locations = [
         location
         for location in visible_locations
@@ -3124,7 +3169,7 @@ def _analytics_hikes(svc: Services) -> list[dict[str, Any]]:
 @app.get("/v1/places/{location_id}/profile", dependencies=[Depends(require_mobile_key)])
 def get_place_profile(location_id: str) -> dict[str, Any]:
     svc = get_services()
-    locations = _visible_hike_locations(svc.repository)
+    locations = _enrich_library_location_coordinates(_visible_hike_locations(svc.repository))
     canonical_id = canonical_location_id_map(locations).get(location_id, location_id)
     location = next(
         (
@@ -3155,7 +3200,7 @@ def get_place_conditions(
 ) -> dict[str, Any]:
     """Return shared, short-lived forecast and USGS planning conditions."""
     svc = get_services()
-    locations = _visible_hike_locations(svc.repository)
+    locations = _enrich_library_location_coordinates(_visible_hike_locations(svc.repository))
     canonical_id = canonical_location_id_map(locations).get(location_id, location_id)
     location = next(
         (
@@ -3869,10 +3914,14 @@ def _run_species_batch_job(
     next_photo_number = len(baseline_processed_ids) + 1
 
     def on_group_start(group_number: int) -> None:
+        if _mobile_job_cancelled(job_id, job_type=SPECIES_REVIEW_JOB_TYPE):
+            raise MobileJobLeaseLost(job_id)
         previous_group = int(existing_payload.get("current_group") or 0)
         _update_review_batch_job(job_id, current_group=max(previous_group, group_number))
 
     def on_photo_start(photo_id: str) -> None:
+        if _mobile_job_cancelled(job_id, job_type=SPECIES_REVIEW_JOB_TYPE):
+            raise MobileJobLeaseLost(job_id)
         nonlocal next_photo_number
         _update_review_batch_job(
             job_id,
@@ -3882,6 +3931,8 @@ def _run_species_batch_job(
         next_photo_number += 1
 
     def on_photo_complete(photo_id: str) -> None:
+        if _mobile_job_cancelled(job_id, job_type=SPECIES_REVIEW_JOB_TYPE):
+            raise MobileJobLeaseLost(job_id)
         with _species_batch_jobs_lock:
             cached = _species_batch_jobs.get(job_id)
             processed_ids = list((cached or {}).get("processed_photo_ids") or [])
@@ -3897,6 +3948,8 @@ def _run_species_batch_job(
         )
 
     try:
+        if _mobile_job_cancelled(job_id, job_type=SPECIES_REVIEW_JOB_TYPE):
+            return
         result = _process_species_batch_submission(
             svc,
             groups,
@@ -4076,6 +4129,28 @@ def start_species_batch_recommendation(
 def get_species_batch_recommendation_status(job_id: str) -> dict[str, Any]:
     _dispatch_recoverable_mobile_jobs(job_id=job_id)
     return _get_review_batch_job(job_id)
+
+
+@app.post("/v1/species/review/batch-recommendation/{job_id}/cancel", dependencies=[Depends(require_mobile_key)])
+def cancel_species_batch_recommendation(job_id: str) -> dict[str, Any]:
+    snapshot = _get_review_batch_job(job_id)
+    if snapshot.get("state") not in {"completed", "failed", "cancelled"}:
+        updated = _mobile_job_store().update(
+            job_id,
+            state="cancelled",
+            error="Stopped by user.",
+            current_photo_id=None,
+        )
+        if updated:
+            _cache_mobile_job(updated)
+            snapshot = _review_batch_job_payload(updated.payload)
+        else:
+            with _species_batch_jobs_lock:
+                cached = _species_batch_jobs.get(job_id)
+                if cached is not None:
+                    cached.update(state="cancelled", error="Stopped by user.", current_photo_id=None)
+                    snapshot = _review_batch_job_payload(dict(cached))
+    return snapshot
 
 
 @app.post("/v1/species/review/{photo_id}/recommendation", dependencies=[Depends(require_mobile_key)])
@@ -4349,6 +4424,8 @@ def _run_species_publish_batch_job(
     try:
         hikes_by_id = _visible_hikes(svc.repository)
         for group_number, records in enumerate(records_by_group, start=1):
+            if _mobile_job_cancelled(job_id, job_type=SPECIES_PUBLISH_JOB_TYPE):
+                return
             attempted_group_count = group_number
             lead_observation, lead_photo = records[0]
             hike_id = str(lead_photo.get("hike_id") or lead_observation.get("hike_id") or "")
@@ -4537,6 +4614,28 @@ def start_species_publish_batch(
 def get_species_publish_batch_status(job_id: str) -> dict[str, Any]:
     _dispatch_recoverable_mobile_jobs(job_id=job_id)
     return _get_species_publish_batch_job(job_id)
+
+
+@app.post("/v1/species/publish/batch/{job_id}/cancel", dependencies=[Depends(require_mobile_key)])
+def cancel_species_publish_batch(job_id: str) -> dict[str, Any]:
+    snapshot = _get_species_publish_batch_job(job_id)
+    if snapshot.get("state") not in {"completed", "failed", "cancelled"}:
+        updated = _mobile_job_store().update(
+            job_id,
+            state="cancelled",
+            error="Stopped by user.",
+            current_group_photo_count=0,
+        )
+        if updated:
+            _cache_mobile_job(updated)
+            snapshot = _publish_batch_job_payload(updated.payload)
+        else:
+            with _species_publish_jobs_lock:
+                cached = _species_publish_jobs.get(job_id)
+                if cached is not None:
+                    cached.update(state="cancelled", error="Stopped by user.", current_group_photo_count=0)
+                    snapshot = _publish_batch_job_payload(dict(cached))
+    return snapshot
 
 
 @app.post("/v1/species/publish/{observation_id}", dependencies=[Depends(require_mobile_key)])

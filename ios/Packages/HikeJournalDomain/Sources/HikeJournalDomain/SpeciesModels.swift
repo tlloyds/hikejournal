@@ -228,8 +228,8 @@ public struct Sighting: Codable, Equatable, Sendable, Identifiable {
     public let url: String
     public let caption: String
     public let takenAt: String?
-    public let latitude: Double
-    public let longitude: Double
+    public let latitude: Double?
+    public let longitude: Double?
     public let speciesName: String
     public let scientificName: String
     public let confirmed: Bool
@@ -243,8 +243,8 @@ public struct Sighting: Codable, Equatable, Sendable, Identifiable {
         url: String,
         caption: String,
         takenAt: String?,
-        latitude: Double,
-        longitude: Double,
+        latitude: Double?,
+        longitude: Double?,
         speciesName: String,
         scientificName: String,
         confirmed: Bool
@@ -275,8 +275,8 @@ public struct Sighting: Codable, Equatable, Sendable, Identifiable {
             url: values.string("url"),
             caption: values.string("caption"),
             takenAt: values.optionalString("takenAt"),
-            latitude: values.double("lat"),
-            longitude: values.double("lng"),
+            latitude: validLatitude(values.optionalDouble("lat")),
+            longitude: validLongitude(values.optionalDouble("lng")),
             speciesName: values.string("speciesName"),
             scientificName: values.string("scientificName"),
             confirmed: values.boolean("confirmed")
