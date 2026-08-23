@@ -151,6 +151,7 @@ public struct SpeciesRecord: Codable, Equatable, Sendable {
     public let hikeLatestSeen: [String: String]
     public let latestSeen: String?
     public let coverUrl: String
+    public let coverThumbnailUrl: String
     public let encounters: [Encounter]
     public let seasonalHistory: SeasonalHistory
 
@@ -171,6 +172,7 @@ public struct SpeciesRecord: Codable, Equatable, Sendable {
         hikeLatestSeen: [String: String],
         latestSeen: String?,
         coverUrl: String,
+        coverThumbnailUrl: String = "",
         encounters: [Encounter] = [],
         seasonalHistory: SeasonalHistory = SeasonalHistory()
     ) {
@@ -190,6 +192,7 @@ public struct SpeciesRecord: Codable, Equatable, Sendable {
         self.hikeLatestSeen = hikeLatestSeen
         self.latestSeen = latestSeen
         self.coverUrl = coverUrl
+        self.coverThumbnailUrl = coverThumbnailUrl
         self.encounters = encounters
         self.seasonalHistory = seasonalHistory
     }
@@ -213,6 +216,7 @@ public struct SpeciesRecord: Codable, Equatable, Sendable {
             hikeLatestSeen: try values.dictionary(String.self, "hikeLatestSeen"),
             latestSeen: values.optionalString("latestSeen"),
             coverUrl: values.string("coverUrl"),
+            coverThumbnailUrl: values.string("coverThumbnailUrl"),
             encounters: try values.array(Encounter.self, "encounters"),
             seasonalHistory: try values.optionalValue(SeasonalHistory.self, "seasonalHistory") ?? SeasonalHistory()
         )
@@ -226,6 +230,7 @@ public struct Sighting: Codable, Equatable, Sendable, Identifiable {
     public let hikeDate: String
     public let locationName: String
     public let url: String
+    public let thumbnailUrl: String
     public let caption: String
     public let takenAt: String?
     public let latitude: Double?
@@ -241,6 +246,7 @@ public struct Sighting: Codable, Equatable, Sendable, Identifiable {
         hikeDate: String,
         locationName: String,
         url: String,
+        thumbnailUrl: String = "",
         caption: String,
         takenAt: String?,
         latitude: Double?,
@@ -255,6 +261,7 @@ public struct Sighting: Codable, Equatable, Sendable, Identifiable {
         self.hikeDate = hikeDate
         self.locationName = locationName
         self.url = url
+        self.thumbnailUrl = thumbnailUrl
         self.caption = caption
         self.takenAt = takenAt
         self.latitude = latitude
@@ -273,6 +280,7 @@ public struct Sighting: Codable, Equatable, Sendable, Identifiable {
             hikeDate: values.string("hikeDate"),
             locationName: values.string("locationName"),
             url: values.string("url"),
+            thumbnailUrl: values.string("thumbnailUrl"),
             caption: values.string("caption"),
             takenAt: values.optionalString("takenAt"),
             latitude: validLatitude(values.optionalDouble("lat")),

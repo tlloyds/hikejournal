@@ -7,13 +7,12 @@ from pathlib import Path
 import sys
 from typing import Any
 
-from supabase import create_client
-
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from hike_journal.config import settings
 from hike_journal.services.inat import InatClient
 from hike_journal.services.repositories import HikeJournalRepository
+from hike_journal.services.supabase_transport import build_supabase_client
 from hike_journal.services.taxonomy import (
     normalize_taxon_name,
     resolve_observation_enrichment,
@@ -199,7 +198,7 @@ def main() -> None:
         raise SystemExit("SUPABASE_URL and SUPABASE_KEY are required.")
 
     repository = HikeJournalRepository(
-        create_client(settings.supabase_url, settings.supabase_key),
+        build_supabase_client(settings.supabase_url, settings.supabase_key),
     )
     observations = repository.list_observations_for_taxonomy_reconciliation()
     if args.wikipedia_fallback:

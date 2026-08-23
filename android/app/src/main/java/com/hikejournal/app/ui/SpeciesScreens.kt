@@ -1625,7 +1625,10 @@ private fun SpeciesIndexRow(record: SpeciesRecord, onOpen: (String) -> Unit) {
         ) {
             Box(Modifier.size(92.dp).background(Moss)) {
                 AsyncImage(
-                    model = ImageRequest.Builder(LocalContext.current).data(record.coverUrl).crossfade(true).build(),
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(record.coverThumbnailUrl.ifBlank { record.coverUrl })
+                        .crossfade(true)
+                        .build(),
                     contentDescription = record.commonName,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop,

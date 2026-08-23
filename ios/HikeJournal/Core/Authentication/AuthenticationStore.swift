@@ -18,6 +18,7 @@ final class AuthenticationStore: ObservableObject {
     private let appleSignIn: any AppleSignInAuthorizing
     private let googleSignIn: any GoogleSignInAuthorizing
     private var hasRestored = false
+    private var authenticationFailureObservation: AnyCancellable?
 
     init(
         api: any AuthenticationAPI,
@@ -27,6 +28,16 @@ final class AuthenticationStore: ObservableObject {
         self.api = api
         self.appleSignIn = appleSignIn
         self.googleSignIn = googleSignIn ?? UnavailableGoogleSignInAuthorizer()
+        authenticationFailureObservation = NotificationCenter.default.publisher(
+            for: .hikeJournalAuthenticationExpired
+        )
+        .receive(on: RunLoop.main)
+        .sink { [weak self] _ in
+            self?.handleAuthenticationFailure(
+                APIClientError.authenticationExpired("Your HikeJournal session has expired. Sign in again."),
+                showError: false
+            )
+        }
     }
 
     var isGoogleSignInConfigured: Bool {
@@ -116,10 +127,7 @@ final class AuthenticationStore: ObservableObject {
         } catch is CancellationError {
             return
         } catch let error as APIClientError {
-            if case .authenticationExpired = error {
-                phase = .signedOut
-                entitlement = nil
-            }
+            handleAuthenticationFailure(error, showError: showErrors)
             if showErrors {
                 errorMessage = readableMessage(error)
             }
@@ -160,6 +168,34 @@ final class AuthenticationStore: ObservableObject {
 
     func clearError() {
         errorMessage = nil
+    }
+
+    func handleAuthenticationFailure(_ error: Error, showError: Bool = true) {
+        guard Self.isAuthenticationFailure(error) else {
+            if showError {
+                errorMessage = readableMessage(error)
+            }
+            return
+        }
+        phase = .signedOut
+        entitlement = nil
+        if showError {
+            errorMessage = readableMessage(error)
+        } else {
+            errorMessage = nil
+        }
+    }
+
+    private static func isAuthenticationFailure(_ error: Error) -> Bool {
+        guard let error = error as? APIClientError else { return false }
+        switch error {
+        case .sessionRequired, .authenticationExpired:
+            return true
+        case let .server(statusCode, _, _):
+            return statusCode == 401 || statusCode == 403
+        default:
+            return false
+        }
     }
 
     private func readableMessage(_ error: Error) -> String {

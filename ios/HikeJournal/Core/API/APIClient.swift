@@ -108,6 +108,12 @@ enum APIClientError: Error, Equatable, LocalizedError {
     }
 }
 
+extension Notification.Name {
+    static let hikeJournalAuthenticationExpired = Notification.Name(
+        "HikeJournalAuthenticationExpired"
+    )
+}
+
 protocol AuthenticationAPI: Sendable {
     func persistedSession() async throws -> AuthSession?
     func signInWithApple(_ authorization: AppleAuthorizationPayload) async throws -> AuthSession
@@ -194,7 +200,9 @@ actor APIClient: AuthenticationAPI {
             return session
         } catch {
             refreshTask = nil
-            try? await sessionStore.clearSession()
+            if Self.isAuthenticationFailure(error) {
+                await invalidateSession()
+            }
             throw error
         }
     }
@@ -364,7 +372,7 @@ actor APIClient: AuthenticationAPI {
                 )
             } catch let error as APIClientError {
                 if case let .server(statusCode, retryMessage, _) = error, statusCode == 401 {
-                    try? await sessionStore.clearSession()
+                    await invalidateSession()
                     throw APIClientError.authenticationExpired(retryMessage)
                 }
                 throw error
@@ -376,6 +384,32 @@ actor APIClient: AuthenticationAPI {
             message: message,
             requestID: http.value(forHTTPHeaderField: "X-Request-ID")
         )
+    }
+
+    private func invalidateSession() async {
+        try? await sessionStore.clearSession()
+        NotificationCenter.default.post(
+            name: .hikeJournalAuthenticationExpired,
+            object: nil
+        )
+    }
+
+    private static func isAuthenticationFailure(_ error: Error) -> Bool {
+        guard let error = error as? APIClientError else { return false }
+        switch error {
+        case .sessionRequired, .authenticationExpired:
+            return true
+        case let .server(statusCode, _, _):
+            return statusCode == 401 || statusCode == 403
+        case .missingBaseURL,
+             .invalidRequestPath,
+             .requestEncodingFailed,
+             .responseDecodingFailed,
+             .responseTooLarge,
+             .nonHTTPResponse,
+             .transport:
+            return false
+        }
     }
 
     private func makeURLRequest<Response>(

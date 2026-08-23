@@ -18,6 +18,21 @@ final class AuthenticationStoreTests: XCTestCase {
         XCTAssertNil(store.errorMessage)
     }
 
+    func testSessionRequiredEntitlementClearsStaleSignedInPhase() async {
+        let session = makeSession()
+        let api = MockAuthenticationAPI(session: session, entitlementSessionRequired: true)
+        let store = AuthenticationStore(
+            api: api,
+            appleSignIn: MockAppleAuthorizer(result: .failure(AppleSignInError.cancelled))
+        )
+
+        await store.restore()
+
+        XCTAssertEqual(store.phase, .signedOut)
+        XCTAssertNil(store.entitlement)
+        XCTAssertNil(store.errorMessage)
+    }
+
     func testAppleSignInSendsRawNonceAndPublishesServerAccount() async {
         let authorization = AppleAuthorizationPayload(
             identityToken: "identity-token",
@@ -333,6 +348,7 @@ private actor MockAuthenticationAPI: AuthenticationAPI {
     private let signInSession: AuthSession?
     private let entitlementValue: EntitlementSnapshot?
     private let entitlementFailure: Bool
+    private let entitlementSessionRequired: Bool
     private let signInFailure: Bool
     private let deleteFailure: Bool
     private var authorization: AppleAuthorizationPayload?
@@ -344,6 +360,7 @@ private actor MockAuthenticationAPI: AuthenticationAPI {
         signInSession: AuthSession? = nil,
         entitlement: EntitlementSnapshot? = nil,
         entitlementFailure: Bool = false,
+        entitlementSessionRequired: Bool = false,
         signInFailure: Bool = false,
         deleteFailure: Bool = false
     ) {
@@ -351,6 +368,7 @@ private actor MockAuthenticationAPI: AuthenticationAPI {
         self.signInSession = signInSession
         entitlementValue = entitlement
         self.entitlementFailure = entitlementFailure
+        self.entitlementSessionRequired = entitlementSessionRequired
         self.signInFailure = signInFailure
         self.deleteFailure = deleteFailure
     }
@@ -374,6 +392,7 @@ private actor MockAuthenticationAPI: AuthenticationAPI {
     }
 
     func entitlement() throws -> EntitlementSnapshot {
+        if entitlementSessionRequired { throw APIClientError.sessionRequired }
         if entitlementFailure { throw APIClientError.transport("Offline") }
         guard let entitlementValue else { throw APIClientError.server(statusCode: 404, message: "Not ready.", requestID: nil) }
         return entitlementValue

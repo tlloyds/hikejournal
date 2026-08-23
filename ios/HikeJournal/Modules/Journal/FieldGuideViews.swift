@@ -356,7 +356,10 @@ private struct SpeciesRow: View {
 
     var body: some View {
         HStack(spacing: 15) {
-            JournalRemoteImage(urlString: species.coverUrl, fallback: iconicSymbol(species.iconicTaxonName))
+            JournalRemoteImage(
+                urlString: species.coverThumbnailUrl.isEmpty ? species.coverUrl : species.coverThumbnailUrl,
+                fallback: iconicSymbol(species.iconicTaxonName)
+            )
                 .frame(width: 82, height: 82)
                 .clipShape(Circle())
                 .accessibilityHidden(true)
@@ -578,7 +581,10 @@ private struct SightingRow: View {
     let sighting: Sighting
     var body: some View {
         HStack(spacing: 15) {
-            JournalRemoteImage(urlString: sighting.url, fallback: "binoculars")
+            JournalRemoteImage(
+                urlString: sighting.thumbnailUrl.isEmpty ? sighting.url : sighting.thumbnailUrl,
+                fallback: "binoculars"
+            )
                 .frame(width: 88, height: 88)
                 .clipped()
             VStack(alignment: .leading, spacing: 3) {

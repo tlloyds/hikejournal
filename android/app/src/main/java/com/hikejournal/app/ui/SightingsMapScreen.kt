@@ -374,7 +374,7 @@ private fun SightingInspector(
             contentAlignment = Alignment.Center,
         ) {
             AsyncImage(
-                sighting.url,
+                sighting.thumbnailUrl.ifBlank { sighting.url },
                 "Open ${sighting.speciesName.ifBlank { sighting.caption.ifBlank { "field photograph" } }}",
                 Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop,

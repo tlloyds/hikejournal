@@ -98,6 +98,33 @@ final class APIClientTests: XCTestCase {
         XCTAssertEqual(counts.protected, 1)
     }
 
+    func testTransientRefreshFailureKeepsSessionForOfflineRetry() async throws {
+        let expiring = AuthSession(
+            accessToken: "old-access",
+            refreshToken: "old-refresh",
+            expiresIn: 60,
+            account: makeAccount(),
+            obtainedAt: now
+        )
+        let store = MemorySessionStore(session: expiring)
+        let client = makeClient(
+            transport: QueueTransport(responses: []),
+            store: store
+        )
+
+        do {
+            let _: TestResponse = try await client.send(APIRequest(path: "/v1/protected"))
+            XCTFail("Expected the refresh request to be unavailable")
+        } catch let error as APIClientError {
+            guard case .transport = error else {
+                return XCTFail("Expected a transport error, got \(error)")
+            }
+        }
+
+        let storedSession = await store.loadSession()
+        XCTAssertEqual(storedSession, expiring)
+    }
+
     func testCancellationIsNotCollapsedIntoTransportError() async throws {
         let client = makeClient(
             transport: CancellationTransport(),

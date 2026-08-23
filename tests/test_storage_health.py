@@ -87,3 +87,31 @@ def test_supabase_download_url_uses_private_signed_url() -> None:
 
     assert url == "https://supabase.example/signed/photo.jpg?token=test"
     assert calls == [("standalone/photo.jpg", 300)]
+
+
+def test_download_url_cache_reuses_a_signed_url_for_the_same_object() -> None:
+    calls = []
+
+    class Bucket:
+        def create_signed_url(self, path, expires_in):
+            calls.append((path, expires_in))
+            return {"signedURL": f"https://supabase.example/{len(calls)}"}
+
+    class Storage:
+        def from_(self, bucket):
+            return Bucket()
+
+    client = SimpleNamespace(storage=Storage())
+    service = _service(client=client)
+
+    first = service.create_download_url("hikes/hike-1/photo.jpg", expires_in=900)
+    second = service.create_download_url("hikes/hike-1/photo.jpg", expires_in=900)
+
+    assert first == second
+    assert calls == [("hikes/hike-1/photo.jpg", 900)]
+
+
+def test_thumbnail_path_is_kept_separate_from_the_original() -> None:
+    assert StorageService.thumbnail_path("hikes/hike-1/photo.jpg") == (
+        "hikes/hike-1/thumbs/photo.jpg"
+    )

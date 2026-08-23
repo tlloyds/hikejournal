@@ -284,7 +284,10 @@ private struct JournalRow: View {
 
     var body: some View {
         HStack(spacing: 16) {
-            JournalRemoteImage(urlString: hike.coverUrl, fallback: "figure.hiking")
+            JournalRemoteImage(
+                urlString: hike.coverThumbnailUrl.isEmpty ? hike.coverUrl : hike.coverThumbnailUrl,
+                fallback: "figure.hiking"
+            )
                 .frame(width: 88, height: 92)
                 .clipped()
                 .accessibilityHidden(true)
@@ -856,7 +859,14 @@ private struct JournalPhotoTile: View {
             .aspectRatio(1, contentMode: .fit)
             .overlay {
                 ZStack(alignment: .bottomLeading) {
-                    JournalRemoteImage(urlString: photo.url, fallback: photo.contentType.hasPrefix("video/") ? "video" : "photo")
+                    // A legacy video without a derivative gets a placeholder
+                    // rather than downloading the entire movie for a tile.
+                    JournalRemoteImage(
+                        urlString: photo.thumbnailUrl.isEmpty && photo.contentType.hasPrefix("video/")
+                            ? ""
+                            : (photo.thumbnailUrl.isEmpty ? photo.url : photo.thumbnailUrl),
+                        fallback: photo.contentType.hasPrefix("video/") ? "video" : "photo"
+                    )
                     LinearGradient(colors: [.clear, .black.opacity(0.66)], startPoint: .center, endPoint: .bottom)
                     VStack(alignment: .leading, spacing: 2) {
                         if isCover { Label("Cover", systemImage: "bookmark.fill") }
@@ -1457,6 +1467,18 @@ private final class JournalImageLoader: ObservableObject {
     @Published private(set) var isLoading = false
 
     private static let cache = NSCache<NSURL, UIImage>()
+    private static let session: URLSession = {
+        let configuration = URLSessionConfiguration.default
+        configuration.urlCache = URLCache(
+            memoryCapacity: 32 * 1024 * 1024,
+            diskCapacity: 256 * 1024 * 1024,
+            diskPath: "hikejournal-images"
+        )
+        configuration.requestCachePolicy = .returnCacheDataElseLoad
+        configuration.timeoutIntervalForRequest = 30
+        configuration.timeoutIntervalForResource = 60
+        return URLSession(configuration: configuration)
+    }()
     private let urlString: String
     private var task: Task<Void, Never>?
 
@@ -1478,7 +1500,7 @@ private final class JournalImageLoader: ObservableObject {
                 var request = URLRequest(url: url)
                 request.cachePolicy = .returnCacheDataElseLoad
                 request.timeoutInterval = 30
-                let (data, response) = try await URLSession.shared.data(for: request)
+                let (data, response) = try await Self.session.data(for: request)
                 try Task.checkCancellation()
                 guard let http = response as? HTTPURLResponse,
                       (200...299).contains(http.statusCode),

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+from threading import Lock
 from uuid import uuid4
 from pathlib import Path
 
@@ -17,6 +19,8 @@ class StorageService:
         self.supabase_bucket = settings.supabase_bucket
         self.r2_bucket = settings.r2_bucket
         self._r2_client = None
+        self._download_url_cache: dict[tuple[str, int], tuple[float, str]] = {}
+        self._download_url_cache_lock = Lock()
 
         if self.backend == "r2":
             if not settings.r2_configured:
@@ -48,26 +52,76 @@ class StorageService:
         if not clean_path:
             raise ValueError("The stored media path is missing.")
         bounded_expiry = max(300, min(int(expires_in), 604_800))
+        # Signing a URL is cheap in isolation but expensive at journal scale:
+        # every list/map request used to mint a new bearer URL for the same
+        # object. Reuse it for most of its lifetime. Authorization is still
+        # checked by the repository before this method is called, and the URL
+        # remains time-limited.
+        cache = getattr(self, "_download_url_cache", None)
+        lock = getattr(self, "_download_url_cache_lock", None)
+        if cache is None:
+            cache = self._download_url_cache = {}
+        if lock is None:
+            lock = self._download_url_cache_lock = Lock()
+        cache_key = (clean_path, bounded_expiry)
+        now = time.monotonic()
+        with lock:
+            cached = cache.get(cache_key)
+            if cached and cached[0] > now:
+                return cached[1]
         if self.backend == "r2":
             if self._r2_client is None:
                 raise RuntimeError("R2 storage client is not configured.")
-            return str(
+            signed_url = str(
                 self._r2_client.generate_presigned_url(
                     "get_object",
                     Params={"Bucket": self.r2_bucket, "Key": clean_path},
                     ExpiresIn=bounded_expiry,
                 )
             )
-        if not self.client:
-            raise RuntimeError("Supabase client is required for Supabase storage.")
-        response = self.client.storage.from_(self.supabase_bucket).create_signed_url(
-            clean_path,
-            bounded_expiry,
+        else:
+            if not self.client:
+                raise RuntimeError("Supabase client is required for Supabase storage.")
+            response = self.client.storage.from_(self.supabase_bucket).create_signed_url(
+                clean_path,
+                bounded_expiry,
+            )
+            signed_url = response.get("signedURL") or response.get("signedUrl")
+            if not signed_url:
+                raise RuntimeError("The object store did not return a signed media URL.")
+            signed_url = str(signed_url)
+        cache_ttl = max(60, bounded_expiry - 300)
+        with lock:
+            cache[cache_key] = (time.monotonic() + cache_ttl, signed_url)
+            if len(cache) > 4096:
+                expired = [key for key, (expires_at, _) in cache.items() if expires_at <= time.monotonic()]
+                for key in expired[:2048]:
+                    cache.pop(key, None)
+        return signed_url
+
+    @staticmethod
+    def thumbnail_path(storage_path: str) -> str:
+        """Return the deterministic derivative path for an uploaded image."""
+        clean_path = storage_path.strip().lstrip("/")
+        if not clean_path:
+            raise ValueError("The stored media path is missing.")
+        source = Path(clean_path)
+        return str(source.parent / "thumbs" / f"{source.stem}.jpg")
+
+    def upload_thumbnail(
+        self,
+        storage_path: str,
+        image_bytes: bytes,
+        content_type: str = "image/jpeg",
+    ) -> tuple[str, str]:
+        """Store a cacheable list-view derivative without changing the original."""
+        path = self.thumbnail_path(storage_path)
+        return self.replace_file(
+            path,
+            image_bytes,
+            content_type,
+            cache_control="public, max-age=604800, immutable",
         )
-        signed_url = response.get("signedURL") or response.get("signedUrl")
-        if not signed_url:
-            raise RuntimeError("The object store did not return a signed media URL.")
-        return str(signed_url)
 
     def resolve_download_url(self, storage_path: str) -> str:
         return self.create_download_url(
@@ -91,14 +145,21 @@ class StorageService:
             raise RuntimeError("Supabase client is required for Supabase storage.")
         self.client.storage.get_bucket(self.supabase_bucket)
 
-    def _upload_bytes(self, path: str, file_bytes: bytes, content_type: str) -> tuple[str, str]:
+    def _upload_bytes(
+        self,
+        path: str,
+        file_bytes: bytes,
+        content_type: str,
+        *,
+        cache_control: str = "private, max-age=3600",
+    ) -> tuple[str, str]:
         if self.backend == "r2":
             self._r2_client.put_object(
                 Bucket=self.r2_bucket,
                 Key=path,
                 Body=file_bytes,
                 ContentType=content_type,
-                CacheControl="private, max-age=3600",
+                CacheControl=cache_control,
             )
             return path, self._build_public_url(path)
 
@@ -107,18 +168,25 @@ class StorageService:
         self.client.storage.from_(self.supabase_bucket).upload(
             path=path,
             file=file_bytes,
-            file_options={"content-type": content_type, "cache-control": "3600", "upsert": "false"},
+            file_options={"content-type": content_type, "cache-control": cache_control, "upsert": "false"},
         )
         return path, self._build_public_url(path)
 
-    def replace_file(self, path: str, file_bytes: bytes, content_type: str) -> tuple[str, str]:
+    def replace_file(
+        self,
+        path: str,
+        file_bytes: bytes,
+        content_type: str,
+        *,
+        cache_control: str = "private, max-age=3600",
+    ) -> tuple[str, str]:
         if self.backend == "r2":
             self._r2_client.put_object(
                 Bucket=self.r2_bucket,
                 Key=path,
                 Body=file_bytes,
                 ContentType=content_type,
-                CacheControl="private, max-age=3600",
+                CacheControl=cache_control,
             )
             return path, self._build_public_url(path)
 
@@ -127,7 +195,7 @@ class StorageService:
         self.client.storage.from_(self.supabase_bucket).upload(
             path=path,
             file=file_bytes,
-            file_options={"content-type": content_type, "cache-control": "3600", "upsert": "true"},
+            file_options={"content-type": content_type, "cache-control": cache_control, "upsert": "true"},
         )
         return path, self._build_public_url(path)
 

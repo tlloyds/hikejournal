@@ -26,6 +26,7 @@ data class Hike(
     val primaryLocationName: String = "",
     val fieldMarks: List<FieldMark> = emptyList(),
     val weather: WeatherSnapshot? = null,
+    val coverThumbnailUrl: String = "",
 )
 
 data class WeatherSnapshot(
@@ -141,6 +142,7 @@ data class Photo(
     val processingStatus: String,
     val syncState: String = "synced",
     val species: List<SpeciesLabel>,
+    val thumbnailUrl: String = "",
 )
 
 data class MediaLocationSummary(
@@ -253,6 +255,7 @@ data class SpeciesRecord(
     val coverUrl: String,
     val encounters: List<Encounter> = emptyList(),
     val seasonalHistory: SeasonalHistory = SeasonalHistory(),
+    val coverThumbnailUrl: String = "",
 )
 
 data class PlaceVisit(
@@ -542,6 +545,7 @@ data class Sighting(
     val speciesName: String,
     val scientificName: String,
     val confirmed: Boolean,
+    val thumbnailUrl: String = "",
 )
 
 data class ReviewCandidate(
@@ -832,6 +836,7 @@ fun parseSightings(json: String): List<Sighting> {
             hikeDate = item.optString("hike_date"),
             locationName = item.optString("location_name"),
             url = item.optString("url"),
+            thumbnailUrl = item.optString("thumbnail_url"),
             caption = item.optString("caption"),
             takenAt = item.optNullableString("taken_at"),
             latitude = item.optDouble("lat"),
@@ -989,6 +994,7 @@ private fun parseHike(json: JSONObject): Hike {
         isArchived = json.optBoolean("is_archived"),
         isStandalone = json.optBoolean("is_standalone"),
         coverUrl = json.optString("cover_url"),
+        coverThumbnailUrl = json.optString("cover_thumbnail_url"),
         coverPhotoId = json.optNullableString("cover_photo_id"),
         photoCount = json.optInt("photo_count"),
         speciesCount = json.optInt("species_count"),
@@ -1037,6 +1043,7 @@ private fun parsePhoto(json: JSONObject): Photo {
         id = json.optString("id"),
         hikeId = json.optNullableString("hike_id"),
         url = json.optString("url"),
+        thumbnailUrl = json.optString("thumbnail_url"),
         caption = json.optString("caption"),
         takenAt = json.optNullableString("taken_at"),
         createdAt = json.optNullableString("created_at"),
@@ -1114,6 +1121,7 @@ private fun parseSpecies(json: JSONObject): SpeciesRecord {
         }.orEmpty(),
         latestSeen = json.optNullableString("latest_seen"),
         coverUrl = json.optString("cover_url"),
+        coverThumbnailUrl = json.optString("cover_thumbnail_url"),
         encounters = List(encountersJson.length()) { index ->
             val encounter = encountersJson.getJSONObject(index)
             Encounter(

@@ -37,6 +37,27 @@ LEGACY_LIGHTWEIGHT_OBSERVATION_COLUMNS = LIGHTWEIGHT_OBSERVATION_COLUMNS.replace
     "",
 )
 
+# Native list, map, and species screens do not need the raw EXIF document.
+# Keep the full `photos` projections below for web, publishing, cleanup, and
+# detail flows that do need it. The JSON-path alias is additive and falls back
+# cleanly for databases that predate derivative metadata.
+MOBILE_PHOTO_COLUMNS = (
+    "id,hike_id,owner_subject,owner_email,caption,public_url,storage_path,lat,lng,taken_at,created_at,"
+    "width,height,content_type,processing_status,thumbnail_storage_path:exif_json->>hikejournal_thumbnail_storage_path"
+)
+MOBILE_PHOTO_COLUMNS_WITHOUT_THUMBNAIL = (
+    "id,hike_id,owner_subject,owner_email,caption,public_url,storage_path,lat,lng,taken_at,created_at,"
+    "width,height,content_type,processing_status"
+)
+MOBILE_MAP_PHOTO_COLUMNS = (
+    "id,hike_id,owner_subject,owner_email,caption,public_url,storage_path,lat,lng,taken_at,created_at,"
+    "width,height"
+)
+MOBILE_MAP_PHOTO_COLUMNS_WITH_THUMBNAIL = (
+    "id,hike_id,owner_subject,owner_email,caption,public_url,storage_path,lat,lng,taken_at,created_at,"
+    "width,height,thumbnail_storage_path:exif_json->>hikejournal_thumbnail_storage_path"
+)
+
 
 def _slugify_location_name(value: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", value.lower().strip())
@@ -109,6 +130,15 @@ class HikeJournalRepository:
             resolved_url = self.media_url_resolver(storage_path)
             for url_key in applicable_url_keys:
                 decorated[url_key] = resolved_url
+        thumbnail_path = str(
+            row.get("thumbnail_storage_path")
+            or (row.get("exif_json") or {}).get("hikejournal_thumbnail_storage_path")
+            or ""
+        ).strip()
+        if thumbnail_path and self.media_url_resolver is not None:
+            if decorated is row:
+                decorated = dict(row)
+            decorated["thumbnail_url"] = self.media_url_resolver(thumbnail_path)
         return decorated
 
     def decorate_media_rows(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -698,6 +728,29 @@ class HikeJournalRepository:
         )
         return self.decorate_media_rows(response.data or [])
 
+    def list_mobile_photos_page(self, hike_id: str, *, offset: int, limit: int) -> list[dict[str, Any]]:
+        """Fetch a native photo page without shipping the raw EXIF document."""
+        try:
+            query = self.client.table("photos").select(MOBILE_PHOTO_COLUMNS)
+            response = (
+                query.eq("hike_id", hike_id)
+                .order("taken_at")
+                .order("created_at")
+                .range(offset, offset + limit - 1)
+                .execute()
+            )
+        except Exception:
+            response = (
+                self.client.table("photos")
+                .select(MOBILE_PHOTO_COLUMNS_WITHOUT_THUMBNAIL)
+                .eq("hike_id", hike_id)
+                .order("taken_at")
+                .order("created_at")
+                .range(offset, offset + limit - 1)
+                .execute()
+            )
+        return self.decorate_media_rows(response.data or [])
+
     def list_standalone_photos(self) -> list[dict[str, Any]]:
         return self._select_all_rows(
             lambda: (
@@ -722,6 +775,24 @@ class HikeJournalRepository:
             return query
 
         return self._select_all_rows(query_factory)
+
+    def list_mobile_map_photos(self, hike_id: str | None = None) -> list[dict[str, Any]]:
+        """Fetch map/sightings media without transferring raw EXIF."""
+        def query_factory(columns: str):
+            query = (
+                self.client.table("photos")
+                .select(columns)
+                .not_.is_("lat", "null")
+                .not_.is_("lng", "null")
+            )
+            if hike_id:
+                query = query.eq("hike_id", hike_id)
+            return query
+
+        try:
+            return self._select_all_rows(lambda: query_factory(MOBILE_MAP_PHOTO_COLUMNS_WITH_THUMBNAIL))
+        except Exception:
+            return self._select_all_rows(lambda: query_factory(MOBILE_MAP_PHOTO_COLUMNS))
 
     def get_map_summary(self, *, visible_hike_ids: list[str], hike_id: str | None = None) -> dict[str, Any]:
         params = {"p_hike_ids": visible_hike_ids, "p_hike_id": hike_id}
@@ -977,15 +1048,27 @@ class HikeJournalRepository:
         normalized_ids = [str(hike_id) for hike_id in hike_ids if str(hike_id).strip()]
         if not normalized_ids:
             return []
-        return self._select_all_rows(
-            lambda: (
+        def query_factory(columns: str):
+            return (
                 self.client.table("photos")
-                .select("id,hike_id,public_url,storage_path,taken_at,created_at")
+                .select(columns)
                 .in_("hike_id", normalized_ids)
                 .order("id")
-            ),
-            decorate=False,
-        )
+            )
+
+        try:
+            return self._select_all_rows(
+                lambda: query_factory(
+                    "id,hike_id,public_url,storage_path,taken_at,created_at,"
+                    "thumbnail_storage_path:exif_json->>hikejournal_thumbnail_storage_path"
+                ),
+                decorate=False,
+            )
+        except Exception:
+            return self._select_all_rows(
+                lambda: query_factory("id,hike_id,public_url,storage_path,taken_at,created_at"),
+                decorate=False,
+            )
 
     def list_photo_storage_records(self) -> list[dict[str, Any]]:
         return self._select_all_rows(
@@ -1006,6 +1089,35 @@ class HikeJournalRepository:
                 .in_("id", chunk_ids)
                 .execute()
             )
+            for row in self.decorate_media_rows(response.data or []):
+                row_id = str(row.get("id") or "")
+                if row_id:
+                    rows_by_id[row_id] = row
+        return [rows_by_id[photo_id] for photo_id in normalized_ids if photo_id in rows_by_id]
+
+    def list_mobile_photo_records_for_ids(self, photo_ids: list[str]) -> list[dict[str, Any]]:
+        """Fetch native species/sighting media without transferring raw EXIF."""
+        normalized_ids = [str(photo_id) for photo_id in photo_ids if str(photo_id).strip()]
+        if not normalized_ids:
+            return []
+        rows_by_id: dict[str, dict[str, Any]] = {}
+        chunk_size = 200
+        for start in range(0, len(normalized_ids), chunk_size):
+            chunk_ids = normalized_ids[start : start + chunk_size]
+            try:
+                response = (
+                    self.client.table("photos")
+                    .select(MOBILE_PHOTO_COLUMNS)
+                    .in_("id", chunk_ids)
+                    .execute()
+                )
+            except Exception:
+                response = (
+                    self.client.table("photos")
+                    .select(MOBILE_PHOTO_COLUMNS_WITHOUT_THUMBNAIL)
+                    .in_("id", chunk_ids)
+                    .execute()
+                )
             for row in self.decorate_media_rows(response.data or []):
                 row_id = str(row.get("id") or "")
                 if row_id:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from collections import defaultdict
 import base64
+from copy import deepcopy
 from contextlib import asynccontextmanager, suppress
 from contextvars import ContextVar
 from datetime import UTC, date, datetime, timezone
@@ -24,7 +25,7 @@ from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, Header, HTTPE
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel, ConfigDict, Field
-from supabase import Client, create_client
+from supabase import Client
 
 from hike_journal.config import settings
 from hike_journal.domain.discovery import (
@@ -55,7 +56,7 @@ from hike_journal.domain.routes import (
 )
 from hike_journal.models import HikeDraft, SpeciesCandidate
 from hike_journal.services.exif import extract_metadata
-from hike_journal.services.image_processing import optimize_image
+from hike_journal.services.image_processing import build_thumbnail, optimize_image
 from hike_journal.media import is_supported_video_upload, video_content_type
 from hike_journal.mobile_contract import MOBILE_CONTRACT_VERSION, build_mobile_config
 from hike_journal.services.api_runtime import RequestMetrics, run_dependency_probes
@@ -132,6 +133,7 @@ from hike_journal.services.repositories import HikeJournalRepository
 from hike_journal.services.discovery import SpeciesDiscoveryService
 from hike_journal.services.outdoor_conditions import OutdoorConditionsService
 from hike_journal.services.storage import StorageService
+from hike_journal.services.supabase_transport import build_supabase_client
 from hike_journal.services.taxonomy import ensure_observation_taxonomy
 from hike_journal.services.weather import (
     OpenMeteoWeatherProvider,
@@ -447,7 +449,7 @@ class Services:
     def __init__(self) -> None:
         if not settings.supabase_configured:
             raise RuntimeError("SUPABASE_URL and SUPABASE_KEY are required.")
-        self.client: Client = create_client(settings.supabase_url, settings.supabase_key)
+        self.client: Client = build_supabase_client(settings.supabase_url, settings.supabase_key)
         self.storage = StorageService(self.client)
         self.repository = HikeJournalRepository(
             self.client,
@@ -466,6 +468,8 @@ _species_data_cache: dict[
         tuple[list[dict[str, Any]], dict[str, dict[str, Any]], dict[str, dict[str, Any]]],
     ],
 ] | None = None
+_visible_hikes_cache: dict[str, tuple[float, list[dict[str, Any]]]] = {}
+VISIBLE_HIKES_CACHE_TTL_SECONDS = 20.0
 _species_batch_jobs: dict[str, dict[str, Any]] = {}
 _species_batch_jobs_lock = Lock()
 _species_publish_jobs: dict[str, dict[str, Any]] = {}
@@ -483,6 +487,7 @@ class MobileJobLeaseLost(RuntimeError):
 def _invalidate_species_data_cache() -> None:
     global _species_data_cache
     _species_data_cache = None
+    _visible_hikes_cache.clear()
 
 
 def _species_data_cache_key(context: dict[str, Any]) -> str:
@@ -1266,12 +1271,23 @@ def _enrich_library_location_coordinates(
 
 
 def _visible_hikes(repository: HikeJournalRepository) -> list[dict[str, Any]]:
+    cache_key = f"{id(repository)}:{_species_data_cache_key(_user_context())}"
+    cached = _visible_hikes_cache.get(cache_key)
+    if cached and time.monotonic() - cached[0] < VISIBLE_HIKES_CACHE_TTL_SECONDS:
+        # Callers attach payload fields while building responses. Do not let
+        # those mutations leak into the short-lived shared cache.
+        return deepcopy(cached[1])
     visible = filter_hikes_for_user(repository.list_hikes(), _user_context())
-    return attach_location_tags_to_hikes(
+    result = attach_location_tags_to_hikes(
         visible,
         _visible_hike_locations(repository),
         repository.list_hike_location_tags(),
     )
+    _visible_hikes_cache[cache_key] = (time.monotonic(), deepcopy(result))
+    if len(_visible_hikes_cache) > 256:
+        oldest_key = min(_visible_hikes_cache, key=lambda key: _visible_hikes_cache[key][0])
+        _visible_hikes_cache.pop(oldest_key, None)
+    return result
 
 
 def _visible_standalone_photos(svc: Services) -> list[dict[str, Any]]:
@@ -1484,6 +1500,7 @@ def _photo_payload(photo: dict[str, Any], species: list[dict[str, Any]] | None =
         "id": str(photo.get("id") or ""),
         "hike_id": str(photo.get("hike_id") or "") or None,
         "url": str(photo.get("public_url") or ""),
+        "thumbnail_url": str(photo.get("thumbnail_url") or ""),
         "caption": str(photo.get("caption") or ""),
         "taken_at": photo.get("taken_at"),
         "created_at": photo.get("created_at"),
@@ -1572,6 +1589,7 @@ def _hike_payload(
         "is_standalone": bool(hike.get("is_standalone")),
         "cover_photo_id": cover_id or None,
         "cover_url": str((cover or {}).get("public_url") or ""),
+        "cover_thumbnail_url": str((cover or {}).get("thumbnail_url") or ""),
         "photo_count": len(photos),
         "species_count": species_count,
     }
@@ -1686,6 +1704,7 @@ def _dated_visible_observations(svc: Services) -> list[dict[str, Any]]:
 
 def _visible_species_data(
     svc: Services,
+    hikes: list[dict[str, Any]] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
     global _species_data_cache
     context = _user_context()
@@ -1701,7 +1720,7 @@ def _visible_species_data(
     if cached:
         _species_data_cache = scoped_cache
         return cached[1]
-    hikes = _visible_hikes(svc.repository)
+    hikes = hikes if hikes is not None else _visible_hikes(svc.repository)
     hikes_by_id = {str(hike["id"]): hike for hike in hikes}
     visible_hike_ids = set(hikes_by_id)
     observation_rows = svc.repository.list_lightweight_observations(status="confirmed")
@@ -1717,7 +1736,12 @@ def _visible_species_data(
             if observation.get("photo_id")
         )
     )
-    photos = svc.repository.list_photo_records_for_ids(photo_ids)
+    list_mobile_photo_records = getattr(svc.repository, "list_mobile_photo_records_for_ids", None)
+    photos = (
+        list_mobile_photo_records(photo_ids)
+        if callable(list_mobile_photo_records)
+        else svc.repository.list_photo_records_for_ids(photo_ids)
+    )
     photos_by_id = {
         str(photo["id"]): photo
         for photo in photos
@@ -1875,6 +1899,7 @@ def _build_species_payloads(
                 "hike_latest_seen": dict(sorted(hike_latest_seen.items())),
                 "latest_seen": latest_seen,
                 "cover_url": str(cover_photo.get("public_url") or ""),
+                "cover_thumbnail_url": str(cover_photo.get("thumbnail_url") or ""),
             }
         )
     return sorted(
@@ -3019,7 +3044,13 @@ def list_hikes() -> list[dict[str, Any]]:
     }
     missing_cover_photo_ids = sorted(cover_photo_ids - photos_by_id.keys())
     if missing_cover_photo_ids:
-        for photo in svc.repository.list_photo_records_for_ids(missing_cover_photo_ids):
+        list_mobile_photo_records = getattr(svc.repository, "list_mobile_photo_records_for_ids", None)
+        cover_rows = (
+            list_mobile_photo_records(missing_cover_photo_ids)
+            if callable(list_mobile_photo_records)
+            else svc.repository.list_photo_records_for_ids(missing_cover_photo_ids)
+        )
+        for photo in cover_rows:
             photo_id = str(photo.get("id") or "")
             if photo_id:
                 photos_by_id[photo_id] = photo
@@ -3739,7 +3770,7 @@ def _process_species_batch_submission(
             if on_photo_complete:
                 on_photo_complete(str(photo["id"]))
 
-    _species_data_cache = None
+    _invalidate_species_data_cache()
     refreshed_queue = _review_queue_payload(svc)
     processed_set = set(processed_ids)
     return {
@@ -4196,7 +4227,7 @@ def request_species_recommendation(photo_id: str) -> dict[str, Any]:
     except InatRequestError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
-    _species_data_cache = None
+    _invalidate_species_data_cache()
     item = next((row for row in _review_queue_payload(svc) if str(row.get("id")) == photo_id), None)
     if not item:
         raise HTTPException(status_code=500, detail="iNaturalist returned a suggestion, but HikeJournal could not reload it.")
@@ -4256,7 +4287,7 @@ def decide_species_review(photo_id: str, payload: ReviewDecisionInput) -> dict[s
             ensure_observation_taxonomy(svc.repository, inat_client, updated)
         svc.repository.update_photo_processing_status(photo_id, "ready")
 
-    _species_data_cache = None
+    _invalidate_species_data_cache()
     return {"ok": True, "photo_id": photo_id, "action": payload.action}
 
 
@@ -4484,7 +4515,7 @@ def _run_species_publish_batch_job(
                 processed_photo_ids=list(processed_photo_ids),
                 errors=list(errors),
             )
-        _species_data_cache = None
+        _invalidate_species_data_cache()
         _update_species_publish_batch_job(
             job_id,
             state="completed",
@@ -4708,7 +4739,7 @@ def publish_species_observation(observation_id: str, payload: PublishInput) -> d
             detail="HikeJournal could not finish this iNaturalist post. Please try again.",
         ) from exc
 
-    _species_data_cache = None
+    _invalidate_species_data_cache()
     raw_payload = observation.get("raw_response_json")
     raw_payload = dict(raw_payload) if isinstance(raw_payload, dict) else {}
     updated = {
@@ -4802,10 +4833,14 @@ def list_sightings() -> list[dict[str, Any]]:
     context = _user_context()
     photos = [
         photo
-        for photo in svc.repository.list_map_photos()
+        for photo in (
+            svc.repository.list_mobile_map_photos()
+            if callable(getattr(svc.repository, "list_mobile_map_photos", None))
+            else svc.repository.list_map_photos()
+        )
         if record_visible_for_user(photo, visible_hike_ids, context)
     ]
-    observations, _, _ = _visible_species_data(svc)
+    observations, _, _ = _visible_species_data(svc, hikes=hikes)
     observations_by_photo: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for observation in observations:
         if observation.get("photo_id"):
@@ -4827,6 +4862,7 @@ def list_sightings() -> list[dict[str, Any]]:
                 "hike_date": str((hike or {}).get("hike_date") or ""),
                 "location_name": str((hike or {}).get("location_name") or ""),
                 "url": str(photo.get("public_url") or ""),
+                "thumbnail_url": str(photo.get("thumbnail_url") or ""),
                 "caption": str(photo.get("caption") or ""),
                 "taken_at": photo.get("taken_at"),
                 "lat": photo.get("lat"),
@@ -4888,7 +4924,9 @@ def get_hike(
         selected_cover = next(
             (
                 photo
-                for photo in svc.repository.list_photo_records_for_ids([cover_id])
+                for photo in (
+                    getattr(svc.repository, "list_mobile_photo_records_for_ids", svc.repository.list_photo_records_for_ids)([cover_id])
+                )
                 if str(photo.get("hike_id") or "") == hike_id
             ),
             None,
@@ -4940,7 +4978,12 @@ def get_hike_photos(
         page = _visible_standalone_photos(svc)[offset : offset + limit]
     else:
         _get_visible_hike(svc.repository, hike_id)
-        page = svc.repository.list_photos_page(hike_id, offset=offset, limit=limit)
+        list_mobile_photos_page = getattr(svc.repository, "list_mobile_photos_page", None)
+        page = (
+            list_mobile_photos_page(hike_id, offset=offset, limit=limit)
+            if callable(list_mobile_photos_page)
+            else svc.repository.list_photos_page(hike_id, offset=offset, limit=limit)
+        )
     observations_by_photo: dict[str, list[dict[str, Any]]] = defaultdict(list)
     page_observations = _decorate_observation_history(
         svc.repository,
@@ -5293,6 +5336,7 @@ async def upload_photo(
             raise HTTPException(status_code=400, detail="This image could not be processed.") from exc
 
     storage_path = ""
+    derivative_paths: list[str] = []
     try:
         if is_video:
             storage_path, public_url = svc.storage.upload_hike_video(
@@ -5312,6 +5356,21 @@ async def upload_photo(
             storage_path, public_url = svc.storage.upload_hike_photo(
                 hike_id, processed.bytes_data, processed.content_type, object_id=normalized_photo_id or None
             )
+        thumbnail_path = ""
+        if not is_video and processed is not None:
+            try:
+                thumbnail = build_thumbnail(processed.bytes_data)
+                thumbnail_path, _ = svc.storage.upload_thumbnail(
+                    storage_path,
+                    thumbnail.bytes_data,
+                    thumbnail.content_type,
+                )
+                derivative_paths.append(thumbnail_path)
+            except Exception:
+                # The original upload remains the source of truth. A missing
+                # derivative must never block capture, EXIF persistence, or
+                # iNaturalist publishing.
+                logger.warning("Could not create thumbnail for %s", storage_path, exc_info=True)
         owner = _user_context()
         effective_taken_at = metadata.taken_at if metadata and metadata.taken_at else picker_taken_at
         effective_lat = metadata.lat if metadata and metadata.lat is not None else picker_lat
@@ -5323,6 +5382,10 @@ async def upload_photo(
             exif_json["gps_latitude"] = picker_lat
         if picker_lng is not None and exif_json.get("gps_longitude") is None:
             exif_json["gps_longitude"] = picker_lng
+        if thumbnail_path:
+            # Keep all existing extracted EXIF fields intact. This is an
+            # internal derivative locator, not a replacement for EXIF.
+            exif_json["hikejournal_thumbnail_storage_path"] = thumbnail_path
         created = svc.repository.create_photo(
             {
                 **({"id": normalized_photo_id} if normalized_photo_id else {}),
@@ -5348,6 +5411,11 @@ async def upload_photo(
         if storage_path:
             try:
                 svc.storage.delete_file(storage_path)
+            except Exception:
+                pass
+        for derivative_path in derivative_paths:
+            try:
+                svc.storage.delete_file(derivative_path)
             except Exception:
                 pass
         raise

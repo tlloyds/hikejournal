@@ -535,6 +535,7 @@ public struct Photo: Codable, Equatable, Sendable, Identifiable {
     public let id: String
     public let hikeId: String?
     public let url: String
+    public let thumbnailUrl: String
     public let caption: String
     public let takenAt: String?
     public let createdAt: String?
@@ -551,6 +552,7 @@ public struct Photo: Codable, Equatable, Sendable, Identifiable {
         id: String,
         hikeId: String?,
         url: String,
+        thumbnailUrl: String = "",
         caption: String,
         takenAt: String?,
         createdAt: String?,
@@ -566,6 +568,7 @@ public struct Photo: Codable, Equatable, Sendable, Identifiable {
         self.id = id
         self.hikeId = hikeId
         self.url = url
+        self.thumbnailUrl = thumbnailUrl
         self.caption = caption
         self.takenAt = takenAt
         self.createdAt = createdAt
@@ -585,6 +588,7 @@ public struct Photo: Codable, Equatable, Sendable, Identifiable {
             id: values.string("id"),
             hikeId: values.optionalString("hikeId"),
             url: values.string("url"),
+            thumbnailUrl: values.string("thumbnailUrl"),
             caption: values.string("caption"),
             takenAt: values.optionalString("takenAt"),
             createdAt: values.optionalString("createdAt"),
@@ -604,6 +608,7 @@ public struct Photo: Codable, Equatable, Sendable, Identifiable {
         try values.encode(id, forKey: DomainKey("id"))
         try values.encodeIfPresent(hikeId, forKey: DomainKey("hike_id"))
         try values.encode(url, forKey: DomainKey("url"))
+        try values.encode(thumbnailUrl, forKey: DomainKey("thumbnail_url"))
         try values.encode(caption, forKey: DomainKey("caption"))
         try values.encodeIfPresent(takenAt, forKey: DomainKey("taken_at"))
         try values.encodeIfPresent(createdAt, forKey: DomainKey("created_at"))
@@ -683,6 +688,7 @@ public struct Hike: Codable, Equatable, Sendable, Identifiable {
     public let isArchived: Bool
     public let isStandalone: Bool
     public let coverUrl: String
+    public let coverThumbnailUrl: String
     public let coverPhotoId: String?
     public let photoCount: Int
     public let speciesCount: Int
@@ -706,6 +712,7 @@ public struct Hike: Codable, Equatable, Sendable, Identifiable {
         isArchived: Bool,
         isStandalone: Bool = false,
         coverUrl: String,
+        coverThumbnailUrl: String = "",
         coverPhotoId: String? = nil,
         photoCount: Int,
         speciesCount: Int,
@@ -728,6 +735,7 @@ public struct Hike: Codable, Equatable, Sendable, Identifiable {
         self.isArchived = isArchived
         self.isStandalone = isStandalone
         self.coverUrl = coverUrl
+        self.coverThumbnailUrl = coverThumbnailUrl
         self.coverPhotoId = coverPhotoId
         self.photoCount = photoCount
         self.speciesCount = speciesCount
@@ -754,6 +762,7 @@ public struct Hike: Codable, Equatable, Sendable, Identifiable {
             isArchived: values.boolean("isArchived"),
             isStandalone: values.boolean("isStandalone"),
             coverUrl: values.string("coverUrl"),
+            coverThumbnailUrl: values.string("coverThumbnailUrl"),
             coverPhotoId: values.optionalString("coverPhotoId"),
             photoCount: values.integer("photoCount"),
             speciesCount: values.integer("speciesCount"),

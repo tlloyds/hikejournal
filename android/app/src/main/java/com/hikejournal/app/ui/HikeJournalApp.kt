@@ -2175,8 +2175,9 @@ private fun HikeRow(hike: Hike, opening: Boolean, onOpen: (String) -> Unit) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(Modifier.size(88.dp).background(Moss)) {
-                if (hike.coverUrl.isNotBlank()) {
-                    AsyncImage(hike.coverUrl, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                val coverUrl = hike.coverThumbnailUrl.ifBlank { hike.coverUrl }
+                if (coverUrl.isNotBlank()) {
+                    AsyncImage(coverUrl, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                 } else {
                     MountainField(Modifier.fillMaxSize())
                 }
@@ -2862,7 +2863,10 @@ private fun PhotoTile(
                 Text("VIDEO", style = MaterialTheme.typography.labelSmall, color = Paper, modifier = Modifier.align(Alignment.BottomStart).padding(8.dp))
             } else {
                 AsyncImage(
-                    model = ImageRequest.Builder(LocalContext.current).data(photo.url).crossfade(true).build(),
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(photo.thumbnailUrl.ifBlank { photo.url })
+                        .crossfade(true)
+                        .build(),
                     contentDescription = photo.caption.ifBlank { "Hike photo" },
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),

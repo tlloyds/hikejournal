@@ -127,6 +127,28 @@ def test_media_rows_use_signed_delivery_urls_without_changing_stored_values() ->
     assert original["public_url"] == "https://public.example/photo-1.jpg"
 
 
+def test_media_rows_add_a_signed_thumbnail_without_discarding_exif() -> None:
+    original = {
+        "id": "photo-1",
+        "storage_path": "hikes/hike-1/photo-1.jpg",
+        "public_url": "https://public.example/photo-1.jpg",
+        "exif_json": {
+            "gps_latitude": 28.6,
+            "hikejournal_thumbnail_storage_path": "hikes/hike-1/thumbs/photo-1.jpg",
+        },
+    }
+    repository = HikeJournalRepository(
+        client=None,
+        media_url_resolver=lambda path: f"https://signed.example/{path}?token=test",
+    )
+
+    decorated = repository.decorate_media_row(original)
+
+    assert decorated["thumbnail_url"].endswith("thumbs/photo-1.jpg?token=test")
+    assert decorated["exif_json"] == original["exif_json"]
+    assert "thumbnail_url" not in original
+
+
 def test_hike_create_persists_canonical_and_legacy_ownership_together() -> None:
     inserted: list[dict] = []
 
