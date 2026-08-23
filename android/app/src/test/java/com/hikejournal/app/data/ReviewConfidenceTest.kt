@@ -19,4 +19,16 @@ class ReviewConfidenceTest {
     fun `non finite confidence is omitted`() {
         assertNull(normalizedReviewConfidence(Double.NaN))
     }
+
+    @Test
+    fun `confidence label displays normalized percentage`() {
+        assertEquals("98% confidence", reviewConfidenceLabel(0.979455))
+        assertEquals("98% confidence", reviewConfidenceLabel(97.9455))
+    }
+
+    @Test
+    fun `confidence label omits invalid values`() {
+        assertNull(reviewConfidenceLabel(Double.NaN))
+        assertNull(reviewConfidenceLabel(null))
+    }
 }

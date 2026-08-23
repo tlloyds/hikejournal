@@ -566,6 +566,11 @@ fun normalizedReviewConfidence(confidence: Double?): Double? = confidence?.let {
     (if (value > 1.0) value / 100.0 else value).coerceIn(0.0, 1.0)
 }
 
+fun reviewConfidenceLabel(confidence: Double?): String? {
+    val normalized = normalizedReviewConfidence(confidence) ?: return null
+    return "${round(normalized * 100.0).toInt()}% confidence"
+}
+
 data class ReviewItem(
     val id: String,
     val photo: Photo,

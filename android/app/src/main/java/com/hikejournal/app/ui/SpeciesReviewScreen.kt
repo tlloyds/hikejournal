@@ -70,6 +70,7 @@ import com.hikejournal.app.data.ReviewItem
 import com.hikejournal.app.data.ReviewBatchStatus
 import com.hikejournal.app.data.ReviewPhotoGroup
 import com.hikejournal.app.data.buildReviewPhotoGroups
+import com.hikejournal.app.data.reviewConfidenceLabel
 import com.hikejournal.app.data.splitReviewPhotoGroups
 import com.hikejournal.app.ui.theme.Ink
 import com.hikejournal.app.ui.theme.InkMuted
@@ -681,6 +682,9 @@ private fun CandidateRow(
             Text(candidate.commonName, style = MaterialTheme.typography.titleMedium, color = Ink)
             if (candidate.scientificName.isNotBlank()) {
                 Text(candidate.scientificName, style = MaterialTheme.typography.bodyMedium, color = InkMuted, fontStyle = FontStyle.Italic)
+            }
+            reviewConfidenceLabel(candidate.confidence)?.let { confidence ->
+                Text(confidence, style = MaterialTheme.typography.bodySmall, color = InkMuted)
             }
         }
     }
