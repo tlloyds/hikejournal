@@ -91,16 +91,18 @@ enum AppPhase: Equatable {
 
 enum AppTab: Hashable {
     case journal
-    case record
     case fieldGuide
+    case record
     case map
-    case settings
+    case sightings
 }
 
 @MainActor
 final class AppModel: ObservableObject {
     @Published var phase: AppPhase
     @Published var selectedTab: AppTab = .journal
+    @Published private(set) var isBootstrapped = false
+    @Published private(set) var isSettingsPresented = false
     @Published private(set) var locationAuthorization: CLAuthorizationStatus
     @Published private(set) var pendingDeepLink: DeepLink?
 
@@ -193,6 +195,14 @@ final class AppModel: ObservableObject {
         selectedTab = .record
     }
 
+    func openSettings() {
+        isSettingsPresented = true
+    }
+
+    func closeSettings() {
+        isSettingsPresented = false
+    }
+
     func requestWhenInUseLocation() {
         locationPermission.requestWhenInUse()
     }
@@ -213,6 +223,17 @@ final class AppModel: ObservableObject {
         await maps.start()
     }
 
+    func bootstrap() async {
+        isBootstrapped = false
+        await startMaps()
+        await authentication.restore()
+        await startSync()
+        await storefront.configureForCurrentAccount()
+        await startJournal()
+        await restoreRecording()
+        isBootstrapped = true
+    }
+
     func applicationBecameActive() async {
         await sync.applicationBecameActive()
     }
@@ -230,7 +251,7 @@ final class AppModel: ObservableObject {
         case .hike:
             selectedTab = .journal
         case .inaturalist:
-            selectedTab = .settings
+            openSettings()
         case .tracking:
             selectedTab = .record
         }

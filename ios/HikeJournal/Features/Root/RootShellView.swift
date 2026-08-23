@@ -14,39 +14,53 @@ struct RootShellView: View {
     }
 
     var body: some View {
-        TabView(selection: $model.selectedTab) {
-            JournalLibraryView(model: model)
-                .tabItem { Label("Journal", systemImage: "book.closed.fill") }
-                .tag(AppTab.journal)
+        Group {
+            if journal.isPreparingAccount {
+                JournalBootstrapView()
+            } else {
+                TabView(selection: $model.selectedTab) {
+                    JournalLibraryView(model: model)
+                        .tabItem { Label("Journal", systemImage: "book.closed.fill") }
+                        .tag(AppTab.journal)
 
-            RecordingHomeView(model: model)
-                .tabItem { Label("Record", systemImage: "location.fill") }
-                .tag(AppTab.record)
+                    FieldGuideWorkspaceView(model: model)
+                        .tabItem { Label("Field Guide", systemImage: "leaf.fill") }
+                        .tag(AppTab.fieldGuide)
 
-            FieldGuideWorkspaceView(model: model)
-                .tabItem { Label("Field Guide", systemImage: "leaf.fill") }
-                .tag(AppTab.fieldGuide)
+                    RecordingHomeView(model: model)
+                        .tabItem { Label("Record", systemImage: "location.fill") }
+                        .tag(AppTab.record)
 
-            JournalMapWorkspaceView(model: model)
-                .tabItem { Label("Map", systemImage: "map.fill") }
-                .tag(AppTab.map)
+                    JournalMapWorkspaceView(model: model)
+                        .tabItem { Label("Map", systemImage: "map.fill") }
+                        .tag(AppTab.map)
 
-            SettingsHomeView(model: model)
-                .tabItem { Label("Settings", systemImage: "gearshape.fill") }
-                .tag(AppTab.settings)
-        }
-        .toolbarBackground(HikeJournalTheme.paper, for: .tabBar)
-        .toolbarBackground(.visible, for: .tabBar)
-        .sheet(
-            item: Binding(
-                get: { journal.pendingCelebration },
-                set: { if $0 == nil { journal.dismissCelebration() } }
-            )
-        ) { celebration in
-            FieldCelebrationView(
-                celebration: celebration,
-                dismiss: { journal.dismissCelebration() }
-            )
+                    FieldGuideWorkspaceView(model: model, initialSection: .sightings)
+                        .tabItem { Label("Sightings", systemImage: "binoculars.fill") }
+                        .tag(AppTab.sightings)
+                }
+                .toolbarBackground(HikeJournalTheme.paper, for: .tabBar)
+                .toolbarBackground(.visible, for: .tabBar)
+                .sheet(
+                    item: Binding(
+                        get: { journal.pendingCelebration },
+                        set: { if $0 == nil { journal.dismissCelebration() } }
+                    )
+                ) { celebration in
+                    FieldCelebrationView(
+                        celebration: celebration,
+                        dismiss: { journal.dismissCelebration() }
+                    )
+                }
+                .sheet(
+                    isPresented: Binding(
+                        get: { model.isSettingsPresented },
+                        set: { if !$0 { model.closeSettings() } }
+                    )
+                ) {
+                    SettingsHomeView(model: model)
+                }
+            }
         }
     }
 }
@@ -60,12 +74,12 @@ private struct JournalHomeView: View {
                 ParchmentBackground()
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
-                        Text("HIKEJOURNAL")
+                        Text("HikeJournal")
                             .font(HikeJournalTheme.display(46, relativeTo: .largeTitle))
                             .foregroundStyle(HikeJournalTheme.moss)
                             .accessibilityAddTraits(.isHeader)
 
-                        Text("Your time outside, kept together.")
+                        Text("Hikes, Photos, and Observations")
                             .font(HikeJournalTheme.body(18))
                             .foregroundStyle(HikeJournalTheme.inkMuted)
                             .padding(.top, 2)
@@ -77,7 +91,7 @@ private struct JournalHomeView: View {
                         TrailNotebookIllustration()
                             .frame(height: 178)
 
-                        Text("The first page is yours.")
+                        Text("Getting Started")
                             .font(HikeJournalTheme.display(33, relativeTo: .title))
                             .foregroundStyle(HikeJournalTheme.ink)
                             .padding(.top, 24)
@@ -109,7 +123,7 @@ private struct JournalHomeView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
-                        model.selectedTab = .settings
+                        model.openSettings()
                     } label: {
                         Image(systemName: "person.crop.circle")
                     }
@@ -438,7 +452,7 @@ private struct RecordingHomeView: View {
     private var locationAction: some View {
         if case .signedOut = model.authentication.phase {
             Button {
-                model.selectedTab = .settings
+                model.openSettings()
             } label: {
                 HStack {
                     Image(systemName: "person.crop.circle.badge.plus")

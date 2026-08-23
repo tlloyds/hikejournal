@@ -32,6 +32,33 @@ final class OfflineDatabaseTests: XCTestCase {
         )
     }
 
+    func testDatabaseReopensWhenAFeatureStillHoldsItsHandle() async throws {
+        let fixture = try Fixture()
+        let database = try OfflineDatabase(path: fixture.databaseURL.path)
+        let first = makeOperation(
+            id: "reopen-op",
+            kind: .updateHike,
+            entityID: "hike-1",
+            createdAt: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+
+        try await database.upsertOperation(first)
+        await database.close()
+
+        let second = makeOperation(
+            id: "reopen-op-2",
+            kind: .updateHike,
+            entityID: "hike-2",
+            createdAt: Date(timeIntervalSince1970: 1_700_000_001)
+        )
+        try await database.upsertOperation(second)
+
+        let restoredFirst = try await database.operation(id: first.id)
+        let restoredSecond = try await database.operation(id: second.id)
+        XCTAssertEqual(restoredFirst, first)
+        XCTAssertEqual(restoredSecond, second)
+    }
+
     func testCachedResponsesSurviveReopenAndRemainAvailableAfterExpiry() async throws {
         let fixture = try Fixture()
         let now = Date(timeIntervalSince1970: 1_700_000_000)

@@ -12,9 +12,10 @@ struct FieldGuideWorkspaceView: View {
     @State private var sort: SpeciesSort = .latest
     @StateObject private var oauth = INaturalistWebSession()
 
-    init(model: AppModel) {
+    init(model: AppModel, initialSection: FieldWorkspaceSection = .guide) {
         self.model = model
         _journal = ObservedObject(wrappedValue: model.journal)
+        _section = State(initialValue: initialSection)
     }
 
     var body: some View {
@@ -71,7 +72,7 @@ struct FieldGuideWorkspaceView: View {
                 // the same large account dataset; firing them together makes
                 // the server contend with duplicate work and leaves the guide
                 // stuck behind unrelated sections.
-                guard model.selectedTab == .fieldGuide else { return }
+                guard model.selectedTab == .fieldGuide || model.selectedTab == .sightings else { return }
                 switch section {
                 case .guide, .sightings:
                     await journal.refreshFieldGuide()
@@ -148,7 +149,7 @@ struct FieldGuideWorkspaceView: View {
                 .font(HikeJournalTheme.body(18))
                 .foregroundStyle(HikeJournalTheme.inkMuted)
             Spacer()
-            Button("Open account") { model.selectedTab = .settings }
+            Button("Open account") { model.openSettings() }
                 .buttonStyle(TrailButtonStyle())
         }
         .padding(24)
@@ -220,7 +221,7 @@ struct FieldGuideWorkspaceView: View {
     }
 }
 
-private enum FieldWorkspaceSection: String, CaseIterable, Identifiable {
+enum FieldWorkspaceSection: String, CaseIterable, Identifiable {
     case guide
     case sightings
     case discover

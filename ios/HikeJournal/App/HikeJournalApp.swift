@@ -18,12 +18,7 @@ struct HikeJournalApp: App {
             AppRootView(model: model)
                 .tint(HikeJournalTheme.trail)
                 .task {
-                    await model.startMaps()
-                    await model.authentication.restore()
-                    await model.startSync()
-                    await model.storefront.configureForCurrentAccount()
-                    await model.startJournal()
-                    await model.restoreRecording()
+                    await model.bootstrap()
                 }
                 .onOpenURL { url in
                     if !model.authentication.handleGoogleRedirect(url) {
@@ -57,10 +52,27 @@ private struct AppRootView: View {
                 OnboardingView(model: model)
                     .transition(reduceMotion ? .opacity : .move(edge: .leading).combined(with: .opacity))
             case .journal:
-                RootShellView(model: model)
+                Group {
+                    if model.isBootstrapped {
+                        RootShellView(model: model)
+                    } else {
+                        JournalBootstrapView()
+                    }
+                }
                     .transition(reduceMotion ? .opacity : .move(edge: .trailing).combined(with: .opacity))
             }
         }
         .animation(reduceMotion ? nil : .snappy(duration: 0.48), value: model.phase)
+    }
+}
+
+struct JournalBootstrapView: View {
+    var body: some View {
+        ZStack {
+            ParchmentBackground()
+            ProgressView("Opening your field journal…")
+                .font(HikeJournalTheme.body())
+                .tint(HikeJournalTheme.trail)
+        }
     }
 }

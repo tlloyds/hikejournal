@@ -95,7 +95,7 @@ struct PlacesWorkspaceView: View {
                     .foregroundStyle(HikeJournalTheme.inkMuted)
                 Button("Open account") {
                     dismiss()
-                    model.selectedTab = .settings
+                    model.openSettings()
                 }
                 .buttonStyle(TrailButtonStyle())
                 .padding(.top, 12)

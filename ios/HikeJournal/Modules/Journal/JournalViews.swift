@@ -67,7 +67,7 @@ struct JournalLibraryView: View {
                     .accessibilityLabel("Add a journal")
 
                     Button {
-                        model.selectedTab = .settings
+                        model.openSettings()
                     } label: {
                         Image(systemName: "person.crop.circle")
                     }
@@ -135,7 +135,7 @@ struct JournalLibraryView: View {
                 BrandLandscape()
                     .frame(height: 244)
                     .overlay(alignment: .bottomLeading) {
-                        Text("HIKEJOURNAL")
+                        Text("HikeJournal")
                             .font(HikeJournalTheme.display(45, relativeTo: .largeTitle))
                             .foregroundStyle(Color(red: 1, green: 0.98, blue: 0.91))
                             .padding(22)
@@ -147,7 +147,7 @@ struct JournalLibraryView: View {
                     Text("Sign in to open the same hikes, routes, and observations you keep on Android and the web.")
                         .font(HikeJournalTheme.body(18))
                         .foregroundStyle(HikeJournalTheme.inkMuted)
-                    Button("Open account") { model.selectedTab = .settings }
+                    Button("Open account") { model.openSettings() }
                         .buttonStyle(TrailButtonStyle())
                         .padding(.top, 14)
                 }
@@ -160,17 +160,17 @@ struct JournalLibraryView: View {
     private var emptyJournal: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                Text("HIKEJOURNAL")
+                Text("HikeJournal")
                     .font(HikeJournalTheme.display(46, relativeTo: .largeTitle))
                     .foregroundStyle(HikeJournalTheme.moss)
-                Text("Your time outside, kept together.")
+                Text("Hikes, Photos, and Observations")
                     .font(HikeJournalTheme.body(18))
                     .foregroundStyle(HikeJournalTheme.inkMuted)
                     .padding(.top, 2)
                 Divider().overlay(HikeJournalTheme.line).padding(.vertical, 25)
                 TrailNotebookIllustration()
                     .frame(height: 178)
-                Text(search.isEmpty ? "The first page is yours." : "No field pages match.")
+                Text(search.isEmpty ? "Getting Started" : "No field pages match.")
                     .font(HikeJournalTheme.display(33, relativeTo: .title))
                     .foregroundStyle(HikeJournalTheme.ink)
                     .padding(.top, 24)
@@ -200,7 +200,7 @@ struct JournalLibraryView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("HIKEJOURNAL")
+                    Text("HikeJournal")
                         .font(HikeJournalTheme.display(38, relativeTo: .largeTitle))
                         .foregroundStyle(HikeJournalTheme.moss)
                     Text(listSummary)

@@ -21,6 +21,7 @@ final class JournalStore: ObservableObject {
     @Published private(set) var isReviewBatchWorking = false
     @Published private(set) var isPublishBatchWorking = false
     @Published private(set) var isRefreshingHikes = false
+    @Published private(set) var isPreparingAccount = false
     @Published private(set) var activeLoads: Set<String> = []
     @Published private(set) var showingCachedData = false
     @Published private(set) var statusMessage: String?
@@ -63,9 +64,11 @@ final class JournalStore: ObservableObject {
     }
 
     func start() async {
-        guard !started else { return }
-        started = true
-        await accountChanged(authentication.phase)
+        if !started {
+            started = true
+            await accountChanged(authentication.phase)
+        }
+        await accountTask?.value
     }
 
     func dismissCelebration() {
@@ -1288,6 +1291,7 @@ final class JournalStore: ObservableObject {
         case .signedOut:
             accountTask?.cancel()
             accountTask = nil
+            isPreparingAccount = false
             loadedAccountIdentity = nil
             clearAccountData()
         case let .signedIn(account):
@@ -1298,8 +1302,10 @@ final class JournalStore: ObservableObject {
             guard loadedAccountIdentity != identity || accountTask == nil else { return }
             accountTask?.cancel()
             loadedAccountIdentity = identity
+            isPreparingAccount = true
             accountTask = Task { @MainActor [weak self] in
                 await self?.refreshHikes()
+                self?.isPreparingAccount = false
             }
         }
     }

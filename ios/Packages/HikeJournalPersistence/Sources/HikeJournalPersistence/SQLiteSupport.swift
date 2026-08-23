@@ -30,6 +30,11 @@ final class SQLiteConnection {
 
     init(path: String) throws {
         self.path = path
+        try open()
+    }
+
+    private func open() throws {
+        guard handle == nil else { return }
         var opened: OpaquePointer?
         let result = sqlite3_open_v2(
             path,
@@ -70,6 +75,7 @@ final class SQLiteConnection {
     }
 
     func execute(_ sql: String) throws {
+        try ensureOpen()
         guard let handle else { throw OfflineStoreError.databaseClosed }
         var errorPointer: UnsafeMutablePointer<CChar>?
         let result = sqlite3_exec(handle, sql, nil, nil, &errorPointer)
@@ -90,6 +96,7 @@ final class SQLiteConnection {
     }
 
     func prepare(_ sql: String) throws -> SQLiteStatement {
+        try ensureOpen()
         guard let handle else { throw OfflineStoreError.databaseClosed }
         var statement: OpaquePointer?
         let result = sqlite3_prepare_v2(handle, sql, -1, &statement, nil)
@@ -97,6 +104,12 @@ final class SQLiteConnection {
             throw error(statement: sql)
         }
         return SQLiteStatement(connection: self, handle: statement, sql: sql)
+    }
+
+    private func ensureOpen() throws {
+        if handle == nil {
+            try open()
+        }
     }
 
     func transaction<T>(_ body: () throws -> T) throws -> T {
