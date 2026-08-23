@@ -11,20 +11,24 @@ enum GoogleSignInAuthorizationError: Error, Equatable, LocalizedError {
     case noPresentingViewController
     case cancelled
     case missingIdentityToken
-    case providerFailure
+    case providerFailure(code: Int, message: String)
 
     var errorDescription: String? {
         switch self {
         case .unconfigured:
-            "Google Sign-In needs its public iOS and server client IDs configured."
+            return "Google Sign-In needs its public iOS and server client IDs configured."
         case .noPresentingViewController:
-            "HikeJournal couldn't open Google Sign-In right now."
+            return "HikeJournal couldn't open Google Sign-In right now."
         case .cancelled:
-            nil
+            return nil
         case .missingIdentityToken:
-            "Google did not return the identity proof HikeJournal needs."
-        case .providerFailure:
-            "Google Sign-In couldn't complete. Please try again."
+            return "Google did not return the identity proof HikeJournal needs."
+        case let .providerFailure(code, message):
+            let detail = message.trimmingCharacters(in: .whitespacesAndNewlines)
+            if detail.isEmpty {
+                return "Google Sign-In couldn't complete (error \(code)). Please try again."
+            }
+            return "Google Sign-In couldn't complete (error \(code)): \(detail)"
         }
     }
 }
@@ -79,7 +83,21 @@ final class GoogleSignInCoordinator: GoogleSignInAuthorizing {
                        providerError.code == GIDSignInError.canceled.rawValue {
                         continuation.resume(throwing: GoogleSignInAuthorizationError.cancelled)
                     } else {
-                        continuation.resume(throwing: GoogleSignInAuthorizationError.providerFailure)
+                        let message = [
+                            providerError.localizedDescription,
+                            (providerError.userInfo[NSUnderlyingErrorKey] as? NSError)?.localizedDescription
+                        ]
+                        .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+                        .reduce(into: [String]()) { details, value in
+                            if !details.contains(value) { details.append(value) }
+                        }
+                        .joined(separator: " ")
+                        continuation.resume(
+                            throwing: GoogleSignInAuthorizationError.providerFailure(
+                                code: providerError.code,
+                                message: message
+                            )
+                        )
                     }
                     return
                 }

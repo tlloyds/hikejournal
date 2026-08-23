@@ -86,7 +86,11 @@ actor KeychainSessionStore: SessionStoring {
             kSecClass: kSecClassGenericPassword,
             kSecAttrService: service,
             kSecAttrAccount: account,
-            kSecAttrSynchronizable: kCFBooleanFalse as Any
+            kSecAttrSynchronizable: kCFBooleanFalse as Any,
+            // Match Google's secure storage configuration. This keeps the
+            // app's session and device identity in the same data-protection
+            // keychain used by the native sign-in provider.
+            kSecUseDataProtectionKeychain: kCFBooleanTrue as Any
         ]
     }
 

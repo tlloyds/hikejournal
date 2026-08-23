@@ -115,7 +115,11 @@ struct JournalLibraryView: View {
                 .font(HikeJournalTheme.body())
                 .tint(HikeJournalTheme.trailText)
         case .signedOut:
-            signedOut
+            AccountView(
+                authentication: authentication,
+                storefront: model.storefront,
+                webBaseURL: model.configuration.webBaseURL
+            )
         case .signedIn:
             if journal.isRefreshingHikes && journal.hikes.isEmpty {
                 ProgressView("Gathering your hikes…")
@@ -127,34 +131,6 @@ struct JournalLibraryView: View {
                 journalList
             }
         }
-    }
-
-    private var signedOut: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                BrandLandscape()
-                    .frame(height: 244)
-                    .overlay(alignment: .bottomLeading) {
-                        Text("HikeJournal")
-                            .font(HikeJournalTheme.display(45, relativeTo: .largeTitle))
-                            .foregroundStyle(Color(red: 1, green: 0.98, blue: 0.91))
-                            .padding(22)
-                    }
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Your field pages travel with you.")
-                        .font(HikeJournalTheme.display(34, relativeTo: .title))
-                        .foregroundStyle(HikeJournalTheme.ink)
-                    Text("Sign in to open the same hikes, routes, and observations you keep on Android and the web.")
-                        .font(HikeJournalTheme.body(18))
-                        .foregroundStyle(HikeJournalTheme.inkMuted)
-                    Button("Open account") { model.openSettings() }
-                        .buttonStyle(TrailButtonStyle())
-                        .padding(.top, 14)
-                }
-                .padding(24)
-            }
-        }
-        .scrollIndicators(.hidden)
     }
 
     private var emptyJournal: some View {

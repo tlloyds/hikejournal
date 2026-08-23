@@ -20,6 +20,7 @@ common_arguments=(
   -configuration Debug
   -destination "${destination}"
   -derivedDataPath "${derived_data_directory}"
+  CODE_SIGNING_ALLOWED=YES
 )
 
 echo "Building with DEVELOPER_DIR=${DEVELOPER_DIR}"
