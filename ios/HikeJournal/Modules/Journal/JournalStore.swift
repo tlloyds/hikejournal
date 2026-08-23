@@ -692,14 +692,14 @@ final class JournalStore: ObservableObject {
     }
 
     @discardableResult
-    func identifyPhotoWithINaturalist(photoID: String, hikeID: String) async -> Bool {
+    func identifyPhotoWithINaturalist(photoID: String, hikeID: String) async -> ReviewItem? {
         let queued = details[hikeID]?.photos.first { $0.id == photoID }?.processingStatus == "in_review"
         if !queued {
             guard await queueSpeciesReview(photoID: photoID, hikeID: hikeID, queued: true) else {
-                return false
+                return nil
             }
         }
-        return await requestReviewRecommendation(photoID: photoID) != nil
+        return await requestReviewRecommendation(photoID: photoID)
     }
 
     @discardableResult

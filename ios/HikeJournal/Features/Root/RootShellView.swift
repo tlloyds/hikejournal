@@ -35,9 +35,9 @@ struct RootShellView: View {
                         .tabItem { Label("Map", systemImage: "map.fill") }
                         .tag(AppTab.map)
 
-                    FieldGuideWorkspaceView(model: model, initialSection: .sightings)
-                        .tabItem { Label("Sightings", systemImage: "binoculars.fill") }
-                        .tag(AppTab.sightings)
+                    SettingsHomeView(model: model)
+                        .tabItem { Label("Settings", systemImage: "gearshape.fill") }
+                        .tag(AppTab.settings)
                 }
                 .toolbarBackground(HikeJournalTheme.paper, for: .tabBar)
                 .toolbarBackground(.visible, for: .tabBar)

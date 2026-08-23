@@ -606,6 +606,30 @@ def test_apple_inat_credentials_are_loaded_only_by_canonical_user_id(monkeypatch
     assert calls == ["bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"]
 
 
+def test_mobile_inat_connection_status_requires_account_credential(monkeypatch) -> None:
+    monkeypatch.setattr(
+        mobile_api,
+        "_user_context",
+        lambda: {
+            "mode": "google",
+            "identity_provider": "google",
+            "user_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+            "email": "same@example.com",
+        },
+    )
+    monkeypatch.setattr(mobile_api, "_load_mobile_inat_token_for_user", lambda _user_id: "")
+    monkeypatch.setattr(mobile_api, "_load_mobile_inat_token", lambda _email: "")
+
+    assert mobile_api._mobile_inat_account_connected() is False
+
+    monkeypatch.setattr(
+        mobile_api,
+        "_load_mobile_inat_token_for_user",
+        lambda _user_id: "account-scoped-token",
+    )
+    assert mobile_api._mobile_inat_account_connected() is True
+
+
 def test_inat_oauth_callback_saves_canonical_user_credential(monkeypatch) -> None:
     monkeypatch.setattr(mobile_api, "_mobile_server_secret", lambda: "oauth-state-secret-1234567890")
     user_id = "89f9e113-0798-4e10-bd9f-120694e085a7"

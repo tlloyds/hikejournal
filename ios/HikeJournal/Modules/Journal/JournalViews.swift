@@ -522,7 +522,8 @@ struct JournalHikeDetailView: View {
     }
 
     private func detail(_ hike: Hike) -> some View {
-        ScrollView {
+        GeometryReader { proxy in
+            ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 hero(hike)
                 VStack(alignment: .leading, spacing: 26) {
@@ -547,11 +548,7 @@ struct JournalHikeDetailView: View {
                     }
 
                     JournalSection(title: "Media", actionTitle: "Add", action: { showingMedia = true }) {
-                        if hike.photos.isEmpty {
-                            Text("Original photos and videos added here keep their Photos-library location when one exists.")
-                                .font(HikeJournalTheme.body())
-                                .foregroundStyle(HikeJournalTheme.inkMuted)
-                        } else {
+                        if !hike.photos.isEmpty {
                             LazyVGrid(columns: [GridItem(.adaptive(minimum: 145), spacing: 3)], spacing: 3) {
                                 ForEach(hike.photos) { photo in
                                     JournalPhotoTile(
@@ -583,6 +580,26 @@ struct JournalHikeDetailView: View {
                             }
                             .padding(.top, 12)
                             .frame(maxWidth: .infinity)
+                        } else if hike.photoCount > 0 && journal.activeLoads.contains("hike:\(hikeID)") {
+                            VStack(spacing: 10) {
+                                ProgressView()
+                                    .tint(HikeJournalTheme.trailText)
+                                Text("Loading photos…")
+                                    .font(HikeJournalTheme.body(15))
+                                    .foregroundStyle(HikeJournalTheme.inkMuted)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 42)
+                        } else if hike.photoCount > 0 {
+                            Label("Photos are unavailable right now.", systemImage: "photo.on.rectangle.angled")
+                                .font(HikeJournalTheme.body())
+                                .foregroundStyle(HikeJournalTheme.inkMuted)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.vertical, 24)
+                        } else {
+                            Text("Original photos and videos added here keep their Photos-library location when one exists.")
+                                .font(HikeJournalTheme.body())
+                                .foregroundStyle(HikeJournalTheme.inkMuted)
                         }
                         if media.isImporting {
                             ProgressView(value: media.progress) {
@@ -648,10 +665,11 @@ struct JournalHikeDetailView: View {
                 .padding(.bottom, 34)
                 .background(HikeJournalTheme.paper)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(width: proxy.size.width, alignment: .leading)
+            }
+            .scrollIndicators(.hidden)
+            .scrollDisabled(false)
         }
-        .scrollIndicators(.hidden)
-        .scrollDisabled(false)
     }
 
     private func hero(_ hike: Hike) -> some View {
@@ -867,7 +885,11 @@ private struct JournalPhotoTile: View {
                     VStack(alignment: .leading, spacing: 2) {
                         if isCover { Label("Cover", systemImage: "bookmark.fill") }
                         if let species = photo.species.first(where: \.isPrimary) ?? photo.species.first {
-                            Text(species.commonName.isEmpty ? species.scientificName : species.commonName).lineLimit(1)
+                            Text(species.commonName.isEmpty ? species.scientificName : species.commonName)
+                                .lineLimit(2)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 3)
+                                .background(Color.black.opacity(0.48), in: Capsule())
                         } else if !photo.caption.isEmpty {
                             Text(photo.caption).lineLimit(2)
                         }
@@ -927,6 +949,7 @@ private struct JournalMediaDetailView: View {
     @State private var showingKnownSpecies = false
     @State private var showingDelete = false
     @State private var working = false
+    @State private var recommendation: ReviewItem?
 
     var body: some View {
         NavigationStack {
@@ -938,6 +961,9 @@ private struct JournalMediaDetailView: View {
                         VStack(alignment: .leading, spacing: 16) {
                             if let species = primarySpecies {
                                 identification(species)
+                            } else if let recommendation = currentRecommendation,
+                                      !recommendation.candidates.isEmpty {
+                                recommendationView(recommendation)
                             } else if !currentPhoto.contentType.hasPrefix("video/") {
                                 unidentifiedActions
                             } else {
@@ -981,6 +1007,17 @@ private struct JournalMediaDetailView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { dismiss() }
                 }
+            }
+            .alert(
+                "iNaturalist needs attention",
+                isPresented: Binding(
+                    get: { journal.errorMessage != nil },
+                    set: { if !$0 { journal.clearError() } }
+                )
+            ) {
+                Button("OK") { journal.clearError() }
+            } message: {
+                Text(journal.errorMessage ?? "")
             }
             .sheet(isPresented: $showingCaption) {
                 CaptionEditor(photo: currentPhoto) { caption in
@@ -1057,15 +1094,80 @@ private struct JournalMediaDetailView: View {
         }
     }
 
+    private func recommendationView(_ item: ReviewItem) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("iNaturalist suggestion")
+                .font(HikeJournalTheme.label(12))
+                .tracking(1.1)
+                .foregroundStyle(Color(red: 0.58, green: 0.70, blue: 0.57))
+            ForEach(Array(item.candidates.prefix(5).enumerated()), id: \.offset) { index, candidate in
+                HStack(alignment: .top, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(candidate.commonName.isEmpty ? candidate.scientificName : candidate.commonName)
+                            .font(HikeJournalTheme.label(16, relativeTo: .headline))
+                            .foregroundStyle(.white)
+                        if !candidate.scientificName.isEmpty {
+                            Text(candidate.scientificName)
+                                .font(HikeJournalTheme.body(13))
+                                .italic()
+                                .foregroundStyle(Color.white.opacity(0.72))
+                        }
+                        if let confidence = reviewConfidenceLabel(candidate.confidence) {
+                            Text(confidence)
+                                .font(HikeJournalTheme.body(12))
+                                .foregroundStyle(Color.white.opacity(0.62))
+                        }
+                    }
+                    Spacer(minLength: 8)
+                    Button(index == 0 ? "Confirm" : "Choose") {
+                        decideRecommendation(item: item, candidate: candidate)
+                    }
+                    .font(HikeJournalTheme.label(13, relativeTo: .subheadline))
+                    .disabled(working)
+                }
+            }
+            Button("Reject suggestion", role: .destructive) {
+                decideRecommendation(item: item, candidate: nil, action: "reject")
+            }
+            .disabled(working)
+        }
+    }
+
+    private func decideRecommendation(
+        item: ReviewItem,
+        candidate: ReviewCandidate?,
+        action: String = "confirm"
+    ) {
+        guard !working else { return }
+        working = true
+        Task {
+            let saved = await journal.decideReview(
+                photoID: item.photo.id,
+                observationID: item.observationId,
+                action: action,
+                candidate: candidate
+            )
+            if saved {
+                await journal.loadHike(id: hikeID, force: true)
+                recommendation = nil
+            }
+            working = false
+        }
+    }
+
     private var unidentifiedActions: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Unidentified field photo")
                 .font(HikeJournalTheme.display(28, relativeTo: .title2))
                 .foregroundStyle(.white)
             Button {
+                guard !working else { return }
                 working = true
                 Task {
-                    _ = await journal.identifyPhotoWithINaturalist(photoID: currentPhoto.id, hikeID: hikeID)
+                    recommendation = await journal.identifyPhotoWithINaturalist(
+                        photoID: currentPhoto.id,
+                        hikeID: hikeID
+                    )
                     working = false
                 }
             } label: {
@@ -1077,7 +1179,6 @@ private struct JournalMediaDetailView: View {
             }
             .buttonStyle(.borderedProminent)
             .tint(Color(red: 0.72, green: 0.82, blue: 0.69))
-            .disabled(working)
             Text("The photo will be placed in Species Review with iNaturalist’s suggestion.")
                 .font(HikeJournalTheme.body(13))
                 .foregroundStyle(Color.white.opacity(0.72))
@@ -1152,9 +1253,18 @@ private struct JournalMediaDetailView: View {
         journal.details[hikeID]?.photos.first { $0.id == seed.id } ?? seed
     }
 
+    private var currentRecommendation: ReviewItem? {
+        recommendation ?? journal.reviewItems.first { $0.photo.id == currentPhoto.id }
+    }
+
     private var primarySpecies: SpeciesLabel? {
         currentPhoto.species.first(where: \.isPrimary) ?? currentPhoto.species.first
     }
+}
+
+private func reviewConfidenceLabel(_ confidence: Double?) -> String? {
+    guard let normalized = normalizedReviewConfidence(confidence) else { return nil }
+    return "\(Int((normalized * 100).rounded()))% confidence"
 }
 
 private struct JournalVideoPreview: View {

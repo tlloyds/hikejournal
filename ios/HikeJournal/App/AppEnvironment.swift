@@ -94,7 +94,7 @@ enum AppTab: Hashable {
     case fieldGuide
     case record
     case map
-    case sightings
+    case settings
 }
 
 @MainActor

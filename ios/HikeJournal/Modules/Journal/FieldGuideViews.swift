@@ -47,7 +47,9 @@ struct FieldGuideWorkspaceView: View {
                     if section == .guide {
                         Menu {
                             Picker("Species group", selection: $taxonFilter) {
-                                ForEach(taxonFilters, id: \.self) { Text($0).tag($0) }
+                                ForEach(taxonFilters, id: \.self) { value in
+                                    Text(fieldGuideTaxonLabel(value)).tag(value)
+                                }
                             }
                             Picker("Sort", selection: $sort) {
                                 ForEach(SpeciesSort.allCases) { sort in Text(sort.title).tag(sort) }
@@ -72,7 +74,7 @@ struct FieldGuideWorkspaceView: View {
                 // the same large account dataset; firing them together makes
                 // the server contend with duplicate work and leaves the guide
                 // stuck behind unrelated sections.
-                guard model.selectedTab == .fieldGuide || model.selectedTab == .sightings else { return }
+                guard model.selectedTab == .fieldGuide else { return }
                 switch section {
                 case .guide, .sightings:
                     await journal.refreshFieldGuide()
@@ -88,10 +90,11 @@ struct FieldGuideWorkspaceView: View {
             .alert(
                 "Field Guide needs attention",
                 isPresented: Binding(
-                    get: { journal.fieldGuideErrorMessage != nil || oauth.errorMessage != nil },
+                    get: { journal.fieldGuideErrorMessage != nil || journal.errorMessage != nil || oauth.errorMessage != nil },
                     set: {
                         if !$0 {
                             journal.clearFieldGuideError()
+                            journal.clearError()
                             oauth.clearError()
                         }
                     }
@@ -99,10 +102,11 @@ struct FieldGuideWorkspaceView: View {
             ) {
                 Button("OK") {
                     journal.clearFieldGuideError()
+                    journal.clearError()
                     oauth.clearError()
                 }
             } message: {
-                Text(journal.fieldGuideErrorMessage ?? oauth.errorMessage ?? "")
+                Text(journal.fieldGuideErrorMessage ?? journal.errorMessage ?? oauth.errorMessage ?? "")
             }
         }
     }
@@ -211,6 +215,25 @@ struct FieldGuideWorkspaceView: View {
         ["All"] + Set(journal.species.map(\.iconicTaxonName).filter { !$0.isEmpty }).sorted()
     }
 
+    private func fieldGuideTaxonLabel(_ value: String) -> String {
+        switch value.lowercased() {
+        case "all": "All life"
+        case "actinopterygii": "Fish"
+        case "amphibia": "Amphibians"
+        case "animalia": "Other animals"
+        case "arachnida": "Arachnids"
+        case "aves": "Birds"
+        case "fungi": "Fungi"
+        case "insecta": "Insects"
+        case "mammalia": "Mammals"
+        case "mollusca": "Mollusks"
+        case "plantae": "Plants"
+        case "protozoa": "Protozoans"
+        case "reptilia": "Reptiles"
+        default: value
+        }
+    }
+
     private func refreshSection() async {
         switch section {
         case .guide, .sightings: await journal.refreshFieldGuide()
@@ -274,6 +297,11 @@ private enum SpeciesSort: String, CaseIterable, Identifiable {
         case .name: "Name"
         }
     }
+}
+
+private func reviewConfidenceLabel(_ confidence: Double?) -> String? {
+    guard let normalized = normalizedReviewConfidence(confidence) else { return nil }
+    return "\(Int((normalized * 100).rounded()))% confidence"
 }
 
 private struct SpeciesGuideList: View {
@@ -950,6 +978,11 @@ private struct ReviewItemView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(candidate.commonName).font(HikeJournalTheme.label(15, relativeTo: .headline))
                             Text(candidate.scientificName).font(HikeJournalTheme.body(12)).italic()
+                            if let confidence = reviewConfidenceLabel(candidate.confidence) {
+                                Text(confidence)
+                                    .font(HikeJournalTheme.body(12))
+                                    .foregroundStyle(HikeJournalTheme.inkMuted)
+                            }
                         }
                         Spacer()
                         Button(index == 0 ? "Confirm" : "Choose") {

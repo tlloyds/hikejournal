@@ -2058,6 +2058,23 @@ def _mobile_inat_client() -> InatClient:
     return InatClient(access_token=access_token, base_url=settings.inat_base_url)
 
 
+def _mobile_inat_account_connected() -> bool:
+    """Whether this signed-in mobile account has its own iNaturalist credential.
+
+    The server may have a fallback token for web/admin work, but that does not
+    mean the current mobile account completed iNaturalist OAuth. The mobile
+    connection indicator must describe the account-scoped credential only.
+    """
+    owner = _user_context()
+    email = owner.get("email")
+    user_id = str(owner.get("user_id") or "").strip()
+    provider = str(owner.get("identity_provider") or owner.get("mode") or "").strip().lower()
+    token = _load_mobile_inat_token_for_user(user_id) if user_id else _load_mobile_inat_token(email)
+    if not token and user_id and provider in {"", "google", "legacy"}:
+        token = _load_mobile_inat_token(email)
+    return bool(str(token or "").strip())
+
+
 def _candidate_identity_key(candidate: SpeciesCandidate) -> str:
     if candidate.taxon_id is not None:
         return f"taxon:{candidate.taxon_id}"
@@ -2453,7 +2470,7 @@ def _publish_queue_payload(svc: Services) -> dict[str, Any]:
         for state in ("ready", "needs_attention", "posted")
     }
     return {
-        "connected": _mobile_inat_client().is_configured,
+        "connected": _mobile_inat_account_connected(),
         "counts": counts,
         "items": items,
     }
