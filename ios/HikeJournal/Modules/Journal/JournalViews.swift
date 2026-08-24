@@ -17,6 +17,8 @@ struct JournalLibraryView: View {
     @State private var showingEverydayMedia = false
     @State private var showingPlaces = false
     @State private var showingMedals = false
+    @State private var pendingEverydayPhoto: Photo?
+    @State private var inspectingEverydayPhoto: Photo?
 
     init(model: AppModel) {
         self.model = model
@@ -98,6 +100,14 @@ struct JournalLibraryView: View {
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
             }
+            .sheet(item: $inspectingEverydayPhoto) { photo in
+                JournalMediaDetailView(
+                    journal: journal,
+                    seed: photo,
+                    hikeID: EVERYDAY_JOURNAL_ID,
+                    isCover: journal.details[EVERYDAY_JOURNAL_ID]?.coverPhotoId == photo.id
+                )
+            }
             .sheet(isPresented: $showingPlaces) {
                 PlacesWorkspaceView(model: model)
             }
@@ -120,18 +130,46 @@ struct JournalLibraryView: View {
                 path = [id.uuidString.lowercased()]
                 model.consumeDeepLink()
             }
+            .onChange(of: showingEverydayMedia) { _, isShowing in
+                guard !isShowing, let photo = pendingEverydayPhoto else { return }
+                pendingEverydayPhoto = nil
+                inspectingEverydayPhoto = photo
+            }
         }
     }
 
     private func journalMediaImport(_ identifiers: [String], into hikeID: String) async throws {
+        let existingPhotoIDs = Set(
+            (journal.details[hikeID] ?? journal.hikes.first { $0.id == hikeID })?.photos.map(\.id) ?? []
+        )
         await journalMediaStore.importAssets(
             identifiers,
             into: hikeID,
             queueForReview: hikeID == EVERYDAY_JOURNAL_ID
         )
         if let message = journalMediaStore.errorMessage { throw JournalMediaError(message: message) }
-        // Do not hold the Photos picker open while a large journal is reloaded.
-        // The import is already durable once it is queued.
+
+        // The media queue drains before importAssets returns when the app is
+        // online. Reload once here so an everyday upload can open directly in
+        // the same field-photo review used by an existing journal photo. If a
+        // weak connection has not made the server photo visible yet, retry a
+        // few times without blocking the durable queued upload.
+        if hikeID == EVERYDAY_JOURNAL_ID {
+            for attempt in 0..<4 {
+                await journal.loadHike(id: hikeID, force: true)
+                if let photo = journal.details[hikeID]?.photos.last(where: { !existingPhotoIDs.contains($0.id) }) {
+                    pendingEverydayPhoto = photo
+                    break
+                }
+                if attempt < 3 {
+                    try? await Task.sleep(nanoseconds: 350_000_000)
+                }
+            }
+        } else {
+            // Do not hold the Photos picker open while a large journal is
+            // reloaded. The import is already durable once it is queued.
+            Task { await journal.loadHike(id: hikeID, force: true) }
+        }
         Task { await journal.refreshHikes() }
     }
 
@@ -533,6 +571,17 @@ struct JournalHikeDetailView: View {
         journal.details[hikeID] ?? journal.hikes.first { $0.id == hikeID }
     }
 
+    private func referenceImageURL(for species: SpeciesLabel) -> String? {
+        let record = journal.species.first { record in
+            if let taxonID = species.taxonId, record.taxonId == taxonID { return true }
+            let scientific = species.scientificName.trimmingCharacters(in: .whitespacesAndNewlines)
+            return !scientific.isEmpty && record.scientificName.caseInsensitiveCompare(scientific) == .orderedSame
+        }
+        guard let record else { return nil }
+        let url = record.coverThumbnailUrl.isEmpty ? record.coverUrl : record.coverThumbnailUrl
+        return url.isEmpty ? nil : url
+    }
+
     private func detail(_ hike: Hike) -> some View {
         GeometryReader { proxy in
             ScrollView {
@@ -632,24 +681,30 @@ struct JournalHikeDetailView: View {
                                 Button {
                                     inspectingPhoto = item.photo
                                 } label: {
-                                    JournalObservationRow(photo: item.photo, species: item.species)
+                                    JournalObservationRow(
+                                        photo: item.photo,
+                                        species: item.species,
+                                        referenceImageURL: referenceImageURL(for: item.species)
+                                    )
                                 }
                                 .buttonStyle(.plain)
                             }
                         }
                     }
 
-                    JournalSection(title: "Conditions") {
-                        if let weather = hike.weather {
-                            WeatherSummaryView(weather: weather)
-                        } else {
-                            Button {
-                                Task { await journal.enrichWeather(hikeID: hikeID) }
-                            } label: {
-                                Label("Add historical weather", systemImage: "cloud.sun")
+                    if !hike.isStandalone {
+                        JournalSection(title: "Conditions") {
+                            if let weather = hike.weather {
+                                WeatherSummaryView(weather: weather)
+                            } else {
+                                Button {
+                                    Task { await journal.enrichWeather(hikeID: hikeID) }
+                                } label: {
+                                    Label("Add historical weather", systemImage: "cloud.sun")
+                                }
+                                .buttonStyle(.bordered)
+                                .tint(HikeJournalTheme.moss)
                             }
-                            .buttonStyle(.bordered)
-                            .tint(HikeJournalTheme.moss)
                         }
                     }
 
@@ -985,56 +1040,71 @@ private struct JournalPhotoTile: View {
     }
 
     private var tile: some View {
-        Color.clear
-            .aspectRatio(1, contentMode: .fit)
-            .overlay {
-                ZStack(alignment: .bottomLeading) {
-                    // A legacy video without a derivative gets a placeholder
-                    // rather than downloading the entire movie for a tile.
-                    JournalRemoteImage(
-                        urlString: photo.thumbnailUrl.isEmpty && photo.contentType.hasPrefix("video/")
-                            ? ""
-                            : (photo.thumbnailUrl.isEmpty ? photo.url : photo.thumbnailUrl),
-                        fallback: photo.contentType.hasPrefix("video/") ? "video" : "photo"
-                    )
-                    LinearGradient(colors: [.clear, .black.opacity(0.66)], startPoint: .center, endPoint: .bottom)
-                    VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: 0) {
+            ZStack(alignment: .bottomLeading) {
+                Color.clear.aspectRatio(1, contentMode: .fit)
+                // A legacy video without a derivative gets a placeholder
+                // rather than downloading the entire movie for a tile.
+                JournalRemoteImage(
+                    urlString: photo.thumbnailUrl.isEmpty && photo.contentType.hasPrefix("video/")
+                        ? ""
+                        : (photo.thumbnailUrl.isEmpty ? photo.url : photo.thumbnailUrl),
+                    fallback: photo.contentType.hasPrefix("video/") ? "video" : "photo"
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                if isCover || photo.contentType.hasPrefix("video/") {
+                    HStack(spacing: 7) {
                         if isCover { Label("Cover", systemImage: "bookmark.fill") }
-                        if let species = photo.journalDisplaySpecies {
-                            Text(species.journalDisplayName)
-                                .lineLimit(3)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .multilineTextAlignment(.leading)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .layoutPriority(1)
-                        } else if !photo.caption.isEmpty {
-                            Text(photo.caption)
-                                .lineLimit(2)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        if photo.contentType.hasPrefix("video/") {
-                            Label("Video", systemImage: "play.fill")
-                        }
+                        if photo.contentType.hasPrefix("video/") { Label("Video", systemImage: "play.fill") }
                     }
-                    .font(HikeJournalTheme.label(12, relativeTo: .caption))
+                    .font(HikeJournalTheme.label(11, relativeTo: .caption))
                     .foregroundStyle(.white)
                     .padding(8)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
                 }
             }
             .clipped()
-            .contentShape(Rectangle())
+
+            // Keep the species name on the paper surface instead of over the
+            // image. This makes labels readable on every crop and prevents a
+            // long common name from being clipped by the tile's image bounds.
+            if let species = photo.journalDisplaySpecies {
+                Text(species.journalDisplayName)
+                    .font(HikeJournalTheme.label(13, relativeTo: .subheadline))
+                    .foregroundStyle(HikeJournalTheme.ink)
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, minHeight: 39, alignment: .topLeading)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 7)
+            } else if !photo.caption.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Text(photo.caption)
+                    .font(HikeJournalTheme.body(12))
+                    .foregroundStyle(HikeJournalTheme.inkMuted)
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, minHeight: 39, alignment: .topLeading)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 7)
+            }
+        }
+        .background(HikeJournalTheme.paper)
+        .contentShape(Rectangle())
     }
 }
 
 private struct JournalObservationRow: View {
     let photo: Photo
     let species: SpeciesLabel
+    let referenceImageURL: String?
 
     var body: some View {
         HStack(spacing: 13) {
-            JournalRemoteImage(urlString: photo.url, fallback: "leaf")
+            let photoURL = photo.thumbnailUrl.isEmpty ? photo.url : photo.thumbnailUrl
+            JournalRemoteImage(
+                urlString: photoURL.isEmpty ? (referenceImageURL ?? "") : photoURL,
+                fallback: "leaf"
+            )
                 .frame(width: 62, height: 62)
                 .clipped()
             VStack(alignment: .leading, spacing: 2) {

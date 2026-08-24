@@ -133,6 +133,7 @@ final class JournalStore: ObservableObject {
             requireFresh: false
         )
         if let cached { details[id] = cached }
+        let preservedWeather = details[id]?.weather ?? hikes.first { $0.id == id }?.weather
         if !force,
            let resource = try? await context.database.cachedResource(namespace: Cache.hike, key: id),
            resource.isFresh(at: Date()),
@@ -153,14 +154,21 @@ final class JournalStore: ObservableObject {
                 routeStartedAt: route.startedAt ?? header.routeStartedAt,
                 distanceMiles: route.distanceMiles ?? header.distanceMiles
             )
+            // The detail endpoint intentionally returns the lightweight hike
+            // shape while route/photos load. Keep weather already visible from
+            // the list or cached detail when that response omits it; otherwise
+            // the Conditions section vanishes as soon as async content lands.
+            let mergedDetail = detail.weather == nil
+                ? (preservedWeather.map { detail.withWeather($0) } ?? detail)
+                : detail
             try await cache(
-                detail,
+                mergedDetail,
                 database: context.database,
                 namespace: Cache.hike,
                 key: id,
                 lifetime: 10 * 60
             )
-            details[id] = detail
+            details[id] = mergedDetail
         } catch is CancellationError {
             return
         } catch {

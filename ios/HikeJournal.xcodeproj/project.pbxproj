@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 56;
+	objectVersion = 70;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -67,6 +67,20 @@
 		};
 /* End PBXContainerItemProxy section */
 
+/* Begin PBXCopyFilesBuildPhase section */
+		C44000000000000000000001 /* Embed App Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				C40000000000000000000003 /* HikeJournalWidgets.appex in Embed App Extensions */,
+			);
+			name = "Embed App Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
 		100000000000000000000001 /* HikeJournalApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HikeJournalApp.swift; sourceTree = "<group>"; };
 		100000000000000000000002 /* AppEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppEnvironment.swift; sourceTree = "<group>"; };
@@ -117,36 +131,10 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		A10000000000000000000001 /* Modules */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = Modules;
-			sourceTree = "<group>";
-		};
-		A10000000000000000000002 /* Extended */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = Extended;
-			sourceTree = "<group>";
-		};
-		C11000000000000000000001 /* HikeJournalWidgets */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = HikeJournalWidgets;
-			sourceTree = "<group>";
-		};
+		A10000000000000000000001 /* Modules */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = Modules; sourceTree = "<group>"; };
+		A10000000000000000000002 /* Extended */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = Extended; sourceTree = "<group>"; };
+		C11000000000000000000001 /* HikeJournalWidgets */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = HikeJournalWidgets; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
-
-/* Begin PBXCopyFilesBuildPhase section */
-		C44000000000000000000001 /* Embed App Extensions */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = "";
-			dstSubfolderSpec = 13;
-			files = (
-				C40000000000000000000003 /* HikeJournalWidgets.appex in Embed App Extensions */,
-			);
-			name = "Embed App Extensions";
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		400000000000000000000002 /* Frameworks */ = {
@@ -280,22 +268,6 @@
 			path = Features;
 			sourceTree = "<group>";
 		};
-		30000000000000000000000F /* Onboarding */ = {
-			isa = PBXGroup;
-			children = (
-				100000000000000000000009 /* OnboardingView.swift */,
-			);
-			path = Onboarding;
-			sourceTree = "<group>";
-		};
-		300000000000000000000010 /* Root */ = {
-			isa = PBXGroup;
-			children = (
-				10000000000000000000000A /* RootShellView.swift */,
-			);
-			path = Root;
-			sourceTree = "<group>";
-		};
 		30000000000000000000000A /* Resources */ = {
 			isa = PBXGroup;
 			children = (
@@ -306,15 +278,6 @@
 				10000000000000000000000C /* PrivacyInfo.xcprivacy */,
 			);
 			path = Resources;
-			sourceTree = "<group>";
-		};
-		300000000000000000000011 /* Fonts */ = {
-			isa = PBXGroup;
-			children = (
-				10000000000000000000000E /* CormorantGaramond.ttf */,
-				10000000000000000000000F /* SourceSans3.ttf */,
-			);
-			path = Fonts;
 			sourceTree = "<group>";
 		};
 		30000000000000000000000B /* HikeJournalTests */ = {
@@ -361,6 +324,31 @@
 				10000000000000000000001C /* HikeJournalTests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		30000000000000000000000F /* Onboarding */ = {
+			isa = PBXGroup;
+			children = (
+				100000000000000000000009 /* OnboardingView.swift */,
+			);
+			path = Onboarding;
+			sourceTree = "<group>";
+		};
+		300000000000000000000010 /* Root */ = {
+			isa = PBXGroup;
+			children = (
+				10000000000000000000000A /* RootShellView.swift */,
+			);
+			path = Root;
+			sourceTree = "<group>";
+		};
+		300000000000000000000011 /* Fonts */ = {
+			isa = PBXGroup;
+			children = (
+				10000000000000000000000E /* CormorantGaramond.ttf */,
+				10000000000000000000000F /* SourceSans3.ttf */,
+			);
+			path = Fonts;
 			sourceTree = "<group>";
 		};
 		300000000000000000000020 /* API */ = {
@@ -757,6 +745,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = HikeJournal/HikeJournal.entitlements;
 				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = QAC3FJ8RYV;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -781,6 +770,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = HikeJournal/HikeJournal.entitlements;
 				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = QAC3FJ8RYV;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -842,6 +832,7 @@
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = QAC3FJ8RYV;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = HikeJournalWidgetInfo.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -865,6 +856,7 @@
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = QAC3FJ8RYV;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = HikeJournalWidgetInfo.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -1005,16 +997,6 @@
 			package = A20000000000000000000007 /* XCLocalSwiftPackageReference "Packages/HikeJournalDomain" */;
 			productName = HikeJournalDomain;
 		};
-		C30000000000000000000001 /* HikeJournalLiveActivityTracking */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = C20000000000000000000001 /* XCLocalSwiftPackageReference "Packages/HikeJournalLiveActivity" */;
-			productName = HikeJournalLiveActivityTracking;
-		};
-		C30000000000000000000002 /* HikeJournalLiveActivityWidget */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = C20000000000000000000001 /* XCLocalSwiftPackageReference "Packages/HikeJournalLiveActivity" */;
-			productName = HikeJournalLiveActivityWidget;
-		};
 		B30000000000000000000001 /* GoogleSignIn */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = B20000000000000000000001 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
@@ -1024,6 +1006,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = B20000000000000000000001 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
 			productName = GoogleSignInSwift;
+		};
+		C30000000000000000000001 /* HikeJournalLiveActivityTracking */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C20000000000000000000001 /* XCLocalSwiftPackageReference "Packages/HikeJournalLiveActivity" */;
+			productName = HikeJournalLiveActivityTracking;
+		};
+		C30000000000000000000002 /* HikeJournalLiveActivityWidget */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C20000000000000000000001 /* XCLocalSwiftPackageReference "Packages/HikeJournalLiveActivity" */;
+			productName = HikeJournalLiveActivityWidget;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
