@@ -589,7 +589,9 @@ struct JournalHikeDetailView: View {
                     }
 
                     let observations = hike.photos.flatMap { photo in
-                        photo.species.map { (photo: photo, species: $0) }
+                        photo.species
+                            .filter(\.hasJournalDisplayName)
+                            .map { (photo: photo, species: $0) }
                     }
                     if !observations.isEmpty {
                         JournalSection(title: "Observations") {
@@ -870,8 +872,8 @@ private struct JournalPhotoTile: View {
                     LinearGradient(colors: [.clear, .black.opacity(0.66)], startPoint: .center, endPoint: .bottom)
                     VStack(alignment: .leading, spacing: 2) {
                         if isCover { Label("Cover", systemImage: "bookmark.fill") }
-                        if let species = photo.species.first(where: \.isPrimary) ?? photo.species.first {
-                            Text(species.commonName.isEmpty ? species.scientificName : species.commonName)
+                        if let species = photo.journalDisplaySpecies {
+                            Text(species.journalDisplayName)
                                 .lineLimit(2)
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 3)
@@ -903,7 +905,7 @@ private struct JournalObservationRow: View {
                 .frame(width: 62, height: 62)
                 .clipped()
             VStack(alignment: .leading, spacing: 2) {
-                Text(species.commonName.isEmpty ? species.scientificName : species.commonName)
+                Text(species.journalDisplayName)
                     .font(HikeJournalTheme.label(16, relativeTo: .headline))
                     .foregroundStyle(HikeJournalTheme.ink)
                 if !species.scientificName.isEmpty {
@@ -1054,7 +1056,7 @@ private struct JournalMediaDetailView: View {
 
     private func identification(_ species: SpeciesLabel) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(species.commonName.isEmpty ? species.scientificName : species.commonName)
+            Text(species.journalDisplayName)
                 .font(HikeJournalTheme.display(32, relativeTo: .title))
                 .foregroundStyle(Color(red: 0.78, green: 0.87, blue: 0.75))
             if !species.scientificName.isEmpty {
@@ -1256,7 +1258,26 @@ private struct JournalMediaDetailView: View {
     }
 
     private var primarySpecies: SpeciesLabel? {
-        currentPhoto.species.first(where: \.isPrimary) ?? currentPhoto.species.first
+        currentPhoto.journalDisplaySpecies
+    }
+}
+
+private extension Photo {
+    var journalDisplaySpecies: SpeciesLabel? {
+        species.first(where: { $0.isPrimary && $0.hasJournalDisplayName })
+            ?? species.first(where: \.hasJournalDisplayName)
+    }
+}
+
+private extension SpeciesLabel {
+    var journalDisplayName: String {
+        let common = commonName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let scientific = scientificName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return common.isEmpty ? scientific : common
+    }
+
+    var hasJournalDisplayName: Bool {
+        !journalDisplayName.isEmpty
     }
 }
 
