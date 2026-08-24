@@ -187,6 +187,46 @@ class HikeJournalRepository:
             )
             return response.data or []
 
+    def resolve_google_user_id(self, google_subject: str | None) -> str | None:
+        """Resolve the canonical account ID for a Streamlit Google session.
+
+        The native clients receive this ID in their signed session claims, but
+        Streamlit's OIDC user object only exposes Google's subject. Prefer the
+        provider-neutral identity table and retain the app_users lookup for
+        deployments that have not applied that additive migration yet.
+        """
+        subject = str(google_subject or "").strip()
+        if not subject:
+            return None
+        try:
+            response = (
+                self.client.table("user_identities")
+                .select("user_id")
+                .eq("provider", "google")
+                .eq("provider_subject", subject)
+                .limit(1)
+                .execute()
+            )
+            rows = response.data or []
+            if rows and rows[0].get("user_id"):
+                return str(rows[0]["user_id"])
+        except Exception:
+            # The provider-neutral migration is additive; older installs use
+            # the legacy Google subject on app_users instead.
+            pass
+        try:
+            response = (
+                self.client.table("app_users")
+                .select("id")
+                .eq("google_subject", subject)
+                .limit(1)
+                .execute()
+            )
+        except Exception:
+            return None
+        rows = response.data or []
+        return str(rows[0]["id"]) if rows and rows[0].get("id") else None
+
     def list_hike_route_imports(self) -> list[dict[str, Any]]:
         try:
             response = (

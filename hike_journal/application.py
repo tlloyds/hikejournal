@@ -101,6 +101,10 @@ def run_application(actions: ApplicationActions) -> None:
         supabase,
         media_url_resolver=storage.resolve_download_url,
     )
+    if user_context.get("mode") == "google" and not user_context.get("user_id"):
+        user_context["user_id"] = repository.resolve_google_user_id(
+            user_context.get("subject")
+        )
     inat_access_token = actions.get_inat_access_token_for_context(user_context)
     inat_client = InatClient(access_token=inat_access_token)
     actions.sync_pagination_state_from_query_params()

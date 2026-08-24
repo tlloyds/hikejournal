@@ -71,7 +71,7 @@ def render_library_view(
         photo for photo in fetch_standalone_photos()
         if record_visible_for_user(photo, {hike["id"] for hike in hikes}, user_context)
     ]
-    st.markdown(
+    st.html(
         f"""
         <section class="library-hero{' library-hero--photo' if featured_image else ''}">
             {featured_image}
@@ -91,7 +91,6 @@ def render_library_view(
             <a class="library-medals-link" href="?view=Trail%20Medals" target="_self">View Trail Medals <span aria-hidden="true">→</span></a>
         </div>
         """,
-        unsafe_allow_html=True,
     )
     st.write("")
 

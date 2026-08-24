@@ -149,6 +149,68 @@ def test_media_rows_add_a_signed_thumbnail_without_discarding_exif() -> None:
     assert "thumbnail_url" not in original
 
 
+def test_resolve_google_user_id_prefers_provider_neutral_identity() -> None:
+    calls: list[str] = []
+
+    class Query:
+        def __init__(self, table_name):
+            self.table_name = table_name
+
+        def select(self, _columns):
+            return self
+
+        def eq(self, _column, _value):
+            return self
+
+        def limit(self, _count):
+            return self
+
+        def execute(self):
+            calls.append(self.table_name)
+            return type("Response", (), {"data": [{"user_id": "canonical-user"}]})()
+
+    class Client:
+        def table(self, name):
+            return Query(name)
+
+    repository = HikeJournalRepository(client=Client())
+
+    assert repository.resolve_google_user_id("google-subject") == "canonical-user"
+    assert calls == ["user_identities"]
+
+
+def test_resolve_google_user_id_falls_back_to_legacy_app_user() -> None:
+    calls: list[str] = []
+
+    class Query:
+        def __init__(self, table_name):
+            self.table_name = table_name
+
+        def select(self, _columns):
+            return self
+
+        def eq(self, _column, _value):
+            return self
+
+        def limit(self, _count):
+            return self
+
+        def execute(self):
+            calls.append(self.table_name)
+            if self.table_name == "user_identities":
+                raise RuntimeError("relation user_identities does not exist")
+            return type("Response", (), {"data": [{"id": "legacy-user"}]})()
+
+    class Client:
+        def table(self, name):
+            return Query(name)
+
+    repository = HikeJournalRepository(client=Client())
+
+    assert repository.resolve_google_user_id("google-subject") == "legacy-user"
+    assert calls == ["user_identities", "app_users"]
+
+
 def test_hike_create_persists_canonical_and_legacy_ownership_together() -> None:
     inserted: list[dict] = []
 

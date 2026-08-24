@@ -33,6 +33,13 @@ def test_library_view_accepts_its_app_callbacks() -> None:
     assert expected.issubset(signature(render_library_view).parameters)
 
 
+def test_library_hero_uses_html_renderer_for_multiline_markup() -> None:
+    source = getsource(render_library_view)
+
+    assert "st.html(" in source
+    assert "library-hero" in source
+
+
 def test_badges_view_accepts_owner_scoped_inputs() -> None:
     assert set(signature(render_badges_view).parameters) == {
         "repository",
