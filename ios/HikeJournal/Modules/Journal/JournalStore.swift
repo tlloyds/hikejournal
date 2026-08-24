@@ -869,8 +869,14 @@ final class JournalStore: ObservableObject {
             namespace: Cache.placeProfile,
             key: cacheKey
         )
+        let localVisits = hikes.filter { hike in
+            !hike.isStandalone && hike.primaryLocationId == id
+        }
+        let localLatestVisit = localVisits.map(\.hikeDate).max()
         let cachedNeedsRefresh = cached?.name.trimmingCharacters(in: .whitespacesAndNewlines)
             .caseInsensitiveCompare("Unknown place") == .orderedSame
+            || (cached.map { $0.outingCount < localVisits.count } ?? false)
+            || (localLatestVisit.map { (cached?.latestVisit ?? "") < $0 } ?? false)
         if !force,
            let cached,
            !cachedNeedsRefresh,

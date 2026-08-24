@@ -1035,8 +1035,22 @@ private struct JournalPhotoTile: View {
         case (nil, false):
             return caption
         case (nil, true):
-            return "Journal media"
+            return tileLabel
         }
+    }
+
+    private var tileLabel: String {
+        if let species = photo.journalDisplaySpecies?.journalDisplayName {
+            return species
+        }
+        let caption = photo.caption.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !caption.isEmpty {
+            return caption
+        }
+        if let date = photo.takenAt ?? photo.createdAt, !date.isEmpty {
+            return JournalDate.display(date)
+        }
+        return "Journal media"
     }
 
     private var tile: some View {
@@ -1064,29 +1078,21 @@ private struct JournalPhotoTile: View {
             }
             .clipped()
 
-            // Keep the species name on the paper surface instead of over the
-            // image. This makes labels readable on every crop and prevents a
-            // long common name from being clipped by the tile's image bounds.
-            if let species = photo.journalDisplaySpecies {
-                Text(species.journalDisplayName)
-                    .font(HikeJournalTheme.label(13, relativeTo: .subheadline))
-                    .foregroundStyle(HikeJournalTheme.ink)
-                    .lineLimit(3)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .multilineTextAlignment(.leading)
-                    .frame(maxWidth: .infinity, minHeight: 39, alignment: .topLeading)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 7)
-            } else if !photo.caption.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                Text(photo.caption)
-                    .font(HikeJournalTheme.body(12))
-                    .foregroundStyle(HikeJournalTheme.inkMuted)
-                    .lineLimit(3)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, minHeight: 39, alignment: .topLeading)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 7)
-            }
+            // Give every tile the same caption rail. Known species stay prominent;
+            // uncategorized media falls back to its captured date so the grid never
+            // develops uneven, label-less gaps while species review is incomplete.
+            Text(tileLabel)
+                .font(photo.journalDisplaySpecies == nil
+                    ? HikeJournalTheme.body(12)
+                    : HikeJournalTheme.label(13, relativeTo: .subheadline))
+                .foregroundStyle(photo.journalDisplaySpecies == nil
+                    ? HikeJournalTheme.inkMuted
+                    : HikeJournalTheme.ink)
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, minHeight: 44, maxHeight: 44, alignment: .topLeading)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 7)
         }
         .background(HikeJournalTheme.paper)
         .contentShape(Rectangle())

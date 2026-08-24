@@ -621,7 +621,9 @@ private struct PlaceProfileView: View {
                 followedGaugeIDs: riverGauges.followedIDs,
                 force: force
             )
-            profile = result.value.withResolvedName(fallback: target.name)
+            profile = result.value
+                .withResolvedName(fallback: target.name)
+                .withLocalVisitEvidence(hikes: model.journal.hikes, locationID: target.id)
             fromCache = result.fromCache
             errorMessage = nil
         } catch is CancellationError {
@@ -1575,5 +1577,74 @@ private extension PlaceProfile {
             riverGauges: riverGauges,
             liveConditionsNotice: liveConditionsNotice
         )
+    }
+
+    func withLocalVisitEvidence(hikes: [Hike], locationID: String) -> PlaceProfile {
+        let localHikes = hikes
+            .filter { !$0.isStandalone && $0.primaryLocationId == locationID }
+            .sorted {
+                if $0.hikeDate != $1.hikeDate { return $0.hikeDate > $1.hikeDate }
+                return $0.id > $1.id
+            }
+        guard !localHikes.isEmpty else { return self }
+
+        let existingIDs = Set(visits.map(\.hikeId))
+        let localVisits = localHikes.map { hike in
+            PlaceVisit(
+                hikeId: hike.id,
+                title: hike.title,
+                hikeDate: hike.hikeDate,
+                distanceMiles: hike.distanceMiles,
+                observationCount: 0,
+                speciesCount: hike.speciesCount,
+                newSpeciesCount: 0,
+                cumulativeSpeciesCount: hike.speciesCount,
+                coverUrl: hike.coverUrl
+            )
+        }
+        let mergedVisits = (visits + localVisits.filter { !existingIDs.contains($0.hikeId) })
+            .sorted {
+                if $0.hikeDate != $1.hikeDate { return $0.hikeDate > $1.hikeDate }
+                return $0.hikeId > $1.hikeId
+            }
+        let localDates = localHikes.map(\.hikeDate).filter { !$0.isEmpty }
+        let localDistance = localHikes.compactMap(\.distanceMiles).reduce(0, +)
+        let localDuration = localHikes.compactMap(\.durationSeconds).reduce(0, +)
+
+        return PlaceProfile(
+            locationId: self.locationId,
+            name: name,
+            latitude: latitude,
+            longitude: longitude,
+            firstVisit: minNonEmpty(firstVisit, localDates.min()),
+            latestVisit: maxNonEmpty(latestVisit, localDates.max()),
+            outingCount: max(outingCount, localHikes.count),
+            totalDistanceMiles: max(totalDistanceMiles, localDistance),
+            totalDurationSeconds: max(totalDurationSeconds, localDuration),
+            observationCount: observationCount,
+            speciesCount: speciesCount,
+            taxonCounts: taxonCounts,
+            taxonGroups: taxonGroups,
+            seasonalHistory: seasonalHistory,
+            visits: mergedVisits,
+            guidance: guidance,
+            forecast: forecast,
+            riverGauges: riverGauges,
+            liveConditionsNotice: liveConditionsNotice
+        )
+    }
+
+    private func minNonEmpty(_ lhs: String?, _ rhs: String?) -> String? {
+        [lhs, rhs].compactMap { value in
+            let clean = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return clean.isEmpty ? nil : clean
+        }.min()
+    }
+
+    private func maxNonEmpty(_ lhs: String?, _ rhs: String?) -> String? {
+        [lhs, rhs].compactMap { value in
+            let clean = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return clean.isEmpty ? nil : clean
+        }.max()
     }
 }
