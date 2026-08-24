@@ -965,8 +965,23 @@ private struct JournalPhotoTile: View {
             Button("Use as cover", systemImage: "photo.badge.checkmark", action: makeCover)
             Button("Delete media", systemImage: "trash", role: .destructive, action: delete)
         }
-        .accessibilityLabel(photo.caption.isEmpty ? "Journal media" : photo.caption)
+        .accessibilityLabel(accessibilityLabel)
         .accessibilityHint("Opens media details")
+    }
+
+    private var accessibilityLabel: String {
+        let speciesName = photo.journalDisplaySpecies?.journalDisplayName
+        let caption = photo.caption.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch (speciesName, caption.isEmpty) {
+        case let (.some(speciesName), false):
+            return speciesName + ", " + caption
+        case let (.some(speciesName), true):
+            return speciesName
+        case (nil, false):
+            return caption
+        case (nil, true):
+            return "Journal media"
+        }
     }
 
     private var tile: some View {
@@ -983,16 +998,20 @@ private struct JournalPhotoTile: View {
                         fallback: photo.contentType.hasPrefix("video/") ? "video" : "photo"
                     )
                     LinearGradient(colors: [.clear, .black.opacity(0.66)], startPoint: .center, endPoint: .bottom)
-                    VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: 3) {
                         if isCover { Label("Cover", systemImage: "bookmark.fill") }
                         if let species = photo.journalDisplaySpecies {
                             Text(species.journalDisplayName)
-                                .lineLimit(2)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 3)
-                                .background(Color.black.opacity(0.48), in: Capsule())
+                                .lineLimit(3)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .multilineTextAlignment(.leading)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .layoutPriority(1)
                         } else if !photo.caption.isEmpty {
-                            Text(photo.caption).lineLimit(2)
+                            Text(photo.caption)
+                                .lineLimit(2)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         if photo.contentType.hasPrefix("video/") {
                             Label("Video", systemImage: "play.fill")
@@ -1001,6 +1020,7 @@ private struct JournalPhotoTile: View {
                     .font(HikeJournalTheme.label(12, relativeTo: .caption))
                     .foregroundStyle(.white)
                     .padding(8)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
                 }
             }
             .clipped()
