@@ -240,7 +240,7 @@ final class AuthenticationStoreTests: XCTestCase {
         XCTAssertEqual(secondDeviceID, "stable-device-123")
     }
 
-    func testKeychainSessionStoreRoundTripsSessionWithDataProtectionKeychain() async throws {
+    func testSessionStoreRoundTripsSessionOnCurrentPlatform() async throws {
         let session = makeSession()
         let storage = KeychainSessionStore(
             service: "com.hikejournal.tests.auth-\(UUID().uuidString)"

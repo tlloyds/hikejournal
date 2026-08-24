@@ -43,6 +43,17 @@ actor KeychainSessionStore: SessionStoring {
     }
 
     func loadSession() throws -> AuthSession? {
+#if targetEnvironment(simulator)
+        guard let data = UserDefaults.standard.data(forKey: simulatorKey(account: Account.session)) else {
+            return nil
+        }
+        do {
+            return try decoder.decode(AuthSession.self, from: data)
+        } catch {
+            UserDefaults.standard.removeObject(forKey: simulatorKey(account: Account.session))
+            return nil
+        }
+#else
         guard let data = try read(account: Account.session) else { return nil }
         do {
             return try decoder.decode(AuthSession.self, from: data)
@@ -50,6 +61,7 @@ actor KeychainSessionStore: SessionStoring {
             try? delete(account: Account.session)
             return nil
         }
+#endif
     }
 
     func saveSession(_ session: AuthSession) throws {
@@ -59,14 +71,36 @@ actor KeychainSessionStore: SessionStoring {
         } catch {
             throw SessionStoreError.encodingFailed
         }
+#if targetEnvironment(simulator)
+        UserDefaults.standard.set(data, forKey: simulatorKey(account: Account.session))
+#else
         try write(data, account: Account.session)
+#endif
     }
 
     func clearSession() throws {
+#if targetEnvironment(simulator)
+        UserDefaults.standard.removeObject(forKey: simulatorKey(account: Account.session))
+#else
         try delete(account: Account.session)
+#endif
     }
 
     func deviceID() throws -> String {
+#if targetEnvironment(simulator)
+        if let data = UserDefaults.standard.data(forKey: simulatorKey(account: Account.deviceID)),
+           let existing = String(data: data, encoding: .utf8),
+           existing.count >= 8 {
+            return existing
+        }
+
+        let generated = UUID().uuidString.lowercased()
+        guard let data = generated.data(using: .utf8) else {
+            throw SessionStoreError.encodingFailed
+        }
+        UserDefaults.standard.set(data, forKey: simulatorKey(account: Account.deviceID))
+        return generated
+#else
         if let data = try read(account: Account.deviceID),
            let existing = String(data: data, encoding: .utf8),
            existing.count >= 8 {
@@ -79,67 +113,94 @@ actor KeychainSessionStore: SessionStoring {
         }
         try write(data, account: Account.deviceID)
         return generated
+#endif
     }
+
+#if targetEnvironment(simulator)
+    private func simulatorKey(account: String) -> String {
+        "HikeJournal.KeychainSessionStore.\(service).\(account)"
+    }
+#endif
 
     private func baseQuery(account: String) -> [CFString: Any] {
         [
             kSecClass: kSecClassGenericPassword,
             kSecAttrService: service,
             kSecAttrAccount: account,
-            kSecAttrSynchronizable: kCFBooleanFalse as Any,
-            // Match Google's secure storage configuration. This keeps the
-            // app's session and device identity in the same data-protection
-            // keychain used by the native sign-in provider.
-            kSecUseDataProtectionKeychain: kCFBooleanTrue as Any
+            kSecAttrSynchronizable: kCFBooleanFalse as Any
         ]
     }
 
-    private func read(account: String) throws -> Data? {
-        var query = baseQuery(account: account)
-        query[kSecReturnData] = kCFBooleanTrue
-        query[kSecMatchLimit] = kSecMatchLimitOne
+    private func keychainQueries(account: String) -> [[CFString: Any]] {
+        let legacy = baseQuery(account: account)
+        var dataProtection = legacy
+        dataProtection[kSecUseDataProtectionKeychain] = kCFBooleanTrue as Any
+        // A simulator build cannot carry the data-protection entitlement. Keep
+        // the data-protection query first for signed device builds, then fall
+        // back to the ordinary app keychain when the entitlement is absent.
+        return [dataProtection, legacy]
+    }
 
-        var result: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-        switch status {
-        case errSecSuccess:
-            guard let data = result as? Data else {
-                throw SessionStoreError.encodingFailed
+    private func read(account: String) throws -> Data? {
+        for baseQuery in keychainQueries(account: account) {
+            var query = baseQuery
+            query[kSecReturnData] = kCFBooleanTrue
+            query[kSecMatchLimit] = kSecMatchLimitOne
+
+            var result: CFTypeRef?
+            let status = SecItemCopyMatching(query as CFDictionary, &result)
+            switch status {
+            case errSecSuccess:
+                guard let data = result as? Data else {
+                    throw SessionStoreError.encodingFailed
+                }
+                return data
+            case errSecItemNotFound, errSecMissingEntitlement:
+                continue
+            default:
+                throw SessionStoreError.keychain(status)
             }
-            return data
-        case errSecItemNotFound:
-            return nil
-        default:
-            throw SessionStoreError.keychain(status)
         }
+        return nil
     }
 
     private func write(_ data: Data, account: String) throws {
-        let query = baseQuery(account: account)
-        let updateStatus = SecItemUpdate(
-            query as CFDictionary,
-            [kSecValueData: data] as CFDictionary
-        )
-        switch updateStatus {
-        case errSecSuccess:
-            return
-        case errSecItemNotFound:
-            var attributes = query
-            attributes[kSecValueData] = data
-            attributes[kSecAttrAccessible] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-            let addStatus = SecItemAdd(attributes as CFDictionary, nil)
-            guard addStatus == errSecSuccess else {
-                throw SessionStoreError.keychain(addStatus)
+        for query in keychainQueries(account: account) {
+            let updateStatus = SecItemUpdate(
+                query as CFDictionary,
+                [kSecValueData: data] as CFDictionary
+            )
+            switch updateStatus {
+            case errSecSuccess:
+                return
+            case errSecItemNotFound:
+                var attributes = query
+                attributes[kSecValueData] = data
+                attributes[kSecAttrAccessible] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+                let addStatus = SecItemAdd(attributes as CFDictionary, nil)
+                switch addStatus {
+                case errSecSuccess:
+                    return
+                case errSecMissingEntitlement:
+                    continue
+                default:
+                    throw SessionStoreError.keychain(addStatus)
+                }
+            case errSecMissingEntitlement:
+                continue
+            default:
+                throw SessionStoreError.keychain(updateStatus)
             }
-        default:
-            throw SessionStoreError.keychain(updateStatus)
         }
+        throw SessionStoreError.keychain(errSecMissingEntitlement)
     }
 
     private func delete(account: String) throws {
-        let status = SecItemDelete(baseQuery(account: account) as CFDictionary)
-        guard status == errSecSuccess || status == errSecItemNotFound else {
-            throw SessionStoreError.keychain(status)
+        for query in keychainQueries(account: account) {
+            let status = SecItemDelete(query as CFDictionary)
+            guard status == errSecSuccess || status == errSecItemNotFound || status == errSecMissingEntitlement else {
+                throw SessionStoreError.keychain(status)
+            }
         }
     }
 }
