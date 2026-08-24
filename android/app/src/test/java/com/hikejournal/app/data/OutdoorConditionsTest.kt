@@ -27,6 +27,43 @@ class OutdoorConditionsTest {
     }
 
     @Test
+    fun `place conditions parser accepts the shared backend response`() {
+        val conditions = parsePlaceConditions(
+            """
+            {
+              "forecast": {
+                "observed_at":"2026-08-12T09:00",
+                "timezone":"America/New_York",
+                "temperature_f":82.0,
+                "apparent_temperature_f":91.0,
+                "relative_humidity_percent":81,
+                "precipitation_inches":0.0,
+                "cloud_cover_percent":34,
+                "wind_speed_mph":6.0,
+                "wind_gust_mph":15.0,
+                "condition_label":"Partly cloudy",
+                "days":[],
+                "planning_notes":[]
+              },
+              "river_gauges":[{
+                "gauge":{"site_id":"USGS-02233484","name":"Econ River","lat":28.65,"lng":-81.17,"enabled":true,"suggested":true},
+                "period_days":7,
+                "readings":[{"observed_at":"2026-08-12T12:30:00+00:00","height_feet":14.64,"provisional":true}],
+                "distance_miles":2.5,
+                "error_message":null
+              }],
+              "live_conditions_notice":null
+            }
+            """.trimIndent(),
+        )
+
+        assertEquals("America/New_York", conditions.forecast?.timezone)
+        assertEquals(1, conditions.riverGauges.size)
+        assertEquals("USGS-02233484", conditions.riverGauges.first().gauge.siteId)
+        assertEquals(14.64, conditions.riverGauges.first().currentHeightFeet!!, 0.001)
+    }
+
+    @Test
     fun `river parser chooses the populated series and orders readings`() {
         val gauge = RiverGauge("USGS-02233484", "Econ River", 28.65, -81.17, enabled = true)
         val series = parseRiverGaugeSeries(

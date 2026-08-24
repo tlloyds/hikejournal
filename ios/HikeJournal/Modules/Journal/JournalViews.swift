@@ -14,6 +14,7 @@ struct JournalLibraryView: View {
     @State private var scope: JournalScope = .current
     @State private var path: [String] = []
     @State private var showingEditor = false
+    @State private var showingEverydayMedia = false
     @State private var showingPlaces = false
     @State private var showingMedals = false
 
@@ -58,13 +59,19 @@ struct JournalLibraryView: View {
                     .accessibilityLabel("Journal filter, \(scope.title)")
                 }
                 ToolbarItemGroup(placement: .topBarTrailing) {
-                    Button {
-                        showingEditor = true
+                    Menu {
+                        Button("Add a journal", systemImage: "book.closed") {
+                            showingEditor = true
+                        }
+                        .disabled(!journal.quotaAllowsNewHike || !isSignedIn)
+                        Button("Add everyday observation", systemImage: "camera") {
+                            showingEverydayMedia = true
+                        }
+                        .disabled(!isSignedIn || journal.remainingMediaAllowance == 0)
                     } label: {
                         Image(systemName: "plus")
                     }
-                    .disabled(!journal.quotaAllowsNewHike || !isSignedIn)
-                    .accessibilityLabel("Add a journal")
+                    .accessibilityLabel("Add a journal or everyday observation")
 
                     Button {
                         model.openSettings()
@@ -78,9 +85,18 @@ struct JournalLibraryView: View {
                 JournalHikeDetailView(model: model, hikeID: hikeID)
             }
             .sheet(isPresented: $showingEditor) {
-                HikeEditorSheet(existing: nil) { draft in
-                    await journal.createHike(draft) != nil
+                HikeEditorSheet(journal: journal, existing: nil) { draft, routeURL in
+                    guard let hikeID = await journal.createHike(draft) else { return false }
+                    guard let routeURL else { return true }
+                    return await journal.queueRouteImport(fileURL: routeURL, hikeID: hikeID)
                 }
+            }
+            .sheet(isPresented: $showingEverydayMedia) {
+                PhotoLibraryBrowser(selectionLimit: journal.remainingMediaAllowance) { identifiers in
+                    try await journalMediaImport(identifiers, into: EVERYDAY_JOURNAL_ID)
+                }
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
             }
             .sheet(isPresented: $showingPlaces) {
                 PlacesWorkspaceView(model: model)
@@ -106,6 +122,20 @@ struct JournalLibraryView: View {
             }
         }
     }
+
+    private func journalMediaImport(_ identifiers: [String], into hikeID: String) async throws {
+        await journalMediaStore.importAssets(
+            identifiers,
+            into: hikeID,
+            queueForReview: hikeID == EVERYDAY_JOURNAL_ID
+        )
+        if let message = journalMediaStore.errorMessage { throw JournalMediaError(message: message) }
+        // Do not hold the Photos picker open while a large journal is reloaded.
+        // The import is already durable once it is queued.
+        Task { await journal.refreshHikes() }
+    }
+
+    private var journalMediaStore: MediaAttachmentStore { model.media }
 
     @ViewBuilder
     private var content: some View {
@@ -408,7 +438,7 @@ struct JournalHikeDetailView: View {
         .refreshable { await journal.loadHike(id: hikeID, force: true) }
         .sheet(isPresented: $showingEditor) {
             if let hike {
-                HikeEditorSheet(existing: hike) { draft in
+                HikeEditorSheet(journal: journal, existing: hike) { draft, _ in
                     await journal.updateHike(id: hikeID, draft: draft)
                 }
             }
@@ -417,7 +447,10 @@ struct JournalHikeDetailView: View {
             PhotoLibraryBrowser(selectionLimit: journal.remainingMediaAllowance) { identifiers in
                 await media.importAssets(identifiers, into: hikeID)
                 if let message = media.errorMessage { throw JournalMediaError(message: message) }
-                await journal.loadHike(id: hikeID, force: true)
+                // The picker should close as soon as the durable upload
+                // operations are queued. Reloading a large hike here made the
+                // Photos permission/add flow look frozen on device.
+                Task { await journal.loadHike(id: hikeID, force: true) }
             }
         }
         .sheet(item: $editingPhoto) { photo in
@@ -706,24 +739,34 @@ struct JournalHikeDetailView: View {
 }
 
 private struct HikeEditorSheet: View {
+    @ObservedObject var journal: JournalStore
     @Environment(\.dismiss) private var dismiss
     @State private var title: String
     @State private var date: Date
     @State private var location: String
+    @State private var locationID: String?
     @State private var distance: String
     @State private var notes: String
+    @State private var routeURL: URL?
+    @State private var showingRouteImporter = false
     @State private var saving = false
     @State private var errorMessage: String?
 
     let existing: Hike?
-    let save: (HikeDraft) async -> Bool
+    let save: (HikeDraft, URL?) async -> Bool
 
-    init(existing: Hike?, save: @escaping (HikeDraft) async -> Bool) {
+    init(
+        journal: JournalStore,
+        existing: Hike?,
+        save: @escaping (HikeDraft, URL?) async -> Bool
+    ) {
+        self.journal = journal
         self.existing = existing
         self.save = save
         _title = State(initialValue: existing?.title ?? "")
         _date = State(initialValue: JournalDate.parse(existing?.hikeDate) ?? Date())
         _location = State(initialValue: existing?.locationName ?? "")
+        _locationID = State(initialValue: existing?.primaryLocationId)
         _distance = State(initialValue: existing?.distanceMiles.map { String(format: "%.2f", $0) } ?? "")
         _notes = State(initialValue: existing?.notes ?? "")
     }
@@ -737,8 +780,60 @@ private struct HikeEditorSheet: View {
                     DatePicker("Date", selection: $date, displayedComponents: .date)
                     TextField("Place or trail", text: $location)
                         .textInputAutocapitalization(.words)
+                        .onChange(of: location) { _, newValue in
+                            let clean = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                            locationID = journal.locations.first {
+                                $0.name.caseInsensitiveCompare(clean) == .orderedSame
+                            }?.id
+                        }
+                    if existing == nil || !journal.locations.isEmpty {
+                        let matches = journal.locations.filter {
+                            location.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                || $0.name.localizedCaseInsensitiveContains(location)
+                        }.prefix(8)
+                        if !matches.isEmpty {
+                            Text("Saved places")
+                                .font(HikeJournalTheme.label(12))
+                                .foregroundStyle(HikeJournalTheme.trailText)
+                            ForEach(Array(matches)) { savedLocation in
+                                Button {
+                                    location = savedLocation.name
+                                    locationID = savedLocation.id
+                                } label: {
+                                    HStack(spacing: 10) {
+                                        Image(systemName: "mappin.and.ellipse")
+                                            .foregroundStyle(HikeJournalTheme.trailText)
+                                        Text(savedLocation.name)
+                                        Spacer()
+                                        if locationID == savedLocation.id {
+                                            Image(systemName: "checkmark")
+                                                .foregroundStyle(HikeJournalTheme.moss)
+                                        }
+                                    }
+                                }
+                                .foregroundStyle(HikeJournalTheme.ink)
+                            }
+                        }
+                    }
                     TextField("Distance in miles", text: $distance)
                         .keyboardType(.decimalPad)
+                }
+                if existing == nil {
+                    Section("Route") {
+                        Button {
+                            showingRouteImporter = true
+                        } label: {
+                            Label(
+                                routeURL == nil ? "Add TCX route (optional)" : "TCX route selected",
+                                systemImage: routeURL == nil ? "square.and.arrow.down" : "checkmark.circle"
+                            )
+                        }
+                        Text(routeURL == nil
+                             ? "Import a .tcx or .tcx.txt file to draw this hike on the map."
+                             : "The route will upload with this hike after you save it.")
+                            .font(HikeJournalTheme.body(13))
+                            .foregroundStyle(HikeJournalTheme.inkMuted)
+                    }
                 }
                 Section("Notes") {
                     TextField("What do you want to remember?", text: $notes, axis: .vertical)
@@ -757,10 +852,28 @@ private struct HikeEditorSheet: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button(saving ? "Saving…" : "Save") { saveDraft() }
                         .disabled(saving || title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                }
+            }
+            .task {
+                if journal.locations.isEmpty {
+                    await journal.loadLocations(state: "FL")
+                }
+            }
+            .fileImporter(
+                isPresented: $showingRouteImporter,
+                allowedContentTypes: [UTType(filenameExtension: "tcx") ?? .xml, .xml],
+                allowsMultipleSelection: false
+            ) { result in
+                switch result {
+                case .success(let urls): routeURL = urls.first
+                case .failure(let error):
+                    if (error as NSError).code != NSUserCancelledError {
+                        errorMessage = error.localizedDescription
+                    }
                 }
             }
         }
-    }
 
     private func saveDraft() {
         let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -778,10 +891,10 @@ private struct HikeEditorSheet: View {
             distanceMiles: miles,
             locationName: location.trimmingCharacters(in: .whitespacesAndNewlines),
             notes: notes.trimmingCharacters(in: .whitespacesAndNewlines),
-            locationId: existing?.primaryLocationId
+            locationId: locationID
         )
         Task {
-            let saved = await save(draft)
+            let saved = await save(draft, routeURL)
             saving = false
             if saved { dismiss() }
             else { errorMessage = "The journal could not be queued. Your existing pages are unchanged." }

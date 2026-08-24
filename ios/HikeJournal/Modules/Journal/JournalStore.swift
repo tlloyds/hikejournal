@@ -868,7 +868,18 @@ final class JournalStore: ObservableObject {
            !cachedNeedsRefresh,
            let resource = try? await context.database.cachedResource(namespace: Cache.placeProfile, key: cacheKey),
            resource.isFresh(at: Date()) {
-            return LoadResult(value: cached, fromCache: true)
+            do {
+                let conditions = try await api.placeConditions(
+                    id: id,
+                    riverDays: normalizedRiverDays,
+                    followedGaugeIDs: normalizedGaugeIDs
+                )
+                let value = cached.withConditions(conditions)
+                try await cache(value, database: context.database, namespace: Cache.placeProfile, key: cacheKey, lifetime: 15 * 60)
+                return LoadResult(value: value, fromCache: false)
+            } catch {
+                return LoadResult(value: cached, fromCache: true)
+            }
         }
         do {
             async let profileRequest = api.placeProfile(id: id)
@@ -880,7 +891,7 @@ final class JournalStore: ObservableObject {
             let base = try await profileRequest
             let conditions = await conditionsRequest
             let value = conditions.map(base.withConditions) ?? base
-            try await cache(value, database: context.database, namespace: Cache.placeProfile, key: cacheKey, lifetime: 30 * 60)
+            try await cache(value, database: context.database, namespace: Cache.placeProfile, key: cacheKey, lifetime: 15 * 60)
             return LoadResult(value: value, fromCache: false)
         } catch {
             if let cached { return LoadResult(value: cached, fromCache: true) }

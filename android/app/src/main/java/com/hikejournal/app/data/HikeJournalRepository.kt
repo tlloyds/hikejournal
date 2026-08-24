@@ -245,22 +245,29 @@ class HikeJournalRepository(context: Context) {
         }
         val profile = baseResult.value.withFallbackCoordinates(fallbackLocation)
         val enriched = coroutineScope {
-            val forecastRequest = async {
-                val latitude = profile.latitude ?: return@async null
-                val longitude = profile.longitude ?: return@async null
-                runCatching { outdoorConditions.loadForecast(latitude, longitude) }.getOrNull()
+            val followedGaugeIDs = riverGaugePreferences.gauges()
+                .filter(RiverGauge::enabled)
+                .map(RiverGauge::siteId)
+            val conditionsRequest = async {
+                runCatching {
+                    parsePlaceConditions(
+                        api.getPlaceConditionsJson(
+                            locationId = locationId,
+                            riverPeriodDays = riverPeriodDays,
+                            followedGaugeIDs = followedGaugeIDs,
+                        ),
+                    )
+                }.getOrNull()
             }
-            val riverRequest = async { loadRiverGauges(profile, riverPeriodDays) }
-            val forecast = forecastRequest.await()
-            val rivers = riverRequest.await()
+            val conditions = conditionsRequest.await()
             profile.copy(
-                forecast = forecast,
-                riverGauges = rivers,
+                forecast = conditions?.forecast,
+                riverGauges = conditions?.riverGauges.orEmpty(),
                 liveConditionsNotice = when {
                     profile.latitude == null || profile.longitude == null ->
                         "Add coordinates to this saved place to see its live weather forecast."
-                    forecast == null -> "Live weather is temporarily unavailable."
-                    else -> null
+                    conditions == null -> "Live weather is temporarily unavailable."
+                    else -> conditions.liveConditionsNotice
                 },
             )
         }

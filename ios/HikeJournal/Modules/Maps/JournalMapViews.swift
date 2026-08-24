@@ -70,6 +70,13 @@ struct JournalMapWorkspaceView: View {
                 MapPointInspector(selection: selection) {
                     openHike(selection.hikeID)
                 }
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+            }
+            .onAppear {
+                // Returning from a journal detail must restore the global map
+                // dataset; a detail load should never become the map's filter.
+                Task { await refresh() }
             }
         }
     }

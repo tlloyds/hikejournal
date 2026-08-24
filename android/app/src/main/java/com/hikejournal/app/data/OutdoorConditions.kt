@@ -200,6 +200,46 @@ internal fun parsePlaceForecast(json: String): PlaceForecast {
     return forecast.copy(planningNotes = buildWeatherPlanningNotes(forecast))
 }
 
+internal fun parsePlaceConditions(json: String): PlaceConditionsResult {
+    val root = JSONObject(json)
+    val forecast = root.optJSONObject("forecast")?.let { parsePlaceForecast(it.toString()) }
+    val riverGauges = root.optJSONArray("river_gauges") ?: JSONArray()
+    return PlaceConditionsResult(
+        forecast = forecast,
+        riverGauges = List(riverGauges.length()) { index ->
+            parseServerRiverGaugeSeries(riverGauges.getJSONObject(index))
+        },
+        liveConditionsNotice = root.stringOrNull("live_conditions_notice"),
+    )
+}
+
+private fun parseServerRiverGaugeSeries(item: JSONObject): RiverGaugeSeries {
+    val gaugeJSON = item.optJSONObject("gauge") ?: JSONObject()
+    val gauge = RiverGauge(
+        siteId = gaugeJSON.optString("site_id"),
+        name = gaugeJSON.optString("name", "USGS water gauge"),
+        latitude = gaugeJSON.numberOrNull("lat") ?: 0.0,
+        longitude = gaugeJSON.numberOrNull("lng") ?: 0.0,
+        enabled = gaugeJSON.optBoolean("enabled"),
+        suggested = gaugeJSON.optBoolean("suggested"),
+    )
+    val readingsJSON = item.optJSONArray("readings") ?: JSONArray()
+    return RiverGaugeSeries(
+        gauge = gauge,
+        periodDays = item.optInt("period_days", 7),
+        readings = List(readingsJSON.length()) { index ->
+            val reading = readingsJSON.getJSONObject(index)
+            RiverGaugeReading(
+                observedAt = reading.optString("observed_at"),
+                heightFeet = reading.numberOrNull("height_feet") ?: 0.0,
+                provisional = reading.optBoolean("provisional"),
+            )
+        },
+        distanceMiles = item.numberOrNull("distance_miles"),
+        errorMessage = item.stringOrNull("error_message"),
+    )
+}
+
 internal fun buildWeatherPlanningNotes(forecast: PlaceForecast): List<String> {
     val today = forecast.days.firstOrNull()
     val notes = mutableListOf<String>()

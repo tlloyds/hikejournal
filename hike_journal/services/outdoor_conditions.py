@@ -289,13 +289,13 @@ class OutdoorConditionsService:
         self.request_get = request_get
 
     def forecast(self, latitude: float, longitude: float) -> dict[str, Any]:
-        key = self._cache_key("forecast", round(latitude, 3), round(longitude, 3))
+        key = self._cache_key("forecast", round(latitude, 6), round(longitude, 6))
         cached = self._fresh_or_stale(key)
         if cached[0] is not None:
             return cached[0]
         params: dict[str, Any] = {
-            "latitude": round(latitude, 4),
-            "longitude": round(longitude, 4),
+            "latitude": round(latitude, 6),
+            "longitude": round(longitude, 6),
             "timezone": "auto",
             "forecast_days": 7,
             "temperature_unit": "fahrenheit",

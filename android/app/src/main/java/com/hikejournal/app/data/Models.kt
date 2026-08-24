@@ -76,6 +76,12 @@ data class PlaceForecast(
     val planningNotes: List<String>,
 )
 
+data class PlaceConditionsResult(
+    val forecast: PlaceForecast?,
+    val riverGauges: List<RiverGaugeSeries>,
+    val liveConditionsNotice: String?,
+)
+
 data class RiverGauge(
     val siteId: String,
     val name: String,

@@ -134,6 +134,24 @@ class HikeJournalApi(private val context: Context) {
     suspend fun getPlaceProfileJson(locationId: String): String =
         request("/v1/places/${locationId.urlEncoded()}/profile")
 
+    suspend fun getPlaceConditionsJson(
+        locationId: String,
+        riverPeriodDays: Int,
+        followedGaugeIDs: List<String>,
+    ): String {
+        val params = buildString {
+            append("/v1/places/${locationId.urlEncoded()}/conditions?river_days=")
+            append(if (riverPeriodDays >= 30) "30" else "7")
+            followedGaugeIDs
+                .map(String::trim)
+                .filter(String::isNotEmpty)
+                .distinct()
+                .take(20)
+                .forEach { append("&followed_gauge_id="); append(it.urlEncoded()) }
+        }
+        return request(params)
+    }
+
     suspend fun getFieldBriefingJson(
         locationId: String,
         targetDate: String,
