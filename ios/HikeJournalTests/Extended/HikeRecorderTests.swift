@@ -118,6 +118,44 @@ final class HikeRecorderTests: XCTestCase {
         let points = try await fixture.database.trackingPoints(sessionID: "session")
         XCTAssertTrue(points.isEmpty)
     }
+
+    func testConcurrentAcceptedFixesAreSerializedBeforeSQLiteCommit() async throws {
+        let fixture = try RecorderFixture()
+        _ = try await fixture.recorder.start()
+
+        let firstTask = Task {
+            try await fixture.recorder.ingest(
+                LocationSample(
+                    latitude: 42,
+                    longitude: -71,
+                    altitudeMeters: 100,
+                    horizontalAccuracyMeters: 5,
+                    timestamp: Date(timeIntervalSince1970: 100),
+                    monotonicTimestampNanoseconds: 10_000_000_000
+                )
+            )
+        }
+        await Task.yield()
+        let secondTask = Task {
+            try await fixture.recorder.ingest(
+                LocationSample(
+                    latitude: 42.0001,
+                    longitude: -71,
+                    altitudeMeters: 101,
+                    horizontalAccuracyMeters: 5,
+                    timestamp: Date(timeIntervalSince1970: 105),
+                    monotonicTimestampNanoseconds: 15_000_000_000
+                )
+            )
+        }
+
+        let first = try await firstTask.value
+        let second = try await secondTask.value
+        let points = try await fixture.database.trackingPoints(sessionID: "session")
+        XCTAssertEqual(first.snapshot.pointCount, 1)
+        XCTAssertEqual(second.snapshot.pointCount, 2)
+        XCTAssertEqual(points.map(\.sequence), [0, 1])
+    }
 }
 
 private final class RecorderFixture {

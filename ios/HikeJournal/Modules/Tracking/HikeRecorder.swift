@@ -41,6 +41,8 @@ actor HikeRecorder {
     private let decoder: JSONDecoder
     private var session: TrackingSession?
     private var announcements = WholeMileAnnouncementScheduler()
+    private var mutationInProgress = false
+    private var mutationWaiters: [CheckedContinuation<Void, Never>] = []
 
     init(
         database: OfflineDatabase,
@@ -57,6 +59,9 @@ actor HikeRecorder {
     }
 
     func restoreInterruptedRecording() async throws -> TrackingSnapshot? {
+        await acquireMutationLock()
+        defer { releaseMutationLock() }
+
         guard let record = try await database.activeTrackingSession() else {
             session = nil
             return nil
@@ -79,6 +84,9 @@ actor HikeRecorder {
     }
 
     func start() async throws -> TrackingSnapshot {
+        await acquireMutationLock()
+        defer { releaseMutationLock() }
+
         guard try await database.activeTrackingSession() == nil, session == nil else {
             throw HikeRecorderError.recordingAlreadyActive
         }
@@ -102,6 +110,9 @@ actor HikeRecorder {
         _ sample: LocationSample,
         receivedAt: Date? = nil
     ) async throws -> RecorderUpdate {
+        await acquireMutationLock()
+        defer { releaseMutationLock() }
+
         guard var current = session else { throw HikeRecorderError.noActiveRecording }
         let reading = clock.read()
         let result = current.ingest(
@@ -147,6 +158,9 @@ actor HikeRecorder {
     }
 
     func pause() async throws -> TrackingSnapshot {
+        await acquireMutationLock()
+        defer { releaseMutationLock() }
+
         guard var current = session else { throw HikeRecorderError.noActiveRecording }
         let reading = clock.read()
         try current.pause(at: reading)
@@ -156,6 +170,9 @@ actor HikeRecorder {
     }
 
     func resume() async throws -> TrackingSnapshot {
+        await acquireMutationLock()
+        defer { releaseMutationLock() }
+
         guard var current = session else { throw HikeRecorderError.noActiveRecording }
         let reading = clock.read()
         try current.resume(at: reading)
@@ -168,6 +185,9 @@ actor HikeRecorder {
         type: FieldMarkType,
         note: String = ""
     ) async throws -> FieldMark {
+        await acquireMutationLock()
+        defer { releaseMutationLock() }
+
         guard let current = session else { throw HikeRecorderError.noActiveRecording }
         let reading = clock.read()
         let mark = try current.makeFieldMark(
@@ -218,6 +238,9 @@ actor HikeRecorder {
     }
 
     func finish(title: String, notes: String = "") async throws -> FinishedRecording {
+        await acquireMutationLock()
+        defer { releaseMutationLock() }
+
         guard var current = session else { throw HikeRecorderError.noActiveRecording }
         var reading = clock.read()
         if current.status == .recording {
@@ -258,12 +281,38 @@ actor HikeRecorder {
     }
 
     func discard() async throws {
+        await acquireMutationLock()
+        defer { releaseMutationLock() }
+
         guard let current = session else { throw HikeRecorderError.noActiveRecording }
         try await database.discardActiveRecording(
             hikeID: current.hikeID,
             sessionID: current.sessionID
         )
         session = nil
+    }
+
+    /// Swift actors are re-entrant while awaiting another actor. A location
+    /// callback can therefore enter while the previous callback is committing
+    /// its point to SQLite, before `session` has been advanced. Serialize all
+    /// mutations that depend on the in-memory session so each durable point
+    /// gets exactly one sequence number and Save cannot overtake a GPS write.
+    private func acquireMutationLock() async {
+        guard mutationInProgress else {
+            mutationInProgress = true
+            return
+        }
+        await withCheckedContinuation { continuation in
+            mutationWaiters.append(continuation)
+        }
+    }
+
+    private func releaseMutationLock() {
+        guard !mutationWaiters.isEmpty else {
+            mutationInProgress = false
+            return
+        }
+        mutationWaiters.removeFirst().resume()
     }
 
     private func persistenceRecord(_ session: TrackingSession) throws -> TrackingSessionRecord {
