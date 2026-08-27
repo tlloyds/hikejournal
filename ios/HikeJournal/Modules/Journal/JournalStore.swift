@@ -132,7 +132,19 @@ final class JournalStore: ObservableObject {
             key: id,
             requireFresh: false
         )
-        if let cached { details[id] = cached }
+        let pendingOperations = (try? await context.database.operations(forHikeID: id)) ?? []
+        let pendingDisplay = applyingPendingOperations(
+            to: cached.map { [$0] } ?? [],
+            operations: pendingOperations
+        )
+        if let pending = pendingDisplay.first(where: { $0.id == id }) {
+            details[id] = pending
+        } else if let cached {
+            details[id] = cached
+        }
+        let hasPendingCreate = pendingOperations.contains {
+            $0.kind == .createHike && $0.entityID == id
+        }
         let preservedWeather = details[id]?.weather ?? hikes.first { $0.id == id }?.weather
         if !force,
            let resource = try? await context.database.cachedResource(namespace: Cache.hike, key: id),
@@ -161,18 +173,24 @@ final class JournalStore: ObservableObject {
             let mergedDetail = detail.weather == nil
                 ? (preservedWeather.map { detail.withWeather($0) } ?? detail)
                 : detail
+            let displayedDetail = applyingPendingOperations(
+                to: [mergedDetail],
+                operations: pendingOperations
+            ).first ?? mergedDetail
             try await cache(
-                mergedDetail,
+                displayedDetail,
                 database: context.database,
                 namespace: Cache.hike,
                 key: id,
                 lifetime: 10 * 60
             )
-            details[id] = mergedDetail
+            details[id] = displayedDetail
         } catch is CancellationError {
             return
         } catch {
-            if cached != nil {
+            if hasPendingCreate {
+                statusMessage = "This outing is still syncing from this iPhone."
+            } else if cached != nil {
                 statusMessage = "This journal is offline; showing its last saved copy."
             } else {
                 errorMessage = readable(error)
@@ -1489,6 +1507,13 @@ final class JournalStore: ObservableObject {
         database: OfflineDatabase
     ) async -> [Hike] {
         guard let operations = try? await database.operations() else { return remote }
+        return applyingPendingOperations(to: remote, operations: operations)
+    }
+
+    private func applyingPendingOperations(
+        to remote: [Hike],
+        operations: [PendingOperation]
+    ) -> [Hike] {
         var result = remote
         for operation in operations.sorted(by: { $0.createdAt < $1.createdAt }) {
             switch operation.kind {
@@ -1508,6 +1533,24 @@ final class JournalStore: ObservableObject {
                 }
             case .deleteHike:
                 result.removeAll { $0.id == operation.entityID }
+            case .uploadRoute:
+                guard let hikeID = operation.parentID else { break }
+                result = result.map { hike in
+                    guard hike.id == hikeID,
+                          let payload = try? HikeJournalDomainJSON.decode(
+                              HikeRoutePayload.self,
+                              from: operation.payload
+                          ) else {
+                        return hike
+                    }
+                    return hike.withDetails(
+                        photos: hike.photos,
+                        routeSegments: payload.routeSegments,
+                        durationSeconds: payload.durationSeconds ?? hike.durationSeconds,
+                        routeStartedAt: payload.startedAt ?? hike.routeStartedAt,
+                        distanceMiles: payload.distanceMiles ?? hike.distanceMiles
+                    )
+                }
             default:
                 break
             }

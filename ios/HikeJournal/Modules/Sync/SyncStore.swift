@@ -22,6 +22,8 @@ final class SyncStore: ObservableObject {
     private var phaseConfigurationTask: Task<Void, Never>?
     private var requestedPhase: AuthenticationPhase?
     private var drainTask: Task<SyncDrainResult, Error>?
+    private var drainRequested = false
+    private var requestedPrioritizedPhotoID: String?
     private var currentAccountID: String?
     private var accountGeneration = UUID()
     private var database: OfflineDatabase?
@@ -246,6 +248,8 @@ final class SyncStore: ObservableObject {
         database = nil
         let activeDrain = drainTask
         drainTask = nil
+        drainRequested = false
+        requestedPrioritizedPhotoID = nil
         activeDrain?.cancel()
         _ = await activeDrain?.result
         await offlineStores?.close()
@@ -259,11 +263,35 @@ final class SyncStore: ObservableObject {
     @discardableResult
     private func drain(prioritizedPhotoID: String?) async -> Bool {
         guard let coordinator, currentAccountID != nil else { return false }
+        drainRequested = true
+        if let prioritizedPhotoID {
+            requestedPrioritizedPhotoID = prioritizedPhotoID
+        }
         if drainTask != nil { return true }
 
         let generation = accountGeneration
         isDraining = true
         errorMessage = nil
+        var succeeded = true
+        while drainRequested, generation == accountGeneration {
+            drainRequested = false
+            let nextPrioritizedPhotoID = requestedPrioritizedPhotoID
+            requestedPrioritizedPhotoID = nil
+            succeeded = await drainOnce(
+                coordinator: coordinator,
+                generation: generation,
+                prioritizedPhotoID: nextPrioritizedPhotoID
+            )
+            if !succeeded { break }
+        }
+        return succeeded
+    }
+
+    private func drainOnce(
+        coordinator: SyncCoordinator,
+        generation: UUID,
+        prioritizedPhotoID: String?
+    ) async -> Bool {
         statusMessage = "Syncing journal changes…"
         let task = Task {
             try await coordinator.drain(prioritizedPhotoID: prioritizedPhotoID)
@@ -273,7 +301,7 @@ final class SyncStore: ObservableObject {
             let result = try await task.value
             guard generation == accountGeneration else { return false }
             drainTask = nil
-            isDraining = false
+            isDraining = drainRequested
             progress = result.progress
             schedulingHint = result.schedulingHint
             statusMessage = message(for: result.schedulingHint)

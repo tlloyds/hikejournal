@@ -1,10 +1,28 @@
 import Foundation
+import CoreLocation
 import HikeJournalPersistence
 import HikeJournalTracking
 import XCTest
 @testable import HikeJournal
 
 final class HikeRecorderTests: XCTestCase {
+    func testTransientLocationAcquisitionFailureDoesNotPauseRecording() {
+        XCTAssertFalse(
+            RecordingLocationController.shouldReportLocationError(CLError(.locationUnknown))
+        )
+        XCTAssertFalse(
+            RecordingLocationController.shouldReportLocationError(
+                NSError(
+                    domain: kCLErrorDomain,
+                    code: CLError.locationUnknown.rawValue
+                )
+            )
+        )
+        XCTAssertTrue(
+            RecordingLocationController.shouldReportLocationError(CLError(.denied))
+        )
+    }
+
     func testAcceptedFixesAreDurableAndFinalizationQueuesCreateBeforeRoute() async throws {
         let fixture = try RecorderFixture()
         let snapshot = try await fixture.recorder.start()

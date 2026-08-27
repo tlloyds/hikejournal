@@ -71,6 +71,14 @@ final class RecordingLocationController: NSObject, RecordingLocationControlling 
         manager.allowsBackgroundLocationUpdates = false
         manager.showsBackgroundLocationIndicator = false
     }
+
+    nonisolated static func shouldReportLocationError(_ error: Error) -> Bool {
+        if let locationError = error as? CLError, locationError.code == .locationUnknown {
+            return false
+        }
+        let nsError = error as NSError
+        return !(nsError.domain == kCLErrorDomain && nsError.code == CLError.locationUnknown.rawValue)
+    }
 }
 
 extension RecordingLocationController: @preconcurrency CLLocationManagerDelegate {
@@ -82,6 +90,9 @@ extension RecordingLocationController: @preconcurrency CLLocationManagerDelegate
     }
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        // iOS uses kCLErrorLocationUnknown while the receiver is acquiring a
+        // fix. It is a transient status, not a reason to pause a recording.
+        guard Self.shouldReportLocationError(error) else { return }
         onError?(error)
     }
 

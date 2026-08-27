@@ -177,7 +177,15 @@ final class AppModel: ObservableObject {
             .removeDuplicates()
             .sink { [weak self] phase in
                 guard phase == .finished else { return }
-                Task { await self?.sync.workWasQueued() }
+                let hikeID = self?.recording.lastFinishedRecording?.snapshot.hikeID
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    await self.sync.workWasQueued()
+                    await self.journal.refreshHikes()
+                    if let hikeID {
+                        await self.journal.loadHike(id: hikeID, force: true)
+                    }
+                }
             }
     }
 
