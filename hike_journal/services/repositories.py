@@ -187,6 +187,32 @@ class HikeJournalRepository:
             )
             return response.data or []
 
+    def list_hikes_by_ids(self, hike_ids: list[str]) -> list[dict[str, Any]]:
+        normalized_ids = list(dict.fromkeys(str(hike_id) for hike_id in hike_ids if str(hike_id).strip()))
+        if not normalized_ids:
+            return []
+        try:
+            response = (
+                self.client.table("hikes")
+                .select("*")
+                .in_("id", normalized_ids)
+                .order("is_archived")
+                .order("hike_date", desc=True)
+                .order("created_at", desc=True)
+                .execute()
+            )
+            return self.decorate_media_rows(response.data or [])
+        except Exception:
+            response = (
+                self.client.table("hikes")
+                .select("*")
+                .in_("id", normalized_ids)
+                .order("hike_date", desc=True)
+                .order("created_at", desc=True)
+                .execute()
+            )
+            return response.data or []
+
     def resolve_google_user_id(self, google_subject: str | None) -> str | None:
         """Resolve the canonical account ID for a Streamlit Google session.
 
@@ -319,6 +345,19 @@ class HikeJournalRepository:
         try:
             return self._select_all_rows(
                 lambda: self.client.table("hike_location_tags").select("*").order("created_at")
+            )
+        except Exception:
+            return []
+
+    def list_hike_location_tags_for_location(self, location_id: str) -> list[dict[str, Any]]:
+        try:
+            return self._select_all_rows(
+                lambda: (
+                    self.client.table("hike_location_tags")
+                    .select("*")
+                    .eq("location_id", location_id)
+                    .order("created_at")
+                )
             )
         except Exception:
             return []
@@ -750,6 +789,20 @@ class HikeJournalRepository:
                 self.client.table("photos")
                 .select("*")
                 .eq("hike_id", hike_id)
+                .order("taken_at")
+                .order("created_at")
+            )
+        )
+
+    def list_photos_for_hike_ids(self, hike_ids: list[str]) -> list[dict[str, Any]]:
+        normalized_ids = list(dict.fromkeys(str(hike_id) for hike_id in hike_ids if str(hike_id).strip()))
+        if not normalized_ids:
+            return []
+        return self._select_all_rows(
+            lambda: (
+                self.client.table("photos")
+                .select("*")
+                .in_("hike_id", normalized_ids)
                 .order("taken_at")
                 .order("created_at")
             )
@@ -1283,9 +1336,15 @@ class HikeJournalRepository:
         self,
         *,
         hike_id: str | None = None,
+        hike_ids: list[str] | None = None,
         photo_ids: list[str] | None = None,
         status: str | None = None,
     ) -> list[dict[str, Any]]:
+        normalized_hike_ids = None
+        if hike_ids is not None:
+            normalized_hike_ids = [str(hike_id) for hike_id in hike_ids if str(hike_id).strip()]
+            if not normalized_hike_ids:
+                return []
         normalized_ids = None
         if photo_ids is not None:
             normalized_ids = [str(photo_id) for photo_id in photo_ids if str(photo_id).strip()]
@@ -1298,6 +1357,8 @@ class HikeJournalRepository:
             )
             if hike_id:
                 query = query.eq("hike_id", hike_id)
+            if normalized_hike_ids is not None:
+                query = query.in_("hike_id", normalized_hike_ids)
             if status:
                 query = query.eq("status", status)
             if chunk_ids is not None:
@@ -1318,6 +1379,8 @@ class HikeJournalRepository:
                 )
                 if hike_id:
                     query = query.eq("hike_id", hike_id)
+                if normalized_hike_ids is not None:
+                    query = query.in_("hike_id", normalized_hike_ids)
                 if status:
                     query = query.eq("status", status)
                 if chunk_ids is not None:

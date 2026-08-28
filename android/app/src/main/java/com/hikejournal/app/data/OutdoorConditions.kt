@@ -484,7 +484,7 @@ private fun JSONObject.numberOrNull(name: String): Double? =
     if (!has(name) || isNull(name)) null else optDouble(name).takeIf(Double::isFinite)
 
 private fun JSONObject.stringOrNull(name: String): String? =
-    optString(name).trim().takeIf(String::isNotBlank)
+    if (!has(name) || isNull(name)) null else optString(name).trim().takeIf(String::isNotBlank)
 
 private fun JSONObject.arrayNumber(name: String, index: Int): Double? =
     optJSONArray(name)?.let { array ->

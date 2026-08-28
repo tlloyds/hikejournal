@@ -41,6 +41,7 @@ from hike_journal.domain.locations import (
     canonical_location_id_map,
     canonicalize_hike_locations,
     load_seed_hike_locations,
+    slugify_location_name,
     suggest_location_ids_for_hike,
 )
 from hike_journal.domain.longitudinal import (
@@ -3197,10 +3198,28 @@ def _analytics_hikes(svc: Services) -> list[dict[str, Any]]:
     return results
 
 
-@app.get("/v1/places/{location_id}/profile", dependencies=[Depends(require_mobile_key)])
-def get_place_profile(location_id: str) -> dict[str, Any]:
-    svc = get_services()
-    locations = _enrich_library_location_coordinates(_visible_hike_locations(svc.repository))
+def _resolve_visible_place_location(
+    svc: Services,
+    location_id: str,
+) -> tuple[dict[str, Any] | None, str]:
+    """Resolve one place without scanning the entire location library."""
+    repository = svc.repository
+    get_location = getattr(repository, "get_hike_location", None)
+    direct = get_location(location_id) if callable(get_location) else None
+    if direct:
+        context = _user_context()
+        owner_subject = str(direct.get("owner_subject") or "").strip()
+        owner_email = str(direct.get("owner_email") or "").strip()
+        raw_slug = str(direct.get("slug") or "").strip() or slugify_location_name(
+            str(direct.get("name") or "")
+        )
+        if (
+            (not owner_subject and not owner_email) or user_owns_record(direct, context)
+        ) and canonical_location_slug(direct) == raw_slug:
+            enriched = _enrich_library_location_coordinates([direct])
+            return (enriched[0] if enriched else direct), str(direct.get("id") or location_id)
+
+    locations = _visible_hike_locations(repository)
     canonical_id = canonical_location_id_map(locations).get(location_id, location_id)
     location = next(
         (
@@ -3210,14 +3229,118 @@ def get_place_profile(location_id: str) -> dict[str, Any]:
         ),
         None,
     )
+    return location, canonical_id
+
+
+def _place_profile_data(
+    svc: Services,
+    canonical_id: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Load only the hikes, photos, and observations belonging to one place."""
+    repository = svc.repository
+    context = _user_context()
+    list_tags = getattr(repository, "list_hike_location_tags_for_location", None)
+    list_hikes_by_ids = getattr(repository, "list_hikes_by_ids", None)
+
+    if callable(list_tags) and callable(list_hikes_by_ids):
+        tags = list_tags(canonical_id)
+        hike_ids = list(
+            dict.fromkeys(
+                str(tag.get("hike_id") or "")
+                for tag in tags
+                if str(tag.get("hike_id") or "").strip()
+            )
+        )
+        place_hikes = filter_hikes_for_user(list_hikes_by_ids(hike_ids), context)
+    else:
+        place_hikes = [
+            hike
+            for hike in _visible_hikes(repository)
+            if any(str(tag.get("id") or "") == canonical_id for tag in hike.get("location_tags") or [])
+        ]
+
+    if not place_hikes:
+        return [], []
+
+    place_hike_ids = [str(hike.get("id") or "") for hike in place_hikes if hike.get("id")]
+    route_by_hike = {
+        str(item.get("hike_id") or ""): item
+        for item in repository.list_hike_route_imports()
+        if item.get("hike_id")
+    }
+
+    list_photos_by_hike = getattr(repository, "list_photos_for_hike_ids", None)
+    if callable(list_photos_by_hike):
+        photos = list_photos_by_hike(place_hike_ids)
+    else:
+        photos = [
+            photo
+            for hike_id in place_hike_ids
+            for photo in repository.list_photos(hike_id)
+        ]
+    photos_by_hike: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    photos_by_id: dict[str, dict[str, Any]] = {}
+    for photo in photos:
+        hike_id = str(photo.get("hike_id") or "")
+        photo_id = str(photo.get("id") or "")
+        photos_by_hike[hike_id].append(photo)
+        if photo_id:
+            photos_by_id[photo_id] = photo
+
+    analytics_hikes = []
+    for hike in place_hikes:
+        hike_id = str(hike.get("id") or "")
+        analytics_hikes.append(
+            {
+                **hike,
+                "duration_seconds": route_by_hike.get(hike_id, {}).get("duration_seconds"),
+                "cover_url": str(
+                    _hike_payload(hike, photos=photos_by_hike.get(hike_id, [])).get("cover_url") or ""
+                ),
+            }
+        )
+
+    list_observations = getattr(repository, "list_lightweight_observations", None)
+    if callable(list_observations):
+        try:
+            observations = list_observations(hike_ids=place_hike_ids, status="confirmed")
+        except TypeError:
+            observations = [
+                observation
+                for hike_id in place_hike_ids
+                for observation in list_observations(hike_id=hike_id, status="confirmed")
+            ]
+    else:
+        observations = []
+
+    visible_hike_ids = set(place_hike_ids)
+    hikes_by_id = {str(hike.get("id") or ""): hike for hike in analytics_hikes}
+    dated_observations = []
+    for observation in observations:
+        if not record_visible_for_user(observation, visible_hike_ids, context):
+            continue
+        photo = photos_by_id.get(str(observation.get("photo_id") or ""), {})
+        hike = hikes_by_id.get(str(observation.get("hike_id") or ""), {})
+        dated_observations.append(
+            {
+                **observation,
+                "observed_on": observation.get("observed_on")
+                or _observed_on(photo, hike),
+                "hike_date": str(hike.get("hike_date") or ""),
+                "reference_photo_url": str(photo.get("public_url") or ""),
+            }
+        )
+    return analytics_hikes, dated_observations
+
+
+@app.get("/v1/places/{location_id}/profile", dependencies=[Depends(require_mobile_key)])
+def get_place_profile(location_id: str) -> dict[str, Any]:
+    svc = get_services()
+    location, canonical_id = _resolve_visible_place_location(svc, location_id)
     if location is None:
         raise HTTPException(status_code=404, detail="Place not found.")
-    hikes = [
-        hike
-        for hike in _analytics_hikes(svc)
-        if any(str(tag.get("id") or "") == canonical_id for tag in hike.get("location_tags") or [])
-    ]
-    return build_place_profile(location, hikes, _dated_visible_observations(svc))
+    hikes, observations = _place_profile_data(svc, canonical_id)
+    return build_place_profile(location, hikes, observations)
 
 
 @app.get(
@@ -3231,16 +3354,7 @@ def get_place_conditions(
 ) -> dict[str, Any]:
     """Return shared, short-lived forecast and USGS planning conditions."""
     svc = get_services()
-    locations = _enrich_library_location_coordinates(_visible_hike_locations(svc.repository))
-    canonical_id = canonical_location_id_map(locations).get(location_id, location_id)
-    location = next(
-        (
-            item
-            for item in canonicalize_hike_locations(locations)
-            if str(item.get("id") or "") == canonical_id
-        ),
-        None,
-    )
+    location, _ = _resolve_visible_place_location(svc, location_id)
     if location is None:
         raise HTTPException(status_code=404, detail="Place not found.")
     latitude = _validate_picker_coordinate(

@@ -229,7 +229,23 @@ class HikeJournalRepository(context: Context) {
         locationId: String,
         fallbackLocation: HikeLocation? = null,
         riverPeriodDays: Int = 7,
-    ): LoadResult<PlaceProfile> {
+    ): LoadResult<PlaceProfile> = coroutineScope {
+        val followedGaugeIDs = riverGaugePreferences.gauges()
+            .filter(RiverGauge::enabled)
+            .map(RiverGauge::siteId)
+        // The profile and live conditions are independent resources. Start both
+        // immediately so a large journal cannot delay the weather and USGS data.
+        val conditionsRequest = async {
+            runCatching {
+                parsePlaceConditions(
+                    api.getPlaceConditionsJson(
+                        locationId = locationId,
+                        riverPeriodDays = riverPeriodDays,
+                        followedGaugeIDs = followedGaugeIDs,
+                    ),
+                )
+            }.getOrNull()
+        }
         val baseResult = runCatching {
             loadWithCache(
                 cacheFile = File(cacheDirectory, "place-${locationId.hashCode()}.json"),
@@ -244,23 +260,9 @@ class HikeJournalRepository(context: Context) {
             )
         }
         val profile = baseResult.value.withFallbackCoordinates(fallbackLocation)
-        val enriched = coroutineScope {
-            val followedGaugeIDs = riverGaugePreferences.gauges()
-                .filter(RiverGauge::enabled)
-                .map(RiverGauge::siteId)
-            val conditionsRequest = async {
-                runCatching {
-                    parsePlaceConditions(
-                        api.getPlaceConditionsJson(
-                            locationId = locationId,
-                            riverPeriodDays = riverPeriodDays,
-                            followedGaugeIDs = followedGaugeIDs,
-                        ),
-                    )
-                }.getOrNull()
-            }
-            val conditions = conditionsRequest.await()
-            profile.copy(
+        val conditions = conditionsRequest.await()
+        baseResult.copy(
+            value = profile.copy(
                 forecast = conditions?.forecast,
                 riverGauges = conditions?.riverGauges.orEmpty(),
                 liveConditionsNotice = when {
@@ -269,9 +271,8 @@ class HikeJournalRepository(context: Context) {
                     conditions == null -> "Live weather is temporarily unavailable."
                     else -> conditions.liveConditionsNotice
                 },
-            )
-        }
-        return baseResult.copy(value = enriched)
+            ),
+        )
     }
 
     suspend fun loadRiverGauges(profile: PlaceProfile, riverPeriodDays: Int): List<RiverGaugeSeries> =

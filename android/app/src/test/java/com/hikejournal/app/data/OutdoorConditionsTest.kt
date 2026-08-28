@@ -2,6 +2,7 @@ package com.hikejournal.app.data
 
 import java.time.Instant
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -48,7 +49,7 @@ class OutdoorConditionsTest {
               "river_gauges":[{
                 "gauge":{"site_id":"USGS-02233484","name":"Econ River","lat":28.65,"lng":-81.17,"enabled":true,"suggested":true},
                 "period_days":7,
-                "readings":[{"observed_at":"2026-08-12T12:30:00+00:00","height_feet":14.64,"provisional":true}],
+                "readings":[{"observed_at":"2026-08-11T12:30:00+00:00","height_feet":13.20,"provisional":true},{"observed_at":"2026-08-12T12:30:00+00:00","height_feet":14.64,"provisional":true}],
                 "distance_miles":2.5,
                 "error_message":null
               }],
@@ -66,6 +67,8 @@ class OutdoorConditionsTest {
         assertEquals(1, conditions.riverGauges.size)
         assertEquals("USGS-02233484", conditions.riverGauges.first().gauge.siteId)
         assertEquals(14.64, conditions.riverGauges.first().currentHeightFeet!!, 0.001)
+        assertEquals(1.44, conditions.riverGauges.first().changeFeet!!, 0.001)
+        assertNull(conditions.riverGauges.first().errorMessage)
     }
 
     @Test

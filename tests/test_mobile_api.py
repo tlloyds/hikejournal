@@ -1730,8 +1730,7 @@ def test_place_profile_endpoint_allows_planning_before_a_recorded_visit(monkeypa
     )()
     service = type("Service", (), {"repository": repository})()
     monkeypatch.setattr("mobile_api.get_services", lambda: service)
-    monkeypatch.setattr("mobile_api._analytics_hikes", lambda _service: [])
-    monkeypatch.setattr("mobile_api._dated_visible_observations", lambda _service: [])
+    monkeypatch.setattr("mobile_api._place_profile_data", lambda _service, _location_id: ([], []))
 
     result = get_place_profile("area-1")
 
@@ -1781,6 +1780,60 @@ def test_place_profile_keeps_archived_outings_in_the_historical_record(monkeypat
 
     assert result["summary"]["outing_count"] == 1
     assert result["visits"][0]["hike_id"] == "hike-archived"
+
+
+def test_place_profile_data_scopes_reads_to_selected_place(monkeypatch):
+    calls = []
+
+    class Repository:
+        def list_hike_location_tags_for_location(self, location_id):
+            calls.append(("tags", location_id))
+            return [{"hike_id": "hike-1"}]
+
+        def list_hikes_by_ids(self, hike_ids):
+            calls.append(("hikes", hike_ids))
+            return [{"id": "hike-1", "title": "Oak Flat", "hike_date": "2026-08-16"}]
+
+        def list_hike_route_imports(self):
+            calls.append(("routes",))
+            return []
+
+        def list_photos_for_hike_ids(self, hike_ids):
+            calls.append(("photos", hike_ids))
+            return [{"id": "photo-1", "hike_id": "hike-1", "public_url": "cover.jpg"}]
+
+        def list_lightweight_observations(self, *, hike_ids, status):
+            calls.append(("observations", hike_ids, status))
+            return [{
+                "id": "observation-1",
+                "hike_id": "hike-1",
+                "photo_id": "photo-1",
+                "status": "confirmed",
+                "taxon_id": 1,
+                "common_name": "Oak",
+                "scientific_name": "Quercus alba",
+                "iconic_taxon_name": "Plantae",
+            }]
+
+    monkeypatch.setattr(
+        "mobile_api._user_context",
+        lambda: {"mode": "local-dev", "subject": None, "email": None},
+    )
+
+    hikes, observations = mobile_api._place_profile_data(
+        type("Service", (), {"repository": Repository()})(),
+        "place-1",
+    )
+
+    assert [hike["id"] for hike in hikes] == ["hike-1"]
+    assert observations[0]["reference_photo_url"] == "cover.jpg"
+    assert calls == [
+        ("tags", "place-1"),
+        ("hikes", ["hike-1"]),
+        ("routes",),
+        ("photos", ["hike-1"]),
+        ("observations", ["hike-1"], "confirmed"),
+    ]
 
 
 def test_native_hike_locations_returns_imported_library(monkeypatch):
