@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 import hashlib
 import json
@@ -289,13 +290,15 @@ class OutdoorConditionsService:
         self.request_get = request_get
 
     def forecast(self, latitude: float, longitude: float) -> dict[str, Any]:
-        key = self._cache_key("forecast", round(latitude, 6), round(longitude, 6))
+        # Forecasts are grid-based and short-lived; sharing a snapshot within roughly
+        # 100 metres avoids duplicate provider calls for the same place.
+        key = self._cache_key("forecast", round(latitude, 3), round(longitude, 3))
         cached = self._fresh_or_stale(key)
         if cached[0] is not None:
             return cached[0]
         params: dict[str, Any] = {
-            "latitude": round(latitude, 6),
-            "longitude": round(longitude, 6),
+            "latitude": round(latitude, 3),
+            "longitude": round(longitude, 3),
             "timezone": "auto",
             "forecast_days": 7,
             "temperature_unit": "fahrenheit",
@@ -352,12 +355,14 @@ class OutdoorConditionsService:
         )
         root = settings.usgs_water_api_root.rstrip("/")
         try:
+            recent_since = self.now().astimezone(UTC) - timedelta(days=7)
             latest = self._request_json(
                 f"{root}/latest-continuous/items",
                 params={
                     "f": "json",
                     "bbox": bbox,
                     "parameter_code": USGS_GAGE_HEIGHT_PARAMETER_CODE,
+                    "datetime": f"{recent_since.isoformat()}/..",
                     "limit": 1000,
                 },
                 provider="USGS",
@@ -459,59 +464,90 @@ class OutdoorConditionsService:
         period_days: int = 7,
         followed_site_ids: list[str] | None = None,
     ) -> dict[str, Any]:
-        forecast: dict[str, Any] | None = None
-        forecast_error: str | None = None
-        try:
-            forecast = self.forecast(latitude, longitude)
-        except OutdoorConditionsError as exc:
-            forecast_error = str(exc)
+        # Weather and nearby-gauge discovery are independent network calls. Keep them
+        # off the critical path of one another so a slow provider cannot make the
+        # other provider appear to be missing from the place profile.
+        with ThreadPoolExecutor(max_workers=2, thread_name_prefix="outdoor") as executor:
+            forecast_request = executor.submit(self.forecast, latitude, longitude)
+            nearby_request = executor.submit(self.nearby_gauges, latitude, longitude)
+            try:
+                forecast: dict[str, Any] | None = forecast_request.result()
+                forecast_error: str | None = None
+            except OutdoorConditionsError as exc:
+                forecast = None
+                forecast_error = str(exc)
+            try:
+                nearby = nearby_request.result()
+            except OutdoorConditionsError:
+                nearby = []
+
         gauges: list[dict[str, Any]] = []
-        try:
-            nearby = self.nearby_gauges(latitude, longitude)
-            followed = {
-                str(value or "").strip().upper()
-                for value in (followed_site_ids or [])
-                if str(value or "").strip().upper().startswith("USGS-")
-            }
-            selected: list[dict[str, Any]] = list(nearby[:AUTOMATIC_WATER_GAUGE_LIMIT])
-            selected_ids = {
-                str((item.get("gauge") or {}).get("site_id") or "").upper()
-                for item in selected
-                if isinstance(item, Mapping) and isinstance(item.get("gauge"), Mapping)
-            }
-            selected.extend(
-                item
-                for item in nearby
-                if isinstance(item, Mapping)
-                and isinstance(item.get("gauge"), Mapping)
-                and str(item["gauge"].get("site_id") or "").upper() in followed
-                and str(item["gauge"].get("site_id") or "").upper() not in selected_ids
-            )
-            for item in selected[:10]:
-                gauge = item.get("gauge") if isinstance(item, Mapping) else None
-                if not isinstance(gauge, Mapping):
-                    continue
-                try:
-                    gauges.append(
-                        self.gauge_series(
-                            gauge,
-                            period_days=period_days,
-                            place_latitude=latitude,
-                            place_longitude=longitude,
-                        )
-                    )
-                except OutdoorConditionsError as exc:
-                    gauges.append(
+        followed = {
+            str(value or "").strip().upper()
+            for value in (followed_site_ids or [])
+            if str(value or "").strip().upper().startswith("USGS-")
+        }
+        selected: list[dict[str, Any]] = list(nearby[:AUTOMATIC_WATER_GAUGE_LIMIT])
+        selected_ids = {
+            str((item.get("gauge") or {}).get("site_id") or "").upper()
+            for item in selected
+            if isinstance(item, Mapping) and isinstance(item.get("gauge"), Mapping)
+        }
+        selected.extend(
+            item
+            for item in nearby
+            if isinstance(item, Mapping)
+            and isinstance(item.get("gauge"), Mapping)
+            and str(item["gauge"].get("site_id") or "").upper() in followed
+            and str(item["gauge"].get("site_id") or "").upper() not in selected_ids
+        )
+
+        def load_gauge(item: Mapping[str, Any]) -> dict[str, Any] | None:
+            gauge = item.get("gauge") if isinstance(item, Mapping) else None
+            if not isinstance(gauge, Mapping):
+                return None
+            try:
+                return self.gauge_series(
+                    gauge,
+                    period_days=period_days,
+                    place_latitude=latitude,
+                    place_longitude=longitude,
+                )
+            except OutdoorConditionsError as exc:
+                # Nearby discovery already returned a current validated reading. Keep
+                # that reading visible even when the longer history endpoint is down.
+                current_height = _number(item.get("current_height_feet"))
+                observed_at = str(item.get("observed_at") or "")
+                readings = (
+                    [
                         {
-                            "gauge": dict(gauge),
-                            "period_days": 30 if period_days >= 30 else 7,
-                            "readings": [],
-                            "distance_miles": item.get("distance_miles"),
-                            "error_message": str(exc),
+                            "observed_at": observed_at,
+                            "height_feet": current_height,
+                            "provisional": bool(item.get("provisional")),
                         }
-                    )
-        except OutdoorConditionsError:
-            pass
+                    ]
+                    if current_height is not None and observed_at
+                    else []
+                )
+                return {
+                    "gauge": dict(gauge),
+                    "period_days": 30 if period_days >= 30 else 7,
+                    "readings": readings,
+                    "distance_miles": item.get("distance_miles"),
+                    "error_message": str(exc),
+                }
+
+        selected_items = selected[:10]
+        if selected_items:
+            with ThreadPoolExecutor(
+                max_workers=min(4, len(selected_items)),
+                thread_name_prefix="usgs-series",
+            ) as executor:
+                gauges = [
+                    result
+                    for result in executor.map(load_gauge, selected_items)
+                    if result is not None
+                ]
         return {
             "forecast": forecast,
             "river_gauges": gauges,

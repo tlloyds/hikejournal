@@ -42,8 +42,8 @@ class OutdoorConditionsTest {
                 "wind_speed_mph":6.0,
                 "wind_gust_mph":15.0,
                 "condition_label":"Partly cloudy",
-                "days":[],
-                "planning_notes":[]
+                "days":[{"date":"2026-08-12","condition_label":"Thunderstorms","temperature_max_f":94.0,"temperature_min_f":77.0,"apparent_temperature_max_f":105.0,"precipitation_probability_percent":65,"precipitation_total_inches":0.8,"wind_speed_max_mph":12.0,"wind_gust_max_mph":28.0,"uv_index_max":9.2,"sunrise":"2026-08-12T06:52","sunset":"2026-08-12T20:07"}],
+                "planning_notes":["Plan a cooler, earlier outing: the peak feels-like temperature is near 105°F."]
               },
               "river_gauges":[{
                 "gauge":{"site_id":"USGS-02233484","name":"Econ River","lat":28.65,"lng":-81.17,"enabled":true,"suggested":true},
@@ -58,6 +58,11 @@ class OutdoorConditionsTest {
         )
 
         assertEquals("America/New_York", conditions.forecast?.timezone)
+        assertEquals("Partly cloudy", conditions.forecast?.conditionLabel)
+        assertEquals(82.0, conditions.forecast?.temperatureF!!, 0.001)
+        assertEquals("Thunderstorms", conditions.forecast?.days?.first()?.conditionLabel)
+        assertEquals(9.2, conditions.forecast?.days?.first()?.uvIndexMax!!, 0.001)
+        assertEquals(1, conditions.forecast?.planningNotes?.size)
         assertEquals(1, conditions.riverGauges.size)
         assertEquals("USGS-02233484", conditions.riverGauges.first().gauge.siteId)
         assertEquals(14.64, conditions.riverGauges.first().currentHeightFeet!!, 0.001)

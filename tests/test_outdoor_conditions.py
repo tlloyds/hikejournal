@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
+from threading import Barrier
 
 from hike_journal.services.outdoor_conditions import (
+    OutdoorConditionsError,
     OutdoorConditionsService,
     parse_nearby_river_gauges,
     parse_place_forecast,
@@ -204,6 +206,54 @@ def test_place_conditions_includes_followed_nearby_gauge_beyond_automatic_three(
         "USGS-00003",
         "USGS-00005",
     ]
+
+
+def test_place_conditions_fetches_weather_and_gauge_discovery_concurrently():
+    service = OutdoorConditionsService(CacheRepository())
+    both_requests_started = Barrier(2)
+
+    def forecast(_lat, _lng):
+        both_requests_started.wait(timeout=1)
+        return {"condition_label": "Clear"}
+
+    def nearby_gauges(_lat, _lng):
+        both_requests_started.wait(timeout=1)
+        return []
+
+    service.forecast = forecast  # type: ignore[method-assign]
+    service.nearby_gauges = nearby_gauges  # type: ignore[method-assign]
+
+    result = service.place_conditions(28.0, -81.0)
+
+    assert result["forecast"]["condition_label"] == "Clear"
+    assert result["river_gauges"] == []
+
+
+def test_place_conditions_keeps_current_gauge_height_when_history_fails():
+    service = OutdoorConditionsService(CacheRepository())
+    service.forecast = lambda _lat, _lng: {"condition_label": "Clear"}  # type: ignore[method-assign]
+    service.nearby_gauges = lambda _lat, _lng: [  # type: ignore[method-assign]
+        {
+            "gauge": {
+                "site_id": "USGS-02233500",
+                "name": "Econlockhatchee River",
+                "lat": 28.6778,
+                "lng": -81.1142,
+            },
+            "distance_miles": 4.9,
+            "current_height_feet": 6.91,
+            "observed_at": "2026-08-28T14:45:00+00:00",
+            "provisional": True,
+        }
+    ]
+    service.gauge_series = lambda *_args, **_kwargs: (_ for _ in ()).throw(  # type: ignore[method-assign]
+        OutdoorConditionsError("history unavailable")
+    )
+
+    result = service.place_conditions(28.623217, -81.063275)
+
+    assert result["river_gauges"][0]["readings"][0]["height_feet"] == 6.91
+    assert result["river_gauges"][0]["error_message"] == "history unavailable"
 
 
 def test_outdoor_conditions_migration_is_service_role_only():

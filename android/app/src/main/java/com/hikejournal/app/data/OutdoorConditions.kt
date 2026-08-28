@@ -202,7 +202,13 @@ internal fun parsePlaceForecast(json: String): PlaceForecast {
 
 internal fun parsePlaceConditions(json: String): PlaceConditionsResult {
     val root = JSONObject(json)
-    val forecast = root.optJSONObject("forecast")?.let { parsePlaceForecast(it.toString()) }
+    val forecast = root.optJSONObject("forecast")?.let { forecastJson ->
+        if (forecastJson.has("current") || forecastJson.has("daily")) {
+            parsePlaceForecast(forecastJson.toString())
+        } else {
+            parseSharedPlaceForecast(forecastJson)
+        }
+    }
     val riverGauges = root.optJSONArray("river_gauges") ?: JSONArray()
     return PlaceConditionsResult(
         forecast = forecast,
@@ -210,6 +216,45 @@ internal fun parsePlaceConditions(json: String): PlaceConditionsResult {
             parseServerRiverGaugeSeries(riverGauges.getJSONObject(index))
         },
         liveConditionsNotice = root.stringOrNull("live_conditions_notice"),
+    )
+}
+
+private fun parseSharedPlaceForecast(json: JSONObject): PlaceForecast {
+    val daysJson = json.optJSONArray("days") ?: JSONArray()
+    val days = List(daysJson.length()) { index ->
+        val day = daysJson.optJSONObject(index) ?: JSONObject()
+        ForecastDay(
+            date = day.optString("date"),
+            conditionLabel = day.optString("condition_label", "Current conditions"),
+            temperatureMaxF = day.numberOrNull("temperature_max_f"),
+            temperatureMinF = day.numberOrNull("temperature_min_f"),
+            apparentTemperatureMaxF = day.numberOrNull("apparent_temperature_max_f"),
+            precipitationProbabilityPercent = day.numberOrNull("precipitation_probability_percent"),
+            precipitationTotalInches = day.numberOrNull("precipitation_total_inches"),
+            windSpeedMaxMph = day.numberOrNull("wind_speed_max_mph"),
+            windGustMaxMph = day.numberOrNull("wind_gust_max_mph"),
+            uvIndexMax = day.numberOrNull("uv_index_max"),
+            sunrise = day.stringOrNull("sunrise"),
+            sunset = day.stringOrNull("sunset"),
+        )
+    }
+    val planningNotes = json.optJSONArray("planning_notes")?.let { notes ->
+        List(notes.length()) { index -> notes.optString(index).trim() }
+            .filter(String::isNotBlank)
+    }.orEmpty()
+    return PlaceForecast(
+        observedAt = json.stringOrNull("observed_at"),
+        timezone = json.optString("timezone"),
+        temperatureF = json.numberOrNull("temperature_f"),
+        apparentTemperatureF = json.numberOrNull("apparent_temperature_f"),
+        relativeHumidityPercent = json.numberOrNull("relative_humidity_percent"),
+        precipitationInches = json.numberOrNull("precipitation_inches"),
+        cloudCoverPercent = json.numberOrNull("cloud_cover_percent"),
+        windSpeedMph = json.numberOrNull("wind_speed_mph"),
+        windGustMph = json.numberOrNull("wind_gust_mph"),
+        conditionLabel = json.optString("condition_label", "Current conditions"),
+        days = days,
+        planningNotes = planningNotes,
     )
 }
 
