@@ -912,6 +912,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                     offline = state.isOffline,
                     onRefresh = { viewModel.loadReviewQueue(force = true) },
                     onDecision = viewModel::decideReview,
+                    onRemoveFromReview = viewModel::removeReviewItem,
                     onRequestRecommendation = viewModel::requestReviewRecommendation,
                     onConnectInat = viewModel::connectInat,
                     onSubmitBatch = viewModel::submitReviewBatch,

@@ -1260,6 +1260,10 @@ final class JournalStore: ObservableObject {
                     status: queued ? "in_review" : "ready"
                 )
             }
+            if !queued {
+                reviewItems.removeAll { $0.photo.id == photoID || $0.id == photoID }
+                try await cache(reviewItems, database: context.database, namespace: Cache.review, key: "all", lifetime: 2 * 60)
+            }
             await sync?.workWasQueued(prioritizedPhotoID: photoID)
             return true
         } catch {

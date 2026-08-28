@@ -1410,6 +1410,11 @@ private struct ReviewItemView: View {
                 .buttonStyle(.bordered)
                 .tint(HikeJournalTheme.moss)
                 .disabled(working || journal.isReviewBatchWorking)
+                Button("Remove from review", role: .destructive) {
+                    removeFromReview()
+                }
+                .buttonStyle(.bordered)
+                .disabled(working || journal.isReviewBatchWorking)
             } else {
                 ForEach(Array(item.candidates.prefix(5).enumerated()), id: \.offset) { index, candidate in
                     HStack(alignment: .top, spacing: 12) {
@@ -1432,6 +1437,11 @@ private struct ReviewItemView: View {
                 }
                 Button("Reject suggestion", role: .destructive) { decide(action: "reject", candidate: nil) }
                     .disabled(working)
+                Button("Remove from review", role: .destructive) {
+                    removeFromReview()
+                }
+                .buttonStyle(.bordered)
+                .disabled(working)
             }
         }
         .onDisappear { recommendationTask?.cancel() }
@@ -1445,6 +1455,19 @@ private struct ReviewItemView: View {
                 observationID: item.observationId,
                 action: action,
                 candidate: candidate
+            )
+            working = false
+        }
+    }
+
+    private func removeFromReview() {
+        guard !working else { return }
+        working = true
+        Task {
+            _ = await journal.queueSpeciesReview(
+                photoID: item.photo.id,
+                hikeID: item.hikeId ?? "everyday",
+                queued: false
             )
             working = false
         }

@@ -1498,6 +1498,31 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun removeReviewItem(item: ReviewItem) {
+        val hikeId = item.hikeId ?: item.photo.hikeId ?: "everyday"
+        viewModelScope.launch {
+            _state.update { it.copy(decidingReviewId = item.id, error = null) }
+            runCatching {
+                repository.setSpeciesReview(item.photo.id, hikeId, queued = false)
+            }.onSuccess {
+                updatePhotoState(item.id) { photo ->
+                    photo.copy(
+                        processingStatus = "ready",
+                        syncState = if (photo.syncState == "synced") "queued" else photo.syncState,
+                    )
+                }
+                _state.update { state ->
+                    state.copy(
+                        reviewQueue = state.reviewQueue.filterNot { it.id == item.id },
+                        decidingReviewId = null,
+                    )
+                }
+            }.onFailure { error ->
+                _state.update { it.copy(decidingReviewId = null, error = error.userMessage()) }
+            }
+        }
+    }
+
     fun requestReviewRecommendation(item: ReviewItem) {
         if (_state.value.isOffline) {
             _state.update { it.copy(error = "iNaturalist recommendations need a connection.") }

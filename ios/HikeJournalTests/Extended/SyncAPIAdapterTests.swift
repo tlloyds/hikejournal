@@ -280,6 +280,21 @@ final class SyncAPIAdapterTests: XCTestCase {
         XCTAssertFalse(routeBody.contains("route_segments"))
     }
 
+    func testRemovingPhotoFromSpeciesReviewUsesTheExistingUnqueueOperation() throws {
+        let fixture = try SyncTemporaryDirectory()
+        let builder = SyncOperationRequestBuilder(
+            fileStore: AccountSyncFileStore(allowedRoots: [fixture.url])
+        )
+        let prepared = try builder.prepare(
+            operation: operation(.queueSpeciesReview, payload: ["queued": false]),
+            idempotencyKey: SyncIdempotencyKey(operationID: operationID)
+        )
+
+        XCTAssertEqual(prepared.method.rawValue, "PUT")
+        XCTAssertEqual(prepared.path, "/v1/photos/\(entityID)/review")
+        assertJSON(prepared.body, equals: ["queued": false], "remove from species review")
+    }
+
     func testRejectsForeignFilesUnsafeHeaderIDsAndAndroidRouteSource() throws {
         let fixture = try SyncTemporaryDirectory()
         let foreign = try SyncTemporaryDirectory()

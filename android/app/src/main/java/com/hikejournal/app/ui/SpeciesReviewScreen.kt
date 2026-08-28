@@ -92,6 +92,7 @@ fun SpeciesReviewScreen(
     offline: Boolean,
     onRefresh: () -> Unit,
     onDecision: (ReviewItem, String, ReviewCandidate?) -> Unit,
+    onRemoveFromReview: (ReviewItem) -> Unit,
     onRequestRecommendation: (ReviewItem) -> Unit,
     onConnectInat: () -> Unit,
     onSubmitBatch: (List<List<String>>) -> Unit,
@@ -249,6 +250,7 @@ fun SpeciesReviewScreen(
                         enabled = reviewPhotoIsSynced(targetItem) && !offline && decidingId == null && identifyingId == null,
                         onNext = { if (index < queue.lastIndex) index += 1 },
                         onDecision = onDecision,
+                        onRemoveFromReview = onRemoveFromReview,
                         onRequestRecommendation = onRequestRecommendation,
                         onConnectInat = onConnectInat,
                     )
@@ -509,6 +511,7 @@ private fun ReviewItemContent(
     enabled: Boolean,
     onNext: () -> Unit,
     onDecision: (ReviewItem, String, ReviewCandidate?) -> Unit,
+    onRemoveFromReview: (ReviewItem) -> Unit,
     onRequestRecommendation: (ReviewItem) -> Unit,
     onConnectInat: () -> Unit,
 ) {
@@ -589,6 +592,17 @@ private fun ReviewItemContent(
                         Spacer(Modifier.width(6.dp))
                         Text("Skip for now")
                     }
+                    OutlinedButton(
+                        onClick = { onRemoveFromReview(item) },
+                        enabled = !identifying && !deciding,
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Trail),
+                        modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+                    ) {
+                        if (deciding) CircularProgressIndicator(Modifier.size(18.dp), color = Trail, strokeWidth = 2.dp)
+                        else Icon(Icons.Rounded.Close, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Remove from review")
+                    }
                     if (inatConnected) {
                         TextButton(onClick = onConnectInat, enabled = !identifying, modifier = Modifier.fillMaxWidth().padding(top = 5.dp)) {
                             Text("Reconnect iNaturalist")
@@ -639,6 +653,17 @@ private fun ReviewItemContent(
                         color = InkMuted,
                         modifier = Modifier.padding(top = 9.dp),
                     )
+                    OutlinedButton(
+                        onClick = { onRemoveFromReview(item) },
+                        enabled = enabled,
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Trail),
+                        modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+                    ) {
+                        if (deciding) CircularProgressIndicator(Modifier.size(18.dp), color = Trail, strokeWidth = 2.dp)
+                        else Icon(Icons.Rounded.Close, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Remove from review")
+                    }
                 }
             }
         }
