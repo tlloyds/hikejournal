@@ -131,6 +131,40 @@ private data class SyncSelectionContext(
     val selectedCoverPhotoIds: Set<String>,
 )
 
+private fun syncAttentionDetail(operation: PendingOperationEntity): String {
+    val payload = runCatching { JSONObject(operation.payloadJson) }.getOrDefault(JSONObject())
+    return when (operation.kind) {
+        OperationKind.ReviewDecision -> {
+            val candidate = payload.optJSONObject("candidate")?.optString("common_name").orEmpty()
+            when {
+                payload.optString("action") == "reject" -> "Reject the current species suggestion for this photo"
+                candidate.isNotBlank() -> "Confirm “$candidate” for this photo"
+                else -> "Save the species decision for this photo"
+            }
+        }
+        OperationKind.QueueSpeciesReview -> "Update species review for this photo"
+        OperationKind.UploadPhoto -> "Upload this field photo"
+        OperationKind.UpdateCaption -> "Save this photo note"
+        OperationKind.DeletePhoto -> "Delete this field photo"
+        OperationKind.CreateFieldMark -> "Save this field mark"
+        OperationKind.UpdateNaturalHistory -> "Save this natural-history note"
+        else -> "Save this journal change"
+    }
+}
+
+private fun syncAttentionResolution(operation: PendingOperationEntity): String {
+    val error = operation.lastError.orEmpty()
+    return if (
+        operation.kind == OperationKind.ReviewDecision &&
+        error.contains("suggestion", ignoreCase = true) &&
+        error.contains("not found", ignoreCase = true)
+    ) {
+        "The suggestion changed before this decision reached the server. Retry to apply it to the current suggestion."
+    } else {
+        "HikeJournal kept this change on the phone. Retry after checking the connection or the message above."
+    }
+}
+
 private fun syncSelectionContext(operations: List<PendingOperationEntity>) = SyncSelectionContext(
     deletingHikeIds = operations
         .filter { it.kind == OperationKind.DeleteHike }
@@ -325,8 +359,10 @@ class FieldOperationQueue(private val context: Context) {
                 .map { operation ->
                     SyncAttention(
                         kind = operation.kind,
-                        detail = operation.parentId ?: operation.entityId,
+                        detail = syncAttentionDetail(operation),
                         error = operation.lastError ?: "Sync failed without a server message.",
+                        resolution = syncAttentionResolution(operation),
+                        attempts = operation.attemptCount,
                     )
                 },
             pendingCreateHikeIds = operations

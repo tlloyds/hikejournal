@@ -859,7 +859,7 @@ class HikeJournalRepository:
         def query_factory():
             query = (
                 self.client.table("photos")
-                .select("id,hike_id,owner_subject,owner_email,caption,public_url,storage_path,lat,lng,taken_at,created_at,width,height,exif_json")
+                .select("id,hike_id,owner_subject,owner_email,caption,public_url,storage_path,lat,lng,taken_at,created_at,width,height,processing_status,exif_json")
                 .not_.is_("lat", "null")
                 .not_.is_("lng", "null")
             )
@@ -1178,7 +1178,7 @@ class HikeJournalRepository:
             chunk_ids = normalized_ids[start : start + chunk_size]
             response = (
                 self.client.table("photos")
-                .select("id,hike_id,owner_subject,owner_email,caption,public_url,storage_path,lat,lng,taken_at,created_at,width,height,exif_json")
+                .select("id,hike_id,owner_subject,owner_email,caption,public_url,storage_path,lat,lng,taken_at,created_at,width,height,processing_status,exif_json")
                 .in_("id", chunk_ids)
                 .execute()
             )

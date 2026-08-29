@@ -1971,7 +1971,7 @@ private fun SyncStrip(
         Column(Modifier.weight(1f).padding(start = 10.dp)) {
             Text(
                 when {
-                    status.needsAttentionCount > 0 -> "${status.needsAttentionCount} change${if (status.needsAttentionCount == 1) "" else "s"} need attention"
+                    status.needsAttentionCount > 0 -> "${status.needsAttentionCount} change${if (status.needsAttentionCount == 1) "" else "s"} ${if (status.needsAttentionCount == 1) "needs" else "need"} attention"
                     status.syncingPhotoCount > 0 -> "Uploading photos · $remainingPhotos remaining"
                     syncing || status.syncingCount > 0 -> "Syncing field notes…"
                     status.pendingPhotoCount > 0 && status.connected -> "$remainingPhotos photo${if (remainingPhotos == 1) "" else "s"} ready to upload"
@@ -2013,9 +2013,9 @@ private fun SyncAttentionSheet(
             Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).navigationBarsPadding().padding(horizontal = 20.dp).padding(bottom = 28.dp),
         ) {
             Text("SYNC ATTENTION", style = MaterialTheme.typography.labelSmall, color = TrailText)
-            Text("Changes that could not sync", style = MaterialTheme.typography.headlineLarge, color = Ink)
+            Text("Sync needs your attention", style = MaterialTheme.typography.headlineLarge, color = Ink)
             Text(
-                "These changes remain on this phone. Review the message below, then retry when you’re ready.",
+                "These changes are safe on this phone. Review what happened below, then retry when you’re ready.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = InkMuted,
                 modifier = Modifier.padding(top = 5.dp),
@@ -2023,7 +2023,19 @@ private fun SyncAttentionSheet(
             items.forEach { item ->
                 Column(Modifier.fillMaxWidth().padding(top = 18.dp)) {
                     Text(syncOperationLabel(item.kind), style = MaterialTheme.typography.titleMedium, color = Ink)
+                    Text(item.detail, style = MaterialTheme.typography.bodyMedium, color = Ink, modifier = Modifier.padding(top = 3.dp))
                     Text(item.error, style = MaterialTheme.typography.bodyMedium, color = Color(0xFF8F3D32), modifier = Modifier.padding(top = 3.dp))
+                    item.resolution?.let { resolution ->
+                        Text(resolution, style = MaterialTheme.typography.bodySmall, color = InkMuted, modifier = Modifier.padding(top = 4.dp))
+                    }
+                    if (item.attempts > 0) {
+                        Text(
+                            "Attempted ${item.attempts} time${if (item.attempts == 1) "" else "s"}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = InkMuted,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                    }
                 }
             }
             Button(onClick = { onRetry(); onDismiss() }, modifier = Modifier.fillMaxWidth().padding(top = 24.dp)) {

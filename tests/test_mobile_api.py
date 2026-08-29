@@ -1005,6 +1005,105 @@ def test_mobile_review_can_confirm_an_alternate_candidate(monkeypatch):
     assert repository.photo_status == ("photo-1", "ready")
 
 
+def test_mobile_review_rechecks_the_current_photo_suggestion_when_id_is_stale(monkeypatch):
+    class Repository:
+        applied = None
+        photo_status = None
+
+        def list_observations_by_ids(self, _ids):
+            return []
+
+        def list_observations_for_photo_ids(self, _ids):
+            return [{
+                "id": "obs-current",
+                "photo_id": "photo-1",
+                "is_primary": True,
+                "raw_response_json": {"source": "fresh-cv"},
+            }]
+
+        def apply_candidate_to_observation(self, observation_id, **kwargs):
+            self.applied = (observation_id, kwargs)
+
+        def update_photo_processing_status(self, photo_id, status):
+            self.photo_status = (photo_id, status)
+
+    repository = Repository()
+    service = type("Service", (), {"repository": repository})()
+    monkeypatch.setattr("mobile_api.get_services", lambda: service)
+    monkeypatch.setattr(
+        "mobile_api._review_queue_payload",
+        lambda _service: [{"id": "photo-1", "observation_id": "obs-stale", "hike_id": "hike-1"}],
+    )
+
+    result = decide_species_review(
+        "photo-1",
+        ReviewDecisionInput(
+            action="confirm",
+            observation_id="obs-stale",
+            candidate=ReviewCandidateInput(
+                taxon_id=43,
+                common_name="Curtiss' milkweed",
+                scientific_name="Asclepias curtissii",
+                confidence=0.22,
+            ),
+        ),
+    )
+
+    assert result["ok"] is True
+    assert repository.applied[0] == "obs-current"
+    assert repository.photo_status == ("photo-1", "ready")
+
+
+def test_mobile_review_recovers_a_decision_when_the_queue_projection_is_gone(monkeypatch):
+    class Repository:
+        applied = None
+        photo_status = None
+
+        def list_photo_records_for_ids(self, _ids):
+            return [{"id": "photo-1", "hike_id": "hike-1", "processing_status": "ready"}]
+
+        def list_observations_for_photo_ids(self, _ids):
+            return [{
+                "id": "obs-current",
+                "photo_id": "photo-1",
+                "is_primary": True,
+                "status": "pending",
+                "raw_response_json": {},
+            }]
+
+        def list_observations_by_ids(self, _ids):
+            return []
+
+        def apply_candidate_to_observation(self, observation_id, **kwargs):
+            self.applied = (observation_id, kwargs)
+
+        def update_photo_processing_status(self, photo_id, status):
+            self.photo_status = (photo_id, status)
+
+    repository = Repository()
+    service = type("Service", (), {"repository": repository})()
+    monkeypatch.setattr("mobile_api.get_services", lambda: service)
+    monkeypatch.setattr("mobile_api._review_queue_payload", lambda _service: [])
+
+    result = decide_species_review(
+        "photo-1",
+        ReviewDecisionInput(
+            action="confirm",
+            observation_id="obs-stale",
+            candidate=ReviewCandidateInput(
+                taxon_id=43,
+                common_name="Curtiss' milkweed",
+                scientific_name="Asclepias curtissii",
+                confidence=0.22,
+            ),
+        ),
+    )
+
+    assert result["ok"] is True
+    assert repository.applied[0] == "obs-current"
+    assert repository.photo_status == ("photo-1", "ready")
+
+
 def test_mobile_review_reject_keeps_photo_in_review(monkeypatch):
     class Repository:
         deleted = None

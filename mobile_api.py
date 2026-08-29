@@ -4355,11 +4355,44 @@ def decide_species_review(photo_id: str, payload: ReviewDecisionInput) -> dict[s
     queue = _review_queue_payload(svc)
     item = next((row for row in queue if str(row.get("id")) == photo_id), None)
     if not item:
-        raise HTTPException(status_code=404, detail="Review photo not found.")
+        # A lost response can leave a durable mobile decision queued after the
+        # server already applied it. Treat the desired final state as
+        # idempotent instead of turning that harmless replay into a permanent
+        # sync failure.
+        photo = next(
+            (
+                row
+                for row in svc.repository.list_photo_records_for_ids([photo_id])
+                if str(row.get("id") or "") == photo_id
+            ),
+            None,
+        )
+        if photo:
+            current = svc.repository.list_observations_for_photo_ids([photo_id])
+            primary = next(
+                (row for row in current if row.get("is_primary")),
+                current[0] if current else None,
+            )
+            if payload.action == "confirm" and primary and primary.get("status") == "confirmed":
+                return {"ok": True, "photo_id": photo_id, "action": payload.action}
+            if payload.action == "reject" and primary is None and photo.get("processing_status") == "in_review":
+                return {"ok": True, "photo_id": photo_id, "action": payload.action}
+            if primary or (payload.action == "confirm" and payload.candidate):
+                # Continue through the normal mutation path using the current
+                # photo state, even when a refresh has removed the old queue
+                # projection before the durable decision was retried.
+                item = {
+                    "id": photo_id,
+                    "hike_id": photo.get("hike_id"),
+                    "observation_id": primary.get("id") if primary else None,
+                }
+        if not item:
+            raise HTTPException(status_code=404, detail="Review photo not found.")
     observation_id = payload.observation_id or item.get("observation_id")
     if not observation_id:
-        raise HTTPException(status_code=409, detail="This photo does not have a species suggestion yet.")
-    observations = svc.repository.list_observations_by_ids([str(observation_id)])
+        observations = []
+    else:
+        observations = svc.repository.list_observations_by_ids([str(observation_id)])
     observation = next(
         (
             row
@@ -4369,13 +4402,24 @@ def decide_species_review(photo_id: str, payload: ReviewDecisionInput) -> dict[s
         None,
     )
     if not observation:
-        raise HTTPException(status_code=404, detail="Species suggestion not found.")
+        # The queue payload and the decision can be separated by a refresh or
+        # another client changing the primary suggestion. Re-read by photo so
+        # a still-valid user choice applies to the current observation.
+        current = svc.repository.list_observations_for_photo_ids([photo_id])
+        observation = next(
+            (row for row in current if row.get("is_primary")),
+            current[0] if current else None,
+        )
+        if observation:
+            observation_id = str(observation.get("id") or "")
 
     if payload.action == "reject":
-        svc.repository.delete_observations([str(observation_id)])
+        if observation_id and observation:
+            svc.repository.delete_observations([str(observation_id)])
         svc.repository.update_photo_processing_status(photo_id, "in_review")
     else:
         inat_client = _mobile_inat_client()
+        candidate = None
         if payload.candidate:
             candidate = SpeciesCandidate(
                 taxon_id=payload.candidate.taxon_id,
@@ -4384,10 +4428,27 @@ def decide_species_review(photo_id: str, payload: ReviewDecisionInput) -> dict[s
                 confidence=float(payload.candidate.confidence or 0),
                 raw_payload=(
                     observation.get("raw_response_json")
-                    if isinstance(observation.get("raw_response_json"), dict)
+                    if isinstance((observation or {}).get("raw_response_json"), dict)
                     else {}
                 ),
             )
+        if observation is None:
+            if candidate is None:
+                raise HTTPException(
+                    status_code=409,
+                    detail="This species suggestion is no longer available. Refresh Species Review and request a new recommendation.",
+                )
+            observation = svc.repository.upsert_observation(
+                item.get("hike_id"),
+                photo_id,
+                candidate,
+                owner_subject=_user_context().get("subject"),
+                owner_email=_user_context().get("email"),
+            )
+            observation_id = str(observation.get("id") or "")
+            if not observation_id:
+                raise HTTPException(status_code=500, detail="HikeJournal could not restore this species suggestion.")
+        if candidate:
             updated = svc.repository.apply_candidate_to_observation(
                 str(observation_id),
                 photo_id=photo_id,

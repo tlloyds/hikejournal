@@ -676,6 +676,8 @@ data class SyncAttention(
     val kind: String,
     val detail: String,
     val error: String,
+    val resolution: String? = null,
+    val attempts: Int = 0,
 )
 
 data class PublishQueue(

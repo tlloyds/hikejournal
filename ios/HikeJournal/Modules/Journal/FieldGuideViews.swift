@@ -128,7 +128,12 @@ struct FieldGuideWorkspaceView: View {
         case .quests:
             QuestList(model: model, journal: journal, quests: filteredQuests)
         case .review:
-            SpeciesReviewList(journal: journal, items: filteredReview)
+            SpeciesReviewList(
+                journal: journal,
+                items: filteredReview,
+                inatConnected: journal.publishQueue?.connected == true,
+                onConnect: connectINaturalist
+            )
         case .publish:
             PublishingWorkspace(
                 journal: journal,
@@ -241,6 +246,20 @@ struct FieldGuideWorkspaceView: View {
         case .discover: break
         case .quests: await journal.loadQuests()
         case .review, .publish: await journal.loadReviewAndPublishing()
+        }
+    }
+
+    private func connectINaturalist() {
+        Task {
+            do {
+                let url = try await journal.inaturalistAuthorizationURL()
+                oauth.start(url: url, callbackScheme: model.configuration.callbackScheme) { callback in
+                    if let callback { _ = model.handleDeepLink(callback) }
+                    Task { await journal.loadReviewAndPublishing() }
+                }
+            } catch {
+                oauth.show(error)
+            }
         }
     }
 }
@@ -1202,6 +1221,8 @@ private struct QuestDetailView: View {
 private struct SpeciesReviewList: View {
     @ObservedObject var journal: JournalStore
     let items: [ReviewItem]
+    let inatConnected: Bool
+    let onConnect: () -> Void
     @State private var managingGroups = false
 
     var body: some View {
@@ -1232,12 +1253,16 @@ private struct SpeciesReviewList: View {
                         .font(HikeJournalTheme.label(14, relativeTo: .subheadline))
                         .foregroundStyle(HikeJournalTheme.error)
                     }
+                    if !inatConnected {
+                        Button("Connect iNaturalist", action: onConnect)
+                            .buttonStyle(TrailButtonStyle())
+                    }
                     Button(journal.isReviewBatchWorking ? "Identification running…" : "Identify \(waitingCount) waiting photo\(waitingCount == 1 ? "" : "s")") {
                         Task { await journal.startReviewBatchRecommendations() }
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(HikeJournalTheme.moss)
-                    .disabled(journal.isReviewBatchWorking || waitingCount == 0)
+                    .disabled(journal.isReviewBatchWorking || waitingCount == 0 || !inatConnected)
                     if !journal.isReviewBatchWorking && waitingCount > 0 {
                         Button("Manage groups") { managingGroups = true }
                             .font(HikeJournalTheme.label(14, relativeTo: .subheadline))
@@ -1250,16 +1275,28 @@ private struct SpeciesReviewList: View {
             }
 
             if items.isEmpty {
-                ContentUnavailableView(
-                    "Review queue is clear",
-                    systemImage: "checkmark.seal",
-                    description: Text("Media queued for identification appears here with its identification provenance.")
-                )
+                VStack(spacing: 14) {
+                    ContentUnavailableView(
+                        "Review queue is clear",
+                        systemImage: "checkmark.seal",
+                        description: Text("Media queued for identification appears here with its identification provenance.")
+                    )
+                    if !inatConnected {
+                        Button("Connect iNaturalist", action: onConnect)
+                            .buttonStyle(TrailButtonStyle())
+                    }
+                }
+                .padding(.bottom, 24)
             } else {
                 ScrollView {
                     LazyVStack(spacing: 18) {
                         ForEach(items) { item in
-                            ReviewItemView(journal: journal, item: item)
+                            ReviewItemView(
+                                journal: journal,
+                                item: item,
+                                inatConnected: inatConnected,
+                                onConnect: onConnect
+                            )
                             Divider().overlay(HikeJournalTheme.line)
                         }
                     }
@@ -1375,6 +1412,8 @@ private struct ReviewGroupingPlanner: View {
 private struct ReviewItemView: View {
     @ObservedObject var journal: JournalStore
     let item: ReviewItem
+    let inatConnected: Bool
+    let onConnect: () -> Void
     @State private var working = false
     @State private var recommendationTask: Task<Void, Never>?
 
@@ -1394,7 +1433,7 @@ private struct ReviewItemView: View {
                             recommendationTask = nil
                             working = false
                         }
-                    } else {
+                    } else if inatConnected {
                         Button("Ask iNaturalist for suggestions") {
                             working = true
                             recommendationTask = Task { @MainActor in
@@ -1405,6 +1444,8 @@ private struct ReviewItemView: View {
                                 _ = await journal.requestReviewRecommendation(photoID: item.photo.id)
                             }
                         }
+                    } else {
+                        Button("Connect iNaturalist", action: onConnect)
                     }
                 }
                 .buttonStyle(.bordered)

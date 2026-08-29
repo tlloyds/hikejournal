@@ -29,4 +29,10 @@ class ReviewNavigationTest {
         assertFalse(shouldResumeReviewBatch(batchIdentifying = false, state = "completed"))
         assertFalse(shouldResumeReviewBatch(batchIdentifying = false, state = null))
     }
+
+    @Test
+    fun `connection action is shown only while iNaturalist is disconnected`() {
+        assertTrue(shouldShowInatConnectionAction(inatConnected = false))
+        assertFalse(shouldShowInatConnectionAction(inatConnected = true))
+    }
 }

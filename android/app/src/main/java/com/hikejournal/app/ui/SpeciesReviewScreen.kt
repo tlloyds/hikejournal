@@ -30,6 +30,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Refresh
@@ -160,7 +161,10 @@ fun SpeciesReviewScreen(
                 } else {
                     waitingItems.isNotEmpty() && unsyncedWaitingItems.isEmpty() && !loading && !offline
                 },
-                colors = ButtonDefaults.textButtonColors(contentColor = Paper),
+                colors = ButtonDefaults.textButtonColors(
+                    contentColor = Paper,
+                    disabledContentColor = Color(0xFFD6E0D2),
+                ),
             ) {
                 Text(
                     when {
@@ -207,6 +211,7 @@ fun SpeciesReviewScreen(
             loading && queue.isEmpty() -> ReviewLoading()
             item == null -> ReviewEmpty(
                 offline = offline,
+                inatConnected = inatConnected,
                 onRefresh = onRefresh,
                 onConnectInat = onConnectInat,
             )
@@ -292,11 +297,20 @@ private fun SpeciesBatchIdentificationContent(
     ) {
         item {
             Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 20.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(onClick = onBack, enabled = !submitting && !refreshing) { Text("Back") }
-                    Spacer(Modifier.width(4.dp))
-                    Text("Plan batch IDs", style = MaterialTheme.typography.headlineMedium, color = Ink)
+                TextButton(
+                    onClick = onBack,
+                    enabled = !submitting && !refreshing,
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = Moss,
+                        disabledContentColor = InkMuted,
+                    ),
+                    contentPadding = ButtonDefaults.TextButtonContentPadding,
+                ) {
+                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Back")
                 }
+                Text("Plan batch IDs", style = MaterialTheme.typography.headlineMedium, color = Ink)
                 Text(
                     "Select waiting photos and HikeJournal will propose groups from the same outing within 2 minutes and 12 meters. Split any photo that deserves its own request.",
                     style = MaterialTheme.typography.bodyLarge,
@@ -309,8 +323,12 @@ private fun SpeciesBatchIdentificationContent(
                 ) {
                     OutlinedButton(
                         onClick = { selectedIds = queue.map { it.id }.toSet() },
-                        enabled = !submitting && !refreshing && selectedIds.size != queue.size,
+                        enabled = !submitting && !refreshing,
                         modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = Moss,
+                            disabledContentColor = InkMuted,
+                        ),
                     ) { Text("Select waiting") }
                     OutlinedButton(
                         onClick = {
@@ -319,6 +337,10 @@ private fun SpeciesBatchIdentificationContent(
                         },
                         enabled = !submitting && !refreshing && selectedIds.isNotEmpty(),
                         modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = Trail,
+                            disabledContentColor = InkMuted,
+                        ),
                     ) { Text("Clear") }
                 }
                 Text(
@@ -498,6 +520,8 @@ private fun formatGroupMetric(value: Double, suffix: String): String =
     if (suffix == "min") "${String.format(Locale.US, "%.1f", value)} $suffix"
     else "${String.format(Locale.US, "%.0f", value)} $suffix"
 
+internal fun shouldShowInatConnectionAction(inatConnected: Boolean): Boolean = !inatConnected
+
 @Composable
 private fun ReviewItemContent(
     item: ReviewItem,
@@ -603,9 +627,9 @@ private fun ReviewItemContent(
                         Spacer(Modifier.width(6.dp))
                         Text("Remove from review")
                     }
-                    if (inatConnected) {
+                    if (shouldShowInatConnectionAction(inatConnected)) {
                         TextButton(onClick = onConnectInat, enabled = !identifying, modifier = Modifier.fillMaxWidth().padding(top = 5.dp)) {
-                            Text("Reconnect iNaturalist")
+                            Text("Connect iNaturalist")
                         }
                     }
                 } else {
@@ -726,6 +750,7 @@ private fun ReviewLoading() {
 @Composable
 private fun ReviewEmpty(
     offline: Boolean,
+    inatConnected: Boolean,
     onRefresh: () -> Unit,
     onConnectInat: () -> Unit,
 ) {
@@ -739,13 +764,18 @@ private fun ReviewEmpty(
         }
         Text("Review queue clear", style = MaterialTheme.typography.headlineMedium, color = Ink, modifier = Modifier.padding(top = 18.dp))
         Text("New photos marked for species review will gather here.", style = MaterialTheme.typography.bodyLarge, color = InkMuted, modifier = Modifier.padding(top = 6.dp))
-        Button(
-            onClick = onConnectInat,
-            enabled = !offline,
-            modifier = Modifier.fillMaxWidth().padding(top = 22.dp).height(52.dp),
-        ) {
-            Text("Connect iNaturalist")
+        if (shouldShowInatConnectionAction(inatConnected)) {
+            Button(
+                onClick = onConnectInat,
+                enabled = !offline,
+                modifier = Modifier.fillMaxWidth().padding(top = 22.dp).height(52.dp),
+            ) {
+                Text("Connect iNaturalist")
+            }
         }
-        OutlinedButton(onClick = onRefresh, modifier = Modifier.padding(top = 10.dp)) { Text("Check again") }
+        OutlinedButton(
+            onClick = onRefresh,
+            modifier = Modifier.padding(top = if (inatConnected) 22.dp else 10.dp),
+        ) { Text("Check again") }
     }
 }
