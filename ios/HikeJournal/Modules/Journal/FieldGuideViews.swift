@@ -31,7 +31,11 @@ struct FieldGuideWorkspaceView: View {
             }
             .navigationTitle(section.title)
             .navigationBarTitleDisplayMode(.inline)
-            .searchable(text: $search, prompt: section.searchPrompt)
+            .searchable(
+                text: $search,
+                placement: .navigationBarDrawer(displayMode: .always),
+                prompt: section.searchPrompt
+            )
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Menu {
@@ -702,6 +706,8 @@ private struct DiscoveryWorkspace: View {
     @State private var loading = false
     @State private var areaSearchLoading = false
     @State private var creatingQuest = false
+    @State private var selectedTaxonIDs: [Int64] = []
+    @State private var questSaveMessage: String?
     @State private var previewSelection: DiscoveryTaxonSelection?
     @State private var currentLatitude: Double?
     @State private var currentLongitude: Double?
@@ -819,20 +825,53 @@ private struct DiscoveryWorkspace: View {
                         }
                         Spacer()
                     }
-                    Button(creatingQuest ? "Saving quest…" : "Save as Field Quest") {
+                    QuestTargetPicker(selectedCount: selectedTaxonIDs.count)
+
+                    Text(
+                        nearby.areaId.isEmpty
+                            ? "Field Quests need a saved area. Choose a park or preserve above before saving."
+                            : "Tap Select beside the species you want to find. Choose 1–10 targets."
+                    )
+                    .font(HikeJournalTheme.body(13))
+                    .foregroundStyle(HikeJournalTheme.inkMuted)
+
+                    Button {
                         saveQuest(nearby)
+                    } label: {
+                        Label(
+                            creatingQuest
+                                ? "Saving quest…"
+                                : nearby.areaId.isEmpty
+                                    ? "Choose a saved area"
+                                    : selectedTaxonIDs.isEmpty
+                                        ? "Choose at least one species"
+                                        : "Save as Field Quest",
+                            systemImage: "scope"
+                        )
+                        .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.bordered)
-                    .tint(HikeJournalTheme.moss)
-                    .disabled(creatingQuest)
+                    .buttonStyle(TrailButtonStyle())
+                    .disabled(creatingQuest || nearby.areaId.isEmpty || selectedTaxonIDs.isEmpty)
+
+                    if let questSaveMessage {
+                        Label(questSaveMessage, systemImage: "checkmark.circle.fill")
+                            .font(HikeJournalTheme.body(13))
+                            .foregroundStyle(HikeJournalTheme.moss)
+                    }
 
                     ForEach(nearby.taxa) { taxon in
-                        Button {
-                            previewSelection = DiscoveryTaxonSelection(nearby: nearby, taxon: taxon)
-                        } label: {
-                            DiscoveryTaxonRow(taxon: taxon)
-                        }
-                        .buttonStyle(.plain)
+                        DiscoveryTaxonRow(
+                            taxon: taxon,
+                            selectionOrder: selectedTaxonIDs.firstIndex(of: taxon.taxonId).map { $0 + 1 },
+                            selectionEnabled: !creatingQuest && (selectedTaxonIDs.count < QUEST_FOCUS_LIMIT
+                                || selectedTaxonIDs.contains(taxon.taxonId)),
+                            onOpen: {
+                                previewSelection = DiscoveryTaxonSelection(nearby: nearby, taxon: taxon)
+                            },
+                            onToggleSelection: {
+                                selectedTaxonIDs = toggleQuestFocus(selectedTaxonIDs, taxonID: taxon.taxonId)
+                            }
+                        )
                         Divider().overlay(HikeJournalTheme.line)
                     }
                     Text(nearby.sourceGuidance)
@@ -844,6 +883,10 @@ private struct DiscoveryWorkspace: View {
             .padding(.bottom, 36)
         }
         .scrollIndicators(.hidden)
+        .onChange(of: journal.nearbySpecies?.taxa.map(\.taxonId) ?? []) { _, availableTaxonIDs in
+            selectedTaxonIDs = selectedTaxonIDs.filter { availableTaxonIDs.contains($0) }
+            questSaveMessage = nil
+        }
         .sheet(item: $previewSelection) { selection in
             DiscoveryTaxonDetailView(
                 model: model,
@@ -912,7 +955,10 @@ private struct DiscoveryWorkspace: View {
     }
 
     private func saveQuest(_ nearby: NearbySpecies) {
+        guard !nearby.areaId.isEmpty, !selectedTaxonIDs.isEmpty else { return }
         creatingQuest = true
+        questSaveMessage = nil
+        let focusTaxonIDs = selectedTaxonIDs
         let draft = SpeciesQuestDraft(
             areaID: nearby.areaId,
             targetDate: nearby.targetDate,
@@ -923,7 +969,10 @@ private struct DiscoveryWorkspace: View {
             resultLimit: nearby.resultLimit
         )
         Task {
-            _ = await journal.createQuest(draft)
+            if await journal.createQuest(draft, focusTaxonIDs: focusTaxonIDs) != nil {
+                selectedTaxonIDs = []
+                questSaveMessage = "Field Quest saved. Find it in Field Quests."
+            }
             creatingQuest = false
         }
     }
@@ -936,9 +985,97 @@ private struct DiscoveryTaxonSelection: Identifiable {
     var id: Int64 { taxon.id }
 }
 
+private struct QuestTargetPicker: View {
+    let selectedCount: Int
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Label("Quest targets", systemImage: "scope")
+                    .font(HikeJournalTheme.label(13, relativeTo: .headline))
+                    .foregroundStyle(HikeJournalTheme.trailText)
+                Spacer()
+                Text("\(selectedCount)/\(QUEST_FOCUS_LIMIT)")
+                    .font(HikeJournalTheme.label(13, relativeTo: .headline))
+                    .foregroundStyle(selectedCount > 0 ? HikeJournalTheme.moss : HikeJournalTheme.inkMuted)
+            }
+            HStack(spacing: 6) {
+                ForEach(0..<QUEST_FOCUS_LIMIT, id: \.self) { index in
+                    Circle()
+                        .fill(index < selectedCount ? HikeJournalTheme.fern : HikeJournalTheme.line)
+                        .frame(width: 18, height: 18)
+                        .overlay {
+                            Text("\(index + 1)")
+                                .font(.system(size: 9, weight: .bold, design: .rounded))
+                                .foregroundStyle(index < selectedCount ? .white : HikeJournalTheme.inkMuted)
+                        }
+                }
+            }
+        }
+        .padding(.horizontal, 15)
+        .padding(.vertical, 12)
+        .background(HikeJournalTheme.fern.opacity(0.10), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(selectedCount) of \(QUEST_FOCUS_LIMIT) quest targets selected")
+    }
+}
+
 private struct DiscoveryTaxonRow: View {
     let taxon: DiscoveryTaxon
+    let selectionOrder: Int?
+    let selectionEnabled: Bool
+    let onOpen: (() -> Void)?
+    let onToggleSelection: (() -> Void)?
+
+    init(
+        taxon: DiscoveryTaxon,
+        selectionOrder: Int? = nil,
+        selectionEnabled: Bool = true,
+        onOpen: (() -> Void)? = nil,
+        onToggleSelection: (() -> Void)? = nil
+    ) {
+        self.taxon = taxon
+        self.selectionOrder = selectionOrder
+        self.selectionEnabled = selectionEnabled
+        self.onOpen = onOpen
+        self.onToggleSelection = onToggleSelection
+    }
+
     var body: some View {
+        HStack(spacing: 14) {
+            if let onOpen {
+                Button(action: onOpen) {
+                    rowContent
+                }
+                .buttonStyle(.plain)
+            } else {
+                rowContent
+            }
+
+            if let onToggleSelection {
+                Button(action: onToggleSelection) {
+                    VStack(spacing: 3) {
+                        Image(systemName: selectionOrder == nil ? "circle" : "checkmark.circle.fill")
+                            .font(.title3)
+                        Text(selectionOrder.map { "Selected \($0)" } ?? "Select")
+                            .font(HikeJournalTheme.label(10, relativeTo: .caption))
+                            .lineLimit(1)
+                    }
+                    .frame(width: 66, height: 48)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(selectionOrder == nil ? HikeJournalTheme.trailText : HikeJournalTheme.fern)
+                .disabled(!selectionEnabled)
+                .opacity(selectionEnabled ? 1 : 0.42)
+                .accessibilityLabel(selectionOrder.map { "Selected target \($0)" } ?? "Select \(taxon.commonName)")
+                .accessibilityHint(selectionEnabled ? "Adds or removes this species from the Field Quest." : "The quest already has ten targets.")
+            }
+        }
+        .padding(.vertical, 9)
+        .accessibilityElement(children: .combine)
+    }
+
+    private var rowContent: some View {
         HStack(spacing: 14) {
             JournalRemoteImage(urlString: taxon.referencePhoto?.url ?? "", fallback: iconicSymbol(taxon.iconicTaxonName))
                 .frame(width: 72, height: 72)
@@ -958,8 +1095,6 @@ private struct DiscoveryTaxonRow: View {
                     .accessibilityLabel("Already in your guide")
             }
         }
-        .padding(.vertical, 9)
-        .accessibilityElement(children: .combine)
     }
 }
 

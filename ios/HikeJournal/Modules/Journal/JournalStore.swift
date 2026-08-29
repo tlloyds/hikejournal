@@ -426,9 +426,25 @@ final class JournalStore: ObservableObject {
     }
 
     @discardableResult
-    func createQuest(_ draft: SpeciesQuestDraft) async -> FieldQuest? {
+    func createQuest(_ draft: SpeciesQuestDraft, focusTaxonIDs: [Int64] = []) async -> FieldQuest? {
         do {
-            let created = try await api.createQuest(draft)
+            var created = try await api.createQuest(draft)
+            let normalizedFocusTaxonIDs = normalizeQuestFocusTaxonIDs(
+                focusTaxonIDs,
+                availableTaxa: created.taxa
+            )
+            if !normalizedFocusTaxonIDs.isEmpty {
+                created = try await api.updateQuest(
+                    id: created.id,
+                    update: SpeciesQuestUpdate(
+                        title: nil,
+                        status: nil,
+                        linkedHikeID: nil,
+                        setLinkedHike: false,
+                        focusTaxonIDs: normalizedFocusTaxonIDs
+                    )
+                )
+            }
             quests.removeAll { $0.id == created.id }
             quests.insert(created, at: 0)
             await cacheVisibleQuests()

@@ -178,4 +178,21 @@ final class DiscoveryAndLongitudinalTests: XCTestCase {
         XCTAssertEqual(roundedDiscoveryCoordinate(28.53831), 28.54, accuracy: 0.000001)
         XCTAssertEqual(roundedDiscoveryCoordinate(-81.37924), -81.38, accuracy: 0.000001)
     }
+
+    func testQuestFocusSelectionIsOrderedCappedAndFilteredToNearbyTaxa() {
+        var selected = toggleQuestFocus([], taxonID: 101)
+        selected = toggleQuestFocus(selected, taxonID: 202)
+        selected = toggleQuestFocus(selected, taxonID: 101)
+
+        let available = (1...12).map { fixtureDiscoveryTaxon(Int64($0)) }
+        let normalized = normalizeQuestFocusTaxonIDs(
+            [202, 999, 202, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+            availableTaxa: available
+        )
+
+        XCTAssertEqual(selected, [202])
+        XCTAssertEqual(normalized, [3, 4, 5, 6, 7, 8, 9, 10, 11])
+        XCTAssertEqual(questTargetPrompt(selectedCount: 0), "Pick at least 1")
+        XCTAssertEqual(questTargetPrompt(selectedCount: 1), "Save quest")
+    }
 }
