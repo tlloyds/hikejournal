@@ -793,7 +793,25 @@ final class JournalStore: ObservableObject {
                 candidate: candidate
             )
             guard response.ok else { return false }
-            reviewItems.removeAll { $0.photo.id == photoID || $0.id == photoID }
+            if action == "confirm" {
+                reviewItems.removeAll { $0.photo.id == photoID || $0.id == photoID }
+            } else if action == "reject",
+                      let index = reviewItems.firstIndex(where: { $0.photo.id == photoID || $0.id == photoID }) {
+                let current = reviewItems[index]
+                reviewItems[index] = ReviewItem(
+                    id: current.id,
+                    photo: current.photo,
+                    hikeId: current.hikeId,
+                    hikeTitle: current.hikeTitle,
+                    hikeDate: current.hikeDate,
+                    locationName: current.locationName,
+                    state: "waiting",
+                    observationId: nil,
+                    candidates: []
+                )
+            } else if action != "reject" {
+                reviewItems.removeAll { $0.photo.id == photoID || $0.id == photoID }
+            }
             if action == "confirm", let candidate, let reviewedItem {
                 pendingCelebration = buildConfirmedSpeciesCelebration(
                     candidate: candidate,
@@ -802,7 +820,11 @@ final class JournalStore: ObservableObject {
                     existingSpecies: existingSpecies
                 )
             }
-            await refreshFieldGuide()
+            if action == "reject" {
+                await refreshReviewQueue()
+            } else {
+                await refreshFieldGuide()
+            }
             return true
         } catch {
             errorMessage = readable(error)

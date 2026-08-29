@@ -62,10 +62,23 @@ final class SystemLocationPermissionClient: NSObject, LocationPermissionClient {
                 throw CurrentLocationError.permissionDenied
             }
         }
-        return try await withCheckedThrowingContinuation { continuation in
-            locationContinuation = continuation
-            manager.requestLocation()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                locationContinuation?.resume(throwing: CancellationError())
+                locationContinuation = continuation
+                manager.requestLocation()
+            }
+        } onCancel: { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.cancelLocationRequest()
+            }
         }
+    }
+
+    private func cancelLocationRequest() {
+        guard let continuation = locationContinuation else { return }
+        locationContinuation = nil
+        continuation.resume(throwing: CancellationError())
     }
 
 }

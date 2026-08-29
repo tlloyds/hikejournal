@@ -702,8 +702,7 @@ private struct DiscoveryWorkspace: View {
     @State private var loading = false
     @State private var areaSearchLoading = false
     @State private var creatingQuest = false
-    @State private var previewTaxon: DiscoveryTaxon?
-    @State private var previewNearby: NearbySpecies?
+    @State private var previewSelection: DiscoveryTaxonSelection?
     @State private var currentLatitude: Double?
     @State private var currentLongitude: Double?
     @State private var locationError: String?
@@ -791,7 +790,7 @@ private struct DiscoveryWorkspace: View {
                     }
                 }
 
-                DatePicker("Season around", selection: $date, displayedComponents: .date)
+                DatePicker("Hike date", selection: $date, displayedComponents: .date)
                 Stepper("Within \(radiusKM) km", value: $radiusKM, in: 1...50)
                 Picker("Group", selection: $iconicTaxon) {
                     ForEach(["All", "Plants", "Birds", "Mammals", "Reptiles", "Amphibians", "Insects", "Fungi"], id: \.self) {
@@ -829,8 +828,7 @@ private struct DiscoveryWorkspace: View {
 
                     ForEach(nearby.taxa) { taxon in
                         Button {
-                            previewNearby = nearby
-                            previewTaxon = taxon
+                            previewSelection = DiscoveryTaxonSelection(nearby: nearby, taxon: taxon)
                         } label: {
                             DiscoveryTaxonRow(taxon: taxon)
                         }
@@ -846,15 +844,18 @@ private struct DiscoveryWorkspace: View {
             .padding(.bottom, 36)
         }
         .scrollIndicators(.hidden)
-        .sheet(item: $previewTaxon) { taxon in
-            if let nearby = previewNearby {
-                DiscoveryTaxonDetailView(
-                    model: model,
-                    journal: journal,
-                    taxon: taxon,
-                    sightingsRequest: { try await journal.nearbySightings(nearby: nearby, taxonID: taxon.taxonId) }
-                )
-            }
+        .sheet(item: $previewSelection) { selection in
+            DiscoveryTaxonDetailView(
+                model: model,
+                journal: journal,
+                taxon: selection.taxon,
+                sightingsRequest: {
+                    try await journal.nearbySightings(
+                        nearby: selection.nearby,
+                        taxonID: selection.taxon.taxonId
+                    )
+                }
+            )
         }
     }
 
@@ -926,6 +927,13 @@ private struct DiscoveryWorkspace: View {
             creatingQuest = false
         }
     }
+}
+
+private struct DiscoveryTaxonSelection: Identifiable {
+    let nearby: NearbySpecies
+    let taxon: DiscoveryTaxon
+
+    var id: Int64 { taxon.id }
 }
 
 private struct DiscoveryTaxonRow: View {
@@ -1288,22 +1296,12 @@ private struct SpeciesReviewList: View {
                 }
                 .padding(.bottom, 24)
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 18) {
-                        ForEach(items) { item in
-                            ReviewItemView(
-                                journal: journal,
-                                item: item,
-                                inatConnected: inatConnected,
-                                onConnect: onConnect
-                            )
-                            Divider().overlay(HikeJournalTheme.line)
-                        }
-                    }
-                    .padding(22)
-                    .padding(.bottom, 36)
-                }
-                .scrollIndicators(.hidden)
+                SpeciesReviewCardDeck(
+                    journal: journal,
+                    items: items,
+                    inatConnected: inatConnected,
+                    onConnect: onConnect
+                )
             }
         }
         .sheet(isPresented: $managingGroups) {
@@ -1409,95 +1407,289 @@ private struct ReviewGroupingPlanner: View {
     }
 }
 
-private struct ReviewItemView: View {
+private struct SpeciesReviewCardDeck: View {
+    @ObservedObject var journal: JournalStore
+    let items: [ReviewItem]
+    let inatConnected: Bool
+    let onConnect: () -> Void
+    @State private var selectedID: String
+
+    init(
+        journal: JournalStore,
+        items: [ReviewItem],
+        inatConnected: Bool,
+        onConnect: @escaping () -> Void
+    ) {
+        self.journal = journal
+        self.items = items
+        self.inatConnected = inatConnected
+        self.onConnect = onConnect
+        _selectedID = State(initialValue: items.first?.id ?? "")
+    }
+
+    var body: some View {
+        VStack(spacing: 8) {
+            if items.count > 1 {
+                Text("Swipe left or right to move through photos")
+                    .font(HikeJournalTheme.label(13, relativeTo: .subheadline))
+                    .foregroundStyle(HikeJournalTheme.inkMuted)
+                    .padding(.top, 8)
+            }
+
+            TabView(selection: $selectedID) {
+                ForEach(items) { item in
+                    ReviewCardPage(
+                        journal: journal,
+                        item: item,
+                        inatConnected: inatConnected,
+                        onConnect: onConnect,
+                        position: position(of: item),
+                        total: items.count,
+                        onAdvance: advance
+                    )
+                    .tag(item.id)
+                }
+            }
+            .tabViewStyle(.page(indexDisplayMode: items.count > 1 ? .automatic : .never))
+            .frame(maxWidth: .infinity, minHeight: 590, maxHeight: .infinity)
+        }
+        .onAppear { syncSelection() }
+        .onChange(of: itemIDs) { _, _ in syncSelection() }
+    }
+
+    private var itemIDs: [String] { items.map(\.id) }
+
+    private func position(of item: ReviewItem) -> Int {
+        (items.firstIndex(where: { $0.id == item.id }) ?? 0) + 1
+    }
+
+    private func syncSelection() {
+        if !itemIDs.contains(selectedID) {
+            selectedID = itemIDs.first ?? ""
+        }
+    }
+
+    private func advance(after id: String) {
+        guard let index = items.firstIndex(where: { $0.id == id }) else { return }
+        if index < items.index(before: items.endIndex) {
+            selectedID = items[index + 1].id
+        } else if index > items.startIndex {
+            selectedID = items[index - 1].id
+        }
+    }
+}
+
+private struct ReviewCardPage: View {
     @ObservedObject var journal: JournalStore
     let item: ReviewItem
     let inatConnected: Bool
     let onConnect: () -> Void
+    let position: Int
+    let total: Int
+    let onAdvance: (String) -> Void
     @State private var working = false
     @State private var recommendationTask: Task<Void, Never>?
+    @State private var selectedCandidateIndex = 0
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            JournalRemoteImage(urlString: item.photo.url, fallback: "photo")
-                .frame(height: 220)
-                .clipped()
-            Text(item.hikeTitle).font(HikeJournalTheme.display(24, relativeTo: .title3))
-            Text("\(JournalDate.display(item.hikeDate)) · \(item.locationName)")
-                .font(HikeJournalTheme.body(13)).foregroundStyle(HikeJournalTheme.inkMuted)
-            if item.candidates.isEmpty {
-                Group {
-                    if working {
-                        Button("Stop asking", role: .cancel) {
-                            recommendationTask?.cancel()
-                            recommendationTask = nil
-                            working = false
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                ZStack(alignment: .bottomLeading) {
+                    JournalRemoteImage(urlString: item.photo.url, fallback: "photo")
+                        .frame(height: 292)
+                        .clipped()
+                        .overlay {
+                            LinearGradient(
+                                colors: [.clear, HikeJournalTheme.moss.opacity(0.88)],
+                                startPoint: .center,
+                                endPoint: .bottom
+                            )
                         }
-                    } else if inatConnected {
-                        Button("Ask iNaturalist for suggestions") {
-                            working = true
-                            recommendationTask = Task { @MainActor in
-                                defer {
-                                    working = false
-                                    recommendationTask = nil
-                                }
-                                _ = await journal.requestReviewRecommendation(photoID: item.photo.id)
-                            }
-                        }
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("PHOTO \(position) OF \(total)")
+                            .font(HikeJournalTheme.label(11))
+                            .tracking(1.1)
+                        Text(item.hikeTitle)
+                            .font(HikeJournalTheme.display(28, relativeTo: .title2))
+                            .lineLimit(2)
+                        Text(item.locationName.isEmpty ? JournalDate.display(item.hikeDate) : item.locationName)
+                            .font(HikeJournalTheme.body(14))
+                            .lineLimit(1)
+                    }
+                    .foregroundStyle(HikeJournalTheme.paper)
+                    .padding(18)
+                }
+
+                VStack(alignment: .leading, spacing: 14) {
+                    if item.candidates.isEmpty {
+                        waitingContent
                     } else {
-                        Button("Connect iNaturalist", action: onConnect)
+                        candidateContent
                     }
                 }
-                .buttonStyle(.bordered)
-                .tint(HikeJournalTheme.moss)
-                .disabled(working || journal.isReviewBatchWorking)
-                Button("Remove from review", role: .destructive) {
-                    removeFromReview()
-                }
-                .buttonStyle(.bordered)
-                .disabled(working || journal.isReviewBatchWorking)
-            } else {
-                ForEach(Array(item.candidates.prefix(5).enumerated()), id: \.offset) { index, candidate in
-                    HStack(alignment: .top, spacing: 12) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(candidate.commonName).font(HikeJournalTheme.label(15, relativeTo: .headline))
-                            Text(candidate.scientificName).font(HikeJournalTheme.body(12)).italic()
-                            if let confidence = reviewConfidenceLabel(candidate.confidence) {
-                                Text(confidence)
-                                    .font(HikeJournalTheme.body(12))
-                                    .foregroundStyle(HikeJournalTheme.inkMuted)
-                            }
-                        }
-                        Spacer()
-                        Button(index == 0 ? "Confirm" : "Choose") {
-                            decide(action: "confirm", candidate: candidate)
-                        }
-                        .font(HikeJournalTheme.label(13, relativeTo: .subheadline))
-                        .disabled(working)
-                    }
-                }
-                Button("Reject suggestion", role: .destructive) { decide(action: "reject", candidate: nil) }
-                    .disabled(working)
-                Button("Remove from review", role: .destructive) {
-                    removeFromReview()
-                }
-                .buttonStyle(.bordered)
-                .disabled(working)
+                .padding(18)
             }
+            .background(HikeJournalTheme.paper)
+            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .stroke(HikeJournalTheme.line, lineWidth: 1)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
         }
         .onDisappear { recommendationTask?.cancel() }
+        .onChange(of: item.candidates.count) { _, count in
+            selectedCandidateIndex = min(selectedCandidateIndex, max(0, count - 1))
+        }
+    }
+
+    @ViewBuilder
+    private var waitingContent: some View {
+        Text("Awaiting a suggestion")
+            .font(HikeJournalTheme.display(27, relativeTo: .title2))
+            .foregroundStyle(HikeJournalTheme.ink)
+        Text("Ask iNaturalist for a field identification, or swipe to keep moving through the queue.")
+            .font(HikeJournalTheme.body(15))
+            .foregroundStyle(HikeJournalTheme.inkMuted)
+
+        if working {
+            Button("Stop asking", role: .cancel) {
+                recommendationTask?.cancel()
+                recommendationTask = nil
+                working = false
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(HikeJournalTheme.moss)
+        } else if inatConnected {
+            Button {
+                working = true
+                recommendationTask = Task { @MainActor in
+                    defer {
+                        working = false
+                        recommendationTask = nil
+                    }
+                    _ = await journal.requestReviewRecommendation(photoID: item.photo.id)
+                }
+            } label: {
+                Label("Ask iNaturalist for suggestions", systemImage: "sparkle.magnifyingglass")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(TrailButtonStyle())
+        } else {
+            Button("Connect iNaturalist", action: onConnect)
+                .buttonStyle(TrailButtonStyle())
+        }
+
+        HStack(spacing: 10) {
+            Button {
+                onAdvance(item.id)
+            } label: {
+                Label("Skip", systemImage: "forward.fill")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .disabled(working || !hasNext)
+
+            removeButton
+        }
+    }
+
+    @ViewBuilder
+    private var candidateContent: some View {
+        Text("Choose the best match")
+            .font(HikeJournalTheme.display(27, relativeTo: .title2))
+            .foregroundStyle(HikeJournalTheme.ink)
+        Text("The first option is iNaturalist’s current suggestion.")
+            .font(HikeJournalTheme.body(15))
+            .foregroundStyle(HikeJournalTheme.inkMuted)
+
+        ForEach(Array(item.candidates.prefix(5).enumerated()), id: \.offset) { index, candidate in
+            Button {
+                selectedCandidateIndex = index
+            } label: {
+                HStack(alignment: .top, spacing: 11) {
+                    Image(systemName: selectedCandidateIndex == index ? "checkmark.circle.fill" : "circle")
+                        .foregroundStyle(selectedCandidateIndex == index ? HikeJournalTheme.moss : HikeJournalTheme.inkMuted)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(candidate.commonName.isEmpty ? candidate.scientificName : candidate.commonName)
+                            .font(HikeJournalTheme.label(16, relativeTo: .headline))
+                            .foregroundStyle(HikeJournalTheme.ink)
+                        if !candidate.scientificName.isEmpty {
+                            Text(candidate.scientificName)
+                                .font(HikeJournalTheme.body(13))
+                                .italic()
+                                .foregroundStyle(HikeJournalTheme.inkMuted)
+                        }
+                        if let confidence = reviewConfidenceLabel(candidate.confidence) {
+                            Text(confidence)
+                                .font(HikeJournalTheme.body(12))
+                                .foregroundStyle(HikeJournalTheme.inkMuted)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(working)
+        }
+
+        Button {
+            guard item.candidates.indices.contains(selectedCandidateIndex) else { return }
+            decide(action: "confirm", candidate: item.candidates[selectedCandidateIndex])
+        } label: {
+            Label("\(selectedCandidateIndex == 0 ? "Confirm ID" : "Use this ID")", systemImage: "checkmark")
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(TrailButtonStyle())
+        .disabled(working || item.candidates.isEmpty)
+
+        HStack(spacing: 10) {
+            Button("Reject suggestion", role: .destructive) {
+                decide(action: "reject", candidate: nil)
+            }
+            .frame(maxWidth: .infinity)
+            .buttonStyle(.bordered)
+            .disabled(working)
+
+            Button {
+                onAdvance(item.id)
+            } label: {
+                Label("Skip", systemImage: "forward.fill")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .disabled(working || !hasNext)
+        }
+        removeButton
+    }
+
+    private var hasNext: Bool { position < total }
+
+    private var removeButton: some View {
+        Button {
+            removeFromReview()
+        } label: {
+            Label("Remove from review", systemImage: "xmark.circle")
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
+        .tint(HikeJournalTheme.error)
+        .disabled(working || journal.isReviewBatchWorking)
     }
 
     private func decide(action: String, candidate: ReviewCandidate?) {
         working = true
         Task {
-            _ = await journal.decideReview(
+            let saved = await journal.decideReview(
                 photoID: item.photo.id,
                 observationID: item.observationId,
                 action: action,
                 candidate: candidate
             )
             working = false
+            if saved { onAdvance(item.id) }
         }
     }
 
@@ -1505,12 +1697,13 @@ private struct ReviewItemView: View {
         guard !working else { return }
         working = true
         Task {
-            _ = await journal.queueSpeciesReview(
+            let saved = await journal.queueSpeciesReview(
                 photoID: item.photo.id,
                 hikeID: item.hikeId ?? "everyday",
                 queued: false
             )
             working = false
+            if saved { onAdvance(item.id) }
         }
     }
 }

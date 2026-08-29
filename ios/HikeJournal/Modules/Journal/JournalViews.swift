@@ -506,7 +506,8 @@ struct JournalHikeDetailView: View {
                 journal: journal,
                 seed: photo,
                 hikeID: hikeID,
-                isCover: hike?.coverPhotoId == photo.id
+                isCover: hike?.coverPhotoId == photo.id,
+                photos: hike?.photos ?? [photo]
             )
         }
         .sheet(isPresented: $showingComparison) {
@@ -1140,14 +1141,31 @@ private struct JournalMediaDetailView: View {
     let seed: Photo
     let hikeID: String
     let isCover: Bool
+    let initialPhotos: [Photo]
 
     @Environment(\.dismiss) private var dismiss
+    @State private var selectedPhotoID: String
     @State private var showingCaption = false
     @State private var showingKnownSpecies = false
     @State private var showingDelete = false
     @State private var working = false
     @State private var recommendationTask: Task<Void, Never>?
     @State private var recommendation: ReviewItem?
+
+    init(
+        journal: JournalStore,
+        seed: Photo,
+        hikeID: String,
+        isCover: Bool,
+        photos: [Photo] = []
+    ) {
+        self.journal = journal
+        self.seed = seed
+        self.hikeID = hikeID
+        self.isCover = isCover
+        self.initialPhotos = photos.isEmpty ? [seed] : photos
+        _selectedPhotoID = State(initialValue: seed.id)
+    }
 
     var body: some View {
         NavigationStack {
@@ -1248,16 +1266,38 @@ private struct JournalMediaDetailView: View {
             } message: {
                 Text("The deletion is queued safely if this iPhone is offline.")
             }
+            .onChange(of: photoIDs) { _, ids in
+                if !ids.contains(selectedPhotoID) {
+                    selectedPhotoID = ids.first ?? seed.id
+                }
+            }
         }
     }
 
     @ViewBuilder
     private var mediaPlane: some View {
-        if currentPhoto.contentType.hasPrefix("video/"), let url = URL(string: currentPhoto.url) {
+        if photos.count > 1 {
+            TabView(selection: $selectedPhotoID) {
+                ForEach(photos) { photo in
+                    mediaContent(photo)
+                        .tag(photo.id)
+                }
+            }
+            .tabViewStyle(.page(indexDisplayMode: .automatic))
+            .frame(maxWidth: .infinity)
+            .frame(height: 420)
+        } else {
+            mediaContent(currentPhoto)
+        }
+    }
+
+    @ViewBuilder
+    private func mediaContent(_ photo: Photo) -> some View {
+        if photo.contentType.hasPrefix("video/"), let url = URL(string: photo.url) {
             JournalVideoPreview(url: url)
                 .frame(height: 360)
         } else {
-            JournalRemoteImage(urlString: currentPhoto.url, fallback: "photo")
+            JournalRemoteImage(urlString: photo.url, fallback: "photo")
                 .scaledToFit()
                 .frame(maxWidth: .infinity, minHeight: 280, maxHeight: 480)
         }
@@ -1434,7 +1474,7 @@ private struct JournalMediaDetailView: View {
             .buttonStyle(.bordered)
             .tint(.white)
 
-            if !currentPhoto.contentType.hasPrefix("video/") && !isCover {
+            if !currentPhoto.contentType.hasPrefix("video/") && !currentIsCover {
                 Button {
                     Task {
                         _ = await journal.queuePhotoAction(
@@ -1459,7 +1499,23 @@ private struct JournalMediaDetailView: View {
     }
 
     private var currentPhoto: Photo {
-        journal.details[hikeID]?.photos.first { $0.id == seed.id } ?? seed
+        photos.first { $0.id == selectedPhotoID } ?? photos.first ?? seed
+    }
+
+    private var photos: [Photo] {
+        let stored = journal.details[hikeID]?.photos ?? initialPhotos
+        return stored.isEmpty ? [seed] : stored
+    }
+
+    private var photoIDs: [String] {
+        photos.map(\.id)
+    }
+
+    private var currentIsCover: Bool {
+        if let coverPhotoID = journal.details[hikeID]?.coverPhotoId {
+            return coverPhotoID == currentPhoto.id
+        }
+        return isCover && currentPhoto.id == seed.id
     }
 
     private var currentRecommendation: ReviewItem? {
