@@ -71,6 +71,45 @@ def test_selected_hike_marker_query_disables_clustering_without_changing_master_
     assert client.calls[1][1]["p_zoom"] == 8
 
 
+def test_route_index_status_preserves_saved_routes_before_spatial_migration() -> None:
+    class Query:
+        def __init__(self, *, indexed: bool = False):
+            self.indexed = indexed
+
+        def select(self, _columns, count=None):
+            return self
+
+        def in_(self, _column, _values):
+            return self
+
+        @property
+        def not_(self):
+            return self
+
+        def is_(self, _column, _value):
+            self.indexed = True
+            return self
+
+        def limit(self, _value):
+            return self
+
+        def execute(self):
+            if self.indexed:
+                raise RuntimeError("column hike_route_imports.track_geom does not exist")
+            return type("Response", (), {"count": 1, "data": []})()
+
+    class Client:
+        def table(self, _name):
+            return Query()
+
+    repository = HikeJournalRepository(client=Client())
+
+    assert repository.get_map_route_index_status(
+        visible_hike_ids=["hike-1"],
+        hike_id="hike-1",
+    ) == (1, 0)
+
+
 def test_quest_save_retries_without_wikipedia_fields_for_legacy_schema() -> None:
     class Table:
         def __init__(self, name):

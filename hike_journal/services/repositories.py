@@ -1069,6 +1069,10 @@ class HikeJournalRepository:
                 .limit(0)
                 .execute()
             )
+            route_count = int(total_response.count or 0)
+        except Exception:
+            return 0, 0
+        try:
             indexed_response = (
                 self.client.table("hike_route_imports")
                 .select("id", count="exact")
@@ -1077,9 +1081,12 @@ class HikeJournalRepository:
                 .limit(0)
                 .execute()
             )
-            return int(total_response.count or 0), int(indexed_response.count or 0)
+            return route_count, int(indexed_response.count or 0)
         except Exception:
-            return 0, 0
+            # The spatial migration is additive. If track_geom is not present
+            # yet, the route import still exists and the map view can render it
+            # through its compatibility GeoJSON path.
+            return route_count, 0
 
     def list_unindexed_map_routes(self, *, visible_hike_ids: list[str], hike_id: str | None) -> list[dict[str, Any]]:
         scoped_ids = [hike_id] if hike_id else visible_hike_ids
