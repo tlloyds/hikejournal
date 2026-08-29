@@ -39,6 +39,12 @@ def observation_date(observation: dict[str, Any]) -> date | None:
 
 
 def _species_snapshot(observation: dict[str, Any]) -> dict[str, Any]:
+    reference_photo = observation.get("reference_photo")
+    reference_photo_url = (
+        reference_photo.get("url")
+        if isinstance(reference_photo, dict)
+        else ""
+    )
     return {
         "key": species_key(observation),
         "taxon_id": observation.get("species_taxon_id") or observation.get("taxon_id"),
@@ -48,6 +54,7 @@ def _species_snapshot(observation: dict[str, Any]) -> dict[str, Any]:
         "reference_photo_url": str(
             observation.get("reference_photo_url")
             or observation.get("collection_photo_url")
+            or reference_photo_url
             or ""
         ),
         "observation_count": int(observation.get("observation_count") or 0),
@@ -301,6 +308,10 @@ def build_field_briefing(
                 reasons.append(f"Last recorded {days} days ago.")
                 score += min(days // 30, 20)
         nearby_reason = str(taxon.get("match_reason") or "").strip()
+        reference_photo = taxon.get("reference_photo")
+        if not isinstance(reference_photo, dict) or not str(reference_photo.get("url") or "").strip():
+            reference_photo_url = str(taxon.get("reference_photo_url") or "").strip()
+            reference_photo = {"url": reference_photo_url, "attribution": "", "license_code": ""} if reference_photo_url else None
         reasons.append(nearby_reason or "Reported nearby on iNaturalist during this part of the year.")
         ranked.append(
             (
@@ -312,7 +323,7 @@ def build_field_briefing(
                     "section": section,
                     "score": score,
                     "reasons": reasons,
-                    "reference_photo": taxon.get("reference_photo"),
+                    "reference_photo": reference_photo,
                     "nearby_rank": taxon.get("nearby_rank") or index + 1,
                 },
             )

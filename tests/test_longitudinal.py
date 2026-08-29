@@ -119,6 +119,11 @@ def test_field_briefing_is_deterministic_and_explains_personal_reasons():
             "collected": True,
             "collected_at": "2025-08-12",
             "collection_photo_url": "https://images.example/return.jpg",
+            "reference_photo": {
+                "url": "https://images.example/return-reference.jpg",
+                "attribution": "© Naturalist",
+                "license_code": "cc-by",
+            },
         },
         {"taxon_id": 1, "common_name": "New", "nearby_rank": 2},
         {"taxon_id": 2, "common_name": "Duplicate", "nearby_rank": 3},
@@ -139,4 +144,5 @@ def test_field_briefing_is_deterministic_and_explains_personal_reasons():
     assert first["sections"][0]["items"][0]["frequency_band"] == "Often reported"
     assert first["sections"][0]["items"][0]["wikipedia_summary"] == "A seasonal species."
     assert first["sections"][0]["items"][0]["collection_photo_url"].endswith("return.jpg")
+    assert first["sections"][0]["items"][0]["reference_photo"]["url"].endswith("return-reference.jpg")
     assert any(section["title"] == "Missing from your Field Guide" for section in first["sections"])

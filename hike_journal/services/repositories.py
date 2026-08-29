@@ -265,6 +265,22 @@ class HikeJournalRepository:
         except Exception:
             return []
 
+    def list_hike_route_imports_for_hike_ids(self, hike_ids: list[str]) -> list[dict[str, Any]]:
+        normalized_ids = list(dict.fromkeys(str(hike_id) for hike_id in hike_ids if str(hike_id).strip()))
+        if not normalized_ids:
+            return []
+        try:
+            response = (
+                self.client.table("hike_route_imports")
+                .select("*")
+                .in_("hike_id", normalized_ids)
+                .order("created_at", desc=True)
+                .execute()
+            )
+            return self.decorate_media_rows(response.data or [])
+        except Exception:
+            return []
+
     def get_hike_route_import(
         self,
         hike_id: str,

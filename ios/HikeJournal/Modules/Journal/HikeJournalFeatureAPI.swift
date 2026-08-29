@@ -53,7 +53,10 @@ struct ReviewDecisionResponse: Codable, Equatable, Sendable {
 }
 
 struct SpeciesQuestDraft: Codable, Equatable, Sendable {
-    let areaID: String
+    let areaID: String?
+    let areaName: String
+    let latitude: Double?
+    let longitude: Double?
     let targetDate: String
     let radiusKM: Int
     let iconicTaxon: String?
@@ -63,6 +66,9 @@ struct SpeciesQuestDraft: Codable, Equatable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case areaID = "area_id"
+        case areaName = "area_name"
+        case latitude = "lat"
+        case longitude = "lng"
         case targetDate = "target_date"
         case radiusKM = "radius_km"
         case iconicTaxon = "iconic_taxon"
@@ -261,7 +267,13 @@ extension APIClient: HikeJournalFeatureAPI {
     }
 
     func placeProfile(id: String) async throws -> PlaceProfile {
-        try await send(APIRequest(path: "/v1/places/\(try apiPathSegment(id))/profile"))
+        try await send(
+            APIRequest(
+                path: "/v1/places/\(try apiPathSegment(id))/profile",
+                timeoutInterval: 60,
+                maximumResponseBytes: 8 * 1_024 * 1_024
+            )
+        )
     }
 
     func placeConditions(

@@ -643,6 +643,9 @@ public struct BriefingItem: Codable, Equatable, Sendable, Identifiable {
     public init(from decoder: Decoder) throws {
         let values = try decoder.domainContainer()
         let photo = try values.optionalValue(DiscoveryPhoto.self, "referencePhoto")
+        let photoURL = photo?.url ?? values.string("referencePhotoUrl")
+        let photoAttribution = photo?.attribution ?? values.string("referencePhotoAttribution")
+        let photoLicenseCode = photo?.licenseCode ?? values.string("referencePhotoLicenseCode")
         self.init(
             key: values.string("key"),
             taxonId: values.optionalInt64("taxonId"),
@@ -651,9 +654,9 @@ public struct BriefingItem: Codable, Equatable, Sendable, Identifiable {
             iconicTaxonName: values.string("iconicTaxonName", default: "Other"),
             section: values.string("section"),
             reasons: try values.array(String.self, "reasons"),
-            referencePhotoUrl: photo?.url ?? "",
-            referencePhotoAttribution: photo?.attribution ?? "",
-            referencePhotoLicenseCode: photo?.licenseCode ?? "",
+            referencePhotoUrl: photoURL,
+            referencePhotoAttribution: photoAttribution,
+            referencePhotoLicenseCode: photoLicenseCode,
             observationCount: values.integer("observationCount"),
             nearbyRank: values.integer("nearbyRank"),
             frequencyBand: values.string("frequencyBand", default: "Nearby record"),

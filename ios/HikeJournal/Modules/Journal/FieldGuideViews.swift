@@ -827,11 +827,7 @@ private struct DiscoveryWorkspace: View {
                     }
                     QuestTargetPicker(selectedCount: selectedTaxonIDs.count)
 
-                    Text(
-                        nearby.areaId.isEmpty
-                            ? "Field Quests need a saved area. Choose a park or preserve above before saving."
-                            : "Tap Select beside the species you want to find. Choose 1–10 targets."
-                    )
+                    Text("Tap Select beside the species you want to find. Choose 1–10 targets; we’ll use this search location for the quest.")
                     .font(HikeJournalTheme.body(13))
                     .foregroundStyle(HikeJournalTheme.inkMuted)
 
@@ -841,17 +837,15 @@ private struct DiscoveryWorkspace: View {
                         Label(
                             creatingQuest
                                 ? "Saving quest…"
-                                : nearby.areaId.isEmpty
-                                    ? "Choose a saved area"
-                                    : selectedTaxonIDs.isEmpty
-                                        ? "Choose at least one species"
-                                        : "Save as Field Quest",
+                                : selectedTaxonIDs.isEmpty
+                                    ? "Choose at least one species"
+                                    : "Save as Field Quest",
                             systemImage: "scope"
                         )
                         .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(TrailButtonStyle())
-                    .disabled(creatingQuest || nearby.areaId.isEmpty || selectedTaxonIDs.isEmpty)
+                    .disabled(creatingQuest || selectedTaxonIDs.isEmpty)
 
                     if let questSaveMessage {
                         Label(questSaveMessage, systemImage: "checkmark.circle.fill")
@@ -955,12 +949,17 @@ private struct DiscoveryWorkspace: View {
     }
 
     private func saveQuest(_ nearby: NearbySpecies) {
-        guard !nearby.areaId.isEmpty, !selectedTaxonIDs.isEmpty else { return }
+        guard !selectedTaxonIDs.isEmpty,
+              nearby.latitude != nil,
+              nearby.longitude != nil else { return }
         creatingQuest = true
         questSaveMessage = nil
         let focusTaxonIDs = selectedTaxonIDs
         let draft = SpeciesQuestDraft(
-            areaID: nearby.areaId,
+            areaID: nearby.areaId.isEmpty ? nil : nearby.areaId,
+            areaName: nearby.areaName,
+            latitude: nearby.latitude,
+            longitude: nearby.longitude,
             targetDate: nearby.targetDate,
             radiusKM: nearby.radiusKm,
             iconicTaxon: nearby.iconicTaxon,

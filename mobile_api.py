@@ -167,6 +167,15 @@ if not MOBILE_API_VERSION:
 logger = logging.getLogger(__name__)
 
 
+def create_client(url: str, key: str) -> Client:
+    """Build the shared Supabase client used by mobile API services.
+
+    Keep this small module-level seam for service construction and tests while
+    retaining the hardened HTTP/1.1 transport in one place.
+    """
+    return build_supabase_client(url, key)
+
+
 def _parse_picker_taken_at(value: str) -> datetime | None:
     raw = value.strip()
     if not raw or raw.casefold() == "null":
@@ -402,7 +411,10 @@ class PublishBatchInput(BaseModel):
 
 
 class SpeciesQuestInput(BaseModel):
-    area_id: str = Field(min_length=1, max_length=64)
+    area_id: str | None = Field(default=None, max_length=64)
+    area_name: str | None = Field(default=None, max_length=160)
+    lat: float | None = Field(default=None, ge=-90, le=90)
+    lng: float | None = Field(default=None, ge=-180, le=180)
     target_date: date
     radius_km: Literal[5, 10, 25] = 10
     iconic_taxon: str | None = Field(default=None, max_length=160)
@@ -450,7 +462,7 @@ class Services:
     def __init__(self) -> None:
         if not settings.supabase_configured:
             raise RuntimeError("SUPABASE_URL and SUPABASE_KEY are required.")
-        self.client: Client = build_supabase_client(settings.supabase_url, settings.supabase_key)
+        self.client: Client = create_client(settings.supabase_url, settings.supabase_key)
         self.storage = StorageService(self.client)
         self.repository = HikeJournalRepository(
             self.client,
@@ -3263,9 +3275,15 @@ def _place_profile_data(
         return [], []
 
     place_hike_ids = [str(hike.get("id") or "") for hike in place_hikes if hike.get("id")]
+    list_routes_by_hike = getattr(repository, "list_hike_route_imports_for_hike_ids", None)
+    route_imports = (
+        list_routes_by_hike(place_hike_ids)
+        if callable(list_routes_by_hike)
+        else repository.list_hike_route_imports()
+    )
     route_by_hike = {
         str(item.get("hike_id") or ""): item
-        for item in repository.list_hike_route_imports()
+        for item in route_imports
         if item.get("hike_id")
     }
 
@@ -3608,14 +3626,28 @@ def create_species_quest(payload: SpeciesQuestInput) -> dict[str, Any]:
     svc = get_services()
     context = _user_context()
     service = SpeciesDiscoveryService(svc.repository)
-    try:
-        area = service.resolve_area(
-            svc.repository,
-            payload.area_id,
-            locations=_visible_hike_locations(svc.repository),
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    area_id = str(payload.area_id or "").strip()
+    if area_id:
+        try:
+            area = service.resolve_area(
+                svc.repository,
+                area_id,
+                locations=_visible_hike_locations(svc.repository),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+    else:
+        if payload.lat is None or payload.lng is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Choose an area or provide the search location coordinates.",
+            )
+        area = {
+            "id": "",
+            "name": str(payload.area_name or "Current area").strip() or "Current area",
+            "lat": round(float(payload.lat), 3),
+            "lng": round(float(payload.lng), 3),
+        }
     linked_hike_id = _normalize_client_uuid(payload.linked_hike_id, field_name="linked_hike_id")
     if linked_hike_id:
         _get_visible_hike(svc.repository, linked_hike_id)
@@ -3640,7 +3672,7 @@ def create_species_quest(payload: SpeciesQuestInput) -> dict[str, Any]:
             {
                 "owner_subject": context.get("subject"),
                 "owner_email": str(context.get("email") or "").strip().lower() or None,
-                "location_id": area["id"],
+                "location_id": area["id"] or None,
                 "linked_hike_id": linked_hike_id,
                 "title": title,
                 "status": "active",

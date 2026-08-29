@@ -1184,7 +1184,13 @@ private struct FieldBriefingView: View {
                     privacyURL: model.configuration.webBaseURL?.appendingPathComponent("privacy")
                 )
             }
-            .sheet(item: $preview) { BriefingItemDetail(item: $0) }
+            .sheet(item: $preview) { item in
+                BriefingItemDetail(item: item) {
+                    preview = nil
+                    guard let briefing, item.taxonId != nil else { return }
+                    Task { await loadSightings(briefing: briefing, item: item) }
+                }
+            }
             .sheet(item: $mapSelection) { selection in
                 BriefingSightingsMapView(model: model, value: selection.value)
             }
@@ -1198,8 +1204,8 @@ private struct FieldBriefingView: View {
     private func briefingBody(_ briefing: FieldBriefing) -> some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
-                if let cover = briefing.sections.flatMap(\.items).first(where: { !$0.referencePhotoUrl.isEmpty }) {
-                    JournalRemoteImage(urlString: cover.referencePhotoUrl, fallback: "binoculars")
+                if let cover = briefing.sections.flatMap(\.items).first(where: { !$0.displayPhotoURL.isEmpty }) {
+                    JournalRemoteImage(urlString: cover.displayPhotoURL, fallback: "binoculars")
                         .frame(height: 255)
                         .clipped()
                 } else {
@@ -1340,7 +1346,7 @@ private struct BriefingItemRow: View {
         VStack(alignment: .leading, spacing: 9) {
             Button(action: details) {
                 HStack(spacing: 13) {
-                    JournalRemoteImage(urlString: item.referencePhotoUrl, fallback: "leaf")
+                    JournalRemoteImage(urlString: item.displayPhotoURL, fallback: "leaf")
                         .frame(width: 88, height: 88)
                         .clipped()
                     VStack(alignment: .leading, spacing: 2) {
@@ -1383,6 +1389,7 @@ private struct BriefingItemRow: View {
 
 private struct BriefingItemDetail: View {
     let item: BriefingItem
+    let mapSightings: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
     var body: some View {
         NavigationStack {
@@ -1390,7 +1397,7 @@ private struct BriefingItemDetail: View {
                 ParchmentBackground()
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
-                        JournalRemoteImage(urlString: item.referencePhotoUrl, fallback: "leaf")
+                        JournalRemoteImage(urlString: item.displayPhotoURL, fallback: "leaf")
                             .frame(height: 280)
                             .clipped()
                         Text(item.iconicTaxonName.uppercased())
@@ -1417,6 +1424,12 @@ private struct BriefingItemDetail: View {
                                 .foregroundStyle(HikeJournalTheme.moss)
                                 .padding(.top, 14)
                         }
+                        if let mapSightings = mapSightings, item.taxonId != nil {
+                            Button("Map sightings", action: mapSightings)
+                                .font(HikeJournalTheme.label(15, relativeTo: .headline))
+                                .foregroundStyle(HikeJournalTheme.moss)
+                                .padding(.top, 16)
+                        }
                         let credit = [item.referencePhotoAttribution, item.referencePhotoLicenseCode]
                             .filter { !$0.isEmpty }.joined(separator: " · ")
                         if !credit.isEmpty {
@@ -1434,6 +1447,13 @@ private struct BriefingItemDetail: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } } }
         }
+    }
+}
+
+private extension BriefingItem {
+    var displayPhotoURL: String {
+        let collection = collectionPhotoUrl?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return collection.isEmpty ? referencePhotoUrl : collection
     }
 }
 

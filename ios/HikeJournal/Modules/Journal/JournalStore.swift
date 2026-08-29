@@ -914,6 +914,7 @@ final class JournalStore: ObservableObject {
             throw JournalStoreError.plusRequired("Place Profiles")
         }
         guard let context = await accountContext() else { throw APIClientError.sessionRequired }
+        let featureAPI = api
         let normalizedRiverDays = riverDays >= 30 ? 30 : 7
         let normalizedGaugeIDs = Array(
             Set(followedGaugeIDs.map { $0.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() })
@@ -939,11 +940,13 @@ final class JournalStore: ObservableObject {
            let resource = try? await context.database.cachedResource(namespace: Cache.placeProfile, key: cacheKey),
            resource.isFresh(at: Date()) {
             do {
-                let conditions = try await api.placeConditions(
-                    id: id,
-                    riverDays: normalizedRiverDays,
-                    followedGaugeIDs: normalizedGaugeIDs
-                )
+                let conditions = try await withTimeout(.seconds(8)) {
+                    try await featureAPI.placeConditions(
+                        id: id,
+                        riverDays: normalizedRiverDays,
+                        followedGaugeIDs: normalizedGaugeIDs
+                    )
+                }
                 let value = cached.withConditions(conditions)
                 try await cache(value, database: context.database, namespace: Cache.placeProfile, key: cacheKey, lifetime: 15 * 60)
                 return LoadResult(value: value, fromCache: false)
@@ -952,14 +955,16 @@ final class JournalStore: ObservableObject {
             }
         }
         do {
-            async let profileRequest = api.placeProfile(id: id)
-            async let conditionsRequest = try? api.placeConditions(
-                id: id,
-                riverDays: normalizedRiverDays,
-                followedGaugeIDs: normalizedGaugeIDs
-            )
+            async let profileRequest = featureAPI.placeProfile(id: id)
+            async let conditionsRequest = withTimeout(.seconds(8)) {
+                try await featureAPI.placeConditions(
+                    id: id,
+                    riverDays: normalizedRiverDays,
+                    followedGaugeIDs: normalizedGaugeIDs
+                )
+            }
             let base = try await profileRequest
-            let conditions = await conditionsRequest
+            let conditions = try? await conditionsRequest
             let value = conditions.map(base.withConditions) ?? base
             try await cache(value, database: context.database, namespace: Cache.placeProfile, key: cacheKey, lifetime: 15 * 60)
             return LoadResult(value: value, fromCache: false)
@@ -1618,14 +1623,36 @@ final class JournalStore: ObservableObject {
         static let sightings = "sightings-v2"
         static let routes = "routes"
         static let locations = "locations"
-        static let placeProfile = "place-profile"
-        static let briefing = "field-briefing"
+        static let placeProfile = "place-profile-v2"
+        static let briefing = "field-briefing-v2"
         static let comparison = "hike-comparison"
         static let quests = "quests"
         static let review = "review"
         static let publishing = "publishing"
         static let reviewBatch = "review-batch"
         static let publishBatch = "publish-batch"
+    }
+}
+
+private enum JournalStoreTimeout: Error {
+    case elapsed
+}
+
+private func withTimeout<Value: Sendable>(
+    _ duration: Duration,
+    operation: @escaping @Sendable () async throws -> Value
+) async throws -> Value {
+    try await withThrowingTaskGroup(of: Value.self) { group in
+        group.addTask { try await operation() }
+        group.addTask {
+            try await Task.sleep(for: duration)
+            throw JournalStoreTimeout.elapsed
+        }
+        defer { group.cancelAll() }
+        guard let result = try await group.next() else {
+            throw JournalStoreTimeout.elapsed
+        }
+        return result
     }
 }
 

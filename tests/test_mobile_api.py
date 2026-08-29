@@ -2161,6 +2161,53 @@ def test_current_location_endpoint_parses_android_discovery_query(monkeypatch):
         app.dependency_overrides.pop(require_mobile_key, None)
 
 
+def test_create_species_quest_uses_current_search_coordinates_without_saved_area(monkeypatch):
+    captured = {}
+
+    class Repository:
+        def create_species_quest(self, payload, taxa):
+            captured["payload"] = payload
+            captured["taxa"] = taxa
+            return {"id": "quest-1", "taxa": taxa}
+
+    repository = Repository()
+    service_container = type("Service", (), {"repository": repository})()
+
+    class Discovery:
+        def __init__(self, received_repository):
+            assert received_repository is repository
+
+        def nearby(self, **_kwargs):
+            return {
+                "period": {"label": "Late July", "months": [6, 7, 8]},
+                "filters": {"iconic_taxon": None},
+                "taxa": [{"taxon_id": 1}],
+            }
+
+        def quest_payload(self, quest, **_kwargs):
+            return quest
+
+    monkeypatch.setattr("mobile_api.get_services", lambda: service_container)
+    monkeypatch.setattr("mobile_api._user_context", lambda: {"subject": None, "email": None})
+    monkeypatch.setattr("mobile_api._discovery_collection_data", lambda _service: ([], {}))
+    monkeypatch.setattr("mobile_api.SpeciesDiscoveryService", Discovery)
+
+    result = create_species_quest(
+        SpeciesQuestInput(
+            area_name="Current location",
+            lat=28.12345,
+            lng=-82.67891,
+            target_date=date(2026, 7, 31),
+        )
+    )
+
+    assert result["id"] == "quest-1"
+    assert captured["payload"]["location_id"] is None
+    assert captured["payload"]["area_name"] == "Current location"
+    assert captured["payload"]["lat"] == 28.123
+    assert captured["payload"]["lng"] == -82.679
+
+
 def test_nearby_sightings_endpoint_accepts_the_current_result_context(monkeypatch):
     captured = {}
     repository = object()

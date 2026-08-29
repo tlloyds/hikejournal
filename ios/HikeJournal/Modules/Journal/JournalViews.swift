@@ -1765,23 +1765,37 @@ private final class JournalImageLoader: ObservableObject {
         configuration.timeoutIntervalForResource = 60
         return URLSession(configuration: configuration)
     }()
-    private let urlString: String
+    private var urlString: String
     private var task: Task<Void, Never>?
+    private var loadID = UUID()
 
     init(urlString: String) {
         self.urlString = urlString
     }
 
-    func load() {
+    func load(urlString newURL: String) {
+        if newURL != urlString {
+            task?.cancel()
+            urlString = newURL
+            image = nil
+            isLoading = false
+        }
         guard !isLoading, let url = URL(string: urlString), !urlString.isEmpty else { return }
         if let cached = Self.cache.object(forKey: url as NSURL) {
             image = cached
             return
         }
 
+        let requestURL = urlString
+        let requestID = UUID()
+        loadID = requestID
         isLoading = true
         task = Task { @MainActor [weak self] in
-            defer { self?.isLoading = false }
+            defer {
+                if self?.loadID == requestID {
+                    self?.isLoading = false
+                }
+            }
             do {
                 var request = URLRequest(url: url)
                 request.cachePolicy = .returnCacheDataElseLoad
@@ -1790,7 +1804,9 @@ private final class JournalImageLoader: ObservableObject {
                 try Task.checkCancellation()
                 guard let http = response as? HTTPURLResponse,
                       (200...299).contains(http.statusCode),
-                      let loaded = UIImage(data: data) else { return }
+                      let loaded = UIImage(data: data),
+                      self?.urlString == requestURL,
+                      self?.loadID == requestID else { return }
                 Self.cache.setObject(loaded, forKey: url as NSURL)
                 self?.image = loaded
             } catch is CancellationError {
@@ -1833,7 +1849,7 @@ struct JournalRemoteImage: View {
                 fallbackView
             }
         }
-        .task { loader.load() }
+        .task(id: urlString) { loader.load(urlString: urlString) }
     }
 
     private var fallbackView: some View {
