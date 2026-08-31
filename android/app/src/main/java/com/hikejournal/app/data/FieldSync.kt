@@ -852,6 +852,11 @@ class FieldOperationQueue(private val context: Context) {
         SyncScheduler.schedule(context)
     }
 
+    suspend fun retryAuthenticationAttention() {
+        dao.retryAuthenticationAttention(System.currentTimeMillis())
+        SyncScheduler.schedule(context)
+    }
+
     suspend fun discardAttention() = fieldSyncMutex.withLock {
         dao.listAttention().forEach { operation ->
             val discardedOperations = if (operation.kind == OperationKind.DeleteHike) {

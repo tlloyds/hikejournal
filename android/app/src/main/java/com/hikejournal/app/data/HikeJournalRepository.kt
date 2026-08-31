@@ -12,6 +12,7 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.io.IOException
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.StandardCopyOption
 import java.time.Instant
@@ -1075,6 +1076,8 @@ class HikeJournalRepository(context: Context) {
 
     suspend fun retryAttention() = fieldQueue.retryAttention()
 
+    suspend fun retryAuthenticationAttention() = fieldQueue.retryAuthenticationAttention()
+
     suspend fun discardSyncAttention() = fieldQueue.discardAttention()
 
     private suspend fun overlayPendingCredit(nearby: NearbySpecies): NearbySpecies {
@@ -1129,9 +1132,16 @@ class HikeJournalRepository(context: Context) {
                 cacheFile.takeIf { it.exists() }?.readText()
             }
             if (cached.isNullOrBlank()) throw networkError
+            if (!canUseCachedLoad(networkError)) throw networkError
             LoadResult(parse(cached), fromCache = true)
         }
     }
+}
+
+internal fun canUseCachedLoad(error: Throwable): Boolean = when (error) {
+    is ApiException -> error.statusCode in setOf(408, 425, 429) || error.statusCode >= 500
+    is IOException -> true
+    else -> false
 }
 
 internal fun mergeReviewQueueItems(

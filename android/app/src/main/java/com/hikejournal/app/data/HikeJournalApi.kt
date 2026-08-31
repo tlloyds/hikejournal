@@ -70,7 +70,7 @@ class HikeJournalApi(private val context: Context) {
     }
 
     suspend fun refreshAuthSession(): AuthAccount = withContext(Dispatchers.IO) {
-        refreshSession()?.account ?: throw ApiException("Sign in with Google to continue.", 401)
+        refreshSession().account
     }
 
     suspend fun signOut() = withContext(Dispatchers.IO) {
@@ -632,14 +632,15 @@ class HikeJournalApi(private val context: Context) {
             executeRaw(first)
         } catch (error: ApiException) {
             if (error.statusCode != 401 || !BuildConfig.GOOGLE_AUTH_ENABLED) throw error
-            val refreshed = refreshSession() ?: throw error
+            val refreshed = refreshSession()
             executeRaw(authenticated(request, refreshed.accessToken))
         }
     }
 
     @Synchronized
-    private fun refreshSession(): MobileSession? {
-        val existing = authPreferences.session() ?: return null
+    private fun refreshSession(): MobileSession {
+        val existing = authPreferences.session()
+            ?: throw ApiException("Sign in with Google to continue.", 401)
         return try {
             val response = executeRaw(
                 Request.Builder()
@@ -655,9 +656,14 @@ class HikeJournalApi(private val context: Context) {
                     .build(),
             )
             parseMobileSession(response).also(authPreferences::save)
-        } catch (_: Exception) {
-            authPreferences.clear()
-            null
+        } catch (error: Exception) {
+            // A lost connection while refreshing is not proof that the account is
+            // invalid. Keep the refresh token so the next request can recover.
+            // Only an explicit authentication rejection should sign the phone out.
+            if (error is ApiException && error.statusCode == 401) {
+                authPreferences.clear()
+            }
+            throw error
         }
     }
 

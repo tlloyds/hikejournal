@@ -81,6 +81,13 @@ interface PendingOperationDao {
     @Query("UPDATE pending_operations SET state = 'queued', attemptCount = 0, lastError = NULL, updatedAt = :updatedAt WHERE state = 'needs_attention'")
     suspend fun retryAttention(updatedAt: Long)
 
+    @Query(
+        "UPDATE pending_operations SET state = 'queued', attemptCount = 0, lastError = NULL, updatedAt = :updatedAt " +
+            "WHERE state = 'needs_attention' AND (lower(lastError) LIKE '%sign in with google%' OR " +
+                "lower(lastError) LIKE '%hikejournal session%' OR lower(lastError) LIKE '%session has expired%')",
+    )
+    suspend fun retryAuthenticationAttention(updatedAt: Long)
+
     @Query("SELECT * FROM pending_operations WHERE state = 'needs_attention' ORDER BY createdAt ASC")
     suspend fun listAttention(): List<PendingOperationEntity>
 

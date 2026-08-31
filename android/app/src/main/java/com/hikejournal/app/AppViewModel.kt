@@ -10,6 +10,7 @@ import com.hikejournal.app.data.Hike
 import com.hikejournal.app.data.AuthAccount
 import com.hikejournal.app.data.HikeDraft
 import com.hikejournal.app.data.HikeDeletionResult
+import com.hikejournal.app.data.ApiException
 import com.hikejournal.app.data.HikeJournalRepository
 import com.hikejournal.app.data.HikeLocation
 import com.hikejournal.app.data.HikeLocationSuggestion
@@ -115,6 +116,8 @@ data class AppState(
     val openingHikeId: String? = null,
     val isRefreshing: Boolean = false,
     val isOffline: Boolean = false,
+    val isReviewOffline: Boolean = false,
+    val isPublishOffline: Boolean = false,
     val error: String? = null,
     val notice: String? = null,
     val celebration: FieldCelebration? = null,
@@ -242,6 +245,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             var previousOutstandingSyncCount = 0
             repository.syncStatus.collect { syncStatus ->
+                if (BuildConfig.GOOGLE_AUTH_ENABLED &&
+                    _state.value.authAccount != null &&
+                    !repository.hasStoredSession
+                ) {
+                    markAuthenticationExpired()
+                }
                 val outstandingSyncCount = syncStatus.pendingCount +
                     syncStatus.syncingCount +
                     syncStatus.needsAttentionCount
@@ -308,38 +317,83 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun restoreAuthenticatedSession() {
         viewModelScope.launch {
-            runCatching { repository.refreshAuthSession() }
-                .onSuccess { account ->
-                    _state.update { it.copy(authAccount = account, isAuthLoading = false, authError = null) }
-                    beginAppLoad()
+            val refreshed = runCatching { repository.refreshAuthSession() }
+            if (refreshed.isSuccess) {
+                runCatching { repository.retryAuthenticationAttention() }
+                _state.update {
+                    it.copy(
+                        authAccount = refreshed.getOrThrow(),
+                        isAuthLoading = false,
+                        authError = null,
+                    )
                 }
-                .onFailure {
-                    _state.update {
-                        AppState(
-                            authRequired = true,
-                            isLoading = false,
-                            isAuthLoading = false,
-                            authError = "Your sign-in expired. Choose your Google account to continue.",
-                            locationLibraryStateCode = repository.selectedLocationStateCode,
-                            riverGaugeOptions = repository.riverGauges(),
-                        )
-                    }
+                beginAppLoad()
+            } else if (repository.hasStoredSession) {
+                _state.update {
+                    it.copy(
+                        authAccount = repository.authAccount,
+                        isAuthLoading = false,
+                        authError = null,
+                    )
                 }
+                beginAppLoad()
+            } else {
+                _state.update {
+                    AppState(
+                        authRequired = true,
+                        isLoading = false,
+                        isAuthLoading = false,
+                        authError = "Your sign-in expired. Choose your Google account to continue.",
+                        locationLibraryStateCode = repository.selectedLocationStateCode,
+                        riverGaugeOptions = repository.riverGauges(),
+                    )
+                }
+            }
         }
     }
 
     fun signInWithGoogle(credential: String, nonce: String) {
         viewModelScope.launch {
             _state.update { it.copy(isAuthLoading = true, authError = null) }
-            runCatching { repository.authenticateGoogle(credential, nonce) }
-                .onSuccess { account ->
-                    _state.update { it.copy(authAccount = account, isAuthLoading = false, authError = null, isLoading = true) }
-                    beginAppLoad()
+            val authenticated = runCatching { repository.authenticateGoogle(credential, nonce) }
+            if (authenticated.isSuccess) {
+                runCatching { repository.retryAuthenticationAttention() }
+                _state.update {
+                    it.copy(
+                        authAccount = authenticated.getOrThrow(),
+                        isAuthLoading = false,
+                        authError = null,
+                        isLoading = true,
+                    )
                 }
-                .onFailure { error ->
-                    _state.update { it.copy(isAuthLoading = false, authError = error.userMessage()) }
-                }
+                beginAppLoad()
+            } else {
+                _state.update { it.copy(isAuthLoading = false, authError = authenticated.exceptionOrNull()?.userMessage()) }
+            }
         }
+    }
+
+    private fun markAuthenticationExpired() {
+        _state.update {
+            it.copy(
+                authRequired = true,
+                authAccount = null,
+                isAuthLoading = false,
+                authError = "Your sign-in expired. Choose your Google account to continue.",
+                isOffline = false,
+                isReviewOffline = false,
+                isPublishOffline = false,
+                error = null,
+            )
+        }
+    }
+
+    private fun handleAuthenticationFailure(error: Throwable): Boolean {
+        if (BuildConfig.GOOGLE_AUTH_ENABLED && error is ApiException && error.statusCode == 401) {
+            markAuthenticationExpired()
+            return true
+        }
+        return false
     }
 
     fun beginGoogleSignIn() {
@@ -473,6 +527,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     isBatchIdentifying = false,
                     batchProgress = terminalStatus,
                     isOffline = false,
+                    isReviewOffline = false,
                     error = null,
                     notice = buildSpeciesReviewBatchNotice(
                         status = terminalStatus,
@@ -515,7 +570,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     current.copy(
                         species = refreshedSpecies,
                         reviewQueue = updatedReviewQueue ?: current.reviewQueue,
-                        isOffline = speciesResult?.fromCache ?: reviewResult?.fromCache ?: current.isOffline,
+                        isReviewOffline = reviewResult?.fromCache ?: current.isReviewOffline,
                         badgesHydrated = if (updatedSpecies != null) false else current.badgesHydrated,
                         notice = if (celebration != null) null else buildSpeciesReviewBatchNotice(
                             status = terminalStatus,
@@ -543,7 +598,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     current.copy(
                         reviewQueue = reviewResult?.value ?: current.reviewQueue,
                         isReviewLoading = false,
-                        isOffline = reviewResult?.fromCache ?: current.isOffline,
+                        isReviewOffline = reviewResult?.fromCache ?: current.isReviewOffline,
                     )
                 }
             }
@@ -1427,12 +1482,22 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         it.copy(
                             reviewQueue = result.value,
                             isReviewLoading = false,
-                            isOffline = result.fromCache,
+                            isReviewOffline = result.fromCache,
                         )
                     }
                 }
                 .onFailure { error ->
-                    _state.update { it.copy(isReviewLoading = false, error = error.userMessage()) }
+                    if (!handleAuthenticationFailure(error)) {
+                        _state.update {
+                            it.copy(
+                                isReviewLoading = false,
+                                isReviewOffline = true,
+                                error = error.userMessage(),
+                            )
+                        }
+                    } else {
+                        _state.update { it.copy(isReviewLoading = false) }
+                    }
                 }
         }
     }
@@ -1485,7 +1550,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         reviewQueue = result.value,
                         decidingReviewId = null,
                         resolvingSpeciesInfoPhotoId = item.id.takeIf { action == "confirm" },
-                        isOffline = result.fromCache,
+                        isReviewOffline = result.fromCache,
                         species = emptyList(),
                         sightings = emptyList(),
                         badgesHydrated = false,
@@ -1493,7 +1558,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 }
             }.onFailure { error ->
-                _state.update { it.copy(decidingReviewId = null, error = error.userMessage()) }
+                if (!handleAuthenticationFailure(error)) {
+                    _state.update { it.copy(decidingReviewId = null, error = error.userMessage()) }
+                } else {
+                    _state.update { it.copy(decidingReviewId = null) }
+                }
             }
         }
     }
@@ -1524,7 +1593,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun requestReviewRecommendation(item: ReviewItem) {
-        if (_state.value.isOffline) {
+        if (_state.value.isReviewOffline || !_state.value.syncStatus.connected) {
             _state.update { it.copy(error = "iNaturalist recommendations need a connection.") }
             return
         }
@@ -1546,13 +1615,17 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
                 .onFailure { error ->
-                    _state.update { it.copy(identifyingReviewId = null, error = error.userMessage()) }
+                    if (!handleAuthenticationFailure(error)) {
+                        _state.update { it.copy(identifyingReviewId = null, error = error.userMessage()) }
+                    } else {
+                        _state.update { it.copy(identifyingReviewId = null) }
+                    }
                 }
         }
     }
 
     fun submitReviewBatch(groups: List<List<String>>) {
-        if (_state.value.isOffline) {
+        if (_state.value.isReviewOffline || !_state.value.syncStatus.connected) {
             _state.update { it.copy(error = "Batch identification needs a connection.") }
             return
         }
@@ -1605,7 +1678,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun requestPhotoRecommendation(photo: Photo, onRecommended: (ReviewItem) -> Unit) {
-        if (_state.value.isOffline) {
+        if (!_state.value.syncStatus.connected || _state.value.isOffline) {
             _state.update { it.copy(error = "iNaturalist recommendations need a connection.") }
             return
         }
@@ -1626,13 +1699,17 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     onRecommended(recommended)
                 }
                 .onFailure { error ->
-                    _state.update { it.copy(identifyingReviewId = null, error = error.userMessage()) }
+                    if (!handleAuthenticationFailure(error)) {
+                        _state.update { it.copy(identifyingReviewId = null, error = error.userMessage()) }
+                    } else {
+                        _state.update { it.copy(identifyingReviewId = null) }
+                    }
                 }
         }
     }
 
     fun connectInat() {
-        if (_state.value.isOffline) {
+        if (!_state.value.syncStatus.connected) {
             _state.update { it.copy(error = "Connecting iNaturalist needs a connection.") }
             return
         }
@@ -1640,7 +1717,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             _state.update { it.copy(error = null) }
             runCatching { repository.getInatAuthorizationUrl() }
                 .onSuccess { url -> _state.update { it.copy(inatAuthorizationUrl = url) } }
-                .onFailure { error -> _state.update { it.copy(error = error.userMessage()) } }
+                .onFailure { error ->
+                    if (!handleAuthenticationFailure(error)) {
+                        _state.update { it.copy(error = error.userMessage()) }
+                    }
+                }
         }
     }
 
@@ -1668,18 +1749,28 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         it.copy(
                             publishQueue = result.value,
                             isPublishLoading = false,
-                            isOffline = result.fromCache,
+                            isPublishOffline = result.fromCache,
                         )
                     }
                 }
                 .onFailure { error ->
-                    _state.update { it.copy(isPublishLoading = false, error = error.userMessage()) }
+                    if (!handleAuthenticationFailure(error)) {
+                        _state.update {
+                            it.copy(
+                                isPublishLoading = false,
+                                isPublishOffline = true,
+                                error = error.userMessage(),
+                            )
+                        }
+                    } else {
+                        _state.update { it.copy(isPublishLoading = false) }
+                    }
                 }
         }
     }
 
     fun publishObservation(item: PublishItem, options: PublishOptions) {
-        if (_state.value.isOffline) {
+        if (_state.value.isPublishOffline || !_state.value.syncStatus.connected) {
             _state.update { it.copy(error = "Publishing needs a connection to iNaturalist.") }
             return
         }
@@ -1697,7 +1788,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     it.copy(
                         publishQueue = queueResult.value,
                         publishingId = null,
-                        isOffline = queueResult.fromCache,
+                        isPublishOffline = queueResult.fromCache,
                         publishNotice = if (published.state == "needs_attention") {
                             "Observation created; its photo still needs attention on iNaturalist."
                         } else {
@@ -1708,7 +1799,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 }
             }.onFailure { error ->
-                _state.update { it.copy(publishingId = null, error = error.userMessage()) }
+                if (!handleAuthenticationFailure(error)) {
+                    _state.update { it.copy(publishingId = null, error = error.userMessage()) }
+                } else {
+                    _state.update { it.copy(publishingId = null) }
+                }
             }
         }
     }
@@ -1717,7 +1812,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         groups: List<List<String>>,
         options: PublishOptions,
     ) {
-        if (_state.value.isOffline) {
+        if (_state.value.isPublishOffline || !_state.value.syncStatus.connected) {
             _state.update { it.copy(error = "Publishing needs a connection to iNaturalist.") }
             return
         }
