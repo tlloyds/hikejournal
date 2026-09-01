@@ -127,19 +127,19 @@ internal suspend fun captureSatelliteRouteMap(
     val styleJson = satelliteShareStyle(usableSegments) ?: return null
     return withTimeoutOrNull(SATELLITE_SNAPSHOT_TIMEOUT_MS) {
         withContext(Dispatchers.Main.immediate) {
-            MapLibre.getInstance(context.applicationContext)
-            val options = MapSnapshotter.Options(width, height)
-                .withStyleBuilder(Style.Builder().fromJson(styleJson))
-                .withRegion(
-                    LatLngBounds.Builder()
-                        .include(LatLng(bounds.north, bounds.east))
-                        .include(LatLng(bounds.south, bounds.west))
-                        .build(),
-                )
-                .withPadding(28, 28, 28, 28)
-                .withLogo(false)
-                .withAttribution(false)
             try {
+                MapLibre.getInstance(context.applicationContext)
+                val options = MapSnapshotter.Options(width, height)
+                    .withStyleBuilder(Style.Builder().fromJson(styleJson))
+                    .withRegion(
+                        LatLngBounds.Builder()
+                            .include(LatLng(bounds.north, bounds.east))
+                            .include(LatLng(bounds.south, bounds.west))
+                            .build(),
+                    )
+                    .withPadding(28, 28, 28, 28)
+                    .withLogo(false)
+                    .withAttribution(false)
                 suspendCancellableCoroutine { continuation ->
                     val snapshotter = MapSnapshotter(context.applicationContext, options)
                     continuation.invokeOnCancellation { snapshotter.cancel() }

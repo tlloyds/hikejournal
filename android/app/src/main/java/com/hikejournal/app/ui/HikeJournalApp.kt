@@ -2344,6 +2344,12 @@ private fun JournalScreen(
                         modifier = Modifier.padding(top = 22.dp),
                     )
                 }
+                if (hike.routeSegments.isNotEmpty()) {
+                    JournalRoutePreview(
+                        routeSegments = hike.routeSegments,
+                        modifier = Modifier.padding(top = 24.dp),
+                    )
+                }
                 if (onRefreshWeather != null) {
                     JournalWeather(
                         weather = hike.weather,
