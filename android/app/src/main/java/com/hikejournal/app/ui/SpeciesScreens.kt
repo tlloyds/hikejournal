@@ -101,6 +101,7 @@ import com.hikejournal.app.data.QuestSightingsMap
 import com.hikejournal.app.data.SpeciesRecord
 import com.hikejournal.app.data.SpeciesSort
 import com.hikejournal.app.data.filterDiscoveryAreas
+import com.hikejournal.app.data.filterSpeciesBySearch
 import com.hikejournal.app.data.filterSpeciesByObservationType
 import com.hikejournal.app.data.sortSpeciesRecords
 import com.hikejournal.app.ui.theme.Ink
@@ -266,11 +267,7 @@ fun SpeciesIndexScreen(
         }
     }
     val typeScopedSpecies = filterSpeciesByObservationType(scopedSpecies, observationType)
-    val filtered = typeScopedSpecies
-        .filter {
-            query.isBlank() || it.commonName.contains(query, ignoreCase = true) ||
-                it.scientificName.contains(query, ignoreCase = true)
-        }
+    val filtered = filterSpeciesBySearch(typeScopedSpecies, query)
         .let { items -> sortSpeciesRecords(items, speciesSort) }
     val browseContext = buildList {
         hikes.firstOrNull { it.id == selectedHikeId }?.title?.let(::add)
@@ -379,7 +376,7 @@ fun SpeciesIndexScreen(
                         onCollectionPreferencesChange(collectionPreferences.copy(query = it))
                     },
                     modifier = Modifier.weight(1f).padding(start = 6.dp),
-                    placeholder = { Text("Search common or scientific name") },
+                    placeholder = { Text("Search name or description") },
                     singleLine = true,
                     shape = RoundedCornerShape(4.dp),
                 )
@@ -424,7 +421,7 @@ fun SpeciesIndexScreen(
                     )
                     Text(
                         when {
-                            query.isNotBlank() -> "Try a common or scientific name."
+                            query.isNotBlank() -> "Try a common name, scientific name, or Wikipedia description."
                             observationType != ObservationTypeFilter.All -> "Choose another observation type to widen the field guide."
                             selectedHikeId != null -> "This outing has no confirmed encounters yet."
                             else -> "Confirmed observations will appear here after review."

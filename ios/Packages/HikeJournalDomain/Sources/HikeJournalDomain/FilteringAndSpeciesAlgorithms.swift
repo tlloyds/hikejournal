@@ -67,6 +67,21 @@ public extension SpeciesRecord {
     func matchesObservationType(_ filter: ObservationTypeFilter) -> Bool {
         iconicTaxonMatchesObservationType(iconicTaxonName, filter: filter)
     }
+
+    func matchesSpeciesSearch(_ query: String) -> Bool {
+        let normalizedQuery = query.domainTrimmed
+        guard !normalizedQuery.isEmpty else { return true }
+        return commonName.localizedCaseInsensitiveContains(normalizedQuery)
+            || scientificName.localizedCaseInsensitiveContains(normalizedQuery)
+            || wikipediaSummary.localizedCaseInsensitiveContains(normalizedQuery)
+    }
+}
+
+public func filterSpeciesBySearch(
+    _ species: [SpeciesRecord],
+    query: String
+) -> [SpeciesRecord] {
+    query.domainTrimmed.isEmpty ? species : species.filter { $0.matchesSpeciesSearch(query) }
 }
 
 public func filterSpeciesByObservationType(

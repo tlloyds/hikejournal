@@ -53,7 +53,8 @@ func fixtureSpecies(
     iconicTaxonName: String = "Other",
     encounterCount: Int = 1,
     latestSeen: String? = nil,
-    key: String? = nil
+    key: String? = nil,
+    wikipediaSummary: String = ""
 ) -> SpeciesRecord {
     SpeciesRecord(
         key: key ?? taxonId.map { "taxon:\($0)" } ?? name,
@@ -63,7 +64,7 @@ func fixtureSpecies(
         rank: "species",
         iconicTaxonName: iconicTaxonName,
         wikipediaUrl: "",
-        wikipediaSummary: "",
+        wikipediaSummary: wikipediaSummary,
         encounterCount: encounterCount,
         hikeCount: 1,
         hikeIds: ["hike-1"],

@@ -42,7 +42,30 @@ class SpeciesFiltersTest {
         assertTrue(filterSpeciesByObservationType(species, ObservationTypeFilter.All) === species)
     }
 
-    private fun species(commonName: String, iconicTaxonName: String) = SpeciesRecord(
+    @Test
+    fun `species search matches wikipedia descriptions`() {
+        val searchable = listOf(
+            species("Ghost orchid", "Plantae", wikipediaSummary = "A rare orchid found in damp forests."),
+            species("Dune sunflower", "Plantae", wikipediaSummary = "A sandy coastal wildflower."),
+            species("Wood stork", "Aves", wikipediaSummary = "A wading bird."),
+        )
+
+        assertEquals(
+            listOf("Ghost orchid"),
+            filterSpeciesBySearch(searchable, "orchid").map { it.commonName },
+        )
+        assertEquals(
+            listOf("Dune sunflower"),
+            filterSpeciesBySearch(searchable, "SANDY").map { it.commonName },
+        )
+        assertTrue(filterSpeciesBySearch(searchable, " ") === searchable)
+    }
+
+    private fun species(
+        commonName: String,
+        iconicTaxonName: String,
+        wikipediaSummary: String = "",
+    ) = SpeciesRecord(
         key = commonName,
         taxonId = null,
         commonName = commonName,
@@ -50,7 +73,7 @@ class SpeciesFiltersTest {
         rank = "species",
         iconicTaxonName = iconicTaxonName,
         wikipediaUrl = "",
-        wikipediaSummary = "",
+        wikipediaSummary = wikipediaSummary,
         encounterCount = 1,
         hikeCount = 1,
         hikeIds = emptyList(),

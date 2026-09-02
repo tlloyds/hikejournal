@@ -55,6 +55,20 @@ fun iconicTaxonMatchesObservationType(
 fun SpeciesRecord.matchesObservationType(filter: ObservationTypeFilter): Boolean =
     iconicTaxonMatchesObservationType(iconicTaxonName, filter)
 
+fun SpeciesRecord.matchesSpeciesSearch(query: String): Boolean {
+    val normalizedQuery = query.trim()
+    return normalizedQuery.isEmpty() ||
+        commonName.contains(normalizedQuery, ignoreCase = true) ||
+        scientificName.contains(normalizedQuery, ignoreCase = true) ||
+        wikipediaSummary.contains(normalizedQuery, ignoreCase = true)
+}
+
+fun filterSpeciesBySearch(
+    species: List<SpeciesRecord>,
+    query: String,
+): List<SpeciesRecord> =
+    if (query.isBlank()) species else species.filter { it.matchesSpeciesSearch(query) }
+
 fun filterSpeciesByObservationType(
     species: List<SpeciesRecord>,
     filter: ObservationTypeFilter,

@@ -171,11 +171,8 @@ struct FieldGuideWorkspaceView: View {
 
     private var filteredSpecies: [SpeciesRecord] {
         let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
-        let values = journal.species.filter { species in
-            (taxonFilter == "All" || species.iconicTaxonName == taxonFilter)
-                && (query.isEmpty
-                    || species.commonName.localizedCaseInsensitiveContains(query)
-                    || species.scientificName.localizedCaseInsensitiveContains(query))
+        let values = filterSpeciesBySearch(journal.species, query: query).filter { species in
+            taxonFilter == "All" || species.iconicTaxonName == taxonFilter
         }
         return values.sorted { lhs, rhs in
             switch sort {
@@ -299,7 +296,7 @@ enum FieldWorkspaceSection: String, CaseIterable, Identifiable {
     }
     var searchPrompt: String {
         switch self {
-        case .guide: "Common or scientific name"
+        case .guide: "Name or Wikipedia description"
         case .sightings: "Species, place, or outing"
         case .discover: "Search a park or area"
         case .quests: "Search quests"
@@ -340,7 +337,7 @@ private struct SpeciesGuideList: View {
             } description: {
                 Text(search.isEmpty
                      ? "Confirmed plants, animals, fungi, and other finds appear here."
-                     : "Try another common name, scientific name, or group.")
+                     : "Try another common name, scientific name, group, or Wikipedia description.")
             }
         } else {
             ScrollView {

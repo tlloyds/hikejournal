@@ -21,6 +21,18 @@ final class FilteringAndGroupingTests: XCTestCase {
         XCTAssertEqual(ObservationTypeFilter.otherLife.label, "Other life")
     }
 
+    func testSpeciesSearchMatchesWikipediaDescriptions() {
+        let species = [
+            fixtureSpecies(nil, name: "Ghost orchid", wikipediaSummary: "A rare orchid found in damp forests."),
+            fixtureSpecies(nil, name: "Dune sunflower", wikipediaSummary: "A sandy coastal wildflower."),
+            fixtureSpecies(nil, name: "Wood stork", wikipediaSummary: "A wading bird."),
+        ]
+
+        XCTAssertEqual(filterSpeciesBySearch(species, query: "orchid").map(\.commonName), ["Ghost orchid"])
+        XCTAssertEqual(filterSpeciesBySearch(species, query: "SANDY").map(\.commonName), ["Dune sunflower"])
+        XCTAssertEqual(filterSpeciesBySearch(species, query: " ").map(\.commonName), species.map(\.commonName))
+    }
+
     func testSpeciesSortsAreDeterministicAcrossDatesAndOffsets() {
         let alphabetical = [
             fixtureSpecies(nil, name: "zebra longwing"),
