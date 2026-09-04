@@ -19,8 +19,12 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.result.contract.ActivityResultContracts.OpenDocument
+import androidx.activity.result.contract.ActivityResultContracts.PickMultipleVisualMedia
 import androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions
+import androidx.activity.result.contract.ActivityResultContracts.RequestPermission
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
@@ -182,7 +186,6 @@ import com.hikejournal.app.data.HikeDraft
 import com.hikejournal.app.data.HikeLocation
 import com.hikejournal.app.data.HikeLocationSuggestion
 import com.hikejournal.app.data.GettingStartedPreferences
-import com.hikejournal.app.data.LocalMediaAccess
 import com.hikejournal.app.data.MapDisplayPreferences
 import com.hikejournal.app.data.MediaLocationSummary
 import com.hikejournal.app.data.NationalScenicTrailOverlays
@@ -198,8 +201,9 @@ import com.hikejournal.app.data.TrailOverlayDefinition
 import com.hikejournal.app.data.UnitedStates
 import com.hikejournal.app.data.detectCurrentUsState
 import com.hikejournal.app.data.WeatherSnapshot
-import com.hikejournal.app.data.localMediaAccess
-import com.hikejournal.app.data.requiredLocalMediaPermissions
+import com.hikejournal.app.data.MAX_LOCAL_MEDIA_SELECTION
+import com.hikejournal.app.data.addLocalMediaSelection
+import com.hikejournal.app.data.persistSelectedMediaAccess
 import com.hikejournal.app.tracking.TrackingStatus
 import com.hikejournal.app.ui.theme.Fern
 import com.hikejournal.app.ui.theme.Ink
@@ -389,7 +393,8 @@ fun HikeJournalApp(viewModel: AppViewModel) {
     var speciesAssignmentPhoto by remember { mutableStateOf<Photo?>(null) }
     var localMediaPickerOpen by remember { mutableStateOf(false) }
     var localMediaPermissionError by remember { mutableStateOf<String?>(null) }
-    var grantedLocalMediaAccess by remember { mutableStateOf<LocalMediaAccess?>(null) }
+    var pickedMediaUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
+    var pendingPickedMediaUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var pendingUpload by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var mediaLocationSummary by remember { mutableStateOf<MediaLocationSummary?>(null) }
     var checkingMediaLocations by remember { mutableStateOf(false) }
@@ -480,19 +485,16 @@ fun HikeJournalApp(viewModel: AppViewModel) {
         }
     }
 
-    val localMediaPermissions = rememberLauncherForActivityResult(RequestMultiplePermissions()) {
-        val access = localMediaAccess(context)
-        grantedLocalMediaAccess = access
-        when {
-            !access.canReadMedia -> {
-                localMediaPermissionError =
-                    "Allow HikeJournal to read photos and videos so it can browse originals stored on this phone."
-            }
-            !access.canReadLocations -> {
-                localMediaPermissionError =
-                    "Photo access was granted, but photo-location access is still off. Enable it so HikeJournal can read embedded GPS coordinates."
-            }
-            else -> localMediaPickerOpen = true
+    val mediaLocationPermission = rememberLauncherForActivityResult(RequestPermission()) { granted ->
+        val uris = pendingPickedMediaUris
+        pendingPickedMediaUris = emptyList()
+        if (!granted && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            localMediaPermissionError =
+                "Photo location access was not granted. You can still attach these files, but embedded GPS may not be available."
+        }
+        if (uris.isNotEmpty()) {
+            pickedMediaUris = uris
+            localMediaPickerOpen = true
         }
     }
     val trackingPermissions = rememberLauncherForActivityResult(RequestMultiplePermissions()) {
@@ -524,14 +526,37 @@ fun HikeJournalApp(viewModel: AppViewModel) {
     val routePicker = rememberLauncherForActivityResult(OpenDocument()) { uri ->
         selectedRouteUri = uri
     }
-    val launchLocalMediaPicker: () -> Unit = {
-        val access = localMediaAccess(context)
-        grantedLocalMediaAccess = access
-        if (access.readyForOriginals && access.hasFullLibraryAccess) {
-            localMediaPickerOpen = true
+    fun showPickedMedia(uris: List<Uri>) {
+        if (uris.isEmpty()) return
+        val selected = addLocalMediaSelection(
+            current = pickedMediaUris.map(Uri::toString),
+            additions = uris.map(Uri::toString),
+            maxItems = MAX_LOCAL_MEDIA_SELECTION,
+        ).map(Uri::parse)
+        persistSelectedMediaAccess(context, selected)
+        if (
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+            context.checkSelfPermission(Manifest.permission.ACCESS_MEDIA_LOCATION) != PackageManager.PERMISSION_GRANTED
+        ) {
+            pendingPickedMediaUris = selected
+            mediaLocationPermission.launch(Manifest.permission.ACCESS_MEDIA_LOCATION)
         } else {
-            localMediaPermissions.launch(requiredLocalMediaPermissions())
+            pickedMediaUris = selected
+            localMediaPickerOpen = true
         }
+    }
+    val systemMediaPicker = rememberLauncherForActivityResult(PickMultipleVisualMedia()) { uris ->
+        showPickedMedia(uris)
+    }
+    fun launchSystemMediaPicker() {
+        systemMediaPicker.launch(
+            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo),
+        )
+    }
+    val launchLocalMediaPicker: () -> Unit = {
+        pickedMediaUris = emptyList()
+        localMediaPickerOpen = false
+        launchSystemMediaPicker()
     }
     LaunchedEffect(pendingEverydayUpload, state.journal?.id) {
         if (pendingEverydayUpload && state.journal?.isStandalone == true) {
@@ -1189,11 +1214,20 @@ fun HikeJournalApp(viewModel: AppViewModel) {
 
     if (localMediaPickerOpen && state.journal != null) {
         LocalMediaPickerDialog(
-            access = grantedLocalMediaAccess ?: localMediaAccess(context),
-            onDismiss = { localMediaPickerOpen = false },
+            selectedUris = pickedMediaUris,
+            onDismiss = {
+                localMediaPickerOpen = false
+                pickedMediaUris = emptyList()
+            },
+            onChooseMore = { uris ->
+                pickedMediaUris = uris
+                localMediaPickerOpen = false
+                launchSystemMediaPicker()
+            },
             onConfirm = { uris ->
                 pendingUpload = uris
                 localMediaPickerOpen = false
+                pickedMediaUris = emptyList()
             },
         )
     }
