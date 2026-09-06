@@ -1672,6 +1672,76 @@ def test_known_species_assignment_is_idempotent_after_sync_retry(monkeypatch):
     assert result["species"][0]["common_name"] == "Gopher tortoise"
 
 
+def test_species_tag_can_be_replaced_with_a_manual_id(monkeypatch):
+    class Repository:
+        created = None
+        photo_status = None
+
+        def list_observations_for_photo_ids(self, _photo_ids):
+            return []
+
+        def list_observations_by_ids(self, observation_ids):
+            assert observation_ids == ["observation-new"]
+            return [{**self.created, "id": "observation-new", "raw_response_json": self.created["raw_payload"]}]
+
+        def create_manual_observation(self, **kwargs):
+            self.created = kwargs
+            return {**kwargs, "id": "observation-new"}
+
+        def update_photo_processing_status(self, photo_id, status):
+            self.photo_status = (photo_id, status)
+
+    repository = Repository()
+    service = type("Service", (), {"repository": repository})()
+    photo = {"id": "photo-1", "hike_id": "hike-1", "content_type": "image/jpeg"}
+    monkeypatch.setattr("mobile_api._get_visible_photo", lambda _photo_id: (service, photo))
+    monkeypatch.setattr("mobile_api._visible_species_data", lambda _service: ([], {}, {}))
+
+    result = assign_known_species_to_photo(
+        "photo-1",
+        KnownSpeciesInput(common_name="A species I entered", scientific_name="Mystery species"),
+    )
+
+    assert repository.created["source"] == "manual_override"
+    assert repository.created["common_name"] == "A species I entered"
+    assert repository.created["scientific_name"] == "Mystery species"
+    assert repository.photo_status == ("photo-1", "ready")
+    assert result["species"][0]["common_name"] == "A species I entered"
+
+
+def test_species_tag_can_be_removed_from_a_photo(monkeypatch):
+    class Repository:
+        deleted = None
+        photo_status = None
+
+        def list_observations_for_photo_ids(self, _photo_ids):
+            return [{
+                "id": "observation-1",
+                "photo_id": "photo-1",
+                "common_name": "Wrong species",
+                "is_primary": True,
+            }]
+
+        def delete_observations(self, observation_ids):
+            self.deleted = observation_ids
+
+        def update_photo_processing_status(self, photo_id, status):
+            self.photo_status = (photo_id, status)
+
+    repository = Repository()
+    service = type("Service", (), {"repository": repository})()
+    monkeypatch.setattr(
+        "mobile_api._get_visible_photo",
+        lambda _photo_id: (service, {"id": "photo-1", "content_type": "image/jpeg"}),
+    )
+
+    result = assign_known_species_to_photo("photo-1", KnownSpeciesInput(action="remove"))
+
+    assert repository.deleted == ["observation-1"]
+    assert repository.photo_status == ("photo-1", "ready")
+    assert result["species"] == []
+
+
 def test_hike_cover_can_be_selected_from_the_same_hike(monkeypatch):
     hike_id = "11111111-1111-4111-8111-111111111111"
     photo_id = "22222222-2222-4222-8222-222222222222"

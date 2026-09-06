@@ -2771,6 +2771,49 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun assignKnownSpecies(photo: Photo, species: SpeciesRecord, onAssigned: () -> Unit) {
+        assignSpeciesTag(
+            photo = photo,
+            commonName = species.commonName,
+            scientificName = species.scientificName,
+            taxonId = species.taxonId,
+            wikipediaUrl = species.wikipediaUrl,
+            wikipediaSummary = species.wikipediaSummary,
+            onSaved = onAssigned,
+            noticeName = species.commonName.ifBlank { species.scientificName },
+            celebrationSpecies = species,
+        )
+    }
+
+    fun assignCustomSpecies(
+        photo: Photo,
+        commonName: String,
+        scientificName: String,
+        onAssigned: () -> Unit,
+    ) {
+        assignSpeciesTag(
+            photo = photo,
+            commonName = commonName,
+            scientificName = scientificName,
+            taxonId = null,
+            wikipediaUrl = "",
+            wikipediaSummary = "",
+            onSaved = onAssigned,
+            noticeName = commonName.ifBlank { scientificName },
+            celebrationSpecies = null,
+        )
+    }
+
+    private fun assignSpeciesTag(
+        photo: Photo,
+        commonName: String,
+        scientificName: String,
+        taxonId: Long?,
+        wikipediaUrl: String,
+        wikipediaSummary: String,
+        onSaved: () -> Unit,
+        noticeName: String,
+        celebrationSpecies: SpeciesRecord?,
+    ) {
         val hikeId = _state.value.journal
             ?.takeIf { journal -> journal.photos.any { it.id == photo.id } }
             ?.id
@@ -2778,16 +2821,24 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             ?: "everyday"
         viewModelScope.launch {
             _state.update { it.copy(speciesAssignmentId = photo.id, error = null, notice = null) }
-            runCatching { repository.assignKnownSpecies(photo.id, hikeId, species) }
+            runCatching {
+                if (celebrationSpecies != null) {
+                    repository.assignKnownSpecies(photo.id, hikeId, celebrationSpecies)
+                } else {
+                    repository.assignCustomSpecies(photo.id, hikeId, commonName.trim(), scientificName.trim())
+                }
+            }
                 .onSuccess {
                     val label = SpeciesLabel(
-                        commonName = species.commonName,
-                        scientificName = species.scientificName,
+                        commonName = commonName.trim(),
+                        scientificName = scientificName.trim(),
                         status = "confirmed",
                         isPrimary = true,
-                        taxonId = species.taxonId,
-                        wikipediaUrl = species.wikipediaUrl,
-                        wikipediaSummary = species.wikipediaSummary,
+                        taxonId = taxonId,
+                        wikipediaUrl = wikipediaUrl,
+                        wikipediaSummary = wikipediaSummary,
+                        confidence = "confident",
+                        provenance = if (celebrationSpecies != null) "known_species" else "user",
                     )
                     updatePhotoState(photo.id) { existing ->
                         existing.copy(
@@ -2797,7 +2848,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         )
                     }
                     _state.update { state ->
-                        val celebration = buildKnownSpeciesRediscoveryCelebration(species, photo)
+                        val celebration = celebrationSpecies?.let {
+                            buildKnownSpeciesRediscoveryCelebration(it, photo)
+                        }
                         state.copy(
                             reviewQueue = state.reviewQueue.filterNot { it.photo.id == photo.id },
                             speciesAssignmentId = null,
@@ -2805,13 +2858,46 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                             notice = if (celebration != null) {
                                 null
                             } else {
-                                "Assigned ${species.commonName.ifBlank { species.scientificName }}. " +
+                                "Saved ID: $noticeName. " +
                                     if (state.isOffline) "Saved for sync." else "Ready to publish."
                             },
                             celebration = celebration ?: state.celebration,
                         )
                     }
-                    onAssigned()
+                    onSaved()
+                }
+                .onFailure { error ->
+                    _state.update { it.copy(speciesAssignmentId = null, error = error.userMessage()) }
+                }
+        }
+    }
+
+    fun removeSpecies(photo: Photo, onRemoved: () -> Unit) {
+        val hikeId = _state.value.journal
+            ?.takeIf { journal -> journal.photos.any { it.id == photo.id } }
+            ?.id
+            ?: photo.hikeId
+            ?: "everyday"
+        viewModelScope.launch {
+            _state.update { it.copy(speciesAssignmentId = photo.id, error = null, notice = null) }
+            runCatching { repository.removeSpecies(photo.id, hikeId) }
+                .onSuccess {
+                    updatePhotoState(photo.id) { existing ->
+                        existing.copy(
+                            processingStatus = "ready",
+                            syncState = if (existing.syncState == "synced") "queued" else existing.syncState,
+                            species = existing.species.filterNot { it.isPrimary },
+                        )
+                    }
+                    _state.update { state ->
+                        state.copy(
+                            reviewQueue = state.reviewQueue.filterNot { it.photo.id == photo.id },
+                            speciesAssignmentId = null,
+                            badgesHydrated = false,
+                            notice = "Removed the species ID. " + if (state.isOffline) "Saved for sync." else "Saved.",
+                        )
+                    }
+                    onRemoved()
                 }
                 .onFailure { error ->
                     _state.update { it.copy(speciesAssignmentId = null, error = error.userMessage()) }

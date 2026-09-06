@@ -806,6 +806,51 @@ class FieldOperationQueue(private val context: Context) {
     }
 
     suspend fun queueKnownSpecies(photoId: String, hikeId: String?, species: SpeciesRecord) {
+        queueSpeciesTag(
+            photoId = photoId,
+            hikeId = hikeId,
+            action = "set",
+            taxonId = species.taxonId,
+            commonName = species.commonName,
+            scientificName = species.scientificName,
+        )
+    }
+
+    suspend fun queueCustomSpecies(
+        photoId: String,
+        hikeId: String?,
+        commonName: String,
+        scientificName: String,
+    ) {
+        queueSpeciesTag(
+            photoId = photoId,
+            hikeId = hikeId,
+            action = "set",
+            taxonId = null,
+            commonName = commonName,
+            scientificName = scientificName,
+        )
+    }
+
+    suspend fun queueRemoveSpecies(photoId: String, hikeId: String?) {
+        queueSpeciesTag(
+            photoId = photoId,
+            hikeId = hikeId,
+            action = "remove",
+            taxonId = null,
+            commonName = "",
+            scientificName = "",
+        )
+    }
+
+    private suspend fun queueSpeciesTag(
+        photoId: String,
+        hikeId: String?,
+        action: String,
+        taxonId: Long?,
+        commonName: String,
+        scientificName: String,
+    ) {
         coalesce(OperationKind.AssignKnownSpecies, photoId)
         coalesce(OperationKind.QueueSpeciesReview, photoId)
         enqueue(
@@ -813,9 +858,10 @@ class FieldOperationQueue(private val context: Context) {
             photoId,
             hikeId,
             JSONObject()
-                .put("taxon_id", species.taxonId ?: JSONObject.NULL)
-                .put("common_name", species.commonName)
-                .put("scientific_name", species.scientificName),
+                .put("action", action)
+                .put("taxon_id", taxonId ?: JSONObject.NULL)
+                .put("common_name", commonName)
+                .put("scientific_name", scientificName),
         )
     }
 
@@ -1049,6 +1095,7 @@ class FieldOperationQueue(private val context: Context) {
                 }
                 operation.kind == OperationKind.AssignKnownSpecies && operation.parentId == hikeId -> {
                     val payload = JSONObject(operation.payloadJson)
+                    val remove = payload.optString("action", "set") == "remove"
                     val label = SpeciesLabel(
                         commonName = payload.optString("common_name"),
                         scientificName = payload.optString("scientific_name"),
@@ -1061,7 +1108,11 @@ class FieldOperationQueue(private val context: Context) {
                                 photo.copy(
                                     processingStatus = "ready",
                                     syncState = operation.state,
-                                    species = listOf(label) + photo.species.filterNot { it.isPrimary },
+                                    species = if (remove) {
+                                        photo.species.filterNot { it.isPrimary }
+                                    } else {
+                                        listOf(label) + photo.species.filterNot { it.isPrimary }
+                                    },
                                 )
                             } else {
                                 photo
@@ -1935,12 +1986,22 @@ class FieldSyncEngine(private val context: Context) {
                 operation.entityId,
                 payload.optBoolean("queued", true),
             )
-            OperationKind.AssignKnownSpecies -> api.assignKnownSpecies(
-                operation.entityId,
-                payload.optLong("taxon_id").takeUnless { payload.isNull("taxon_id") },
-                payload.optString("common_name"),
-                payload.optString("scientific_name"),
-            )
+            OperationKind.AssignKnownSpecies -> if (payload.optString("action", "set") == "set") {
+                api.assignKnownSpecies(
+                    operation.entityId,
+                    payload.optLong("taxon_id").takeUnless { payload.isNull("taxon_id") },
+                    payload.optString("common_name"),
+                    payload.optString("scientific_name"),
+                )
+            } else {
+                api.updateSpeciesTag(
+                    operation.entityId,
+                    payload.optString("action"),
+                    payload.optLong("taxon_id").takeUnless { payload.isNull("taxon_id") },
+                    payload.optString("common_name"),
+                    payload.optString("scientific_name"),
+                )
+            }
             OperationKind.ReviewDecision -> {
                 val candidateJson = payload.optJSONObject("candidate")
                 api.decideReview(

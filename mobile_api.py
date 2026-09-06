@@ -360,6 +360,7 @@ class ReviewQueueInput(BaseModel):
 
 
 class KnownSpeciesInput(BaseModel):
+    action: Literal["set", "remove"] = "set"
     taxon_id: int | None = None
     common_name: str = Field(default="", max_length=240)
     scientific_name: str = Field(default="", max_length=240)
@@ -5658,52 +5659,103 @@ def _matches_known_species(observation: dict[str, Any], species: KnownSpeciesInp
 @app.put("/v1/photos/{photo_id}/species", dependencies=[Depends(require_mobile_key)])
 def assign_known_species_to_photo(photo_id: str, payload: KnownSpeciesInput) -> dict[str, Any]:
     svc, photo = _get_visible_photo(photo_id)
-    if str(photo.get("content_type") or "").lower().startswith("video/"):
+    if payload.action == "set" and str(photo.get("content_type") or "").lower().startswith("video/"):
         raise HTTPException(status_code=409, detail="Videos cannot be assigned a species.")
-    if payload.taxon_id is None and not payload.common_name.strip() and not payload.scientific_name.strip():
+    if payload.action == "set" and payload.taxon_id is None and not payload.common_name.strip() and not payload.scientific_name.strip():
         raise HTTPException(status_code=400, detail="Choose a known species.")
 
     existing = svc.repository.list_observations_for_photo_ids([photo_id])
     primary = next((observation for observation in existing if observation.get("is_primary")), None)
-    if primary is not None:
-        if primary.get("status") == "confirmed" and _matches_known_species(primary, payload):
-            svc.repository.update_photo_processing_status(photo_id, "ready")
-            return _photo_payload(photo, existing)
-        raise HTTPException(status_code=409, detail="This photo already has a primary species.")
+    if payload.action == "remove":
+        if primary is not None:
+            svc.repository.delete_observations([str(primary.get("id") or "")])
+            existing = [observation for observation in existing if observation.get("id") != primary.get("id")]
+        svc.repository.update_photo_processing_status(photo_id, "ready")
+        _invalidate_species_data_cache()
+        return _photo_payload(photo, existing)
+
+    if primary is not None and primary.get("status") == "confirmed" and _matches_known_species(primary, payload):
+        svc.repository.update_photo_processing_status(photo_id, "ready")
+        return _photo_payload(photo, existing)
 
     confirmed_observations, _, _ = _visible_species_data(svc)
     known_species = next(
         (observation for observation in confirmed_observations if _matches_known_species(observation, payload)),
         None,
     )
-    if known_species is None:
-        raise HTTPException(status_code=404, detail="That species is no longer available in your Field Guide.")
+    if primary is not None and known_species is not None and _matches_known_species(primary, payload):
+        svc.repository.update_photo_processing_status(photo_id, "ready")
+        return _photo_payload(photo, existing)
 
-    source_observation_id = str(known_species.get("id") or "")
+    if primary is not None:
+        is_known_species = known_species is not None
+        updated = svc.repository.update_observation_details(
+            str(primary.get("id") or ""),
+            common_name=str((known_species or {}).get("common_name") or payload.common_name),
+            scientific_name=str((known_species or {}).get("scientific_name") or payload.scientific_name),
+            photo_id=photo_id,
+            is_primary=True,
+            status="confirmed",
+            source="known_species" if is_known_species else "manual_override",
+            taxon_id=(known_species or {}).get("taxon_id") if is_known_species else None,
+            clear_confidence=True,
+        )
+        if is_known_species:
+            svc.repository.update_observation_taxon_resolution(
+                str(primary.get("id") or ""),
+                taxon_id=known_species.get("taxon_id"),
+                rank=known_species.get("rank"),
+                iconic_taxon_name=known_species.get("iconic_taxon_name"),
+                species_taxon_id=known_species.get("species_taxon_id"),
+            )
+            source_payload = next(
+                (
+                    row.get("raw_response_json")
+                    for row in svc.repository.list_observations_by_ids([str(known_species.get("id") or "")])
+                    if isinstance(row.get("raw_response_json"), dict)
+                ),
+                {},
+            )
+            svc.repository.update_observation_raw_payload(str(primary.get("id") or ""), source_payload)
+        else:
+            svc.repository.update_observation_raw_payload(str(primary.get("id") or ""), {})
+        svc.repository.update_photo_processing_status(photo_id, "ready")
+        _invalidate_species_data_cache()
+        refreshed = svc.repository.list_observations_for_photo_ids([photo_id])
+        return _photo_payload(photo, refreshed or [updated])
+
+    is_known_species = known_species is not None
+    source_observation_id = str(known_species.get("id") or "") if known_species else ""
     source_rows = svc.repository.list_observations_by_ids([source_observation_id]) if source_observation_id else []
     source_raw_payload = dict(source_rows[0].get("raw_response_json") or {}) if source_rows else {}
     taxon_enrichment = source_raw_payload.get("taxon_enrichment")
     raw_payload = {
-        "known_species_assignment": {
-            "source_observation_id": source_observation_id or None,
-            "assigned_at": datetime.now(timezone.utc).isoformat(),
-        },
+        **({
+            "known_species_assignment": {
+                "source_observation_id": source_observation_id or None,
+                "assigned_at": datetime.now(timezone.utc).isoformat(),
+            },
+        } if is_known_species else {
+            "manual_species_assignment": {
+                "assigned_at": datetime.now(timezone.utc).isoformat(),
+            },
+        }),
         **({"taxon_enrichment": taxon_enrichment} if isinstance(taxon_enrichment, dict) else {}),
     }
     created = svc.repository.create_manual_observation(
         hike_id=photo.get("hike_id"),
         photo_id=photo_id,
-        taxon_id=known_species.get("taxon_id"),
-        common_name=str(known_species.get("common_name") or payload.common_name or ""),
-        scientific_name=str(known_species.get("scientific_name") or payload.scientific_name or ""),
-        source="known_species",
+        taxon_id=known_species.get("taxon_id") if is_known_species else None,
+        common_name=str((known_species or {}).get("common_name") or payload.common_name or ""),
+        scientific_name=str((known_species or {}).get("scientific_name") or payload.scientific_name or ""),
+        source="known_species" if is_known_species else "manual_override",
         raw_payload=raw_payload,
         is_primary=True,
         status="confirmed",
         owner_subject=photo.get("owner_subject"),
         owner_email=photo.get("owner_email"),
     )
-    if not str((taxon_enrichment or {}).get("wikipedia_summary") or "").strip():
+    if is_known_species and not str((taxon_enrichment or {}).get("wikipedia_summary") or "").strip():
         try:
             ensure_observation_taxonomy(svc.repository, _mobile_inat_client(), created)
         except (InatConfigurationError, InatRequestError):

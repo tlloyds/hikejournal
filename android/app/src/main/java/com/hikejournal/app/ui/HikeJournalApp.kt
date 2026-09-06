@@ -93,6 +93,7 @@ import androidx.compose.material.icons.rounded.Map
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PlayCircle
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.RemoveCircleOutline
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Unarchive
@@ -1276,8 +1277,15 @@ fun HikeJournalApp(viewModel: AppViewModel) {
             onSetCover = state.journal?.takeUnless { it.isStandalone || photo.isVideo }?.let {
                 { selected: Boolean -> viewModel.setHikeCover(photo, selected) }
             },
-            onAssignSpecies = if (!photo.isVideo && photo.species.none { it.isPrimary }) {
+            onAssignSpecies = if (!photo.isVideo) {
                 { speciesAssignmentPhoto = photo }
+            } else {
+                null
+            },
+            onRemoveSpecies = if (!photo.isVideo && photo.species.any { it.isPrimary }) {
+                {
+                    viewModel.removeSpecies(photo) { selectedPhoto = null }
+                }
             } else {
                 null
             },
@@ -1328,6 +1336,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
 
     speciesAssignmentPhoto?.let { photo ->
         KnownSpeciesAssignmentDialog(
+            currentSpecies = photo.species.firstOrNull { it.isPrimary },
             species = state.species,
             loading = state.isSpeciesLoading,
             assigning = state.speciesAssignmentId == photo.id,
@@ -1335,6 +1344,11 @@ fun HikeJournalApp(viewModel: AppViewModel) {
             onRefresh = { viewModel.loadSpecies(force = true) },
             onAssign = { species ->
                 viewModel.assignKnownSpecies(photo, species) {
+                    speciesAssignmentPhoto = null
+                }
+            },
+            onAssignCustom = { commonName, scientificName ->
+                viewModel.assignCustomSpecies(photo, commonName, scientificName) {
                     speciesAssignmentPhoto = null
                 }
             },
@@ -2088,6 +2102,7 @@ private fun syncOperationLabel(kind: String): String = when (kind) {
     "set_hike_cover" -> "Set hike cover"
     "update_caption" -> "Save photo note"
     "delete_photo" -> "Delete photo"
+    "assign_known_species" -> "Save species ID"
     "queue_species_review" -> "Update species review"
     "review_decision" -> "Save species decision"
     "update_species_quest" -> "Save Field Quest focus"
@@ -3385,12 +3400,14 @@ private fun PhotoViewer(
     onConnectInat: () -> Unit,
     onSetCover: ((Boolean) -> Unit)?,
     onAssignSpecies: (() -> Unit)?,
+    onRemoveSpecies: (() -> Unit)?,
     onViewMap: (() -> Unit)?,
 ) {
     val identifiedSpecies = photo.species.firstOrNull { it.isPrimary }
     val uriHandler = LocalUriHandler.current
     var caption by remember(photo.id) { mutableStateOf(photo.caption) }
     var confirmDelete by remember { mutableStateOf(false) }
+    var confirmRemoveSpecies by remember { mutableStateOf(false) }
     var photoFullscreen by remember { mutableStateOf(false) }
     var videoFullscreen by remember(photo.id) { mutableStateOf(false) }
     var horizontalDragDistance by remember(photo.id) { mutableFloatStateOf(0f) }
@@ -3450,6 +3467,33 @@ private fun PhotoViewer(
                 ) {
                 identifiedSpecies?.let { species ->
                     Text(species.commonName.ifBlank { species.scientificName }, style = MaterialTheme.typography.titleMedium, color = Color(0xFFBFD2B9))
+                    OutlinedButton(
+                        onClick = onAssignSpecies ?: {},
+                        enabled = onAssignSpecies != null && !assigningSpecies,
+                        modifier = Modifier.fillMaxWidth().padding(top = 10.dp).height(48.dp),
+                        border = BorderStroke(1.dp, Color(0xFF91AA8C)),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Paper),
+                    ) {
+                        if (assigningSpecies) {
+                            CircularProgressIndicator(Modifier.size(18.dp), color = Paper, strokeWidth = 2.dp)
+                        } else {
+                            Icon(Icons.Rounded.Edit, null)
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        Text(if (assigningSpecies) "Saving species ID..." else "Edit species ID")
+                    }
+                    if (onRemoveSpecies != null) {
+                        TextButton(
+                            onClick = { confirmRemoveSpecies = true },
+                            enabled = !assigningSpecies,
+                            modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+                            colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFE8A18F)),
+                        ) {
+                            Icon(Icons.Rounded.RemoveCircleOutline, null)
+                            Spacer(Modifier.width(7.dp))
+                            Text("Remove species ID")
+                        }
+                    }
                 }
                 if (onViewMap != null) {
                     OutlinedButton(
@@ -3632,6 +3676,22 @@ private fun PhotoViewer(
             dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Keep $mediaName") } },
         )
     }
+    if (confirmRemoveSpecies) {
+        AlertDialog(
+            onDismissRequest = { confirmRemoveSpecies = false },
+            title = { Text("Remove this species ID?") },
+            text = { Text("The photo will stay in your journal, but it will no longer have a species tag.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmRemoveSpecies = false
+                        onRemoveSpecies?.invoke()
+                    },
+                ) { Text("Remove ID", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { confirmRemoveSpecies = false }) { Text("Keep ID") } },
+        )
+    }
 }
 
 @Composable
@@ -3736,23 +3796,27 @@ private fun FullscreenPhotoViewer(
 
 @Composable
 private fun KnownSpeciesAssignmentDialog(
+    currentSpecies: SpeciesLabel?,
     species: List<SpeciesRecord>,
     loading: Boolean,
     assigning: Boolean,
     onDismiss: () -> Unit,
     onRefresh: () -> Unit,
     onAssign: (SpeciesRecord) -> Unit,
+    onAssignCustom: (String, String) -> Unit,
 ) {
     var query by remember { mutableStateOf("") }
     var selected by remember { mutableStateOf<SpeciesRecord?>(null) }
+    var commonName by remember(currentSpecies) { mutableStateOf(currentSpecies?.commonName.orEmpty()) }
+    var scientificName by remember(currentSpecies) { mutableStateOf(currentSpecies?.scientificName.orEmpty()) }
     val filtered = filterKnownSpecies(species, query)
     AlertDialog(
         onDismissRequest = { if (!assigning) onDismiss() },
-        title = { Text("Assign known species") },
+        title = { Text(if (currentSpecies == null) "Add species ID" else "Edit species ID") },
         text = {
             Column {
                 Text(
-                    "Choose a species already in your Field Guide. This confirms the photo and makes it ready to publish.",
+                    "Choose a species from your Field Guide, or enter an ID yourself. This confirms the photo and makes it ready to publish.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = InkMuted,
                 )
@@ -3762,6 +3826,26 @@ private fun KnownSpeciesAssignmentDialog(
                     modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
                     label = { Text("Common or scientific name") },
                     leadingIcon = { Icon(Icons.Rounded.Search, null) },
+                    singleLine = true,
+                )
+                Text(
+                    "Enter an ID",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = Ink,
+                    modifier = Modifier.padding(top = 14.dp),
+                )
+                OutlinedTextField(
+                    value = commonName,
+                    onValueChange = { commonName = it; selected = null },
+                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                    label = { Text("Common name") },
+                    singleLine = true,
+                )
+                OutlinedTextField(
+                    value = scientificName,
+                    onValueChange = { scientificName = it; selected = null },
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    label = { Text("Scientific name (optional)") },
                     singleLine = true,
                 )
                 when {
@@ -3787,7 +3871,7 @@ private fun KnownSpeciesAssignmentDialog(
                             if (species.isEmpty()) TextButton(onClick = onRefresh) { Text("Refresh Field Guide") }
                         }
                     }
-                    else -> LazyColumn(Modifier.fillMaxWidth().heightIn(max = 360.dp).padding(top = 8.dp)) {
+                    else -> LazyColumn(Modifier.fillMaxWidth().heightIn(max = 260.dp).padding(top = 8.dp)) {
                         items(filtered, key = { it.key }) { item ->
                             Row(
                                 Modifier
@@ -3831,14 +3915,16 @@ private fun KnownSpeciesAssignmentDialog(
         },
         confirmButton = {
             TextButton(
-                onClick = { selected?.let(onAssign) },
-                enabled = selected != null && !assigning,
+                onClick = {
+                    selected?.let(onAssign) ?: onAssignCustom(commonName.trim(), scientificName.trim())
+                },
+                enabled = !assigning && (selected != null || commonName.isNotBlank() || scientificName.isNotBlank()),
             ) {
                 if (assigning) {
                     CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
                     Spacer(Modifier.width(8.dp))
                 }
-                Text(if (assigning) "Assigning…" else "Assign species")
+                Text(if (assigning) "Saving…" else "Save ID")
             }
         },
         dismissButton = {

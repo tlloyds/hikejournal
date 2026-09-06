@@ -1316,17 +1316,73 @@ final class JournalStore: ObservableObject {
     }
 
     func assignKnownSpecies(photoID: String, hikeID: String, species record: SpeciesRecord) async -> Bool {
-        guard let context = await accountContext() else { return false }
         let rediscovery = details[hikeID]?.photos
             .first(where: { $0.id == photoID })
             .flatMap { buildKnownSpeciesRediscoveryCelebration(species: record, photo: $0) }
-        do {
-            let timestamp = Date()
-            let payload: [String: Any] = [
+        let saved = await queueSpeciesTag(
+            photoID: photoID,
+            hikeID: hikeID,
+            payload: [
                 "taxon_id": record.taxonId ?? NSNull(),
                 "common_name": record.commonName,
                 "scientific_name": record.scientificName,
-            ]
+            ],
+            localPhoto: { $0.withKnownSpecies(record) }
+        )
+        if saved { pendingCelebration = rediscovery }
+        return saved
+    }
+
+    func assignCustomSpecies(
+        photoID: String,
+        hikeID: String,
+        commonName: String,
+        scientificName: String
+    ) async -> Bool {
+        let cleanCommonName = commonName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanScientificName = scientificName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanCommonName.isEmpty || !cleanScientificName.isEmpty else {
+            errorMessage = "Enter a common or scientific name."
+            return false
+        }
+        return await queueSpeciesTag(
+            photoID: photoID,
+            hikeID: hikeID,
+            payload: [
+                "action": "set",
+                "taxon_id": NSNull(),
+                "common_name": cleanCommonName,
+                "scientific_name": cleanScientificName,
+            ],
+            localPhoto: {
+                $0.withCustomSpecies(commonName: cleanCommonName, scientificName: cleanScientificName)
+            }
+        )
+    }
+
+    func removeSpecies(photoID: String, hikeID: String) async -> Bool {
+        await queueSpeciesTag(
+            photoID: photoID,
+            hikeID: hikeID,
+            payload: [
+                "action": "remove",
+                "taxon_id": NSNull(),
+                "common_name": "",
+                "scientific_name": "",
+            ],
+            localPhoto: { $0.withoutPrimarySpecies() }
+        )
+    }
+
+    private func queueSpeciesTag(
+        photoID: String,
+        hikeID: String,
+        payload: [String: Any],
+        localPhoto: (Photo) -> Photo
+    ) async -> Bool {
+        guard let context = await accountContext() else { return false }
+        do {
+            let timestamp = Date()
             try await context.database.upsertOperation(
                 PendingOperation(
                     id: UUID().uuidString.lowercased(),
@@ -1339,9 +1395,8 @@ final class JournalStore: ObservableObject {
                 )
             )
             if let detail = details[hikeID] {
-                details[hikeID] = detail.withKnownSpecies(photoID: photoID, record: record)
+                details[hikeID] = detail.withPhoto(photoID: photoID, transform: localPhoto)
             }
-            pendingCelebration = rediscovery
             await sync?.workWasQueued(prioritizedPhotoID: photoID)
             return true
         } catch {
@@ -1781,6 +1836,10 @@ private extension Hike {
         withPhotos(photos.map { $0.id == photoID ? $0.withKnownSpecies(record) : $0 })
     }
 
+    func withPhoto(photoID: String, transform: (Photo) -> Photo) -> Hike {
+        withPhotos(photos.map { $0.id == photoID ? transform($0) : $0 })
+    }
+
     func withNaturalHistory(
         observationID: String,
         confidence: String,
@@ -1874,6 +1933,33 @@ private extension Photo {
             takenAt: takenAt, createdAt: createdAt, latitude: latitude, longitude: longitude,
             width: width, height: height, contentType: contentType,
             processingStatus: "ready", syncState: "queued", species: [label] + species.filter { !$0.isPrimary }
+        )
+    }
+
+    func withCustomSpecies(commonName: String, scientificName: String) -> Photo {
+        let label = SpeciesLabel(
+            commonName: commonName,
+            scientificName: scientificName,
+            status: "confirmed",
+            isPrimary: true,
+            confidence: "confident",
+            provenance: "user",
+            observedOn: takenAt
+        )
+        return Photo(
+            id: id, hikeId: hikeId, url: url, caption: caption,
+            takenAt: takenAt, createdAt: createdAt, latitude: latitude, longitude: longitude,
+            width: width, height: height, contentType: contentType,
+            processingStatus: "ready", syncState: "queued", species: [label] + species.filter { !$0.isPrimary }
+        )
+    }
+
+    func withoutPrimarySpecies() -> Photo {
+        Photo(
+            id: id, hikeId: hikeId, url: url, caption: caption,
+            takenAt: takenAt, createdAt: createdAt, latitude: latitude, longitude: longitude,
+            width: width, height: height, contentType: contentType,
+            processingStatus: "ready", syncState: "queued", species: species.filter { !$0.isPrimary }
         )
     }
 

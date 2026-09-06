@@ -1147,6 +1147,7 @@ private struct JournalMediaDetailView: View {
     @State private var selectedPhotoID: String
     @State private var showingCaption = false
     @State private var showingKnownSpecies = false
+    @State private var showingRemoveSpecies = false
     @State private var showingDelete = false
     @State private var working = false
     @State private var recommendationTask: Task<Void, Never>?
@@ -1249,8 +1250,21 @@ private struct JournalMediaDetailView: View {
                 KnownSpeciesAssignmentView(
                     journal: journal,
                     photoID: currentPhoto.id,
-                    hikeID: hikeID
+                    hikeID: hikeID,
+                    currentSpecies: currentPhoto.journalDisplaySpecies
                 )
+            }
+            .confirmationDialog("Remove this species ID?", isPresented: $showingRemoveSpecies) {
+                Button("Remove species ID", role: .destructive) {
+                    Task {
+                        if await journal.removeSpecies(photoID: currentPhoto.id, hikeID: hikeID) {
+                            await journal.loadHike(id: hikeID, force: true)
+                        }
+                    }
+                }
+                Button("Keep ID", role: .cancel) {}
+            } message: {
+                Text("The photo will stay in your journal, but it will no longer have a species tag.")
             }
             .confirmationDialog("Delete this media item?", isPresented: $showingDelete) {
                 Button("Delete from HikeJournal", role: .destructive) {
@@ -1329,6 +1343,19 @@ private struct JournalMediaDetailView: View {
                     .font(HikeJournalTheme.label(14, relativeTo: .headline))
                     .foregroundStyle(Color(red: 0.85, green: 0.93, blue: 0.82))
             }
+            Button {
+                showingKnownSpecies = true
+            } label: {
+                Label("Edit species ID", systemImage: "pencil")
+                    .frame(maxWidth: .infinity, minHeight: 44)
+            }
+            .buttonStyle(.bordered)
+            .tint(.white)
+            Button("Remove species ID", role: .destructive) {
+                showingRemoveSpecies = true
+            }
+            .font(HikeJournalTheme.label(15, relativeTo: .headline))
+            .frame(maxWidth: .infinity, minHeight: 44)
         }
     }
 
@@ -1569,50 +1596,92 @@ private struct KnownSpeciesAssignmentView: View {
     @ObservedObject var journal: JournalStore
     let photoID: String
     let hikeID: String
+    let currentSpecies: SpeciesLabel?
 
     @Environment(\.dismiss) private var dismiss
     @State private var query = ""
     @State private var assigningID: String?
+    @State private var commonName: String
+    @State private var scientificName: String
+
+    init(
+        journal: JournalStore,
+        photoID: String,
+        hikeID: String,
+        currentSpecies: SpeciesLabel? = nil
+    ) {
+        self.journal = journal
+        self.photoID = photoID
+        self.hikeID = hikeID
+        self.currentSpecies = currentSpecies
+        _commonName = State(initialValue: currentSpecies?.commonName ?? "")
+        _scientificName = State(initialValue: currentSpecies?.scientificName ?? "")
+    }
 
     var body: some View {
         NavigationStack {
             ZStack {
                 ParchmentBackground()
-                if filtered.isEmpty {
-                    ContentUnavailableView(
-                        journal.species.isEmpty ? "Your Field Guide is empty" : "No species match",
-                        systemImage: "leaf",
-                        description: Text("Choose a species already confirmed in your Field Guide.")
-                    )
-                } else {
-                    List(filtered, id: \.key) { species in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Choose a species from your Field Guide, or enter an ID yourself.")
+                            .font(HikeJournalTheme.body(15))
+                            .foregroundStyle(HikeJournalTheme.inkMuted)
+                        TextField("Common name", text: $commonName)
+                            .textFieldStyle(.roundedBorder)
+                        TextField("Scientific name (optional)", text: $scientificName)
+                            .textFieldStyle(.roundedBorder)
                         Button {
-                            assign(species)
+                            assignCustom()
                         } label: {
-                            HStack(spacing: 12) {
-                                JournalRemoteImage(urlString: species.coverUrl, fallback: "leaf")
-                                    .frame(width: 52, height: 52)
-                                    .clipShape(Circle())
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(species.commonName.isEmpty ? species.scientificName : species.commonName)
-                                        .font(HikeJournalTheme.label(16, relativeTo: .headline))
-                                        .foregroundStyle(HikeJournalTheme.ink)
-                                    Text("\(species.scientificName) · \(species.encounterCount) prior \(species.encounterCount == 1 ? "record" : "records")")
-                                        .font(HikeJournalTheme.body(13))
-                                        .foregroundStyle(HikeJournalTheme.inkMuted)
-                                }
-                                Spacer()
-                                if assigningID == species.key { ProgressView() }
-                            }
-                            .contentShape(Rectangle())
+                            Label("Save entered ID", systemImage: "pencil.line")
+                                .frame(maxWidth: .infinity, minHeight: 44)
                         }
-                        .buttonStyle(.plain)
-                        .disabled(assigningID != nil)
+                        .buttonStyle(.borderedProminent)
+                        .tint(HikeJournalTheme.moss)
+                        .disabled(assigningID != nil || (commonName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && scientificName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
+
+                        Divider().padding(.vertical, 4)
+                        Text("FROM YOUR FIELD GUIDE")
+                            .font(HikeJournalTheme.label(11))
+                            .tracking(1.2)
+                            .foregroundStyle(HikeJournalTheme.trailText)
+                        if filtered.isEmpty {
+                            Text(journal.species.isEmpty ? "Your Field Guide is empty." : "No species match that search.")
+                                .font(HikeJournalTheme.body(15))
+                                .foregroundStyle(HikeJournalTheme.inkMuted)
+                        } else {
+                            ForEach(filtered, id: \.key) { species in
+                                Button {
+                                    assign(species)
+                                } label: {
+                                    HStack(spacing: 12) {
+                                        JournalRemoteImage(urlString: species.coverUrl, fallback: "leaf")
+                                            .frame(width: 52, height: 52)
+                                            .clipShape(Circle())
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(species.commonName.isEmpty ? species.scientificName : species.commonName)
+                                                .font(HikeJournalTheme.label(16, relativeTo: .headline))
+                                                .foregroundStyle(HikeJournalTheme.ink)
+                                            Text("\(species.scientificName) · \(species.encounterCount) prior \(species.encounterCount == 1 ? "record" : "records")")
+                                                .font(HikeJournalTheme.body(13))
+                                                .foregroundStyle(HikeJournalTheme.inkMuted)
+                                        }
+                                        Spacer()
+                                        if assigningID == species.key { ProgressView() }
+                                    }
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(assigningID != nil)
+                                Divider()
+                            }
+                        }
                     }
-                    .scrollContentBackground(.hidden)
+                    .padding(20)
                 }
             }
-            .navigationTitle("Assign known species")
+            .navigationTitle(currentSpecies == nil ? "Add species ID" : "Edit species ID")
             .navigationBarTitleDisplayMode(.inline)
             .searchable(text: $query, prompt: "Common or scientific name")
             .toolbar {
@@ -1640,6 +1709,26 @@ private struct KnownSpeciesAssignmentView: View {
                 photoID: photoID,
                 hikeID: hikeID,
                 species: species
+            )
+            if saved {
+                await journal.loadHike(id: hikeID, force: true)
+                dismiss()
+            }
+            assigningID = nil
+        }
+    }
+
+    private func assignCustom() {
+        let cleanCommonName = commonName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanScientificName = scientificName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanCommonName.isEmpty || !cleanScientificName.isEmpty else { return }
+        assigningID = "custom"
+        Task {
+            let saved = await journal.assignCustomSpecies(
+                photoID: photoID,
+                hikeID: hikeID,
+                commonName: cleanCommonName,
+                scientificName: cleanScientificName
             )
             if saved {
                 await journal.loadHike(id: hikeID, force: true)

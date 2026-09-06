@@ -1070,6 +1070,28 @@ class HikeJournalRepository(context: Context) {
         }
     }
 
+    suspend fun assignCustomSpecies(
+        photoId: String,
+        hikeId: String?,
+        commonName: String,
+        scientificName: String,
+    ) {
+        fieldQueue.queueCustomSpecies(photoId, hikeId, commonName, scientificName)
+        invalidateSpeciesCaches()
+    }
+
+    suspend fun removeSpecies(photoId: String, hikeId: String?) {
+        fieldQueue.queueRemoveSpecies(photoId, hikeId)
+        invalidateSpeciesCaches()
+    }
+
+    private suspend fun invalidateSpeciesCaches() = withContext(Dispatchers.IO) {
+        File(cacheDirectory, "species-review.json").delete()
+        File(cacheDirectory, "species-publish.json").delete()
+        File(cacheDirectory, "sightings.json").delete()
+        File(cacheDirectory, "species.json").delete()
+    }
+
     suspend fun syncNow(): Boolean = FieldSyncEngine(appContext).drain()
 
     suspend fun syncPhotoNow(photoId: String): Boolean = FieldSyncEngine(appContext).drain(photoId)

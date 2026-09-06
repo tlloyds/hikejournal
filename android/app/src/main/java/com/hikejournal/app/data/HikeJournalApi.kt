@@ -540,6 +540,24 @@ class HikeJournalApi(private val context: Context) {
             .toRequestBody(jsonMediaType),
     )
 
+    suspend fun updateSpeciesTag(
+        photoId: String,
+        action: String,
+        taxonId: Long?,
+        commonName: String,
+        scientificName: String,
+    ): String = request(
+        path = "/v1/photos/$photoId/species",
+        method = "PUT",
+        body = JSONObject()
+            .put("action", action)
+            .put("taxon_id", taxonId ?: JSONObject.NULL)
+            .put("common_name", commonName)
+            .put("scientific_name", scientificName)
+            .toString()
+            .toRequestBody(jsonMediaType),
+    )
+
     suspend fun uploadPhoto(
         hikeId: String,
         uri: Uri,

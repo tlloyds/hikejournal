@@ -1834,7 +1834,7 @@ class HikeJournalRepository:
             payload["identification_provenance"] = _identification_provenance(source)
         if clear_confidence:
             payload["confidence"] = None
-        if taxon_id is not None or (taxon_id is None and source in {"manual_override", "community_id_request"}):
+        if taxon_id is not None or (taxon_id is None and source in {"manual_override", "known_species", "community_id_request"}):
             payload["taxon_id"] = taxon_id
         if source in {"manual_override", "community_id_request"}:
             payload["species_taxon_id"] = None

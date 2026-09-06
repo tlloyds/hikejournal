@@ -245,14 +245,18 @@ struct SyncOperationRequestBuilder: Sendable {
 
         case .assignKnownSpecies:
             let payload = try object(operation.payload)
+            var body: [String: Any] = [
+                "taxon_id": numberOrNull(payload["taxon_id"]),
+                "common_name": string(payload["common_name"], default: ""),
+                "scientific_name": string(payload["scientific_name"], default: ""),
+            ]
+            if let action = payload["action"] {
+                body["action"] = string(action, default: "set")
+            }
             return try jsonRequest(
                 .put,
                 "/v1/photos/\(try pathSegment(operation.entityID))/species",
-                [
-                    "taxon_id": numberOrNull(payload["taxon_id"]),
-                    "common_name": string(payload["common_name"], default: ""),
-                    "scientific_name": string(payload["scientific_name"], default: ""),
-                ],
+                body,
                 headers: headers
             )
 
