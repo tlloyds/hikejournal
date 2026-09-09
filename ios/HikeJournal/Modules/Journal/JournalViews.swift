@@ -290,7 +290,7 @@ struct JournalLibraryView: View {
     }
 
     private var visibleHikes: [Hike] {
-        journal.hikes.filter { hike in
+        let matchingHikes = journal.hikes.filter { hike in
             let scopeMatches = switch scope {
             case .current: !hike.isArchived
             case .archived: hike.isArchived
@@ -302,6 +302,21 @@ struct JournalLibraryView: View {
             return [hike.title, hike.locationName, hike.primaryLocationName, hike.notes, hike.hikeDate]
                 .contains { $0.localizedCaseInsensitiveContains(query) }
         }
+
+        let everyday = matchingHikes.first { $0.isStandalone || $0.id == EVERYDAY_JOURNAL_ID }
+        let hikes = matchingHikes
+            .filter { !$0.isStandalone && $0.id != EVERYDAY_JOURNAL_ID }
+            .sorted {
+                if $0.hikeDate != $1.hikeDate { return $0.hikeDate > $1.hikeDate }
+                return $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
+            }
+
+        guard let mostRecent = hikes.first else {
+            return everyday.map { [$0] } ?? []
+        }
+        return [mostRecent]
+            + (everyday.map { [$0] } ?? [])
+            + Array(hikes.dropFirst())
     }
 
     private var listSummary: String {

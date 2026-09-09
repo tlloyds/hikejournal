@@ -1661,7 +1661,10 @@ private fun LibraryScreen(
         state.hikes.filterNot { it.isStandalone }.filter { hike ->
             (showArchived || !hike.isArchived) && listOf(hike.title, hike.locationName, hike.notes)
                 .any { it.contains(query, ignoreCase = true) }
-        }
+        }.sortedWith(
+            compareByDescending<Hike> { it.hikeDate }
+                .thenBy { it.title.lowercase(Locale.US) },
+        )
     }
     val currentHikeCount = remember(state.hikes) {
         state.hikes.count { !it.isArchived && !it.isStandalone }
@@ -1737,18 +1740,18 @@ private fun LibraryScreen(
                     }
                 }
             }
-            everyday?.let { journal ->
-                item {
-                    EverydayRow(
-                        journal = journal,
-                        opening = state.openingHikeId == journal.id,
-                        onOpen = onOpenHike,
-                    )
-                }
-            }
             if (state.isLoading && state.hikes.isEmpty()) {
                 item { LoadingFieldNotes() }
             } else if (featured == null) {
+                everyday?.let { journal ->
+                    item {
+                        EverydayRow(
+                            journal = journal,
+                            opening = state.openingHikeId == journal.id,
+                            onOpen = onOpenHike,
+                        )
+                    }
+                }
                 item { EmptyLibrary(onCreate) }
             } else {
                 item {
@@ -1757,6 +1760,15 @@ private fun LibraryScreen(
                         opening = state.openingHikeId == featured.id,
                         onOpen = onOpenHike,
                     )
+                }
+                everyday?.let { journal ->
+                    item {
+                        EverydayRow(
+                            journal = journal,
+                            opening = state.openingHikeId == journal.id,
+                            onOpen = onOpenHike,
+                        )
+                    }
                 }
                 items(remaining, key = { it.id }) { hike ->
                     HikeRow(
