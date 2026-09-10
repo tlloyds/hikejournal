@@ -1920,6 +1920,7 @@ class HikeJournalRepository:
         self,
         *,
         status: str = "confirmed",
+        page_size: int = 200,
     ) -> list[dict[str, Any]]:
         return self._select_all_rows(
             lambda: (
@@ -1931,7 +1932,7 @@ class HikeJournalRepository:
                 .eq("status", status)
                 .not_.is_("taxon_id", "null")
             ),
-            page_size=200,
+            page_size=page_size,
         )
 
     def upsert_taxon_ecology_status(self, enrichment: dict[str, Any]) -> dict[str, Any] | None:
@@ -1968,6 +1969,47 @@ class HikeJournalRepository:
             # The additive migration may not have reached an older deployment
             # yet; ecological metadata remains in the observation snapshot.
             return None
+
+    def upsert_taxon_ecology_statuses(self, enrichments: list[dict[str, Any]]) -> int:
+        """Persist a backfill batch without issuing one request per observation."""
+        payloads: list[dict[str, Any]] = []
+        for enrichment in enrichments:
+            ecology = enrichment.get("ecology") if isinstance(enrichment, dict) else None
+            if not isinstance(ecology, dict) or enrichment.get("taxon_id") in (None, ""):
+                continue
+            payloads.append(
+                {
+                    "taxon_id": int(enrichment["taxon_id"]),
+                    "species_taxon_id": enrichment.get("species_taxon_id"),
+                    "region_code": str(ecology.get("region_code") or "unknown"),
+                    "place_id": ecology.get("place_id"),
+                    "place_name": str(ecology.get("place_name") or ""),
+                    "label": str(ecology.get("label") or "unknown"),
+                    "establishment_status": str(ecology.get("establishment_status") or "unknown"),
+                    "invasive_status": str(ecology.get("invasive_status") or "unknown"),
+                    "establishment_means": str(ecology.get("establishment_means") or "unknown"),
+                    "source": str(ecology.get("source") or "inaturalist"),
+                    "source_url": str(ecology.get("source_url") or ""),
+                    "raw_response_json": {
+                        "taxon_id": enrichment.get("taxon_id"),
+                        "establishment_means": enrichment.get("establishment_means"),
+                        "preferred_establishment_means": enrichment.get("preferred_establishment_means"),
+                    },
+                }
+            )
+        if not payloads:
+            return 0
+        try:
+            response = (
+                self.client.table("taxon_ecology_statuses")
+                .upsert(payloads, on_conflict="taxon_id,region_code")
+                .execute()
+            )
+            return len(response.data or payloads)
+        except Exception:
+            # The additive migration may not have reached an older deployment
+            # yet; ecological metadata remains in the observation snapshot.
+            return 0
 
     def update_observation_inat_posting(
         self,
