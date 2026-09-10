@@ -147,6 +147,31 @@ create table if not exists public.species_observations (
     identification_provenance text not null default 'legacy_import'
 );
 
+-- Canonical place-aware ecological status for a taxon. The observation keeps
+-- the exact enrichment snapshot used at identification time; this table lets
+-- the species library refresh one taxon at a time without rewriting photos.
+create table if not exists public.taxon_ecology_statuses (
+    id uuid primary key default gen_random_uuid(),
+    taxon_id bigint not null,
+    species_taxon_id bigint,
+    region_code text not null default 'unknown',
+    place_id bigint,
+    place_name text not null default '',
+    label text not null default 'unknown'
+        check (label in ('native', 'non_native', 'invasive', 'unknown')),
+    establishment_status text not null default 'unknown'
+        check (establishment_status in ('native', 'introduced', 'endemic', 'unknown')),
+    invasive_status text not null default 'unknown'
+        check (invasive_status in ('invasive', 'unknown')),
+    establishment_means text not null default 'unknown',
+    source text not null default 'inaturalist',
+    source_url text not null default '',
+    raw_response_json jsonb not null default '{}'::jsonb,
+    assessed_at timestamptz not null default timezone('utc', now()),
+    updated_at timestamptz not null default timezone('utc', now()),
+    unique (taxon_id, region_code)
+);
+
 create table if not exists public.identification_events (
     id uuid primary key default gen_random_uuid(),
     observation_id uuid not null references public.species_observations(id) on delete cascade,
@@ -393,6 +418,11 @@ create trigger species_quests_touch_updated_at
 before update on public.species_quests
 for each row execute procedure public.touch_updated_at();
 
+drop trigger if exists taxon_ecology_statuses_touch_updated_at on public.taxon_ecology_statuses;
+create trigger taxon_ecology_statuses_touch_updated_at
+before update on public.taxon_ecology_statuses
+for each row execute procedure public.touch_updated_at();
+
 drop trigger if exists outdoor_condition_snapshots_touch_updated_at
 on public.outdoor_condition_snapshots;
 create trigger outdoor_condition_snapshots_touch_updated_at
@@ -417,6 +447,10 @@ create index if not exists species_observations_species_taxon_id_idx
 on public.species_observations (species_taxon_id)
 where status = 'confirmed';
 create index if not exists species_observations_observed_on_idx on public.species_observations (observed_on desc) where status = 'confirmed';
+create index if not exists taxon_ecology_statuses_species_taxon_id_idx
+on public.taxon_ecology_statuses (species_taxon_id);
+create index if not exists taxon_ecology_statuses_region_label_idx
+on public.taxon_ecology_statuses (region_code, label);
 create index if not exists identification_events_observation_created_idx on public.identification_events (observation_id, created_at desc);
 create index if not exists observation_annotations_observation_idx on public.observation_annotations (observation_id, category);
 create index if not exists field_marks_hike_marked_idx on public.field_marks (hike_id, marked_at);
@@ -444,6 +478,7 @@ create index if not exists hike_location_tags_location_id_idx on public.hike_loc
 alter table public.hikes enable row level security;
 alter table public.photos enable row level security;
 alter table public.species_observations enable row level security;
+alter table public.taxon_ecology_statuses enable row level security;
 alter table public.hike_collaborators enable row level security;
 alter table public.hike_route_imports enable row level security;
 alter table public.hike_locations enable row level security;
@@ -461,6 +496,7 @@ alter table public.mobile_user_sessions enable row level security;
 alter table public.hikes force row level security;
 alter table public.photos force row level security;
 alter table public.species_observations force row level security;
+alter table public.taxon_ecology_statuses force row level security;
 alter table public.hike_collaborators force row level security;
 alter table public.hike_route_imports force row level security;
 alter table public.hike_locations force row level security;
@@ -487,6 +523,8 @@ drop policy if exists "Open single-user access for hike location tags" on public
 revoke all privileges on table public.hikes from anon, authenticated;
 revoke all privileges on table public.photos from anon, authenticated;
 revoke all privileges on table public.species_observations from anon, authenticated;
+revoke all privileges on table public.taxon_ecology_statuses from anon, authenticated;
+grant all privileges on table public.taxon_ecology_statuses to service_role;
 revoke all privileges on table public.hike_collaborators from anon, authenticated;
 revoke all privileges on table public.hike_route_imports from anon, authenticated;
 revoke all privileges on table public.hike_locations from anon, authenticated;

@@ -735,6 +735,16 @@ private fun CandidateRow(
             reviewConfidenceLabel(candidate.confidence)?.let { confidence ->
                 Text(confidence, style = MaterialTheme.typography.bodySmall, color = InkMuted)
             }
+            Text(
+                candidate.ecology.displayLabel,
+                style = MaterialTheme.typography.bodySmall,
+                color = when (candidate.ecology.label) {
+                    "invasive" -> Color(0xFF9A4B32)
+                    "non_native" -> Color(0xFF8A6A2F)
+                    "native" -> Moss
+                    else -> InkMuted
+                },
+            )
         }
     }
 }

@@ -27,7 +27,13 @@ LIGHTWEIGHT_OBSERVATION_COLUMNS = (
     "inat_posted_at,inat_photo_attached,"
     "species_log_main_photo:raw_response_json->species_log_main_photo,"
     "wikipedia_url:raw_response_json->taxon_enrichment->>wikipedia_url,"
-    "wikipedia_summary:raw_response_json->taxon_enrichment->>wikipedia_summary"
+    "wikipedia_summary:raw_response_json->taxon_enrichment->>wikipedia_summary,"
+    "ecology_label:raw_response_json->taxon_enrichment->ecology->>label,"
+    "ecology_establishment_status:raw_response_json->taxon_enrichment->ecology->>establishment_status,"
+    "ecology_region_code:raw_response_json->taxon_enrichment->ecology->>region_code,"
+    "ecology_place_name:raw_response_json->taxon_enrichment->ecology->>place_name,"
+    "ecology_source:raw_response_json->taxon_enrichment->ecology->>source,"
+    "ecology_source_url:raw_response_json->taxon_enrichment->ecology->>source_url"
 )
 LEGACY_LIGHTWEIGHT_OBSERVATION_COLUMNS = LIGHTWEIGHT_OBSERVATION_COLUMNS.replace(
     "species_taxon_id,rank,iconic_taxon_name,",
@@ -1927,6 +1933,41 @@ class HikeJournalRepository:
             ),
             page_size=200,
         )
+
+    def upsert_taxon_ecology_status(self, enrichment: dict[str, Any]) -> dict[str, Any] | None:
+        """Persist the latest place-aware status without making it user-owned."""
+        ecology = enrichment.get("ecology") if isinstance(enrichment, dict) else None
+        if not isinstance(ecology, dict) or enrichment.get("taxon_id") in (None, ""):
+            return None
+        payload = {
+            "taxon_id": int(enrichment["taxon_id"]),
+            "species_taxon_id": enrichment.get("species_taxon_id"),
+            "region_code": str(ecology.get("region_code") or "unknown"),
+            "place_id": ecology.get("place_id"),
+            "place_name": str(ecology.get("place_name") or ""),
+            "label": str(ecology.get("label") or "unknown"),
+            "establishment_status": str(ecology.get("establishment_status") or "unknown"),
+            "invasive_status": str(ecology.get("invasive_status") or "unknown"),
+            "establishment_means": str(ecology.get("establishment_means") or "unknown"),
+            "source": str(ecology.get("source") or "inaturalist"),
+            "source_url": str(ecology.get("source_url") or ""),
+            "raw_response_json": {
+                "taxon_id": enrichment.get("taxon_id"),
+                "establishment_means": enrichment.get("establishment_means"),
+                "preferred_establishment_means": enrichment.get("preferred_establishment_means"),
+            },
+        }
+        try:
+            response = (
+                self.client.table("taxon_ecology_statuses")
+                .upsert(payload, on_conflict="taxon_id,region_code")
+                .execute()
+            )
+            return (response.data or [None])[0]
+        except Exception:
+            # The additive migration may not have reached an older deployment
+            # yet; ecological metadata remains in the observation snapshot.
+            return None
 
     def update_observation_inat_posting(
         self,

@@ -6,19 +6,22 @@ public struct ReviewCandidate: Codable, Equatable, Sendable {
     public let scientificName: String
     public let confidence: Double?
     public let iconicTaxonName: String
+    public let ecology: EcologyStatus
 
     public init(
         taxonId: Int64?,
         commonName: String,
         scientificName: String,
         confidence: Double?,
-        iconicTaxonName: String = "Other"
+        iconicTaxonName: String = "Other",
+        ecology: EcologyStatus = EcologyStatus()
     ) {
         self.taxonId = taxonId
         self.commonName = commonName
         self.scientificName = scientificName
         self.confidence = confidence.flatMap { $0.isFinite ? $0 : nil }
         self.iconicTaxonName = iconicTaxonName
+        self.ecology = ecology
     }
 
     public init(from decoder: Decoder) throws {
@@ -28,7 +31,8 @@ public struct ReviewCandidate: Codable, Equatable, Sendable {
             commonName: values.string("commonName", default: "Unknown species"),
             scientificName: values.string("scientificName"),
             confidence: values.optionalDouble("confidence"),
-            iconicTaxonName: values.string("iconicTaxonName", default: "Other")
+            iconicTaxonName: values.string("iconicTaxonName", default: "Other"),
+            ecology: try values.optionalValue(EcologyStatus.self, "ecology") ?? EcologyStatus()
         )
     }
 }

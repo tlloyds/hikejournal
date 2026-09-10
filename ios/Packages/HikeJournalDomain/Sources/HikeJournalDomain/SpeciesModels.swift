@@ -134,6 +134,52 @@ public struct Encounter: Codable, Equatable, Sendable {
     }
 }
 
+public struct EcologyStatus: Codable, Equatable, Sendable {
+    public let label: String
+    public let establishmentStatus: String
+    public let regionCode: String
+    public let placeName: String
+    public let source: String
+    public let sourceUrl: String
+
+    public init(
+        label: String = "unknown",
+        establishmentStatus: String = "unknown",
+        regionCode: String = "",
+        placeName: String = "",
+        source: String = "",
+        sourceUrl: String = ""
+    ) {
+        self.label = ["native", "non_native", "invasive", "unknown"].contains(label) ? label : "unknown"
+        self.establishmentStatus = establishmentStatus
+        self.regionCode = regionCode
+        self.placeName = placeName
+        self.source = source
+        self.sourceUrl = sourceUrl
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.domainContainer()
+        self.init(
+            label: values.string("label", default: "unknown"),
+            establishmentStatus: values.string("establishmentStatus", default: "unknown"),
+            regionCode: values.string("regionCode"),
+            placeName: values.string("placeName"),
+            source: values.string("source"),
+            sourceUrl: values.string("sourceUrl")
+        )
+    }
+
+    public var displayLabel: String {
+        switch label {
+        case "native": return "Native here"
+        case "non_native": return "Non-native here"
+        case "invasive": return "Invasive here"
+        default: return "Status unknown"
+        }
+    }
+}
+
 public struct SpeciesRecord: Codable, Equatable, Sendable {
     public let key: String
     public let taxonId: Int64?
@@ -154,6 +200,7 @@ public struct SpeciesRecord: Codable, Equatable, Sendable {
     public let coverThumbnailUrl: String
     public let encounters: [Encounter]
     public let seasonalHistory: SeasonalHistory
+    public let ecology: EcologyStatus
 
     public init(
         key: String,
@@ -174,7 +221,8 @@ public struct SpeciesRecord: Codable, Equatable, Sendable {
         coverUrl: String,
         coverThumbnailUrl: String = "",
         encounters: [Encounter] = [],
-        seasonalHistory: SeasonalHistory = SeasonalHistory()
+        seasonalHistory: SeasonalHistory = SeasonalHistory(),
+        ecology: EcologyStatus = EcologyStatus()
     ) {
         self.key = key
         self.taxonId = taxonId
@@ -195,6 +243,7 @@ public struct SpeciesRecord: Codable, Equatable, Sendable {
         self.coverThumbnailUrl = coverThumbnailUrl
         self.encounters = encounters
         self.seasonalHistory = seasonalHistory
+        self.ecology = ecology
     }
 
     public init(from decoder: Decoder) throws {
@@ -218,7 +267,8 @@ public struct SpeciesRecord: Codable, Equatable, Sendable {
             coverUrl: values.string("coverUrl"),
             coverThumbnailUrl: values.string("coverThumbnailUrl"),
             encounters: try values.array(Encounter.self, "encounters"),
-            seasonalHistory: try values.optionalValue(SeasonalHistory.self, "seasonalHistory") ?? SeasonalHistory()
+            seasonalHistory: try values.optionalValue(SeasonalHistory.self, "seasonalHistory") ?? SeasonalHistory(),
+            ecology: try values.optionalValue(EcologyStatus.self, "ecology") ?? EcologyStatus()
         )
     }
 }

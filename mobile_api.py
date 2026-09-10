@@ -1892,6 +1892,16 @@ def _build_species_payloads(
             ),
             "Other",
         )
+        ecology = _observation_ecology_payload(
+            next(
+                (
+                    item
+                    for item in ordered
+                    if _observation_ecology_payload(item).get("label") != "unknown"
+                ),
+                lead,
+            )
+        )
         payloads.append(
             {
                 "key": key,
@@ -1900,6 +1910,7 @@ def _build_species_payloads(
                 "scientific_name": str(lead.get("scientific_name") or ""),
                 "rank": str(lead.get("rank") or ""),
                 "iconic_taxon_name": iconic_taxon_name,
+                "ecology": ecology,
                 "wikipedia_url": str(enrichment_lead.get("wikipedia_url") or ""),
                 "wikipedia_summary": str(enrichment_lead.get("wikipedia_summary") or ""),
                 "encounter_count": len(encounter_photo_ids),
@@ -1925,6 +1936,29 @@ def _build_species_payloads(
     )
 
 
+def _observation_ecology_payload(observation: dict[str, Any]) -> dict[str, Any]:
+    raw_payload = observation.get("raw_response_json")
+    enrichment = raw_payload.get("taxon_enrichment") if isinstance(raw_payload, dict) else None
+    snapshot = enrichment.get("ecology") if isinstance(enrichment, dict) else None
+    if not isinstance(snapshot, dict):
+        snapshot = {}
+    label = str(snapshot.get("label") or observation.get("ecology_label") or "unknown").strip().casefold()
+    if label not in {"native", "non_native", "invasive", "unknown"}:
+        label = "unknown"
+    return {
+        "label": label,
+        "establishment_status": str(
+            snapshot.get("establishment_status")
+            or observation.get("ecology_establishment_status")
+            or "unknown"
+        ).strip().casefold(),
+        "region_code": str(snapshot.get("region_code") or observation.get("ecology_region_code") or "").strip(),
+        "place_name": str(snapshot.get("place_name") or observation.get("ecology_place_name") or "").strip(),
+        "source": str(snapshot.get("source") or observation.get("ecology_source") or "").strip(),
+        "source_url": str(snapshot.get("source_url") or observation.get("ecology_source_url") or "").strip(),
+    }
+
+
 def _candidate_payload(
     *,
     taxon_id: int | None,
@@ -1932,6 +1966,7 @@ def _candidate_payload(
     scientific_name: str,
     confidence: float | None,
     iconic_taxon_name: str = "Other",
+    ecology: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     payload = {
         "taxon_id": taxon_id,
@@ -1941,6 +1976,8 @@ def _candidate_payload(
     }
     if iconic_taxon_name and iconic_taxon_name.casefold() != "other":
         payload["iconic_taxon_name"] = iconic_taxon_name
+    if isinstance(ecology, dict):
+        payload["ecology"] = ecology
     return payload
 
 
@@ -1951,6 +1988,7 @@ def _review_candidates(observation: dict[str, Any]) -> list[dict[str, Any]]:
         scientific_name=str(observation.get("scientific_name") or ""),
         confidence=observation.get("confidence"),
         iconic_taxon_name=str(observation.get("iconic_taxon_name") or "Other"),
+        ecology=_observation_ecology_payload(observation),
     )
     candidates = [current]
     raw_payload = observation.get("raw_response_json")

@@ -4,6 +4,7 @@ import re
 from typing import Any, Callable
 
 from hike_journal.domain.discovery import INFRASPECIES_RANKS
+from hike_journal.config import settings
 from hike_journal.services.inat import InatClient, InatRequestError
 from hike_journal.services.repositories import HikeJournalRepository
 from hike_journal.services.wikipedia import fill_missing_wikipedia_summary
@@ -122,6 +123,31 @@ def taxonomy_resolution_fields(enrichment: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _fetch_taxon_enrichment_for_region(inat_client: InatClient, taxon_id: int) -> dict[str, Any]:
+    try:
+        return inat_client.fetch_taxon_enrichment(
+            taxon_id,
+            preferred_place_id=settings.inat_ecology_place_id,
+        )
+    except TypeError:
+        # Keep small test doubles and older connector implementations usable
+        # during the additive rollout.
+        return inat_client.fetch_taxon_enrichment(taxon_id)
+
+
+def _fetch_taxon_enrichments_for_region(
+    inat_client: InatClient,
+    taxon_ids: list[int],
+) -> dict[int, dict[str, Any]]:
+    try:
+        return inat_client.fetch_taxon_enrichments(
+            taxon_ids,
+            preferred_place_id=settings.inat_ecology_place_id,
+        )
+    except TypeError:
+        return inat_client.fetch_taxon_enrichments(taxon_ids)
+
+
 def ensure_observation_taxonomy(
     repository: HikeJournalRepository,
     inat_client: InatClient,
@@ -131,11 +157,17 @@ def ensure_observation_taxonomy(
     raw_payload = dict(observation.get("raw_response_json") or {})
     cached = raw_payload.get("taxon_enrichment")
     enrichment: dict[str, Any] | None = None
+    cached_ecology = cached.get("ecology") if isinstance(cached, dict) else None
+    cached_ecology_is_current = (
+        isinstance(cached_ecology, dict)
+        and str(cached_ecology.get("region_code") or "") == settings.inat_ecology_region
+    )
 
     try:
         if (
             taxon_enrichment_is_complete(cached)
             and observation_matches_taxon_enrichment(observation, cached)
+            and cached_ecology_is_current
             and (
                 taxon_id in (None, "")
                 or str(cached.get("taxon_id")) == str(taxon_id)
@@ -143,7 +175,7 @@ def ensure_observation_taxonomy(
         ):
             enrichment = cached
         elif taxon_id not in (None, ""):
-            fetched = inat_client.fetch_taxon_enrichment(int(taxon_id))
+            fetched = _fetch_taxon_enrichment_for_region(inat_client, int(taxon_id))
             current_by_id: dict[int, dict[str, Any]] = {}
             synonym_ids = [
                 int(value)
@@ -151,7 +183,7 @@ def ensure_observation_taxonomy(
                 if str(value).isdigit()
             ]
             if fetched.get("is_active") is False and synonym_ids:
-                current_by_id = inat_client.fetch_taxon_enrichments(synonym_ids)
+                current_by_id = _fetch_taxon_enrichments_for_region(inat_client, synonym_ids)
             enrichment = resolve_observation_enrichment(
                 observation,
                 enrichment_for_taxon_id=fetched,
@@ -181,5 +213,8 @@ def ensure_observation_taxonomy(
     if updated is None:
         return False
     raw_payload["taxon_enrichment"] = enrichment
+    upsert_ecology = getattr(repository, "upsert_taxon_ecology_status", None)
+    if callable(upsert_ecology):
+        upsert_ecology(enrichment)
     repository.update_observation_raw_payload(str(observation["id"]), raw_payload)
     return True

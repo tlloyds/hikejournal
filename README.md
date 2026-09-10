@@ -37,7 +37,9 @@ invariant, sequencing, evidence requirements, and webapp boundaries.
 5. Run `sql/scalable_maps_migration.sql` to add PostGIS indexes and viewport map RPCs.
 6. Run `sql/species_discovery_migration.sql` to add Nearby discovery snapshots
    and stable Field Quests.
-7. Start the app:
+7. Run `sql/taxon_ecology_status_migration.sql` to add place-aware native,
+   non-native, and invasive status storage.
+8. Start the app:
    ```bash
    streamlit run app.py
    ```
@@ -86,8 +88,13 @@ If you already have a running project from the earlier single-observation versio
   the 24-hour shared iNaturalist cache, and owner-scoped Field Quests
 - [sql/longitudinal_intelligence_migration.sql](sql/longitudinal_intelligence_migration.sql)
   for Place/season analytics, Field Marks, phenophases, and identification history
+- [sql/taxon_ecology_status_migration.sql](sql/taxon_ecology_status_migration.sql)
+  for place-aware native, non-native, and invasive status storage
 - [sql/nationwide_hike_locations_migration.sql](sql/nationwide_hike_locations_migration.sql)
   for state-scoped trail packs and nationwide location provenance
+
+After applying the ecology migration, run `python3 scripts/backfill_taxon_ecology.py`
+to refresh existing confirmed observations in the configured region.
 
 ## Environment
 
@@ -112,6 +119,9 @@ Needed later for species scoring:
 - `INAT_BASE_URL` defaults to `https://api.inaturalist.org/v1`
 - `INAT_DISCOVERY_BASE_URL` defaults to `https://api.inaturalist.org/v2`
 - `INAT_CV_REQUEST_INTERVAL_SECONDS` defaults to `2.5` for slower image-ID requests
+- `INAT_ECOLOGY_PLACE_ID` defaults to iNaturalist Florida (21)
+- `INAT_ECOLOGY_REGION` defaults to `US-FL`; change both values together for a
+  different primary field-guide region
 - `SPECIES_DISCOVERY_ENABLED` defaults to `true`; set it to `false` to hide
   Nearby and Field Quests during a rollout
 - `WEATHER_ENRICHMENT_ENABLED` defaults to `true`; personal/non-commercial use

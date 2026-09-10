@@ -142,6 +142,48 @@ def test_extract_taxon_enrichment_collects_aliases_and_summary() -> None:
     assert "bulltongue arrowhead" in enrichment["alias_names"]
 
 
+def test_extract_taxon_enrichment_maps_place_aware_establishment_means() -> None:
+    enrichment = extract_taxon_enrichment(
+        {
+            "id": 130872,
+            "name": "Schinus terebinthifolia",
+            "preferred_common_name": "Brazilian pepper",
+            "rank": "species",
+            "establishment_means": {
+                "id": 123,
+                "establishment_means": "introduced",
+                "place": {"id": 21, "display_name": "Florida, US"},
+            },
+            "preferred_establishment_means": "introduced",
+        },
+        ecology_region_code="US-FL",
+        ecology_place_id=21,
+    )
+
+    assert enrichment["ecology"] == {
+        "label": "non_native",
+        "establishment_status": "introduced",
+        "invasive_status": "unknown",
+        "establishment_means": "introduced",
+        "region_code": "US-FL",
+        "place_id": 21,
+        "place_name": "Florida, US",
+        "source": "inaturalist",
+        "source_url": "https://www.inaturalist.org/taxa/130872",
+    }
+
+
+def test_extract_taxon_enrichment_keeps_missing_ecology_unknown() -> None:
+    enrichment = extract_taxon_enrichment(
+        {"id": 9, "name": "Example species", "rank": "species"},
+        ecology_region_code="US-FL",
+        ecology_place_id=21,
+    )
+
+    assert enrichment["ecology"]["label"] == "unknown"
+    assert enrichment["ecology"]["region_code"] == "US-FL"
+
+
 def test_extract_taxon_enrichment_resolves_subspecies_parent() -> None:
     enrichment = extract_taxon_enrichment(
         {

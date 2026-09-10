@@ -11,6 +11,7 @@ from urllib.parse import urlencode
 import requests
 
 from hike_journal.domain.discovery import plain_text
+from hike_journal.services.ecology import build_ecology_snapshot
 from hike_journal.config import (
     load_inat_token_record_for_user,
     save_inat_access_token,
@@ -148,19 +149,35 @@ class InatClient:
         )
         return candidates[0]
 
-    def fetch_taxon_enrichment(self, taxon_id: int) -> dict[str, Any]:
+    def fetch_taxon_enrichment(
+        self,
+        taxon_id: int,
+        *,
+        preferred_place_id: int | None = None,
+    ) -> dict[str, Any]:
         url = f"{self.base_url}/taxa/{taxon_id}"
         headers = self._headers(auth=False)
-        response = self._request("get", url, headers=headers, timeout=30)
+        place_id = preferred_place_id if preferred_place_id is not None else settings.inat_ecology_place_id
+        params = {"preferred_place_id": place_id} if place_id else None
+        response = self._request("get", url, headers=headers, params=params, timeout=30)
         if response.status_code >= 400:
             raise InatRequestError(f"iNaturalist taxon lookup returned {response.status_code}: {response.text[:200]}")
         payload = response.json()
         results = payload.get("results") or []
         if not results or not isinstance(results[0], dict):
             raise InatRequestError("iNaturalist taxon lookup returned no usable taxon details.")
-        return extract_taxon_enrichment(results[0])
+        return extract_taxon_enrichment(
+            results[0],
+            ecology_region_code=settings.inat_ecology_region,
+            ecology_place_id=place_id,
+        )
 
-    def fetch_taxon_enrichments(self, taxon_ids: list[int]) -> dict[int, dict[str, Any]]:
+    def fetch_taxon_enrichments(
+        self,
+        taxon_ids: list[int],
+        *,
+        preferred_place_id: int | None = None,
+    ) -> dict[int, dict[str, Any]]:
         normalized_ids: list[int] = []
         for value in taxon_ids:
             taxon_id = _coerce_int(value)
@@ -169,13 +186,20 @@ class InatClient:
         enrichments: dict[int, dict[str, Any]] = {}
         url = f"{self.base_url}/taxa"
         headers = self._headers(auth=False)
+        place_id = preferred_place_id if preferred_place_id is not None else settings.inat_ecology_place_id
         for start in range(0, len(normalized_ids), 100):
             chunk = normalized_ids[start : start + 100]
+            params: list[tuple[str, Any]] = [
+                *(("id", taxon_id) for taxon_id in chunk),
+                ("per_page", 200),
+            ]
+            if place_id:
+                params.append(("preferred_place_id", place_id))
             response = self._request(
                 "get",
                 url,
                 headers=headers,
-                params=[*(("id", taxon_id) for taxon_id in chunk), ("per_page", 200)],
+                params=params,
                 timeout=30,
             )
             if response.status_code >= 400:
@@ -183,7 +207,11 @@ class InatClient:
             for taxon in response.json().get("results") or []:
                 if not isinstance(taxon, dict):
                     continue
-                enrichment = extract_taxon_enrichment(taxon)
+                enrichment = extract_taxon_enrichment(
+                    taxon,
+                    ecology_region_code=settings.inat_ecology_region,
+                    ecology_place_id=place_id,
+                )
                 if enrichment.get("taxon_id") is not None:
                     enrichments[int(enrichment["taxon_id"])] = enrichment
 
@@ -192,7 +220,10 @@ class InatClient:
         for taxon_id in normalized_ids:
             if taxon_id not in enrichments:
                 try:
-                    enrichments[taxon_id] = self.fetch_taxon_enrichment(taxon_id)
+                    enrichments[taxon_id] = self.fetch_taxon_enrichment(
+                        taxon_id,
+                        preferred_place_id=place_id,
+                    )
                 except InatRequestError:
                     continue
         return enrichments
@@ -204,7 +235,11 @@ class InatClient:
         url = f"{self.base_url}/taxa"
         headers = self._headers(auth=False)
         for active_filter in (None, "false"):
-            params: dict[str, Any] = {"q": query.strip(), "per_page": 30}
+            params: dict[str, Any] = {
+                "q": query.strip(),
+                "per_page": 30,
+                "preferred_place_id": settings.inat_ecology_place_id,
+            }
             if active_filter is not None:
                 params["is_active"] = active_filter
             response = self._request("get", url, headers=headers, params=params, timeout=30)
@@ -217,7 +252,11 @@ class InatClient:
                 if _normalize_name(item.get("name")) == normalized_query
             ]
             if scientific_matches:
-                return extract_taxon_enrichment(scientific_matches[0])
+                return extract_taxon_enrichment(
+                    scientific_matches[0],
+                    ecology_region_code=settings.inat_ecology_region,
+                    ecology_place_id=settings.inat_ecology_place_id,
+                )
             common_matches = [
                 item
                 for item in results
@@ -228,7 +267,11 @@ class InatClient:
                 }
             ]
             if len(common_matches) == 1:
-                return extract_taxon_enrichment(common_matches[0])
+                return extract_taxon_enrichment(
+                    common_matches[0],
+                    ecology_region_code=settings.inat_ecology_region,
+                    ecology_place_id=settings.inat_ecology_place_id,
+                )
         return None
 
     def fetch_observation(self, observation_id: int | str) -> dict[str, Any]:
@@ -729,7 +772,12 @@ def _coerce_int(value: Any) -> int | None:
         return None
 
 
-def extract_taxon_enrichment(taxon: dict[str, Any]) -> dict[str, Any]:
+def extract_taxon_enrichment(
+    taxon: dict[str, Any],
+    *,
+    ecology_region_code: str = "unknown",
+    ecology_place_id: int | None = None,
+) -> dict[str, Any]:
     preferred_common_name = _coerce_text(taxon.get("preferred_common_name"))
     english_common_name = _coerce_text(taxon.get("english_common_name"))
     scientific_name = _coerce_text(taxon.get("name"))
@@ -759,7 +807,7 @@ def extract_taxon_enrichment(taxon: dict[str, Any]) -> dict[str, Any]:
         and rank in {"subspecies", "variety", "form", "infrahybrid", "hybrid"}
     ):
         species_taxon_id = species_ancestor_taxon_id(taxon, taxon_id)
-    return {
+    enrichment = {
         "taxon_id": taxon_id,
         "preferred_common_name": preferred_common_name,
         "english_common_name": english_common_name,
@@ -777,7 +825,17 @@ def extract_taxon_enrichment(taxon: dict[str, Any]) -> dict[str, Any]:
         "wikipedia_summary": wikipedia_summary,
         "alias_names": alias_names,
         "scientific_name": scientific_name,
+        "preferred_establishment_means": _coerce_text(taxon.get("preferred_establishment_means")),
+        "establishment_means": taxon.get("establishment_means")
+        if isinstance(taxon.get("establishment_means"), (dict, str))
+        else None,
     }
+    enrichment["ecology"] = build_ecology_snapshot(
+        enrichment,
+        region_code=ecology_region_code,
+        place_id=ecology_place_id,
+    )
+    return enrichment
 
 
 def _coerce_text(value: Any) -> str | None:

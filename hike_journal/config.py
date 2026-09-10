@@ -250,6 +250,11 @@ class Settings:
         "https://api.inaturalist.org/v2",
     ).rstrip("/")
     inat_cv_request_interval_seconds: float = float(os.getenv("INAT_CV_REQUEST_INTERVAL_SECONDS", "2.5"))
+    # iNaturalist establishment means are place-specific. HikeJournal's
+    # current field-guide region is Florida; deployments covering another
+    # region should override both values together.
+    inat_ecology_place_id: int = int(os.getenv("INAT_ECOLOGY_PLACE_ID", "21").strip() or "21")
+    inat_ecology_region: str = os.getenv("INAT_ECOLOGY_REGION", "US-FL").strip() or "US-FL"
     inat_oauth_client_id: str = os.getenv("INAT_OAUTH_CLIENT_ID", "")
     inat_oauth_client_secret: str = os.getenv("INAT_OAUTH_CLIENT_SECRET", "")
     inat_oauth_redirect_uri: str = os.getenv("INAT_OAUTH_REDIRECT_URI", "http://localhost:8505/")

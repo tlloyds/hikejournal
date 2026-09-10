@@ -4,6 +4,15 @@ import HikeJournalMaps
 import SwiftUI
 import UIKit
 
+private func ecologyColor(_ status: EcologyStatus) -> Color {
+    switch status.label {
+    case "invasive": return HikeJournalTheme.error
+    case "non_native": return HikeJournalTheme.trailText
+    case "native": return HikeJournalTheme.fern
+    default: return HikeJournalTheme.inkMuted
+    }
+}
+
 struct FieldGuideWorkspaceView: View {
     @ObservedObject var model: AppModel
     @ObservedObject private var journal: JournalStore
@@ -396,6 +405,9 @@ private struct SpeciesRow: View {
                 Text("\(species.encounterCount) \(species.encounterCount == 1 ? "encounter" : "encounters") · \(species.hikeCount) \(species.hikeCount == 1 ? "outing" : "outings")")
                     .font(HikeJournalTheme.body(13))
                     .foregroundStyle(HikeJournalTheme.trailText)
+                Text(species.ecology.displayLabel)
+                    .font(HikeJournalTheme.body(12))
+                    .foregroundStyle(ecologyColor(species.ecology))
                 if let latest = species.latestSeen {
                     Text("Last seen \(JournalDate.display(latest))")
                         .font(HikeJournalTheme.body(12))
@@ -517,6 +529,9 @@ struct SpeciesDetailView: View {
                 if !value.scientificName.isEmpty {
                     Text(value.scientificName).font(HikeJournalTheme.body(16)).italic()
                 }
+                Text(value.ecology.displayLabel)
+                    .font(HikeJournalTheme.label(12))
+                    .foregroundStyle(ecologyColor(value.ecology))
             }
             .foregroundStyle(Color(red: 1, green: 0.98, blue: 0.92))
             .padding(22)
@@ -1757,6 +1772,9 @@ private struct ReviewCardPage: View {
                                 .font(HikeJournalTheme.body(12))
                                 .foregroundStyle(HikeJournalTheme.inkMuted)
                         }
+                        Text(candidate.ecology.displayLabel)
+                            .font(HikeJournalTheme.body(12))
+                            .foregroundStyle(ecologyColor(candidate.ecology))
                     }
                     Spacer(minLength: 0)
                 }

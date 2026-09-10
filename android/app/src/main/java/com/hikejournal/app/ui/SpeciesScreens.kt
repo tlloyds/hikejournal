@@ -1648,6 +1648,17 @@ private fun SpeciesIndexRow(record: SpeciesRecord, onOpen: (String) -> Unit) {
                     color = TrailText,
                     modifier = Modifier.padding(top = 5.dp),
                 )
+                Text(
+                    record.ecology.displayLabel,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = when (record.ecology.label) {
+                        "invasive" -> Color(0xFF9A4B32)
+                        "non_native" -> Color(0xFF8A6A2F)
+                        "native" -> FernText
+                        else -> InkMuted
+                    },
+                    modifier = Modifier.padding(top = 3.dp),
+                )
             }
             Text(record.encounterCount.toString().padStart(2, '0'), style = MaterialTheme.typography.headlineSmall, color = FernText)
         }
@@ -1700,6 +1711,17 @@ fun SpeciesDetailScreen(
                         modifier = Modifier.padding(top = 4.dp),
                     )
                 }
+                Text(
+                    species.ecology.displayLabel,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = when (species.ecology.label) {
+                        "invasive" -> Color(0xFF9A4B32)
+                        "non_native" -> Color(0xFF8A6A2F)
+                        "native" -> FernText
+                        else -> InkMuted
+                    },
+                    modifier = Modifier.padding(top = 8.dp),
+                )
                 Text(
                     "${species.encounterCount} encounter${if (species.encounterCount == 1) "" else "s"} across ${species.hikeCount} outing${if (species.hikeCount == 1) "" else "s"}",
                     style = MaterialTheme.typography.labelMedium,

@@ -242,6 +242,23 @@ data class HikeLocation(
     val stateCode: String? = null,
 )
 
+data class EcologyStatus(
+    val label: String = "unknown",
+    val establishmentStatus: String = "unknown",
+    val regionCode: String = "",
+    val placeName: String = "",
+    val source: String = "",
+    val sourceUrl: String = "",
+) {
+    val displayLabel: String
+        get() = when (label) {
+            "native" -> "Native here"
+            "non_native" -> "Non-native here"
+            "invasive" -> "Invasive here"
+            else -> "Status unknown"
+        }
+}
+
 data class SpeciesRecord(
     val key: String,
     val taxonId: Long?,
@@ -262,6 +279,7 @@ data class SpeciesRecord(
     val encounters: List<Encounter> = emptyList(),
     val seasonalHistory: SeasonalHistory = SeasonalHistory(),
     val coverThumbnailUrl: String = "",
+    val ecology: EcologyStatus = EcologyStatus(),
 )
 
 data class PlaceVisit(
@@ -560,6 +578,7 @@ data class ReviewCandidate(
     val scientificName: String,
     val confidence: Double?,
     val iconicTaxonName: String = "Other",
+    val ecology: EcologyStatus = EcologyStatus(),
 )
 
 /**
@@ -924,8 +943,21 @@ private fun parseReviewItem(json: JSONObject): ReviewItem {
                 scientificName = candidate.optString("scientific_name"),
                 confidence = candidate.optNullableDouble("confidence"),
                 iconicTaxonName = candidate.optString("iconic_taxon_name", "Other"),
+                ecology = parseEcology(candidate.optJSONObject("ecology")),
             )
         },
+    )
+}
+
+private fun parseEcology(json: JSONObject?): EcologyStatus {
+    if (json == null) return EcologyStatus()
+    return EcologyStatus(
+        label = json.optString("label", "unknown"),
+        establishmentStatus = json.optString("establishment_status", "unknown"),
+        regionCode = json.optString("region_code"),
+        placeName = json.optString("place_name"),
+        source = json.optString("source"),
+        sourceUrl = json.optString("source_url"),
     )
 }
 
@@ -1135,6 +1167,7 @@ private fun parseSpecies(json: JSONObject): SpeciesRecord {
         latestSeen = json.optNullableString("latest_seen"),
         coverUrl = json.optString("cover_url"),
         coverThumbnailUrl = json.optString("cover_thumbnail_url"),
+        ecology = parseEcology(json.optJSONObject("ecology")),
         encounters = List(encountersJson.length()) { index ->
             val encounter = encountersJson.getJSONObject(index)
             Encounter(
