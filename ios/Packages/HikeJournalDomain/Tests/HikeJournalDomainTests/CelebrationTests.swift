@@ -2,6 +2,60 @@ import XCTest
 @testable import HikeJournalDomain
 
 final class CelebrationTests: XCTestCase {
+    func testBatchCelebrationUsesPhotosForPossibleNewSpecies() throws {
+        let known = ReviewCandidate(
+            taxonId: 1,
+            commonName: "Known species",
+            scientificName: "Species knownus",
+            confidence: 0.95,
+            iconicTaxonName: "Aves"
+        )
+        let newPlant = ReviewCandidate(
+            taxonId: 2,
+            commonName: "New plant",
+            scientificName: "Plant newus",
+            confidence: 0.95,
+            iconicTaxonName: "Plantae"
+        )
+        let newInsect = ReviewCandidate(
+            taxonId: 3,
+            commonName: "New insect",
+            scientificName: "Insect newus",
+            confidence: 0.95,
+            iconicTaxonName: "Insecta"
+        )
+        let items = [
+            fixtureReviewItem("known", candidate: known),
+            fixtureReviewItem("new-plant", candidate: newPlant),
+            fixtureReviewItem("new-insect", candidate: newInsect),
+        ]
+        let status = ReviewBatchStatus(
+            jobId: "batch-1",
+            state: "completed",
+            totalPhotos: items.count,
+            processedCount: items.count,
+            processedPhotoIds: items.map(\.id),
+            currentPhotoNumber: items.count,
+            currentPhotoId: nil,
+            totalGroups: items.count,
+            currentGroup: items.count,
+            groupedCount: 0,
+            individualCount: items.count,
+            warnings: [],
+            error: nil,
+            items: items
+        )
+
+        let celebration = try XCTUnwrap(
+            buildReviewBatchCelebration(status: status, existingSpecies: [fixtureSpecies(1, name: "Known species")])
+        )
+
+        XCTAssertEqual(
+            celebration.imageUrls,
+            ["https://example.test/new-plant.jpg", "https://example.test/new-insect.jpg"]
+        )
+    }
+
     func testFirstHikeUnlocksMilestoneCelebration() throws {
         let hike = fixtureHike("first", miles: 3.25, title: "Cypress Loop")
 

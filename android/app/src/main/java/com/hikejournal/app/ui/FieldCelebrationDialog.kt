@@ -53,6 +53,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
+import com.hikejournal.app.data.CelebrationKind
 import com.hikejournal.app.data.FieldCelebration
 import com.hikejournal.app.ui.theme.Moss
 import com.hikejournal.app.ui.theme.MossSoft
@@ -75,7 +76,8 @@ internal fun FieldCelebrationDialog(
     // Dialogs opt out of decor fitting, so some Android versions report a zero
     // navigation inset here even though the gesture area is still consuming space.
     // Keep a conservative floor so the action is always fully tappable.
-    val actionBottomPadding = maxOf(navigationBarPadding, 48.dp) + 24.dp
+    val actionBottomPadding = maxOf(navigationBarPadding, 32.dp) + 16.dp
+    val imageWeight = if (celebration.kind == CelebrationKind.Identification) 0.36f else 0.40f
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(
@@ -99,7 +101,7 @@ internal fun FieldCelebrationDialog(
                 urls = celebration.imageUrls,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(0.43f)
+                    .weight(imageWeight)
                     .alpha(imagePresence)
                     .scale(0.98f + imagePresence * 0.02f),
             )
@@ -107,7 +109,7 @@ internal fun FieldCelebrationDialog(
                 visible = revealed,
                 enter = fadeIn(tween(420, delayMillis = 100)) +
                     slideInVertically(tween(480, delayMillis = 100)) { it / 8 },
-                modifier = Modifier.weight(0.57f),
+                modifier = Modifier.weight(1f - imageWeight),
             ) {
                 Column(
                     Modifier.fillMaxHeight(),
@@ -117,7 +119,7 @@ internal fun FieldCelebrationDialog(
                             .weight(1f)
                             .verticalScroll(rememberScrollState())
                             .padding(horizontal = 24.dp)
-                            .padding(top = 22.dp, bottom = 10.dp),
+                            .padding(top = 18.dp, bottom = 6.dp),
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Rounded.AutoAwesome, null, tint = Trail, modifier = Modifier.size(20.dp))
@@ -132,18 +134,18 @@ internal fun FieldCelebrationDialog(
                             celebration.title,
                             style = MaterialTheme.typography.displayMedium,
                             color = Paper,
-                            modifier = Modifier.padding(top = 8.dp),
+                            modifier = Modifier.padding(top = 6.dp),
                         )
                         Text(
                             celebration.detail,
                             style = MaterialTheme.typography.bodyLarge,
                             color = Color(0xFFD6E0D3),
-                            modifier = Modifier.padding(top = 8.dp),
+                            modifier = Modifier.padding(top = 6.dp),
                         )
                         if (celebration.highlights.isNotEmpty()) {
                             HorizontalDivider(
                                 color = Color.White.copy(alpha = 0.18f),
-                                modifier = Modifier.padding(top = 20.dp, bottom = 16.dp),
+                                modifier = Modifier.padding(top = 16.dp, bottom = 12.dp),
                             )
                             Row(
                                 Modifier.fillMaxWidth(),
@@ -168,7 +170,7 @@ internal fun FieldCelebrationDialog(
                         }
                         if (!celebration.badgeTitle.isNullOrBlank() || !celebration.badgeProgress.isNullOrBlank()) {
                             Row(
-                                Modifier.fillMaxWidth().padding(top = 20.dp),
+                                Modifier.fillMaxWidth().padding(top = 16.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Icon(
@@ -198,7 +200,7 @@ internal fun FieldCelebrationDialog(
                         Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 24.dp)
-                            .padding(top = 12.dp, bottom = actionBottomPadding),
+                            .padding(top = 8.dp, bottom = actionBottomPadding),
                     ) {
                         Button(
                             onClick = onDismiss,

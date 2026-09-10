@@ -26,7 +26,7 @@ struct FieldCelebrationView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     Text("HIKEJOURNAL")
-                        .font(HikeJournalTheme.display(44, relativeTo: .largeTitle))
+                        .font(HikeJournalTheme.display(40, relativeTo: .largeTitle))
                         .foregroundStyle(Color(red: 1, green: 0.98, blue: 0.93))
                         .accessibilityAddTraits(.isHeader)
                     Text(celebration.eyebrow)
@@ -37,7 +37,7 @@ struct FieldCelebrationView: View {
 
                     if let image = celebration.imageUrls.first, !image.isEmpty {
                         JournalRemoteImage(urlString: image, fallback: "leaf.fill")
-                            .frame(height: 285)
+                            .frame(height: 240)
                             .clipped()
                             .overlay(alignment: .bottom) {
                                 LinearGradient(
@@ -47,7 +47,7 @@ struct FieldCelebrationView: View {
                                 )
                                 .frame(height: 120)
                             }
-                            .padding(.top, 22)
+                            .padding(.top, 18)
                     } else {
                         Image(systemName: symbol)
                             .font(.system(size: 75, weight: .ultraLight))
@@ -61,7 +61,7 @@ struct FieldCelebrationView: View {
                         .font(HikeJournalTheme.display(46, relativeTo: .largeTitle))
                         .foregroundStyle(Color(red: 1, green: 0.98, blue: 0.93))
                         .fixedSize(horizontal: false, vertical: true)
-                        .padding(.top, 22)
+                        .padding(.top, 16)
                     Text(celebration.detail)
                         .font(HikeJournalTheme.body(18))
                         .foregroundStyle(Color(red: 0.80, green: 0.85, blue: 0.81))
@@ -69,7 +69,7 @@ struct FieldCelebrationView: View {
                         .padding(.top, 8)
 
                     if !celebration.highlights.isEmpty {
-                        Divider().overlay(.white.opacity(0.2)).padding(.vertical, 23)
+                        Divider().overlay(.white.opacity(0.2)).padding(.vertical, 18)
                         HStack(alignment: .top, spacing: 0) {
                             ForEach(Array(celebration.highlights.enumerated()), id: \.offset) { index, highlight in
                                 VStack(alignment: .leading, spacing: 2) {
@@ -93,7 +93,7 @@ struct FieldCelebrationView: View {
                         Label(badgeTitle, systemImage: "medal.fill")
                             .font(HikeJournalTheme.label(18, relativeTo: .headline))
                             .foregroundStyle(Color(red: 0.95, green: 0.73, blue: 0.45))
-                            .padding(.top, 26)
+                            .padding(.top, 20)
                     }
                     if let badgeProgress = celebration.badgeProgress {
                         Text(badgeProgress)
@@ -104,11 +104,11 @@ struct FieldCelebrationView: View {
 
                     Button(celebration.actionLabel, action: dismiss)
                         .buttonStyle(TrailButtonStyle())
-                        .padding(.top, 30)
+                        .padding(.top, 22)
                 }
                 .padding(.horizontal, 24)
-                .padding(.top, 24)
-                .padding(.bottom, 40)
+                .padding(.top, 18)
+                .padding(.bottom, 28)
                 .opacity(revealed ? 1 : 0)
                 .offset(y: revealed || reduceMotion ? 0 : 18)
             }

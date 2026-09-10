@@ -19,7 +19,10 @@ class CelebrationsTest {
 
         assertEquals("2 possible new species", celebration?.title)
         assertEquals("2", celebration?.highlights?.last()?.value)
-        assertEquals(3, celebration?.imageUrls?.size)
+        assertEquals(
+            listOf("https://example.test/two.jpg", "https://example.test/three.jpg"),
+            celebration?.imageUrls,
+        )
     }
 
     @Test

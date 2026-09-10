@@ -166,8 +166,9 @@ public func buildReviewBatchCelebration(
         detail += " \(warning)"
     }
 
+    let imageItems = possibleNew.isEmpty ? suggestions : possibleNew
     var seenImages = Set<String>()
-    let images = status.items.lazy.map(\.photo.url).filter {
+    let images = imageItems.lazy.map { $0.0.photo.url }.filter {
         !$0.isEmpty && seenImages.insert($0).inserted
     }.prefix(3)
 

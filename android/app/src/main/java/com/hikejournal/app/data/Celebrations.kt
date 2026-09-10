@@ -93,13 +93,14 @@ fun buildReviewBatchCelebration(
         if (typeDetail.isNotBlank()) append(" $typeDetail are new possibilities in this batch.")
         status.warnings.firstOrNull()?.let { append(" $it") }
     }
+    val imageItems = possibleNew.ifEmpty { suggestions }
     return FieldCelebration(
         id = "batch:${status.jobId}",
         kind = CelebrationKind.Identification,
         eyebrow = "THE FIELD NOTES ARE IN",
         title = title,
         detail = detail,
-        imageUrls = status.items.map { it.photo.url }.filter(String::isNotBlank).distinct().take(3),
+        imageUrls = imageItems.map { it.first.photo.url }.filter(String::isNotBlank).distinct().take(3),
         highlights = listOf(
             CelebrationHighlight(status.processedCount.toString(), "photos read"),
             CelebrationHighlight(suggestions.size.toString(), "unique IDs"),
