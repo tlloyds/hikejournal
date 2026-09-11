@@ -40,6 +40,24 @@ class MapRouteOverlapTest {
     }
 
     @Test
+    fun nearbyParallelPathOutsideCenterlineToleranceIsNotMarkedAsShared() {
+        val trail = listOf(
+            listOf(point(29.0, -81.82), point(29.0, -81.80)),
+        )
+        val nearbyPath = listOf(
+            listOf(point(29.0003, -81.82), point(29.0003, -81.80)),
+        )
+
+        val classified = classifyFloridaTrailOverlap(
+            nearbyPath,
+            FloridaTrailSegmentIndex(trail),
+        )
+
+        assertTrue(classified.isNotEmpty())
+        assertFalse(classified.any(ClassifiedRouteSegment::overlapsFloridaTrail))
+    }
+
+    @Test
     fun routeThatLeavesTrailHasSharedAndPersonalSections() {
         val trail = listOf(
             listOf(point(29.0, -81.82), point(29.0, -81.80)),

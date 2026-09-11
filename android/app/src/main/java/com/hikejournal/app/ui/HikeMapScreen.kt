@@ -24,6 +24,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Layers
 import androidx.compose.material.icons.rounded.PhotoLibrary
+import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -31,6 +32,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -70,6 +72,12 @@ fun HikeMapScreen(
         mutableStateOf(sightings.firstOrNull { it.id == focusedPhoto?.id })
     }
     var layerMode by remember { mutableStateOf(MapLayerMode.Satellite) }
+    var displayOpen by remember { mutableStateOf(false) }
+    var showsPhotos by remember { mutableStateOf(true) }
+    var showsRoutes by remember { mutableStateOf(true) }
+    LaunchedEffect(showsPhotos) {
+        if (!showsPhotos) selected = null
+    }
     val routeSegments = hike?.routeSegments.orEmpty()
 
     Box(Modifier.fillMaxSize().background(Moss)) {
@@ -82,6 +90,8 @@ fun HikeMapScreen(
             routeSegments = routeSegments,
             focusedSightingId = focusedPhoto?.id,
             selectedTrailIds = selectedTrailIds,
+            showsPhotos = showsPhotos,
+            showsRoutes = showsRoutes,
             modifier = Modifier.fillMaxSize(),
         )
 
@@ -140,6 +150,9 @@ fun HikeMapScreen(
                     color = Paper,
                 )
             }
+            IconButton(onClick = { displayOpen = true }) {
+                Icon(Icons.Rounded.Visibility, "Map display", tint = Paper)
+            }
         }
 
         if (routeSegments.isEmpty() && sightings.isEmpty()) {
@@ -184,6 +197,16 @@ fun HikeMapScreen(
                 )
             }
         }
+    }
+
+    if (displayOpen) {
+        MapDisplaySheet(
+            showsPhotos = showsPhotos,
+            showsRoutes = showsRoutes,
+            onShowsPhotosChange = { showsPhotos = it },
+            onShowsRoutesChange = { showsRoutes = it },
+            onDismiss = { displayOpen = false },
+        )
     }
 }
 

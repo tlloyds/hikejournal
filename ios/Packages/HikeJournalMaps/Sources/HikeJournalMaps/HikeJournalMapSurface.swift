@@ -17,6 +17,8 @@
     private let styleURL: URL
     private let cameraBehavior: MapCameraBehavior
     private let cameraPadding: EdgeInsets
+    private let showsPhotos: Bool
+    private let showsRoutes: Bool
     private let accessibility: MapAccessibilitySnapshot
     private let attributions: [MapAttribution]
     private let onSelectPoint: ((MapPoint) -> Void)?
@@ -27,14 +29,20 @@
       styleCredential: MapStyleCredential? = nil,
       cameraBehavior: MapCameraBehavior = .fitOnce,
       cameraPadding: EdgeInsets = EdgeInsets(top: 40, leading: 32, bottom: 48, trailing: 32),
+      showsPhotos: Bool = true,
+      showsRoutes: Bool = true,
       onSelectPoint: ((MapPoint) -> Void)? = nil
     ) throws {
       self.scene = scene
       styleURL = try style.resolvedURL(credential: styleCredential)
       self.cameraBehavior = cameraBehavior
       self.cameraPadding = cameraPadding
+      self.showsPhotos = showsPhotos
+      self.showsRoutes = showsRoutes
       self.onSelectPoint = onSelectPoint
-      accessibility = MapAccessibility.snapshot(for: scene)
+      accessibility = MapAccessibility.snapshot(
+        for: Self.displayScene(scene, showsPhotos: showsPhotos, showsRoutes: showsRoutes)
+      )
 
       var values = [style.attribution, Self.satelliteAttribution]
       values += NationalScenicTrailCatalog.selected(ids: scene.selectedTrailOverlayIDs)
@@ -63,6 +71,8 @@
             styleURL: styleURL,
             cameraBehavior: cameraBehavior,
             cameraPadding: cameraPadding,
+            showsPhotos: showsPhotos,
+            showsRoutes: showsRoutes,
             onSelectPoint: onSelectPoint
           )
           // MapLibre exposes every rendered feature to UIKit accessibility.
@@ -79,6 +89,21 @@
 
         MapAttributionLinks(attributions: attributions)
       }
+    }
+
+    private static func displayScene(
+      _ scene: MapScene,
+      showsPhotos: Bool,
+      showsRoutes: Bool
+    ) -> MapScene {
+      MapScene(
+        routes: showsRoutes ? scene.routes : [],
+        currentLocation: scene.currentLocation,
+        points: showsPhotos
+          ? scene.points
+          : scene.points.filter { $0.kind == .fieldMark || $0.kind == .place },
+        selectedTrailOverlayIDs: scene.selectedTrailOverlayIDs
+      )
     }
   }
 
@@ -140,6 +165,8 @@
     let styleURL: URL
     let cameraBehavior: MapCameraBehavior
     let cameraPadding: EdgeInsets
+    let showsPhotos: Bool
+    let showsRoutes: Bool
     let onSelectPoint: ((MapPoint) -> Void)?
 
     func makeCoordinator() -> Coordinator {
@@ -163,6 +190,8 @@
         styleURL: styleURL,
         cameraBehavior: cameraBehavior,
         cameraPadding: cameraPadding,
+        showsPhotos: showsPhotos,
+        showsRoutes: showsRoutes,
         onSelectPoint: onSelectPoint
       )
       return mapView
@@ -175,6 +204,8 @@
         styleURL: styleURL,
         cameraBehavior: cameraBehavior,
         cameraPadding: cameraPadding,
+        showsPhotos: showsPhotos,
+        showsRoutes: showsRoutes,
         onSelectPoint: onSelectPoint
       )
     }
@@ -210,6 +241,8 @@
       private var latestScene = MapScene()
       private var latestCameraBehavior: MapCameraBehavior = .fitOnce
       private var latestCameraPadding = EdgeInsets(top: 40, leading: 32, bottom: 48, trailing: 32)
+      private var showsPhotos = true
+      private var showsRoutes = true
       private var zoomObserverTokens: [NSObjectProtocol] = []
       private weak var mapView: MLNMapView?
       private var onSelectPoint: ((MapPoint) -> Void)?
@@ -246,12 +279,18 @@
         styleURL: URL,
         cameraBehavior: MapCameraBehavior,
         cameraPadding: EdgeInsets,
+        showsPhotos: Bool,
+        showsRoutes: Bool,
         onSelectPoint: ((MapPoint) -> Void)?
       ) {
         self.mapView = mapView
-        let routesChanged = currentScene.routes != scene.routes
+        let routesChanged = currentScene.routes != scene.routes || self.showsRoutes != showsRoutes
+        let trailsChanged = selectedTrailIDs != scene.selectedTrailOverlayIDs
+        self.showsPhotos = showsPhotos
+        self.showsRoutes = showsRoutes
+        if trailsChanged { selectedTrailIDs = scene.selectedTrailOverlayIDs }
         currentScene = scene
-        latestScene = scene
+        latestScene = Self.displayScene(scene, showsPhotos: showsPhotos, showsRoutes: showsRoutes)
         latestCameraBehavior = cameraBehavior
         latestCameraPadding = cameraPadding
         self.onSelectPoint = onSelectPoint
@@ -264,26 +303,40 @@
           mapDidFinishLoading = false
           hasFitCamera = false
         }
-        replaceAnnotations(on: mapView, scene: scene)
+        replaceAnnotations(on: mapView, scene: latestScene)
 
-        if routesChanged || styleChanged {
-          reloadRouteOverlays(on: mapView, scene: scene)
+        if routesChanged || trailsChanged || styleChanged {
+          reloadRouteOverlays(on: mapView, scene: latestScene)
         }
 
         switch cameraBehavior {
         case .fitOnce where mapDidFinishLoading && !hasFitCamera:
-          fitCamera(on: mapView, scene: scene, padding: cameraPadding, animated: false)
-          hasFitCamera = !scene.allCoordinates.isEmpty
+          fitCamera(on: mapView, scene: latestScene, padding: cameraPadding, animated: false)
+          hasFitCamera = !latestScene.allCoordinates.isEmpty
         case .fitOnEveryUpdate:
-          fitCamera(on: mapView, scene: scene, padding: cameraPadding, animated: true)
+          fitCamera(on: mapView, scene: latestScene, padding: cameraPadding, animated: true)
         case .fitOnce, .appControlled:
           break
         }
 
-        if selectedTrailIDs != scene.selectedTrailOverlayIDs || styleChanged {
-          selectedTrailIDs = scene.selectedTrailOverlayIDs
+        if trailsChanged || styleChanged {
           reloadTrailOverlays(on: mapView)
         }
+      }
+
+      private static func displayScene(
+        _ scene: MapScene,
+        showsPhotos: Bool,
+        showsRoutes: Bool
+      ) -> MapScene {
+        MapScene(
+          routes: showsRoutes ? scene.routes : [],
+          currentLocation: scene.currentLocation,
+          points: showsPhotos
+            ? scene.points
+            : scene.points.filter { $0.kind == .fieldMark || $0.kind == .place },
+          selectedTrailOverlayIDs: scene.selectedTrailOverlayIDs
+        )
       }
 
       func stop() {
@@ -461,18 +514,22 @@
         routeGeneration = UUID()
         let generation = routeGeneration
         removeRouteLayers(from: mapView.style)
-        guard !scene.routes.isEmpty, mapView.style != nil else { return }
+        guard showsRoutes, !scene.routes.isEmpty, mapView.style != nil else { return }
 
         routeTask = Task { [weak self, weak mapView] in
           guard let self else { return }
           do {
-            let shape = try await Self.prepareRouteShape(routes: scene.routes)
+            let trailData = await selectedTrailData()
+            let shapes = try await Self.prepareRouteShapes(
+              routes: scene.routes,
+              trailData: trailData
+            )
             guard !Task.isCancelled, generation == routeGeneration,
               let mapView, let style = mapView.style
             else {
               return
             }
-            try addRoutes(shape: shape, to: style)
+            try addRoutes(baseShape: shapes.base, sharedShape: shapes.shared, to: style)
           } catch is CancellationError {
             return
           } catch {
@@ -520,26 +577,58 @@
         }
       }
 
-      private func addRoutes(shape: MLNShape, to style: MLNStyle) throws {
-        let sourceID = "hike-journal-routes-source"
-        let layerID = "hike-journal-routes-layer"
-        if let existingLayer = style.layer(withIdentifier: layerID) {
-          style.removeLayer(existingLayer)
+      private func addRoutes(
+        baseShape: MLNShape,
+        sharedShape: MLNShape?,
+        to style: MLNStyle
+      ) throws {
+        let baseSourceID = "hike-journal-routes-source"
+        let baseLayerID = "hike-journal-routes-layer"
+        let sharedSourceID = "hike-journal-shared-routes-source"
+        let sharedLayerID = "hike-journal-shared-routes-layer"
+        let identifiers = [
+          (source: baseSourceID, layer: baseLayerID),
+          (source: sharedSourceID, layer: sharedLayerID),
+        ]
+        for identifier in identifiers {
+          if let existingLayer = style.layer(withIdentifier: identifier.layer) {
+            style.removeLayer(existingLayer)
+          }
+          if let existingSource = style.source(withIdentifier: identifier.source) {
+            style.removeSource(existingSource)
+          }
         }
-        if let existingSource = style.source(withIdentifier: sourceID) {
-          style.removeSource(existingSource)
-        }
-        let source = MLNShapeSource(identifier: sourceID, shape: shape, options: nil)
-        let layer = MLNLineStyleLayer(identifier: layerID, source: source)
-        layer.lineColor = NSExpression(
-          forConstantValue: UIColor(red: 0.08, green: 0.38, blue: 0.23, alpha: 0.96)
+
+        let baseSource = MLNShapeSource(identifier: baseSourceID, shape: baseShape, options: nil)
+        let baseLayer = MLNLineStyleLayer(identifier: baseLayerID, source: baseSource)
+        baseLayer.lineColor = NSExpression(
+          forConstantValue: UIColor(red: 0.13, green: 0.83, blue: 0.93, alpha: 0.98)
         )
-        layer.lineWidth = NSExpression(forConstantValue: 4.0)
-        layer.lineJoin = NSExpression(forConstantValue: "round")
-        layer.lineCap = NSExpression(forConstantValue: "round")
-        style.addSource(source)
-        style.addLayer(layer)
-        routeStyleIdentifiers = [(sourceID, layerID)]
+        baseLayer.lineWidth = NSExpression(forConstantValue: 4.0)
+        baseLayer.lineJoin = NSExpression(forConstantValue: "round")
+        baseLayer.lineCap = NSExpression(forConstantValue: "round")
+        style.addSource(baseSource)
+        style.addLayer(baseLayer)
+
+        var renderedIdentifiers = [(source: baseSourceID, layer: baseLayerID)]
+        if let sharedShape {
+          let sharedSource = MLNShapeSource(
+            identifier: sharedSourceID,
+            shape: sharedShape,
+            options: nil
+          )
+          let sharedLayer = MLNLineStyleLayer(identifier: sharedLayerID, source: sharedSource)
+          sharedLayer.lineColor = NSExpression(
+            forConstantValue: UIColor(red: 1.0, green: 0.30, blue: 0.55, alpha: 1.0)
+          )
+          sharedLayer.lineWidth = NSExpression(forConstantValue: 4.6)
+          sharedLayer.lineJoin = NSExpression(forConstantValue: "round")
+          sharedLayer.lineCap = NSExpression(forConstantValue: "round")
+          style.addSource(sharedSource)
+          style.addLayer(sharedLayer)
+          renderedIdentifiers.append((sharedSourceID, sharedLayerID))
+        }
+        routeStyleIdentifiers = renderedIdentifiers
       }
 
       private func configureSatelliteBasemap(on style: MLNStyle) {
@@ -568,27 +657,44 @@
         style.addLayer(layer)
       }
 
-      private nonisolated static func prepareRouteShape(routes: [RecordedRoute]) async throws
-        -> MLNShape
-      {
+      private nonisolated static func prepareRouteShapes(
+        routes: [RecordedRoute],
+        trailData: [Data]
+      ) async throws -> PreparedRouteShapes {
         let prepared = try await Task.detached(priority: .userInitiated) {
-          let data = try routeGeoJSONData(routes: routes)
-          return try PreparedRouteShape(
-            shape: MLNShape(data: data, encoding: String.Encoding.utf8.rawValue)
+          let classified = MapRouteOverlapClassifier.classify(
+            routes: routes,
+            trailGeoJSON: trailData
+          )
+          let sharedData = try MapRouteOverlapClassifier.geoJSONData(
+            for: classified,
+            overlapsTrail: true
+          )
+          guard let baseData = try MapRouteOverlapClassifier.geoJSONData(
+            for: classified,
+            overlapsTrail: false
+          ) ?? sharedData else {
+            throw MapDomainError.routeSegmentTooShort
+          }
+          return try PreparedRouteShapes(
+            base: MLNShape(data: baseData, encoding: String.Encoding.utf8.rawValue),
+            shared: sharedData.map {
+              try MLNShape(data: $0, encoding: String.Encoding.utf8.rawValue)
+            }
           )
         }.value
-        return prepared.shape
+        return prepared
       }
 
-      private nonisolated static func routeGeoJSONData(routes: [RecordedRoute]) throws -> Data {
-        let coordinates = routes.flatMap { route in
-          route.segments.map { segment in
-            segment.coordinates.map { [$0.longitude, $0.latitude] }
+      private func selectedTrailData() async -> [Data] {
+        var result: [Data] = []
+        for definition in NationalScenicTrailCatalog.selected(ids: selectedTrailIDs) {
+          guard !Task.isCancelled else { return result }
+          if let data = try? await trailLoader.geoJSON(for: definition) {
+            result.append(data)
           }
         }
-        return try JSONSerialization.data(
-          withJSONObject: ["type": "MultiLineString", "coordinates": coordinates]
-        )
+        return result
       }
 
       private nonisolated static func prepareTrailShape(data: Data) async throws -> MLNShape {
@@ -631,8 +737,9 @@
         let shape: MLNShape
       }
 
-      private struct PreparedRouteShape: @unchecked Sendable {
-        let shape: MLNShape
+      private struct PreparedRouteShapes: @unchecked Sendable {
+        let base: MLNShape
+        let shared: MLNShape?
       }
 
       private func removeRouteLayers(from style: MLNStyle?) {

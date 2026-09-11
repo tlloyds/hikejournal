@@ -12,8 +12,11 @@ struct JournalMapWorkspaceView: View {
 
     @State private var showingTrails = false
     @State private var showingOfflineMaps = false
+    @State private var showingDisplay = false
     @State private var showingTextAlternative = false
     @State private var selectedPoint: MapPointSelection?
+    @State private var showsPhotos = true
+    @State private var showsRoutes = true
 
     init(model: AppModel) {
         self.model = model
@@ -62,6 +65,13 @@ struct JournalMapWorkspaceView: View {
                     webBaseURL: model.configuration.webBaseURL,
                     scene: scene
                 )
+            }
+            .sheet(isPresented: $showingDisplay) {
+                MapDisplaySheet(
+                    showsPhotos: $showsPhotos,
+                    showsRoutes: $showsRoutes
+                )
+                .presentationDetents([.medium])
             }
             .sheet(isPresented: $showingTextAlternative) {
                 MapTextAlternativeView(snapshot: MapAccessibility.snapshot(for: scene))
@@ -118,6 +128,8 @@ struct JournalMapWorkspaceView: View {
                styleCredential: maps.styleCredential,
                cameraBehavior: .fitOnce,
                cameraPadding: EdgeInsets(top: 44, leading: 34, bottom: 58, trailing: 34),
+               showsPhotos: showsPhotos,
+               showsRoutes: showsRoutes,
                onSelectPoint: { point in
                    selectedPoint = selection(for: point)
                }
@@ -166,6 +178,9 @@ struct JournalMapWorkspaceView: View {
                     title: "Trails",
                     symbol: maps.selectedTrailOverlayIDs.isEmpty ? "point.topleft.down.to.point.bottomright.curvepath" : "point.topleft.down.to.point.bottomright.curvepath.fill"
                 ) { showingTrails = true }
+                MapControlButton(title: "Display", symbol: "eye") {
+                    showingDisplay = true
+                }
                 MapControlButton(title: "Offline", symbol: "arrow.down.circle") {
                     showingOfflineMaps = true
                 }
@@ -372,6 +387,40 @@ private struct MapControlButton: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+}
+
+private struct MapDisplaySheet: View {
+    @Binding var showsPhotos: Bool
+    @Binding var showsRoutes: Bool
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Toggle(isOn: $showsPhotos) {
+                        Label("Photos", systemImage: "photo.on.rectangle")
+                    }
+                    Toggle(isOn: $showsRoutes) {
+                        Label("Routes", systemImage: "point.topleft.down.to.point.bottomright.curvepath")
+                    }
+                } header: {
+                    Text("Map display")
+                } footer: {
+                    Text("Show photos, routes, or both while exploring the map.")
+                }
+            }
+            .scrollContentBackground(.hidden)
+            .background(ParchmentBackground())
+            .navigationTitle("Map display")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
     }
 }
 

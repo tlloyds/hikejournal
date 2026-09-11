@@ -31,8 +31,10 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Layers
+import androidx.compose.material.icons.rounded.PhotoLibrary
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Route
+import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -156,6 +158,12 @@ fun SightingsMapScreen(
     var layerMode by remember { mutableStateOf(MapLayerMode.Satellite) }
     var viewport by remember { mutableStateOf<MapViewport?>(null) }
     var packsOpen by remember { mutableStateOf(false) }
+    var displayOpen by remember { mutableStateOf(false) }
+    var showsPhotos by remember { mutableStateOf(true) }
+    var showsRoutes by remember { mutableStateOf(true) }
+    LaunchedEffect(showsPhotos) {
+        if (!showsPhotos) selected = null
+    }
 
     Box(Modifier.fillMaxSize().background(Moss)) {
         HikeJournalMap(
@@ -166,6 +174,8 @@ fun SightingsMapScreen(
             onSelect = { selected = it },
             onViewportChanged = { viewport = it },
             selectedTrailIds = selectedTrailIds,
+            showsPhotos = showsPhotos,
+            showsRoutes = showsRoutes,
             modifier = Modifier.fillMaxSize(),
         )
 
@@ -188,6 +198,9 @@ fun SightingsMapScreen(
                     Icon(Icons.Rounded.Layers, null, tint = Paper, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(5.dp))
                     Text(if (layerMode == MapLayerMode.Trail) "Satellite" else "Trail", color = Paper)
+                }
+                IconButton(onClick = { displayOpen = true }) {
+                    Icon(Icons.Rounded.Visibility, "Map display", tint = Paper)
                 }
                 IconButton(onClick = { packsOpen = true }) {
                     Icon(Icons.Rounded.Download, "Offline map packs", tint = Paper)
@@ -245,6 +258,71 @@ fun SightingsMapScreen(
             layerMode = layerMode,
             onDismiss = { packsOpen = false },
         )
+    }
+    if (displayOpen) {
+        MapDisplaySheet(
+            showsPhotos = showsPhotos,
+            showsRoutes = showsRoutes,
+            onShowsPhotosChange = { showsPhotos = it },
+            onShowsRoutesChange = { showsRoutes = it },
+            onDismiss = { displayOpen = false },
+        )
+    }
+}
+
+@Composable
+internal fun MapDisplaySheet(
+    showsPhotos: Boolean,
+    showsRoutes: Boolean,
+    onShowsPhotosChange: (Boolean) -> Unit,
+    onShowsRoutesChange: (Boolean) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Paper) {
+        Column(
+            Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 28.dp),
+        ) {
+            Text("MAP DISPLAY", style = MaterialTheme.typography.labelSmall, color = TrailText)
+            Text("Choose what to show", style = MaterialTheme.typography.headlineMedium, color = Ink)
+            Text(
+                "Keep photos, routes, or both visible while you explore the map.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = InkMuted,
+                modifier = Modifier.padding(top = 4.dp, bottom = 10.dp),
+            )
+            MapDisplayToggle(
+                icon = Icons.Rounded.PhotoLibrary,
+                label = "Photos",
+                checked = showsPhotos,
+                onCheckedChange = onShowsPhotosChange,
+            )
+            MapDisplayToggle(
+                icon = Icons.Rounded.Route,
+                label = "Routes",
+                checked = showsRoutes,
+                onCheckedChange = onShowsRoutesChange,
+            )
+            OutlinedButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
+                Text("Done")
+            }
+        }
+    }
+}
+
+@Composable
+private fun MapDisplayToggle(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, null, tint = TrailText, modifier = Modifier.size(22.dp))
+        Text(label, style = MaterialTheme.typography.titleMedium, color = Ink, modifier = Modifier.padding(start = 12.dp).weight(1f))
+        androidx.compose.material3.Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }
 
@@ -424,6 +502,8 @@ internal fun HikeJournalMap(
     currentPoint: RoutePoint? = null,
     followCurrentPoint: Boolean = false,
     selectedTrailIds: Set<String>,
+    showsPhotos: Boolean = true,
+    showsRoutes: Boolean = true,
 ) {
     val context = LocalContext.current
     val controller = remember { NativeMapController() }
@@ -454,6 +534,8 @@ internal fun HikeJournalMap(
             )
         }
     }
+    val visibleSightings = if (showsPhotos) sightings else sightings.filter { it.url.isBlank() }
+    val visibleRoutes = if (showsRoutes) classifiedRoutes else emptyList()
     controller.tapRadiusPx = 24f * context.resources.displayMetrics.density
     controller.onSelect = onSelect
     controller.onViewportChanged = onViewportChanged
@@ -482,8 +564,8 @@ internal fun HikeJournalMap(
                 getMapAsync { map ->
                     controller.attach(
                         map = map,
-                        sightings = sightings,
-                        routeSegments = classifiedRoutes,
+                        sightings = visibleSightings,
+                        routeSegments = visibleRoutes,
                         floridaTrail = trailOverlays,
                         showFloridaTrail = showTrailOverlays,
                         currentPoint = currentPoint,
@@ -495,13 +577,13 @@ internal fun HikeJournalMap(
             controller.updateLayer(
                 nextLayerMode = layerMode,
                 nextShowFloridaTrail = showTrailOverlays,
-                sightings = sightings,
-                routeSegments = classifiedRoutes,
+                sightings = visibleSightings,
+                routeSegments = visibleRoutes,
                 floridaTrail = trailOverlays,
                 currentPoint = currentPoint,
             )
-            controller.updateMapData(sightings, classifiedRoutes, trailOverlays)
-            controller.updateSelectedSighting(selectedSighting)
+            controller.updateMapData(visibleSightings, visibleRoutes, trailOverlays)
+            controller.updateSelectedSighting(selectedSighting?.takeIf { showsPhotos })
             controller.updateCurrentPoint(currentPoint, followCurrentPoint)
         },
         modifier = modifier,

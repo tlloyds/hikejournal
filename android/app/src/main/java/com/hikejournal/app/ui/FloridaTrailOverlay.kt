@@ -218,14 +218,20 @@ internal class FloridaTrailSegmentIndex(
         val projectedEnd = end.projected()
         val userSegment = ProjectedSegment(projectedStart, projectedEnd)
         if (userSegment.length < MinimumSegmentMeters) return false
-        val midpoint = ProjectedPoint(
-            x = (projectedStart.x + projectedEnd.x) / 2.0,
-            y = (projectedStart.y + projectedEnd.y) / 2.0,
-        )
-        val candidates = cells[cellKey(cellCoordinate(midpoint.x), cellCoordinate(midpoint.y))].orEmpty()
+        val minX = min(projectedStart.x, projectedEnd.x) - OverlapDistanceMeters
+        val maxX = max(projectedStart.x, projectedEnd.x) + OverlapDistanceMeters
+        val minY = min(projectedStart.y, projectedEnd.y) - OverlapDistanceMeters
+        val maxY = max(projectedStart.y, projectedEnd.y) + OverlapDistanceMeters
+        val candidates = buildSet {
+            for (cellX in cellCoordinate(minX)..cellCoordinate(maxX)) {
+                for (cellY in cellCoordinate(minY)..cellCoordinate(maxY)) {
+                    addAll(cells[cellKey(cellX, cellY)].orEmpty())
+                }
+            }
+        }
         return candidates.any { trailSegment ->
             userSegment.directionSimilarity(trailSegment) >= MinimumDirectionSimilarity &&
-                trailSegment.distanceTo(midpoint) <= OverlapDistanceMeters
+                userSegment.distanceTo(trailSegment) <= OverlapDistanceMeters
         }
     }
 
@@ -259,6 +265,11 @@ private data class ProjectedSegment(val start: ProjectedPoint, val end: Projecte
             point.y - (start.y + amount * deltaY),
         )
     }
+
+    fun distanceTo(other: ProjectedSegment): Double = min(
+        min(distanceTo(other.start), distanceTo(other.end)),
+        min(other.distanceTo(start), other.distanceTo(end)),
+    )
 }
 
 private fun RoutePoint.projected(): ProjectedPoint {
@@ -280,8 +291,10 @@ private fun interpolate(start: RoutePoint, end: RoutePoint, amount: Double): Rou
 
 private const val EarthRadiusMeters = 6_378_137.0
 private const val GridCellMeters = 120.0
-private const val OverlapDistanceMeters = 45.0
-private const val MinimumDirectionSimilarity = 0.72
+// GPS noise can move a recorded point away from a centerline, but a 45 m
+// radius also classifies parallel paths and trail-side roads as shared.
+private const val OverlapDistanceMeters = 24.0
+private const val MinimumDirectionSimilarity = 0.88
 private const val MinimumSegmentMeters = 0.5
 private const val MaxRouteChunkMeters = 20.0
 private const val MaxChunksPerEdge = 5_000
