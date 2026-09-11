@@ -81,12 +81,18 @@ def main() -> int:
             if isinstance(existing_enrichment, dict)
             else None
         )
+        existing_label = (
+            str(existing_ecology.get("label") or "unknown").strip().casefold()
+            if isinstance(existing_ecology, dict)
+            else "unknown"
+        )
         if (
             isinstance(existing_ecology, dict)
             and str(existing_ecology.get("region_code") or "")
             == settings.inat_ecology_region
+            and existing_label != "unknown"
         ):
-            label = str(existing_ecology.get("label") or "unknown")
+            label = existing_label
             labels[label] += 1
             skipped += 1
             continue

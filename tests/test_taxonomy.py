@@ -179,6 +179,44 @@ def test_ensure_taxonomy_uses_wikipedia_when_inaturalist_has_no_summary(monkeypa
     assert repository.raw_payload["taxon_enrichment"]["wikipedia_summary"] == "A tree squirrel."
 
 
+def test_ensure_taxonomy_retries_current_region_unknown_ecology() -> None:
+    class Repository:
+        def update_observation_taxon_resolution(self, observation_id, **_kwargs):
+            return {"id": observation_id}
+
+        def update_observation_raw_payload(self, _observation_id, raw_payload):
+            self.raw_payload = raw_payload
+            return raw_payload
+
+    class Client:
+        called = False
+
+        def fetch_taxon_enrichment(self, _taxon_id):
+            self.called = True
+            result = enrichment(47126, "Sciurus carolinensis", common_name="Eastern gray squirrel")
+            result["ecology"] = {"label": "native", "region_code": "US-FL"}
+            return result
+
+        def fetch_exact_taxon_enrichment(self, _query):
+            return None
+
+    cached = enrichment(47126, "Sciurus carolinensis", common_name="Eastern gray squirrel")
+    cached["ecology"] = {"label": "unknown", "region_code": "US-FL"}
+    observation = {
+        "id": "observation-1",
+        "taxon_id": 47126,
+        "scientific_name": "Sciurus carolinensis",
+        "common_name": "Eastern gray squirrel",
+        "raw_response_json": {"taxon_enrichment": cached},
+    }
+    repository = Repository()
+    client = Client()
+
+    assert ensure_observation_taxonomy(repository, client, observation)
+    assert client.called
+    assert repository.raw_payload["taxon_enrichment"]["ecology"]["label"] == "native"
+
+
 def test_ensure_taxonomy_treats_transport_failure_as_optional_enrichment() -> None:
     class Repository:
         def update_observation_taxon_resolution(self, *_args, **_kwargs):

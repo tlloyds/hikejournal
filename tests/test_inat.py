@@ -184,6 +184,55 @@ def test_extract_taxon_enrichment_keeps_missing_ecology_unknown() -> None:
     assert enrichment["ecology"]["region_code"] == "US-FL"
 
 
+def test_taxon_lookup_uses_plant_status_fallback_when_inaturalist_is_unknown(monkeypatch) -> None:
+    class Response:
+        status_code = 200
+        headers = {}
+        text = ""
+
+        @staticmethod
+        def json():
+            return {
+                "results": [
+                    {
+                        "id": 123,
+                        "name": "Example plant",
+                        "preferred_common_name": "Example plant",
+                        "rank": "species",
+                        "iconic_taxon_name": "Plantae",
+                    }
+                ]
+            }
+
+    class PlantStatus:
+        def fetch_status(self, **kwargs):
+            assert kwargs["scientific_name"] == "Example plant"
+            assert kwargs["rank"] == "species"
+            return {
+                "label": "native",
+                "establishment_status": "native",
+                "invasive_status": "unknown",
+                "establishment_means": "native",
+                "source": "usda_plants",
+                "source_url": "https://plants.example/plant-profile/EXPL",
+                "place_name": "Florida",
+            }
+
+    monkeypatch.setattr(inat.requests, "request", lambda *_args, **_kwargs: Response())
+    client = InatClient(
+        access_token="",
+        base_url="https://api.example/v1",
+        plant_status_client=PlantStatus(),
+    )
+    client.request_interval_seconds = 0
+
+    enrichment = client.fetch_taxon_enrichment(123)
+
+    assert enrichment["ecology"]["label"] == "native"
+    assert enrichment["ecology"]["source"] == "usda_plants"
+    assert enrichment["ecology"]["place_name"] == "Florida"
+
+
 def test_extract_taxon_enrichment_resolves_subspecies_parent() -> None:
     enrichment = extract_taxon_enrichment(
         {

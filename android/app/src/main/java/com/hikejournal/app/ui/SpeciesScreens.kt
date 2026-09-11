@@ -85,8 +85,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.core.content.ContextCompat
 import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.hikejournal.app.data.Encounter
@@ -1644,20 +1646,18 @@ private fun SpeciesIndexRow(record: SpeciesRecord, onOpen: (String) -> Unit) {
                 }
                 Text(
                     "${record.encounterCount} encounter${if (record.encounterCount == 1) "" else "s"} · ${record.hikeCount} outing${if (record.hikeCount == 1) "" else "s"}",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = TrailText,
+                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+                    color = Moss,
                     modifier = Modifier.padding(top = 5.dp),
                 )
                 Text(
                     record.ecology.displayLabel,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = when (record.ecology.label) {
-                        "invasive" -> Color(0xFF9A4B32)
-                        "non_native" -> Color(0xFF8A6A2F)
-                        "native" -> FernText
-                        else -> InkMuted
-                    },
-                    modifier = Modifier.padding(top = 3.dp),
+                    style = MaterialTheme.typography.labelLarge.copy(
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 0.35.sp,
+                    ),
+                    color = ecologyStatusColor(record.ecology.label),
+                    modifier = Modifier.padding(top = 6.dp),
                 )
             }
             Text(record.encounterCount.toString().padStart(2, '0'), style = MaterialTheme.typography.headlineSmall, color = FernText)
@@ -1713,20 +1713,18 @@ fun SpeciesDetailScreen(
                 }
                 Text(
                     species.ecology.displayLabel,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = when (species.ecology.label) {
-                        "invasive" -> Color(0xFF9A4B32)
-                        "non_native" -> Color(0xFF8A6A2F)
-                        "native" -> FernText
-                        else -> InkMuted
-                    },
-                    modifier = Modifier.padding(top = 8.dp),
+                    style = MaterialTheme.typography.labelLarge.copy(
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 0.35.sp,
+                    ),
+                    color = ecologyStatusColor(species.ecology.label),
+                    modifier = Modifier.padding(top = 9.dp),
                 )
                 Text(
                     "${species.encounterCount} encounter${if (species.encounterCount == 1) "" else "s"} across ${species.hikeCount} outing${if (species.hikeCount == 1) "" else "s"}",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = TrailText,
-                    modifier = Modifier.padding(top = 13.dp),
+                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+                    color = Moss,
+                    modifier = Modifier.padding(top = 14.dp),
                 )
                 if (species.wikipediaSummary.isNotBlank()) {
                     Text(species.wikipediaSummary, style = MaterialTheme.typography.bodyLarge, color = Ink, modifier = Modifier.padding(top = 20.dp))
@@ -1778,6 +1776,13 @@ fun SpeciesDetailScreen(
             EncounterRow(encounter, onOpenPhoto)
         }
     }
+}
+
+private fun ecologyStatusColor(label: String): Color = when (label) {
+    "invasive" -> Color(0xFF8A2F27)
+    "non_native" -> Color(0xFF8A4F16)
+    "native" -> Color(0xFF2F6B45)
+    else -> InkMuted
 }
 
 @Composable

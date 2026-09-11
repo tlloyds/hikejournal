@@ -161,6 +161,7 @@ def ensure_observation_taxonomy(
     cached_ecology_is_current = (
         isinstance(cached_ecology, dict)
         and str(cached_ecology.get("region_code") or "") == settings.inat_ecology_region
+        and str(cached_ecology.get("label") or "unknown").strip().casefold() != "unknown"
     )
 
     try:

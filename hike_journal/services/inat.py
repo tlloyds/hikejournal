@@ -11,7 +11,8 @@ from urllib.parse import urlencode
 import requests
 
 from hike_journal.domain.discovery import plain_text
-from hike_journal.services.ecology import build_ecology_snapshot
+from hike_journal.services.ecology import build_ecology_snapshot, ecology_display_label
+from hike_journal.services.usda_plants import USDAPlantsClient, USDAPlantRequestError
 from hike_journal.config import (
     load_inat_token_record_for_user,
     save_inat_access_token,
@@ -48,7 +49,13 @@ class InatRateLimitError(InatRequestError):
 
 
 class InatClient:
-    def __init__(self, access_token: str | None = None, base_url: str | None = None):
+    def __init__(
+        self,
+        access_token: str | None = None,
+        base_url: str | None = None,
+        *,
+        plant_status_client: USDAPlantsClient | None = None,
+    ):
         self.access_token = access_token or settings.inat_access_token
         self.base_url = (base_url or settings.inat_base_url).rstrip("/")
         self.web_base_url = settings.inat_web_base_url
@@ -56,6 +63,7 @@ class InatClient:
         self.cv_request_interval_seconds = max(self.request_interval_seconds, settings.inat_cv_request_interval_seconds)
         self._last_request_at = 0.0
         self.user_agent = "HikeJournal/1.0 (personal field journal; contact: addlloyd@gmail.com)"
+        self.plant_status_client = plant_status_client or USDAPlantsClient()
 
     @property
     def is_configured(self) -> bool:
@@ -166,11 +174,11 @@ class InatClient:
         results = payload.get("results") or []
         if not results or not isinstance(results[0], dict):
             raise InatRequestError("iNaturalist taxon lookup returned no usable taxon details.")
-        return extract_taxon_enrichment(
+        return self._with_plant_ecology_fallback(extract_taxon_enrichment(
             results[0],
             ecology_region_code=settings.inat_ecology_region,
             ecology_place_id=place_id,
-        )
+        ))
 
     def fetch_taxon_enrichments(
         self,
@@ -226,7 +234,10 @@ class InatClient:
                     )
                 except InatRequestError:
                     continue
-        return enrichments
+        return {
+            taxon_id: self._with_plant_ecology_fallback(enrichment)
+            for taxon_id, enrichment in enrichments.items()
+        }
 
     def fetch_exact_taxon_enrichment(self, query: str) -> dict[str, Any] | None:
         normalized_query = _normalize_name(query)
@@ -252,11 +263,11 @@ class InatClient:
                 if _normalize_name(item.get("name")) == normalized_query
             ]
             if scientific_matches:
-                return extract_taxon_enrichment(
+                return self._with_plant_ecology_fallback(extract_taxon_enrichment(
                     scientific_matches[0],
                     ecology_region_code=settings.inat_ecology_region,
                     ecology_place_id=settings.inat_ecology_place_id,
-                )
+                ))
             common_matches = [
                 item
                 for item in results
@@ -267,12 +278,45 @@ class InatClient:
                 }
             ]
             if len(common_matches) == 1:
-                return extract_taxon_enrichment(
+                return self._with_plant_ecology_fallback(extract_taxon_enrichment(
                     common_matches[0],
                     ecology_region_code=settings.inat_ecology_region,
                     ecology_place_id=settings.inat_ecology_place_id,
-                )
+                ))
         return None
+
+    def _with_plant_ecology_fallback(self, enrichment: dict[str, Any]) -> dict[str, Any]:
+        if not settings.usda_plants_enabled:
+            return enrichment
+        if (_coerce_text(enrichment.get("iconic_taxon_name")) or "").casefold() != "plantae":
+            return enrichment
+        if ecology_display_label(enrichment.get("ecology")) != "unknown":
+            return enrichment
+        try:
+            fallback = self.plant_status_client.fetch_status(
+                scientific_name=_coerce_text(enrichment.get("scientific_name")) or "",
+                common_name=_coerce_text(enrichment.get("preferred_common_name")),
+                rank=_coerce_text(enrichment.get("rank")),
+            )
+        except USDAPlantRequestError:
+            return enrichment
+        if not fallback:
+            return enrichment
+        updated = dict(enrichment)
+        ecology = dict(enrichment.get("ecology") or {})
+        ecology.update(
+            {
+                "label": fallback["label"],
+                "establishment_status": fallback["establishment_status"],
+                "invasive_status": fallback["invasive_status"],
+                "establishment_means": fallback["establishment_means"],
+                "source": fallback["source"],
+                "source_url": fallback["source_url"],
+                "place_name": fallback.get("place_name") or ecology.get("place_name") or "",
+            }
+        )
+        updated["ecology"] = ecology
+        return updated
 
     def fetch_observation(self, observation_id: int | str) -> dict[str, Any]:
         observations = self.fetch_observations([observation_id])

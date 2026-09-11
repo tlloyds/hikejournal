@@ -8,7 +8,7 @@ private func ecologyColor(_ status: EcologyStatus) -> Color {
     switch status.label {
     case "invasive": return HikeJournalTheme.error
     case "non_native": return HikeJournalTheme.trailText
-    case "native": return HikeJournalTheme.fern
+    case "native": return HikeJournalTheme.moss
     default: return HikeJournalTheme.inkMuted
     }
 }
@@ -403,10 +403,11 @@ private struct SpeciesRow: View {
                         .foregroundStyle(HikeJournalTheme.inkMuted)
                 }
                 Text("\(species.encounterCount) \(species.encounterCount == 1 ? "encounter" : "encounters") · \(species.hikeCount) \(species.hikeCount == 1 ? "outing" : "outings")")
-                    .font(HikeJournalTheme.body(13))
-                    .foregroundStyle(HikeJournalTheme.trailText)
+                    .font(HikeJournalTheme.bodyMedium(14, relativeTo: .subheadline))
+                    .foregroundStyle(HikeJournalTheme.moss)
                 Text(species.ecology.displayLabel)
-                    .font(HikeJournalTheme.body(12))
+                    .font(HikeJournalTheme.label(14, relativeTo: .subheadline))
+                    .tracking(0.25)
                     .foregroundStyle(ecologyColor(species.ecology))
                 if let latest = species.latestSeen {
                     Text("Last seen \(JournalDate.display(latest))")
@@ -530,8 +531,10 @@ struct SpeciesDetailView: View {
                     Text(value.scientificName).font(HikeJournalTheme.body(16)).italic()
                 }
                 Text(value.ecology.displayLabel)
-                    .font(HikeJournalTheme.label(12))
-                    .foregroundStyle(ecologyColor(value.ecology))
+                    .font(HikeJournalTheme.label(15, relativeTo: .subheadline))
+                    .tracking(0.35)
+                    .foregroundStyle(Color(red: 1, green: 0.98, blue: 0.92))
+                    .textCase(.uppercase)
             }
             .foregroundStyle(Color(red: 1, green: 0.98, blue: 0.92))
             .padding(22)

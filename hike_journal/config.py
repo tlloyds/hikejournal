@@ -255,6 +255,20 @@ class Settings:
     # region should override both values together.
     inat_ecology_place_id: int = int(os.getenv("INAT_ECOLOGY_PLACE_ID", "21").strip() or "21")
     inat_ecology_region: str = os.getenv("INAT_ECOLOGY_REGION", "US-FL").strip() or "US-FL"
+    usda_plants_enabled: bool = os.getenv("USDA_PLANTS_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
+    usda_plants_api_url: str = os.getenv(
+        "USDA_PLANTS_API_URL",
+        "https://plantsservices.sc.egov.usda.gov/api",
+    ).rstrip("/")
+    usda_plants_base_url: str = os.getenv(
+        "USDA_PLANTS_BASE_URL",
+        "https://plants.sc.egov.usda.gov",
+    ).rstrip("/")
+    usda_plants_map_query_url: str = os.getenv(
+        "USDA_PLANTS_MAP_QUERY_URL",
+        "https://apps.geo.fpac.usda.gov/nrcs-geodata/rest/services/land_use_land_cover/plants/MapServer/4/query",
+    ).strip()
+    usda_plants_state_name: str = os.getenv("USDA_PLANTS_STATE_NAME", "Florida").strip() or "Florida"
     inat_oauth_client_id: str = os.getenv("INAT_OAUTH_CLIENT_ID", "")
     inat_oauth_client_secret: str = os.getenv("INAT_OAUTH_CLIENT_SECRET", "")
     inat_oauth_redirect_uri: str = os.getenv("INAT_OAUTH_REDIRECT_URI", "http://localhost:8505/")

@@ -1988,7 +1988,11 @@ def _review_candidates(observation: dict[str, Any]) -> list[dict[str, Any]]:
         scientific_name=str(observation.get("scientific_name") or ""),
         confidence=observation.get("confidence"),
         iconic_taxon_name=str(observation.get("iconic_taxon_name") or "Other"),
-        ecology=_observation_ecology_payload(observation),
+        ecology=(
+            _observation_ecology_payload(observation)
+            if observation.get("taxon_id") not in (None, "")
+            else None
+        ),
     )
     candidates = [current]
     raw_payload = observation.get("raw_response_json")
