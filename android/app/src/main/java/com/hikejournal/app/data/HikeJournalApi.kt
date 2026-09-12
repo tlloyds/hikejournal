@@ -26,6 +26,20 @@ import java.util.concurrent.TimeUnit
 internal fun postBodyOrEmpty(body: RequestBody?, jsonMediaType: MediaType): RequestBody =
     body ?: "{}".toRequestBody(jsonMediaType)
 
+/**
+ * Separate API instances share the encrypted session preferences. If another instance refreshed
+ * the access token while this request was in flight, use that newer session instead of rotating
+ * the refresh token a second time.
+ */
+internal fun shouldReuseCurrentAuthSession(
+    currentAccessToken: String?,
+    failedAccessToken: String?,
+): Boolean = !currentAccessToken.isNullOrBlank() &&
+    !failedAccessToken.isNullOrBlank() &&
+    currentAccessToken != failedAccessToken
+
+private val authRefreshLock = Any()
+
 class HikeJournalApi(private val context: Context) {
     private val connectionPreferences = ConnectionPreferences(context)
     private val authPreferences = AuthPreferences(context)
@@ -645,45 +659,50 @@ class HikeJournalApi(private val context: Context) {
     }
 
     private fun execute(request: Request): String {
-        val first = authenticated(request)
+        val initialSession = authPreferences.session()
+        val first = authenticated(request, initialSession?.accessToken)
         return try {
             executeRaw(first)
         } catch (error: ApiException) {
             if (error.statusCode != 401 || !BuildConfig.GOOGLE_AUTH_ENABLED) throw error
-            val refreshed = refreshSession()
+            val refreshed = refreshSession(initialSession?.accessToken)
             executeRaw(authenticated(request, refreshed.accessToken))
         }
     }
 
-    @Synchronized
-    private fun refreshSession(): MobileSession {
-        val existing = authPreferences.session()
-            ?: throw ApiException("Sign in with Google to continue.", 401)
-        return try {
-            val response = executeRaw(
-                Request.Builder()
-                    .url("${serverUrl}/v1/auth/refresh")
-                    .header("Accept", "application/json")
-                    .post(
-                        JSONObject()
-                            .put("refresh_token", existing.refreshToken)
-                            .put("device_id", authPreferences.deviceId())
-                            .toString()
-                            .toRequestBody(jsonMediaType),
-                    )
-                    .build(),
-            )
-            parseMobileSession(response).also(authPreferences::save)
-        } catch (error: Exception) {
-            // A lost connection while refreshing is not proof that the account is
-            // invalid. Keep the refresh token so the next request can recover.
-            // Only an explicit authentication rejection should sign the phone out.
-            if (error is ApiException && error.statusCode == 401) {
-                authPreferences.clear()
+    private fun refreshSession(failedAccessToken: String? = null): MobileSession =
+        synchronized(authRefreshLock) {
+            val existing = authPreferences.session()
+                ?: throw ApiException("Sign in with Google to continue.", 401)
+            if (shouldReuseCurrentAuthSession(existing.accessToken, failedAccessToken)) {
+                return@synchronized existing
             }
-            throw error
+
+            try {
+                val response = executeRaw(
+                    Request.Builder()
+                        .url("${serverUrl}/v1/auth/refresh")
+                        .header("Accept", "application/json")
+                        .post(
+                            JSONObject()
+                                .put("refresh_token", existing.refreshToken)
+                                .put("device_id", authPreferences.deviceId())
+                                .toString()
+                                .toRequestBody(jsonMediaType),
+                        )
+                        .build(),
+                )
+                parseMobileSession(response).also(authPreferences::save)
+            } catch (error: Exception) {
+                // A lost connection while refreshing is not proof that the account is
+                // invalid. Keep the refresh token so the next request can recover.
+                // Only an explicit authentication rejection should sign the phone out.
+                if (error is ApiException && error.statusCode == 401) {
+                    authPreferences.clear()
+                }
+                throw error
+            }
         }
-    }
 
     private fun authenticated(request: Request, accessToken: String? = authPreferences.session()?.accessToken): Request {
         val builder = request.newBuilder()
