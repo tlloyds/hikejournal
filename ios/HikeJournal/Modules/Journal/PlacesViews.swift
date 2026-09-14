@@ -531,13 +531,20 @@ private struct PlaceProfileView: View {
                     }
                 )
 
-                if let mapScene = placeMapScene(profile), let style = maps.style,
-                   let surface = try? HikeJournalMapSurface(
-                       scene: mapScene,
-                       style: style,
-                       styleCredential: maps.styleCredential,
-                       cameraBehavior: .fitOnce
-                   ) {
+                if !profile.routes.isEmpty {
+                    PlaceSection(title: "Your routes here") {
+                        PlaceRouteSnapshot(
+                            routes: profile.routes,
+                            placeName: profile.name
+                        )
+                    }
+                } else if let mapScene = placeMapScene(profile), let style = maps.style,
+                          let surface = try? HikeJournalMapSurface(
+                              scene: mapScene,
+                              style: style,
+                              styleCredential: maps.styleCredential,
+                              cameraBehavior: .fitOnce
+                          ) {
                     PlaceSection(title: "Where this record lives") {
                         surface.frame(height: 235)
                     }
@@ -654,6 +661,56 @@ private struct PlaceProfileView: View {
 
     private var conditionsTaskID: String {
         "\(target.id)|\(riverDays)|\(riverGauges.followedIDs.joined(separator: ","))"
+    }
+}
+
+private struct PlaceRouteSnapshot: View {
+    let routes: [MapRoute]
+    let placeName: String
+
+    @State private var image: UIImage?
+    @State private var isLoading = true
+
+    private var segments: [[RoutePoint]] {
+        routes.flatMap(\.segments)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            ZStack {
+                if let image {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .overlay {
+                            LinearGradient(
+                                colors: [.clear, .black.opacity(0.22)],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        }
+                } else {
+                    RouteSketch(routeSegments: segments)
+                    if isLoading {
+                        ProgressView().tint(.white)
+                    }
+                }
+            }
+            .frame(height: 235)
+            .clipped()
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Recorded routes at \(placeName)")
+            .accessibilityValue("\(routes.count) saved outing \(routes.count == 1 ? "route" : "routes") and \(segments.flatMap { $0 }.count) GPS points")
+
+            Text("\(routes.count) saved outing \(routes.count == 1 ? "route" : "routes") · \(segments.flatMap { $0 }.count) GPS points")
+                .font(HikeJournalTheme.body(13))
+                .foregroundStyle(HikeJournalTheme.inkMuted)
+        }
+        .task(id: routes) {
+            isLoading = true
+            image = await HikeShareMapSnapshotter.snapshot(routeSegments: segments)
+            isLoading = false
+        }
     }
 }
 
@@ -1595,7 +1652,8 @@ private extension PlaceProfile {
             guidance: guidance,
             forecast: forecast,
             riverGauges: riverGauges,
-            liveConditionsNotice: liveConditionsNotice
+            liveConditionsNotice: liveConditionsNotice,
+            routes: routes
         )
     }
 
@@ -1630,6 +1688,10 @@ private extension PlaceProfile {
         let localDates = localHikes.map(\.hikeDate).filter { !$0.isEmpty }
         let localDistance = localHikes.compactMap(\.distanceMiles).reduce(0, +)
         let localDuration = localHikes.compactMap(\.durationSeconds).reduce(0, +)
+        let existingRouteIDs = Set(routes.map(\.hikeId))
+        let localRoutes = localHikes
+            .filter { !existingRouteIDs.contains($0.id) && !$0.routeSegments.isEmpty }
+            .map { MapRoute(hikeId: $0.id, segments: $0.routeSegments) }
 
         return PlaceProfile(
             locationId: self.locationId,
@@ -1650,7 +1712,8 @@ private extension PlaceProfile {
             guidance: guidance,
             forecast: forecast,
             riverGauges: riverGauges,
-            liveConditionsNotice: liveConditionsNotice
+            liveConditionsNotice: liveConditionsNotice,
+            routes: routes + localRoutes
         )
     }
 

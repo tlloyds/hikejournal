@@ -187,6 +187,7 @@ public struct PlaceProfile: Codable, Equatable, Sendable {
     public let forecast: PlaceForecast?
     public let riverGauges: [RiverGaugeSeries]
     public let liveConditionsNotice: String?
+    public let routes: [MapRoute]
 
     public init(
         locationId: String,
@@ -207,7 +208,8 @@ public struct PlaceProfile: Codable, Equatable, Sendable {
         guidance: String,
         forecast: PlaceForecast? = nil,
         riverGauges: [RiverGaugeSeries] = [],
-        liveConditionsNotice: String? = nil
+        liveConditionsNotice: String? = nil,
+        routes: [MapRoute] = []
     ) {
         self.locationId = locationId
         self.name = name
@@ -228,6 +230,7 @@ public struct PlaceProfile: Codable, Equatable, Sendable {
         self.forecast = forecast
         self.riverGauges = riverGauges
         self.liveConditionsNotice = liveConditionsNotice
+        self.routes = routes
     }
 
     public init(from decoder: Decoder) throws {
@@ -253,7 +256,8 @@ public struct PlaceProfile: Codable, Equatable, Sendable {
             guidance: values.string("guidance"),
             forecast: try values.optionalValue(PlaceForecast.self, "forecast"),
             riverGauges: try values.array(RiverGaugeSeries.self, "riverGauges"),
-            liveConditionsNotice: values.optionalString("liveConditionsNotice")
+            liveConditionsNotice: values.optionalString("liveConditionsNotice"),
+            routes: try values.array(MapRoute.self, "routes")
         )
     }
 }

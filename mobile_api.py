@@ -3355,6 +3355,7 @@ def _place_profile_data(
             {
                 **hike,
                 "duration_seconds": route_by_hike.get(hike_id, {}).get("duration_seconds"),
+                "route_segments": route_import_to_route_groups(route_by_hike.get(hike_id)),
                 "cover_url": str(
                     _hike_payload(hike, photos=photos_by_hike.get(hike_id, [])).get("cover_url") or ""
                 ),

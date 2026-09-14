@@ -372,7 +372,7 @@ private struct ShareContourTexture: View {
     }
 }
 
-private struct RouteSketch: View {
+struct RouteSketch: View {
     let routeSegments: [[RoutePoint]]
 
     var body: some View {

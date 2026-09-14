@@ -43,7 +43,8 @@ def test_seasonal_history_handles_years_missing_dates_and_phenophases():
 
 def test_place_profile_deduplicates_species_and_tracks_progression():
     hikes = [
-        {"id": "hike-1", "title": "Spring", "hike_date": "2025-03-01", "distance_miles": 2, "cover_url": "spring.jpg"},
+        {"id": "hike-1", "title": "Spring", "hike_date": "2025-03-01", "distance_miles": 2, "cover_url": "spring.jpg",
+         "route_segments": [[{"lat": 28.0, "lng": -82.0}, {"lat": 28.1, "lng": -81.9}]]},
         {"id": "hike-2", "title": "Summer", "hike_date": "2025-07-01", "distance_miles": 3},
     ]
     observations = [
@@ -61,6 +62,10 @@ def test_place_profile_deduplicates_species_and_tracks_progression():
     assert profile["visits"][0]["new_species_count"] == 1
     assert profile["visits"][0]["cumulative_species_count"] == 2
     assert profile["visits"][1]["cover_url"] == "spring.jpg"
+    assert profile["routes"] == [{
+        "hike_id": "hike-1",
+        "route_segments": [[{"lat": 28.0, "lng": -82.0}, {"lat": 28.1, "lng": -81.9}]],
+    }]
     plant_group = next(group for group in profile["taxon_groups"] if group["name"] == "Plantae")
     assert plant_group["species"][0]["reference_photo_url"]
     assert {group["name"] for group in profile["taxon_groups"]} == {"Plantae", "Aves"}

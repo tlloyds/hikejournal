@@ -128,7 +128,7 @@ data class RoutePoint(
     val longitude: Double,
 )
 
-internal data class MapRoute(
+data class MapRoute(
     val hikeId: String,
     val segments: List<List<RoutePoint>>,
 )
@@ -330,6 +330,7 @@ data class PlaceProfile(
     val forecast: PlaceForecast? = null,
     val riverGauges: List<RiverGaugeSeries> = emptyList(),
     val liveConditionsNotice: String? = null,
+    val routes: List<MapRoute> = emptyList(),
 )
 
 data class ComparisonSpecies(
@@ -1233,6 +1234,7 @@ fun parsePlaceProfile(json: String): PlaceProfile {
     val taxonCounts = root.optJSONArray("taxon_counts") ?: JSONArray()
     val taxonGroups = root.optJSONArray("taxon_groups") ?: JSONArray()
     val visits = root.optJSONArray("visits") ?: JSONArray()
+    val routes = root.optJSONArray("routes") ?: JSONArray()
     return PlaceProfile(
         locationId = location.optString("id"),
         name = location.optString("name", "Unknown place"),
@@ -1285,6 +1287,20 @@ fun parsePlaceProfile(json: String): PlaceProfile {
             )
         },
         guidance = root.optString("guidance"),
+        routes = List(routes.length()) { routeIndex ->
+            val route = routes.getJSONObject(routeIndex)
+            val segments = route.optJSONArray("route_segments") ?: JSONArray()
+            MapRoute(
+                hikeId = route.optString("hike_id"),
+                segments = List(segments.length()) { segmentIndex ->
+                    val segment = segments.optJSONArray(segmentIndex) ?: JSONArray()
+                    List(segment.length()) { pointIndex ->
+                        val point = segment.getJSONObject(pointIndex)
+                        RoutePoint(point.optDouble("lat"), point.optDouble("lng"))
+                    }
+                }.filter { it.size >= 2 },
+            )
+        }.filter { it.hikeId.isNotBlank() && it.segments.isNotEmpty() },
     )
 }
 

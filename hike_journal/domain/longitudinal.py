@@ -164,6 +164,14 @@ def build_place_profile(
             }
         )
     visits.reverse()
+    routes = [
+        {
+            "hike_id": str(hike.get("id") or ""),
+            "route_segments": hike.get("route_segments") or [],
+        }
+        for hike in sorted(hikes, key=lambda item: (str(item.get("hike_date") or ""), str(item.get("id") or "")))
+        if hike.get("id") and hike.get("route_segments")
+    ]
     return {
         "location": {
             "id": str(location.get("id") or ""),
@@ -188,6 +196,7 @@ def build_place_profile(
         "taxon_groups": taxon_groups,
         "seasonal_history": build_seasonal_history(place_observations),
         "visits": visits,
+        "routes": routes,
         "frequent_species": [
             {**_species_snapshot(items[0]), "encounter_count": len(items)}
             for _, items in sorted(by_species.items(), key=lambda item: (-len(item[1]), item[0]))[:20]

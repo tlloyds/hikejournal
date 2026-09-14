@@ -130,6 +130,7 @@ final class DiscoveryAndLongitudinalTests: XCTestCase {
               "seasonal_history":{"observation_count":4,"months":[{"month":2,"label":"Feb","count":4,"relative_intensity":1}],"years":[]},
               "visits":[{"hike_id":"hike-2","title":"Return","hike_date":"2026-02-01","distance_miles":3,
                          "observation_count":2,"species_count":2,"new_species_count":1,"cumulative_species_count":3}],
+              "routes":[{"hike_id":"hike-2","route_segments":[[{"lat":28.0,"lng":-82.0},{"lat":28.1,"lng":-81.9}]]}],
               "guidance":"Your records.","live_conditions_notice":"Live conditions may differ."
             }
             """
@@ -142,6 +143,8 @@ final class DiscoveryAndLongitudinalTests: XCTestCase {
         XCTAssertEqual(profile.taxonCounts, [TaxonCount(name: "Plantae", count: 2)])
         XCTAssertEqual(profile.seasonalHistory.months.first?.count, 4)
         XCTAssertEqual(profile.visits.first?.cumulativeSpeciesCount, 3)
+        XCTAssertEqual(profile.routes.first?.hikeId, "hike-2")
+        XCTAssertEqual(profile.routes.first?.segments.first?.count, 2)
         XCTAssertEqual(profile.taxonGroups.first?.species.first?.referencePhotoUrl, "https://example.test/sundew.jpg")
         XCTAssertEqual(profile.liveConditionsNotice, "Live conditions may differ.")
     }

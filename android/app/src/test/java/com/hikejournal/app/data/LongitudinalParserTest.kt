@@ -16,6 +16,7 @@ class LongitudinalParserTest {
               "taxon_groups":[{"name":"Plantae","count":2,"species":[{"key":"taxon:1","taxon_id":1,"common_name":"Pink sundew","scientific_name":"Drosera capillaris","iconic_taxon_name":"Plantae","encounter_count":3,"reference_photo_url":"https://example.test/sundew.jpg"}]}],
               "seasonal_history":{"observation_count":4,"months":[{"month":2,"label":"Feb","count":4,"relative_intensity":1.0}],"years":[],"guidance":"Your observations."},
               "visits":[{"hike_id":"hike-2","title":"Return","hike_date":"2026-02-01","distance_miles":3.0,"observation_count":2,"species_count":2,"new_species_count":1,"cumulative_species_count":3,"cover_url":""}],
+              "routes":[{"hike_id":"hike-2","route_segments":[[{"lat":28.0,"lng":-82.0},{"lat":28.1,"lng":-81.9}]]}],
               "guidance":"Your records."
             }
             """.trimIndent(),
@@ -28,6 +29,8 @@ class LongitudinalParserTest {
         assertEquals(3, profile.visits.single().cumulativeSpeciesCount)
         assertEquals("Pink sundew", profile.taxonGroups.single().species.single().commonName)
         assertEquals("https://example.test/sundew.jpg", profile.taxonGroups.single().species.single().referencePhotoUrl)
+        assertEquals("hike-2", profile.routes.single().hikeId)
+        assertEquals(2, profile.routes.single().segments.single().size)
     }
 
     @Test

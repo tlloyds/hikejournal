@@ -209,6 +209,19 @@ internal fun PlaceProfileScreen(
                     onPeriodChange = onRiverPeriodChange,
                 )
             }
+            if (profile.routes.isNotEmpty()) {
+                item {
+                    FieldSection(
+                        "YOUR ROUTES HERE",
+                        "Every saved GPS route from a recorded visit at this place.",
+                    ) {
+                        PlaceRoutePreview(
+                            routes = profile.routes,
+                            placeName = profile.name,
+                        )
+                    }
+                }
+            }
             if (profile.outingCount > 0) {
                 item {
                     Column(Modifier.padding(horizontal = 20.dp, vertical = 28.dp)) {

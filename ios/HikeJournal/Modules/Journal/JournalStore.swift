@@ -2024,7 +2024,8 @@ private extension PlaceProfile {
             guidance: guidance,
             forecast: conditions.forecast,
             riverGauges: conditions.riverGauges,
-            liveConditionsNotice: conditions.liveConditionsNotice
+            liveConditionsNotice: conditions.liveConditionsNotice,
+            routes: routes
         )
     }
 }

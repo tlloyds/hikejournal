@@ -110,7 +110,7 @@ internal fun JournalRoutePreview(
 }
 
 @Composable
-private fun JournalRouteSketch(
+internal fun JournalRouteSketch(
     routeSegments: List<List<RoutePoint>>,
     modifier: Modifier = Modifier,
 ) {

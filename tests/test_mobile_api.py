@@ -1922,7 +1922,13 @@ def test_place_profile_keeps_archived_outings_in_the_historical_record(monkeypat
             return [self.get_hike_location("area-1")]
 
         def list_hike_route_imports(self):
-            return []
+            return [{
+                "hike_id": "hike-archived",
+                "track_geojson": {
+                    "type": "LineString",
+                    "coordinates": [[-82.0, 28.0], [-81.9, 28.1]],
+                },
+            }]
 
         def list_photos(self, _hike_id):
             return []
@@ -1949,6 +1955,11 @@ def test_place_profile_keeps_archived_outings_in_the_historical_record(monkeypat
 
     assert result["summary"]["outing_count"] == 1
     assert result["visits"][0]["hike_id"] == "hike-archived"
+    assert result["routes"][0]["hike_id"] == "hike-archived"
+    assert result["routes"][0]["route_segments"] == [[
+        {"lat": 28.0, "lng": -82.0},
+        {"lat": 28.1, "lng": -81.9},
+    ]]
 
 
 def test_place_profile_data_scopes_reads_to_selected_place(monkeypatch):
