@@ -143,6 +143,7 @@ private struct RecordingHomeView: View {
     @State private var compassPulse = false
     @State private var showingFieldMark = false
     @State private var showingFinish = false
+    @State private var showingPause = false
     @State private var showingDiscard = false
 
     init(model: AppModel) {
@@ -187,6 +188,18 @@ private struct RecordingHomeView: View {
                 .presentationDragIndicator(.visible)
             }
             .confirmationDialog(
+                "Pause this hike?",
+                isPresented: $showingPause,
+                titleVisibility: .visible
+            ) {
+                Button("Pause hike") {
+                    Task { await recording.pause() }
+                }
+                Button("Keep hiking", role: .cancel) {}
+            } message: {
+                Text("GPS recording will stop until you resume. Your saved route and active time will stay safe.")
+            }
+            .confirmationDialog(
                 "Discard this recording?",
                 isPresented: $showingDiscard,
                 titleVisibility: .visible
@@ -227,11 +240,11 @@ private struct RecordingHomeView: View {
                         await recording.start()
                     }
                 case .pause:
-                    if recording.phase == .recording { await recording.pause() }
+                    if recording.phase == .recording { showingPause = true }
                 case .resume:
                     if recording.phase == .paused { await recording.resume() }
                 case .stop:
-                    if recording.phase == .recording { await recording.pause() }
+                    if recording.phase == .recording { await recording.pause(announce: false) }
                     if recording.phase == .paused { showingFinish = true }
                 }
                 model.consumeDeepLink()
@@ -345,7 +358,7 @@ private struct RecordingHomeView: View {
                         .buttonStyle(TrailButtonStyle())
                     } else {
                         Button {
-                            Task { await recording.pause() }
+                            showingPause = true
                         } label: {
                             Label("Pause route", systemImage: "pause.fill")
                                 .frame(maxWidth: .infinity)
@@ -366,7 +379,7 @@ private struct RecordingHomeView: View {
                         Button {
                             if recording.phase == .recording {
                                 Task {
-                                    await recording.pause()
+                                    await recording.pause(announce: false)
                                     showingFinish = true
                                 }
                             } else {

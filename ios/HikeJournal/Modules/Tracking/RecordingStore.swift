@@ -18,6 +18,7 @@ enum RecordingPresentationPhase: Equatable {
 @MainActor
 protocol ProgressSpeaking: AnyObject {
     func speak(_ announcement: MileAnnouncement)
+    func speak(_ message: String, utteranceID: String)
     func stop()
 }
 
@@ -26,7 +27,11 @@ final class SpeechProgressAnnouncer: ProgressSpeaking {
     private let synthesizer = AVSpeechSynthesizer()
 
     func speak(_ announcement: MileAnnouncement) {
-        let utterance = AVSpeechUtterance(string: announcement.message)
+        speak(announcement.message, utteranceID: announcement.utteranceID)
+    }
+
+    func speak(_ message: String, utteranceID: String) {
+        let utterance = AVSpeechUtterance(string: message)
         utterance.voice = AVSpeechSynthesisVoice(language: Locale.current.language.languageCode?.identifier)
         utterance.rate = AVSpeechUtteranceDefaultSpeechRate
         synthesizer.speak(utterance)
@@ -162,6 +167,10 @@ final class RecordingStore: ObservableObject {
     }
 
     func pause() async {
+        await pause(announce: true)
+    }
+
+    func pause(announce: Bool) async {
         guard let recorder else { return }
         do {
             snapshot = try await recorder.pause()
@@ -169,6 +178,9 @@ final class RecordingStore: ObservableObject {
             speaker.stop()
             phase = .paused
             if let snapshot { await liveActivity.update(for: snapshot) }
+            if announce, voiceAnnouncementsEnabled {
+                speaker.speak("Hike paused", utteranceID: "hike-paused")
+            }
         } catch {
             errorMessage = readable(error)
         }
@@ -186,6 +198,9 @@ final class RecordingStore: ObservableObject {
             snapshot = try await recorder.resume()
             phase = .recording
             if let snapshot { await liveActivity.update(for: snapshot) }
+            if voiceAnnouncementsEnabled {
+                speaker.speak("Hike resumed", utteranceID: "hike-resumed")
+            }
         } catch {
             location.stop()
             errorMessage = readable(error)

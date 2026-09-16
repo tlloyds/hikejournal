@@ -407,6 +407,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
     var speciesCollectionPreferences by remember { mutableStateOf(SpeciesCollectionPreferences()) }
     var trackingVisible by rememberSaveable { mutableStateOf(false) }
     var trackingEndConfirmationRequested by rememberSaveable { mutableStateOf(false) }
+    var trackingPauseConfirmationRequested by rememberSaveable { mutableStateOf(false) }
     var pendingTrackingStart by rememberSaveable { mutableStateOf(false) }
     var trackingIssue by remember { mutableStateOf<TrackingPreflightIssue?>(null) }
     var selectedTrailIds by remember {
@@ -478,6 +479,16 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                 trackingEndConfirmationRequested = true
             }
             viewModel.consumeTrackingEndRequest(token)
+        }
+    }
+    LaunchedEffect(state.trackingPauseRequestToken, activeTracking?.sessionId) {
+        val token = state.trackingPauseRequestToken
+        if (token > 0L && activeTracking != null) {
+            trackingVisible = true
+            if (activeTracking.status == TrackingStatus.RECORDING) {
+                trackingPauseConfirmationRequested = true
+            }
+            viewModel.consumeTrackingPauseRequest(token)
         }
     }
 
@@ -566,6 +577,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
             trackingVisible && activeTracking != null -> {
                 trackingVisible = false
                 trackingEndConfirmationRequested = false
+                trackingPauseConfirmationRequested = false
             }
             pendingHikeDelete != null -> {
                 if (state.deletingHikeId == null) pendingHikeDelete = null
@@ -660,6 +672,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                         onBack = {
                             trackingVisible = false
                             trackingEndConfirmationRequested = false
+                            trackingPauseConfirmationRequested = false
                         },
                         onPause = viewModel::pauseTracking,
                         onResume = {
@@ -679,11 +692,14 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                             viewModel.discardTracking {
                                 trackingVisible = false
                                 trackingEndConfirmationRequested = false
+                                trackingPauseConfirmationRequested = false
                             }
                         },
                         onAddFieldMark = viewModel::addFieldMark,
                         requestEndConfirmation = trackingEndConfirmationRequested,
                         onEndConfirmationShown = { trackingEndConfirmationRequested = false },
+                        requestPauseConfirmation = trackingPauseConfirmationRequested,
+                        onPauseConfirmationShown = { trackingPauseConfirmationRequested = false },
                     )
                 }
                 key.startsWith("hike-map:") && hikeMapRequest != null -> {

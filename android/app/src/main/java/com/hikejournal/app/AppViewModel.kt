@@ -168,6 +168,7 @@ data class AppState(
     val nearbyRiverGaugeError: String? = null,
     val trackingOpenRequestToken: Long = 0L,
     val trackingEndRequestToken: Long = 0L,
+    val trackingPauseRequestToken: Long = 0L,
     val isFinalizingTracking: Boolean = false,
 )
 
@@ -2285,7 +2286,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             .onFailure { error -> _state.update { it.copy(error = error.userMessage()) } }
     }
 
-    fun openTrackingFromNotification(confirmEnd: Boolean) {
+    fun openTrackingFromNotification(confirmEnd: Boolean, confirmPause: Boolean) {
         _state.update { state ->
             state.copy(
                 trackingOpenRequestToken = state.trackingOpenRequestToken + 1,
@@ -2293,6 +2294,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     state.trackingEndRequestToken + 1
                 } else {
                     state.trackingEndRequestToken
+                },
+                trackingPauseRequestToken = if (confirmPause) {
+                    state.trackingPauseRequestToken + 1
+                } else {
+                    state.trackingPauseRequestToken
                 },
             )
         }
@@ -2312,6 +2318,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         _state.update { state ->
             if (state.trackingEndRequestToken == token) {
                 state.copy(trackingEndRequestToken = 0L)
+            } else {
+                state
+            }
+        }
+    }
+
+    fun consumeTrackingPauseRequest(token: Long) {
+        _state.update { state ->
+            if (state.trackingPauseRequestToken == token) {
+                state.copy(trackingPauseRequestToken = 0L)
             } else {
                 state
             }

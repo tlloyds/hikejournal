@@ -137,16 +137,25 @@ internal fun HikeTrackingScreen(
     onAddFieldMark: (String, String) -> Unit,
     requestEndConfirmation: Boolean = false,
     onEndConfirmationShown: () -> Unit = {},
+    requestPauseConfirmation: Boolean = false,
+    onPauseConfirmationShown: () -> Unit = {},
 ) {
     var layerMode by remember { mutableStateOf(DEFAULT_TRACKING_MAP_LAYER) }
     var followPosition by rememberSaveable(tracking.sessionId) { mutableStateOf(true) }
     var confirmEnd by rememberSaveable(tracking.sessionId) { mutableStateOf(false) }
+    var confirmPause by rememberSaveable(tracking.sessionId) { mutableStateOf(false) }
     var markDialogOpen by rememberSaveable(tracking.sessionId) { mutableStateOf(false) }
 
     androidx.compose.runtime.LaunchedEffect(requestEndConfirmation, tracking.isPaused) {
         if (requestEndConfirmation && tracking.isPaused) {
             confirmEnd = true
             onEndConfirmationShown()
+        }
+    }
+    androidx.compose.runtime.LaunchedEffect(requestPauseConfirmation, tracking.status) {
+        if (requestPauseConfirmation && tracking.status == TrackingStatus.RECORDING) {
+            confirmPause = true
+            onPauseConfirmationShown()
         }
     }
     BackHandler(onBack = onBack)
@@ -221,7 +230,7 @@ internal fun HikeTrackingScreen(
 
         TrackingControls(
             tracking = tracking,
-            onPause = onPause,
+            onPause = { confirmPause = true },
             onResume = onResume,
             onRequestEnd = { confirmEnd = true },
             onMark = { markDialogOpen = true },
@@ -287,6 +296,33 @@ internal fun HikeTrackingScreen(
                     TextButton(onClick = { confirmEnd = false }, enabled = !tracking.isBusy) {
                         Text("Keep hiking")
                     }
+                }
+            },
+        )
+    }
+
+    if (confirmPause) {
+        AlertDialog(
+            onDismissRequest = { if (!tracking.isBusy) confirmPause = false },
+            icon = { Icon(Icons.Rounded.Pause, contentDescription = null, tint = Trail) },
+            title = { Text("Pause this hike?") },
+            text = {
+                Text("GPS recording will stop until you resume. Your saved route and active time will stay safe.")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmPause = false
+                        onPause()
+                    },
+                    enabled = tracking.status == TrackingStatus.RECORDING && !tracking.isBusy,
+                ) {
+                    Text("Pause hike")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmPause = false }, enabled = !tracking.isBusy) {
+                    Text("Keep hiking")
                 }
             },
         )

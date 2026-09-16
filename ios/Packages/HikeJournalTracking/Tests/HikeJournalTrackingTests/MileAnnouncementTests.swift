@@ -15,6 +15,7 @@ final class MileAnnouncementTests: XCTestCase {
     )
     XCTAssertEqual(scheduler.sessionID, "restored-session")
     XCTAssertEqual(scheduler.lastAnnouncedMile, 2)
+    XCTAssertEqual(scheduler.lastAnnouncedElapsedMilliseconds, 1)
   }
 
   func testAnnouncesExactWholeMileOnceWithAndroidMessageFormat() {
@@ -31,7 +32,7 @@ final class MileAnnouncementTests: XCTestCase {
     )
 
     XCTAssertEqual(first?.completedMiles, 1)
-    XCTAssertEqual(first?.message, "1 mile complete. Total time: 1:02:05")
+    XCTAssertEqual(first?.message, "Total distance 1 mile. Total time 1 hour 2 minutes. Last mile time 1 hour 2 minutes.")
     XCTAssertEqual(first?.utteranceID, "hike-mile-1")
     XCTAssertNil(
       scheduler.update(
@@ -51,8 +52,30 @@ final class MileAnnouncementTests: XCTestCase {
     )
 
     XCTAssertEqual(result?.completedMiles, 3)
-    XCTAssertEqual(result?.message, "3 miles complete. Total time: 01:05")
+    XCTAssertEqual(result?.message, "Total distance 3 miles. Total time 1 minute. Last mile time 1 minute.")
     XCTAssertEqual(scheduler.lastAnnouncedMile, 3)
+  }
+
+  func testSubsequentMileAnnouncementUsesTheLastMileElapsedTime() {
+    var scheduler = WholeMileAnnouncementScheduler()
+    _ = scheduler.update(
+      sessionID: "session",
+      distanceMeters: 0,
+      activeElapsedMilliseconds: 0
+    )
+    _ = scheduler.update(
+      sessionID: "session",
+      distanceMeters: WholeMileAnnouncementScheduler.metersPerMile,
+      activeElapsedMilliseconds: 20 * 60 * 1_000
+    )
+    let second = scheduler.update(
+      sessionID: "session",
+      distanceMeters: 2 * WholeMileAnnouncementScheduler.metersPerMile,
+      activeElapsedMilliseconds: 40 * 60 * 1_000
+    )
+
+    XCTAssertEqual(second?.lastMileElapsedMilliseconds, 20 * 60 * 1_000)
+    XCTAssertEqual(second?.message, "Total distance 2 miles. Total time 40 minutes. Last mile time 20 minutes.")
   }
 
   func testInvalidOrNegativeDistancesNeverSchedule() {

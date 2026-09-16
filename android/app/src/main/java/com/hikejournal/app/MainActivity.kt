@@ -34,7 +34,10 @@ class MainActivity : ComponentActivity() {
         if (data.scheme != "hikejournal") return
         when (data.host) {
             "inat" -> viewModel.completeInatConnection(data.getQueryParameter("status") == "connected")
-            "tracking" -> viewModel.openTrackingFromNotification(confirmEnd = data.path == "/end")
+            "tracking" -> viewModel.openTrackingFromNotification(
+                confirmEnd = data.path == "/end",
+                confirmPause = data.path == "/pause",
+            )
             else -> return
         }
         // A notification/deep-link is a one-shot event. Clearing it prevents rotations and other

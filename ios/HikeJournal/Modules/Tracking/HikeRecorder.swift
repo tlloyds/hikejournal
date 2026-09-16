@@ -77,7 +77,8 @@ actor HikeRecorder {
         session = restored
         announcements = WholeMileAnnouncementScheduler(
             sessionID: restored.sessionID,
-            lastAnnouncedMile: completedMiles(restored.distanceMeters)
+            lastAnnouncedMile: completedMiles(restored.distanceMeters),
+            lastAnnouncedElapsedMilliseconds: restored.activeElapsedMilliseconds(at: reading)
         )
         try await database.updateTrackingSession(try persistenceRecord(restored))
         return restored.snapshot(at: reading)

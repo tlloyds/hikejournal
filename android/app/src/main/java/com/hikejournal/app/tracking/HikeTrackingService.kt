@@ -28,7 +28,6 @@ import com.google.android.gms.location.Priority
 import com.hikejournal.app.MainActivity
 import com.hikejournal.app.R
 import java.util.Locale
-import kotlin.math.floor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -128,8 +127,14 @@ class HikeTrackingService : Service() {
                     }
                 }
                 when (intent?.action) {
-                    ACTION_PAUSE -> repository.pause()
-                    ACTION_RESUME -> repository.resumeFromService()
+                    ACTION_PAUSE_CONFIRMED -> {
+                        repository.pause()
+                        progressAnnouncer.announcePaused()
+                    }
+                    ACTION_RESUME -> {
+                        repository.resumeFromService()
+                        progressAnnouncer.announceResumed()
+                    }
                     else -> Unit
                 }
             } catch (_: TrackingStateException) {
@@ -252,7 +257,7 @@ class HikeTrackingService : Service() {
                 .addAction(
                     R.drawable.ic_tracking_pause,
                     getString(R.string.tracking_action_pause),
-                    serviceAction(ACTION_PAUSE, REQUEST_PAUSE),
+                    openTrackingIntent("pause"),
                 )
             TrackingStatus.PAUSED -> builder
                 .setContentTitle(getString(R.string.tracking_notification_paused))
@@ -298,7 +303,11 @@ class HikeTrackingService : Service() {
 
     private fun openTrackingIntent(path: String): PendingIntent = PendingIntent.getActivity(
         this,
-        if (path == "end") REQUEST_END else REQUEST_OPEN,
+        when (path) {
+            "end" -> REQUEST_END
+            "pause" -> REQUEST_PAUSE_OPEN
+            else -> REQUEST_OPEN
+        },
         Intent(Intent.ACTION_VIEW, Uri.parse("hikejournal://tracking/$path"), this, MainActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
@@ -314,7 +323,7 @@ class HikeTrackingService : Service() {
         private const val NOTIFICATION_CHANNEL_ID = "hike_tracking"
         private const val NOTIFICATION_ID = 7_041
         private const val ACTION_SYNC = "com.hikejournal.app.tracking.SYNC"
-        private const val ACTION_PAUSE = "com.hikejournal.app.tracking.PAUSE"
+        private const val ACTION_PAUSE_CONFIRMED = "com.hikejournal.app.tracking.PAUSE_CONFIRMED"
         private const val ACTION_RESUME = "com.hikejournal.app.tracking.RESUME"
         // Frequent only while a hike is actively recording. The filter rejects poor fixes, so
         // these extra checkpoints preserve turns without accepting GPS noise.
@@ -326,6 +335,7 @@ class HikeTrackingService : Service() {
         private const val REQUEST_PAUSE = 21
         private const val REQUEST_RESUME = 22
         private const val REQUEST_END = 23
+        private const val REQUEST_PAUSE_OPEN = 24
 
         fun start(context: Context) {
             ContextCompat.startForegroundService(
@@ -337,7 +347,7 @@ class HikeTrackingService : Service() {
         fun pause(context: Context) {
             ContextCompat.startForegroundService(
                 context,
-                Intent(context, HikeTrackingService::class.java).setAction(ACTION_PAUSE),
+                Intent(context, HikeTrackingService::class.java).setAction(ACTION_PAUSE_CONFIRMED),
             )
         }
 
@@ -360,34 +370,67 @@ private class TrackingProgressAnnouncer(context: Context) : TextToSpeech.OnInitL
     private val appContext = context.applicationContext
     private val preferences = appContext.getSharedPreferences("tracking_progress", Context.MODE_PRIVATE)
     private var textToSpeech: TextToSpeech? = TextToSpeech(appContext, this)
+    private val pendingUtterances = ArrayDeque<Pair<String, String>>()
     private var ready = false
 
     override fun onInit(status: Int) {
         ready = status == TextToSpeech.SUCCESS
-        if (ready) textToSpeech?.language = Locale.US
+        if (ready) {
+            textToSpeech?.language = Locale.US
+            pendingUtterances.forEach { (message, utteranceId) ->
+                speakNow(message, utteranceId)
+            }
+            pendingUtterances.clear()
+        }
     }
 
     fun announce(snapshot: TrackingSnapshot) {
-        val completedMiles = floor(snapshot.distanceMeters / METERS_PER_MILE).toInt()
-        val storedSessionId = preferences.getString("session_id", null)
-        if (storedSessionId != snapshot.sessionId) {
-            preferences.edit().putString("session_id", snapshot.sessionId)
-                .putInt("last_announced_mile", completedMiles).apply()
-            return
+        val scheduler = TrackingMileAnnouncementScheduler(
+            sessionId = preferences.getString(KEY_SESSION_ID, null),
+            lastAnnouncedMile = preferences.getInt(KEY_LAST_ANNOUNCED_MILE, 0),
+            lastAnnouncedElapsedMs = preferences.getLong(KEY_LAST_ANNOUNCED_ELAPSED_MS, 0L),
+        )
+        val announcement = scheduler.update(snapshot)
+        preferences.edit()
+            .putString(KEY_SESSION_ID, scheduler.sessionId())
+            .putInt(KEY_LAST_ANNOUNCED_MILE, scheduler.lastAnnouncedMile())
+            .putLong(KEY_LAST_ANNOUNCED_ELAPSED_MS, scheduler.lastAnnouncedElapsedMs())
+            .apply()
+        announcement?.let {
+            speak(it.message, "hike-mile-${it.completedMiles}")
         }
-        val lastAnnounced = preferences.getInt("last_announced_mile", 0)
-        if (completedMiles <= lastAnnounced) return
-        preferences.edit().putInt("last_announced_mile", completedMiles).apply()
-        if (!ready) return
-        val mileLabel = if (completedMiles == 1) "mile" else "miles"
-        val message = "$completedMiles $mileLabel complete. Total time: ${formatElapsed(snapshot.activeElapsedMs)}"
-        textToSpeech?.speak(message, TextToSpeech.QUEUE_ADD, null, "hike-mile-$completedMiles")
+    }
+
+    fun announcePaused() {
+        speak("Hike paused", "hike-paused")
+    }
+
+    fun announceResumed() {
+        speak("Hike resumed", "hike-resumed")
+    }
+
+    private fun speak(message: String, utteranceId: String) {
+        if (ready) {
+            speakNow(message, utteranceId)
+        } else {
+            pendingUtterances.addLast(message to utteranceId)
+        }
+    }
+
+    private fun speakNow(message: String, utteranceId: String) {
+        textToSpeech?.speak(message, TextToSpeech.QUEUE_ADD, null, utteranceId)
     }
 
     fun close() {
         textToSpeech?.stop()
         textToSpeech?.shutdown()
         textToSpeech = null
+    }
+
+    private companion object {
+        const val KEY_SESSION_ID = "session_id"
+        const val KEY_LAST_ANNOUNCED_MILE = "last_announced_mile"
+        const val KEY_LAST_ANNOUNCED_ELAPSED_MS = "last_announced_elapsed_ms"
     }
 }
 
@@ -405,5 +448,3 @@ private fun formatElapsed(elapsedMs: Long): String {
         String.format(Locale.US, "%02d:%02d", minutes, remainingSeconds)
     }
 }
-
-private const val METERS_PER_MILE = 1_609.344
