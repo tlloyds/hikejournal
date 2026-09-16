@@ -46,6 +46,7 @@ import com.hikejournal.app.data.QuestSightingsMap
 import com.hikejournal.app.data.Sighting
 import com.hikejournal.app.data.SpeciesLabel
 import com.hikejournal.app.data.SpeciesRecord
+import com.hikejournal.app.data.SpeciesReviewSelection
 import com.hikejournal.app.data.SpeciesReviewBatchWork
 import com.hikejournal.app.data.SyncStatus
 import com.hikejournal.app.data.SyncScheduler
@@ -2660,29 +2661,25 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             .distinctBy { it.id }
         if (eligible.isEmpty()) return
         viewModelScope.launch {
-            val syncImmediately = _state.value.syncStatus.connected
             _state.update {
                 it.copy(
                     reviewUpdateId = "batch",
-                    isSyncing = syncImmediately,
                     error = null,
                     notice = null,
                 )
             }
             val enqueueResult = runCatching {
-                eligible.forEach { photo ->
-                    val hikeId = photo.hikeId ?: _state.value.journal?.id ?: "everyday"
-                    repository.setSpeciesReview(
-                        photoId = photo.id,
-                        hikeId = hikeId,
-                        queued = true,
-                        scheduleSync = false,
-                    )
-                }
+                repository.setSpeciesReviewBatch(
+                    eligible.map { photo ->
+                        SpeciesReviewSelection(
+                            photoId = photo.id,
+                            hikeId = photo.hikeId ?: _state.value.journal?.id ?: "everyday",
+                        )
+                    },
+                )
             }
             if (enqueueResult.isFailure) {
-                // Some items may already be durable even if a later item failed.
-                // Make sure those successful writes are never left without a worker.
+                // The batch is atomic, but an earlier queued change may still need a worker.
                 repository.scheduleSync()
                 _state.update {
                     it.copy(
@@ -2712,28 +2709,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     ),
                     reviewQueue = emptyList(),
                     reviewUpdateId = null,
-                    notice = if (syncImmediately) "$addedNotice Syncing automatically…" else addedNotice,
+                    notice = "$addedNotice Syncing automatically in the background…",
                 )
             }
 
-            // Keep one durable handoff in case the app closes, then start immediately while
-            // this foreground session is available. The user's review choice is the action;
-            // tapping a second Sync button must not be required.
-            repository.scheduleSync()
-            if (!syncImmediately) return@launch
-
-            val syncResult = runCatching { repository.syncNow() }
-            if (syncResult.getOrNull() == false) {
-                _state.value.journal?.id?.let { refreshJournalAfterSync(it) }
-            }
             _state.update { state ->
                 state.copy(
                     isSyncing = false,
-                    notice = if (syncResult.getOrNull() == false) {
-                        addedNotice
-                    } else {
-                        "$addedNotice Automatic sync will keep retrying in the background."
-                    },
+                    notice = "$addedNotice Automatic sync will keep retrying in the background.",
                 )
             }
         }

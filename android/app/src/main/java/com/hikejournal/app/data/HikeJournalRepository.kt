@@ -1061,6 +1061,14 @@ class HikeJournalRepository(context: Context) {
         withContext(Dispatchers.IO) { File(cacheDirectory, "species-review.json").delete() }
     }
 
+    suspend fun setSpeciesReviewBatch(
+        selections: List<SpeciesReviewSelection>,
+        queued: Boolean = true,
+    ) {
+        fieldQueue.queueSpeciesReviewBatch(selections, queued = queued)
+        withContext(Dispatchers.IO) { File(cacheDirectory, "species-review.json").delete() }
+    }
+
     suspend fun assignKnownSpecies(photoId: String, hikeId: String?, species: SpeciesRecord) {
         fieldQueue.queueKnownSpecies(photoId, hikeId, species)
         withContext(Dispatchers.IO) {

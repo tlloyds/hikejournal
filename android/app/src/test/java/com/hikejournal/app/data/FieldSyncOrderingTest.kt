@@ -2,12 +2,25 @@ package com.hikejournal.app.data
 
 import com.hikejournal.app.data.local.PendingOperationEntity
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.json.JSONObject
 
 class FieldSyncOrderingTest {
+    @Test
+    fun `species review changes always use a foreground worker`() {
+        assertTrue(shouldPromoteFieldSyncToForeground(photoCount = 0, reviewCount = 1))
+        assertTrue(shouldPromoteFieldSyncToForeground(photoCount = 3, reviewCount = 12))
+    }
+
+    @Test
+    fun `small ordinary syncs can remain regular work`() {
+        assertTrue(shouldPromoteFieldSyncToForeground(photoCount = 10, reviewCount = 0))
+        assertFalse(shouldPromoteFieldSyncToForeground(photoCount = 9, reviewCount = 0))
+    }
+
     @Test
     fun `photo upload without capture metadata omits taken at`() {
         assertNull(pendingPhotoTakenAt(JSONObject()))

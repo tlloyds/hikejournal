@@ -92,6 +92,11 @@ private const val LONG_RUNNING_PHOTO_UPLOAD_THRESHOLD = 10
 private val fieldSyncMutex = Mutex()
 internal val journalCacheMutex = Mutex()
 
+internal fun shouldPromoteFieldSyncToForeground(
+    photoCount: Int,
+    reviewCount: Int,
+): Boolean = reviewCount > 0 || photoCount >= LONG_RUNNING_PHOTO_UPLOAD_THRESHOLD
+
 data class HikeDeletionStatus(
     val pending: Boolean,
     val needsAttention: Boolean,
@@ -112,6 +117,14 @@ data class FieldSyncProgress(
     val totalPhotoCount: Int,
     val completedPhotoCount: Int,
     val remainingPhotoCount: Int,
+    val totalReviewCount: Int = 0,
+    val completedReviewCount: Int = 0,
+    val remainingReviewCount: Int = 0,
+)
+
+data class SpeciesReviewSelection(
+    val photoId: String,
+    val hikeId: String?,
 )
 
 internal fun PendingOperationEntity.targetHikeId(): String? = parentId ?: entityId.takeIf {
@@ -770,39 +783,69 @@ class FieldOperationQueue(private val context: Context) {
         hikeId: String?,
         queued: Boolean,
         scheduleSync: Boolean = true,
+    ) = queueSpeciesReviewBatch(
+        selections = listOf(SpeciesReviewSelection(photoId, hikeId)),
+        queued = queued,
+        scheduleSync = scheduleSync,
+    )
+
+    /**
+     * Persists a multi-select review change as one local transaction before scheduling work.
+     * This keeps a process death or Activity backgrounding from interrupting the selection loop
+     * before its first WorkManager request is submitted.
+     */
+    suspend fun queueSpeciesReviewBatch(
+        selections: List<SpeciesReviewSelection>,
+        queued: Boolean = true,
+        scheduleSync: Boolean = true,
     ) {
-        val updatedPendingUpload = fieldSyncMutex.withLock {
-            val pendingUpload = dao.find(OperationKind.UploadPhoto, photoId)
-            if (pendingUpload == null || pendingUpload.state == "syncing") return@withLock false
-            val targetHikeId = pendingUpload.parentId
-            if (targetHikeId != null && dao.find(OperationKind.DeleteHike, targetHikeId) != null) {
-                throw IOException("This hike is already being deleted.")
+        val distinctSelections = selections.distinctBy(SpeciesReviewSelection::photoId)
+        if (distinctSelections.isEmpty()) return
+        fieldSyncMutex.withLock {
+            database.withTransaction {
+                distinctSelections.forEach { selection ->
+                    val pendingUpload = dao.find(OperationKind.UploadPhoto, selection.photoId)
+                    val targetHikeId = pendingUpload?.parentId ?: selection.hikeId
+                    if (targetHikeId != null && dao.find(OperationKind.DeleteHike, targetHikeId) != null) {
+                        throw IOException("This hike is already being deleted.")
+                    }
+                    if (pendingUpload != null && pendingUpload.state != "syncing") {
+                        dao.upsert(
+                            pendingUpload.copy(
+                                payloadJson = JSONObject(pendingUpload.payloadJson)
+                                    .put("queue_for_review", queued)
+                                    .toString(),
+                                state = "queued",
+                                attemptCount = 0,
+                                updatedAt = System.currentTimeMillis(),
+                                lastError = null,
+                            ),
+                        )
+                    } else {
+                        dao.deleteReplaceable(OperationKind.QueueSpeciesReview, selection.photoId)
+                        val now = System.currentTimeMillis()
+                        dao.upsert(
+                            PendingOperationEntity(
+                                id = UUID.randomUUID().toString(),
+                                kind = OperationKind.QueueSpeciesReview,
+                                entityId = selection.photoId,
+                                parentId = selection.hikeId,
+                                payloadJson = JSONObject().put("queued", queued).toString(),
+                                localFilePath = null,
+                                contentType = null,
+                                fileName = null,
+                                state = "queued",
+                                attemptCount = 0,
+                                createdAt = now,
+                                updatedAt = now,
+                                lastError = null,
+                            ),
+                        )
+                    }
+                }
             }
-            dao.upsert(
-                pendingUpload.copy(
-                    payloadJson = JSONObject(pendingUpload.payloadJson)
-                        .put("queue_for_review", queued)
-                        .toString(),
-                    state = "queued",
-                    attemptCount = 0,
-                    updatedAt = System.currentTimeMillis(),
-                    lastError = null,
-                ),
-            )
-            true
         }
-        if (updatedPendingUpload) {
-            if (scheduleSync) SyncScheduler.schedule(context)
-            return
-        }
-        coalesce(OperationKind.QueueSpeciesReview, photoId)
-        enqueue(
-            OperationKind.QueueSpeciesReview,
-            photoId,
-            hikeId,
-            JSONObject().put("queued", queued),
-            scheduleSync = scheduleSync,
-        )
+        if (scheduleSync) SyncScheduler.schedule(context)
     }
 
     suspend fun queueKnownSpecies(photoId: String, hikeId: String?, species: SpeciesRecord) {
@@ -1703,22 +1746,33 @@ class FieldSyncEngine(private val context: Context) {
         operation.kind == OperationKind.UploadPhoto && operation.state in setOf("queued", "syncing")
     }
 
+    suspend fun pendingSpeciesReviewCount(): Int = dao.listAll().count { operation ->
+        operation.kind == OperationKind.QueueSpeciesReview && operation.state in setOf("queued", "syncing")
+    }
+
     suspend fun drain(
         prioritizedPhotoId: String? = null,
         onProgress: suspend (FieldSyncProgress) -> Unit = {},
     ): Boolean = fieldSyncMutex.withLock {
         var shouldRetry = false
         var completedPhotoCount = 0
+        var completedReviewCount = 0
         var totalPhotoCount = pendingPhotoCount()
+        var totalReviewCount = pendingSpeciesReviewCount()
 
         suspend fun reportProgress() {
             val remainingPhotoCount = pendingPhotoCount()
+            val remainingReviewCount = pendingSpeciesReviewCount()
             totalPhotoCount = maxOf(totalPhotoCount, completedPhotoCount + remainingPhotoCount)
+            totalReviewCount = maxOf(totalReviewCount, completedReviewCount + remainingReviewCount)
             onProgress(
                 FieldSyncProgress(
                     totalPhotoCount = totalPhotoCount,
                     completedPhotoCount = completedPhotoCount,
                     remainingPhotoCount = remainingPhotoCount,
+                    totalReviewCount = totalReviewCount,
+                    completedReviewCount = completedReviewCount,
+                    remainingReviewCount = remainingReviewCount,
                 )
             )
         }
@@ -1778,6 +1832,7 @@ class FieldSyncEngine(private val context: Context) {
                         dao.delete(operation.id)
                     }
                     if (operation.kind == OperationKind.UploadPhoto) completedPhotoCount += 1
+                    if (operation.kind == OperationKind.QueueSpeciesReview) completedReviewCount += 1
                 } else {
                     val attempts = operation.attemptCount + 1
                     val permanent = error is ApiException &&
@@ -2088,12 +2143,23 @@ class FieldSyncWorker(context: Context, parameters: WorkerParameters) : Coroutin
     override suspend fun doWork(): Result {
         val engine = FieldSyncEngine(applicationContext)
         val initialPhotoCount = engine.pendingPhotoCount()
-        var foregroundTransfer = initialPhotoCount >= LONG_RUNNING_PHOTO_UPLOAD_THRESHOLD
+        val initialReviewCount = engine.pendingSpeciesReviewCount()
+        var foregroundTransfer = shouldPromoteFieldSyncToForeground(initialPhotoCount, initialReviewCount)
         if (foregroundTransfer) {
-            setForeground(createForegroundInfo(FieldSyncProgress(initialPhotoCount, 0, initialPhotoCount)))
+            setForeground(
+                createForegroundInfo(
+                    FieldSyncProgress(
+                        totalPhotoCount = initialPhotoCount,
+                        completedPhotoCount = 0,
+                        remainingPhotoCount = initialPhotoCount,
+                        totalReviewCount = initialReviewCount,
+                        remainingReviewCount = initialReviewCount,
+                    ),
+                ),
+            )
         }
         val shouldRetry = engine.drain { progress ->
-            if (progress.totalPhotoCount >= LONG_RUNNING_PHOTO_UPLOAD_THRESHOLD) {
+            if (shouldPromoteFieldSyncToForeground(progress.totalPhotoCount, progress.totalReviewCount)) {
                 foregroundTransfer = true
             }
             if (foregroundTransfer) setForeground(createForegroundInfo(progress))
@@ -2106,10 +2172,10 @@ class FieldSyncWorker(context: Context, parameters: WorkerParameters) : Coroutin
         manager.createNotificationChannel(
             NotificationChannel(
                 SYNC_NOTIFICATION_CHANNEL_ID,
-                "Photo uploads",
+                "Background sync",
                 NotificationManager.IMPORTANCE_LOW,
             ).apply {
-                description = "Progress for HikeJournal photo transfers"
+                description = "Progress for HikeJournal background sync"
             }
         )
         val openApp = PendingIntent.getActivity(
@@ -2118,23 +2184,40 @@ class FieldSyncWorker(context: Context, parameters: WorkerParameters) : Coroutin
             Intent(applicationContext, MainActivity::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        val progressMax = progress.totalPhotoCount.coerceAtLeast(1)
-        val uploaded = progress.completedPhotoCount.coerceAtMost(progressMax)
+        val reviewOnly = progress.totalReviewCount > 0 && progress.totalPhotoCount == 0
+        val progressMax = if (reviewOnly) {
+            progress.totalReviewCount.coerceAtLeast(1)
+        } else {
+            progress.totalPhotoCount.coerceAtLeast(1)
+        }
+        val completed = if (reviewOnly) {
+            progress.completedReviewCount.coerceAtMost(progressMax)
+        } else {
+            progress.completedPhotoCount.coerceAtMost(progressMax)
+        }
         val notification = NotificationCompat.Builder(applicationContext, SYNC_NOTIFICATION_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_tracking_notification)
-            .setContentTitle("Uploading HikeJournal photos")
+            .setContentTitle(
+                if (reviewOnly) {
+                    "Syncing HikeJournal species review"
+                } else {
+                    "Syncing HikeJournal"
+                },
+            )
             .setContentText(
-                if (progress.remainingPhotoCount == 0) {
+                if (reviewOnly) {
+                    "${progress.completedReviewCount} of ${progress.totalReviewCount} review choices saved"
+                } else if (progress.remainingPhotoCount == 0) {
                     "Finishing photo sync…"
                 } else {
-                    "$uploaded of ${progress.totalPhotoCount} uploaded · ${progress.remainingPhotoCount} remaining"
+                    "$completed of ${progress.totalPhotoCount} uploaded · ${progress.remainingPhotoCount} remaining"
                 }
             )
             .setContentIntent(openApp)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setCategory(NotificationCompat.CATEGORY_PROGRESS)
-            .setProgress(progressMax, uploaded, false)
+            .setProgress(progressMax, completed, false)
             .build()
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             ForegroundInfo(
