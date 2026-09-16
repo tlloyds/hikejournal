@@ -3,6 +3,7 @@ package com.hikejournal.app.data
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.Locale
 
 class SpeciesFiltersTest {
     private val species = listOf(
@@ -59,6 +60,45 @@ class SpeciesFiltersTest {
             filterSpeciesBySearch(searchable, "SANDY").map { it.commonName },
         )
         assertTrue(filterSpeciesBySearch(searchable, " ") === searchable)
+    }
+
+    @Test
+    fun `search and observation type filters compose`() {
+        val searchable = listOf(
+            species("Ghost orchid", "Plantae", wikipediaSummary = "A rare orchid."),
+            species("Ghost crab", "Animalia", wikipediaSummary = "A sandy crab."),
+            species("Wood stork", "Aves", wikipediaSummary = "A wading bird."),
+        )
+
+        assertEquals(
+            listOf("Ghost orchid"),
+            filterSpeciesBySearch(
+                filterSpeciesByObservationType(searchable, ObservationTypeFilter.Plants),
+                "ghost",
+            ).map { it.commonName },
+        )
+        assertEquals(
+            listOf("Ghost crab"),
+            filterSpeciesBySearch(
+                filterSpeciesByObservationType(searchable, ObservationTypeFilter.Animals),
+                "sandy",
+            ).map { it.commonName },
+        )
+    }
+
+    @Test
+    fun `observation filters are stable in Turkish locale`() {
+        val originalLocale = Locale.getDefault()
+        try {
+            Locale.setDefault(Locale("tr", "TR"))
+            assertEquals(
+                listOf("Wood stork"),
+                filterSpeciesByObservationType(species, ObservationTypeFilter.Birds)
+                    .map { it.commonName },
+            )
+        } finally {
+            Locale.setDefault(originalLocale)
+        }
     }
 
     private fun species(

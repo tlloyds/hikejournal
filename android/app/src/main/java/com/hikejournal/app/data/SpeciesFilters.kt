@@ -1,5 +1,7 @@
 package com.hikejournal.app.data
 
+import java.util.Locale
+
 enum class ObservationTypeFilter(val label: String) {
     All("All types"),
     Plants("Plants"),
@@ -34,7 +36,7 @@ fun iconicTaxonMatchesObservationType(
     iconicTaxonName: String,
     filter: ObservationTypeFilter,
 ): Boolean {
-    val iconicTaxon = iconicTaxonName.trim().lowercase()
+    val iconicTaxon = iconicTaxonName.trim().lowercase(Locale.ROOT)
     return when (filter) {
         ObservationTypeFilter.All -> true
         ObservationTypeFilter.Plants -> iconicTaxon == "plantae"

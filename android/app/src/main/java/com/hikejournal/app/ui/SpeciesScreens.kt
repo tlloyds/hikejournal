@@ -173,12 +173,8 @@ fun SpeciesIndexScreen(
     onOpenSpecies: (String, List<SpeciesRecord>, String) -> Unit,
 ) {
     var mode by remember { mutableStateOf(SpeciesMode.Collection) }
-    var query by remember { mutableStateOf(collectionPreferences.query) }
-    var speciesSort by remember { mutableStateOf(collectionPreferences.sort) }
     var speciesSortOpen by remember { mutableStateOf(false) }
-    var selectedHikeId by remember { mutableStateOf(collectionPreferences.selectedHikeId) }
     var filterOpen by remember { mutableStateOf(false) }
-    var observationType by remember { mutableStateOf(collectionPreferences.observationType) }
     var observationTypeFilterOpen by remember { mutableStateOf(false) }
     var areaSearch by remember { mutableStateOf("") }
     var selectedAreaId by remember { mutableStateOf<String?>(null) }
@@ -197,6 +193,10 @@ fun SpeciesIndexScreen(
     var renamingQuest by remember { mutableStateOf<FieldQuest?>(null) }
     var questNameDraft by remember { mutableStateOf("") }
     var nearbyResultLimit by remember { mutableIntStateOf(StandardNearbyLimit) }
+    val query = collectionPreferences.query
+    val speciesSort = collectionPreferences.sort
+    val selectedHikeId = collectionPreferences.selectedHikeId
+    val observationType = collectionPreferences.observationType
     val context = LocalContext.current
     val selectedArea = discoveryAreas.firstOrNull { it.id == selectedAreaId }
     val visibleAreas = filterDiscoveryAreas(discoveryAreas, areaSearch)
@@ -374,7 +374,6 @@ fun SpeciesIndexScreen(
                 OutlinedTextField(
                     value = query,
                     onValueChange = {
-                        query = it
                         onCollectionPreferencesChange(collectionPreferences.copy(query = it))
                     },
                     modifier = Modifier.weight(1f).padding(start = 6.dp),
@@ -824,7 +823,6 @@ fun SpeciesIndexScreen(
             hikes = hikes,
             selectedHikeId = selectedHikeId,
             onSelect = {
-                selectedHikeId = it
                 onCollectionPreferencesChange(collectionPreferences.copy(selectedHikeId = it))
                 filterOpen = false
             },
@@ -835,7 +833,6 @@ fun SpeciesIndexScreen(
         ObservationTypeFilterSheet(
             selectedType = observationType,
             onSelect = {
-                observationType = it
                 onCollectionPreferencesChange(collectionPreferences.copy(observationType = it))
                 observationTypeFilterOpen = false
             },
@@ -846,7 +843,6 @@ fun SpeciesIndexScreen(
         SpeciesSortSheet(
             selectedSort = speciesSort,
             onSelect = {
-                speciesSort = it
                 onCollectionPreferencesChange(collectionPreferences.copy(sort = it))
                 speciesSortOpen = false
             },
