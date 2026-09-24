@@ -15,6 +15,7 @@ import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import android.util.Log
+import android.widget.Toast
 import androidx.compose.runtime.DisposableEffect
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
@@ -3433,8 +3434,11 @@ private fun PhotoViewer(
     onViewMap: (() -> Unit)?,
 ) {
     val identifiedSpecies = photo.species.firstOrNull { it.isPrimary }
+    val context = LocalContext.current
+    val shareScope = rememberCoroutineScope()
     val uriHandler = LocalUriHandler.current
     var caption by remember(photo.id) { mutableStateOf(photo.caption) }
+    var sharing by remember(photo.id) { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     var confirmRemoveSpecies by remember { mutableStateOf(false) }
     var photoFullscreen by remember { mutableStateOf(false) }
@@ -3446,6 +3450,34 @@ private fun PhotoViewer(
                 IconButton(onClick = onDismiss) { Icon(Icons.Rounded.Close, "Close", tint = Paper) }
                 Text("HikeJournal", style = MaterialTheme.typography.headlineSmall, color = Paper, modifier = Modifier.weight(1f))
                 Text("$position OF $total", style = MaterialTheme.typography.labelSmall, color = Color(0xFFBFD2B9))
+                if (!photo.isVideo) {
+                    IconButton(
+                        onClick = {
+                            if (sharing) return@IconButton
+                            sharing = true
+                            shareScope.launch {
+                                runCatching {
+                                    val uri = prepareSinglePhotoShare(context, photo)
+                                    launchSinglePhotoShare(context, photo, uri)
+                                }.onFailure { error ->
+                                    Toast.makeText(
+                                        context,
+                                        error.message ?: "HikeJournal could not prepare this photo to share.",
+                                        Toast.LENGTH_LONG,
+                                    ).show()
+                                }
+                                sharing = false
+                            }
+                        },
+                        enabled = !sharing,
+                    ) {
+                        if (sharing) {
+                            CircularProgressIndicator(Modifier.size(18.dp), color = Paper, strokeWidth = 2.dp)
+                        } else {
+                            Icon(Icons.Rounded.IosShare, "Share photo", tint = Paper)
+                        }
+                    }
+                }
                 IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Rounded.DeleteOutline, "Delete", tint = Color(0xFFE8A18F)) }
             }
             Box(

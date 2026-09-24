@@ -892,6 +892,33 @@ private fun cacheSharedPhoto(
     return destination
 }
 
+internal suspend fun prepareSinglePhotoShare(context: Context, photo: Photo): Uri =
+    withContext(Dispatchers.IO) {
+        require(!photo.contentType.startsWith("video/")) { "Only photos can be shared here." }
+        require(photo.url.isNotBlank()) { "This photo is not available to share." }
+        val shareDirectory = File(context.cacheDir, "shared_hikes").apply { mkdirs() }
+        shareDirectory.listFiles().orEmpty()
+            .filter { System.currentTimeMillis() - it.lastModified() > 24L * 60L * 60L * 1_000L }
+            .forEach(File::delete)
+        val safePhotoId = photo.id.replace(Regex("[^A-Za-z0-9._-]"), "-").take(64).ifBlank { "photo" }
+        val file = cacheSharedPhoto(context, photo, shareDirectory, "single-$safePhotoId", 0)
+        FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+    }
+
+internal fun launchSinglePhotoShare(context: Context, photo: Photo, uri: Uri) {
+    val shareIntent = Intent(Intent.ACTION_SEND).apply {
+        type = "image/*"
+        putExtra(Intent.EXTRA_STREAM, uri)
+        photo.caption.takeIf(String::isNotBlank)?.let { putExtra(Intent.EXTRA_TEXT, it) }
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        clipData = ClipData.newUri(context.contentResolver, "HikeJournal photo", uri)
+        if (context !is Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    val chooser = Intent.createChooser(shareIntent, "Share photo")
+    if (context !is Activity) chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    context.startActivity(chooser)
+}
+
 private fun launchHikeShare(
     context: Context,
     prepared: PreparedHikeShare,
