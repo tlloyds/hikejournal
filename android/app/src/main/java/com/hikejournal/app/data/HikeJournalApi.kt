@@ -26,6 +26,9 @@ import java.util.concurrent.TimeUnit
 internal fun postBodyOrEmpty(body: RequestBody?, jsonMediaType: MediaType): RequestBody =
     body ?: "{}".toRequestBody(jsonMediaType)
 
+private fun performancePathPrefix(path: String): String =
+    path.split('/').filter(String::isNotBlank).take(2).joinToString(separator = "/", prefix = "/")
+
 /**
  * Separate API instances share the encrypted session preferences. If another instance refreshed
  * the access token while this request was in flight, use that newer session instead of rotating
@@ -716,16 +719,45 @@ class HikeJournalApi(private val context: Context) {
         return builder.build()
     }
 
-    private fun executeRaw(request: Request): String = client.newCall(request).execute().use { response ->
-        val responseBody = response.body?.string().orEmpty()
-        if (!response.isSuccessful) {
-            val detail = runCatching { JSONObject(responseBody).optString("detail") }.getOrNull()
-            throw ApiException(
-                detail?.takeIf { it.isNotBlank() } ?: "HikeJournal returned ${response.code}.",
-                response.code,
-            )
+    private fun executeRaw(request: Request): String {
+        val startedAt = PerformanceTrace.start()
+        var responseRecorded = false
+        return try {
+            client.newCall(request).execute().use { response ->
+                val responseBody = response.body?.string().orEmpty()
+                val endpoint = performancePathPrefix(request.url.encodedPath)
+                val serverTiming = response.header("Server-Timing").orEmpty()
+                val requestId = response.header("X-Request-ID").orEmpty()
+                PerformanceTrace.recordSince(
+                    event = "http ${request.method} $endpoint",
+                    startedAtNanos = startedAt,
+                    details = buildString {
+                        append("status=${response.code} body_chars=${responseBody.length}")
+                        if (serverTiming.isNotBlank()) append(" server_timing=$serverTiming")
+                        if (requestId.isNotBlank()) append(" request_id=$requestId")
+                    },
+                )
+                responseRecorded = true
+                if (!response.isSuccessful) {
+                    val detail = runCatching { JSONObject(responseBody).optString("detail") }.getOrNull()
+                    throw ApiException(
+                        detail?.takeIf { it.isNotBlank() } ?: "HikeJournal returned ${response.code}.",
+                        response.code,
+                    )
+                }
+                responseBody
+            }
+        } catch (error: Exception) {
+            if (!responseRecorded) {
+                val endpoint = performancePathPrefix(request.url.encodedPath)
+                PerformanceTrace.recordSince(
+                    event = "http ${request.method} $endpoint failed",
+                    startedAtNanos = startedAt,
+                    details = "error=${error.javaClass.simpleName}",
+                )
+            }
+            throw error
         }
-        responseBody
     }
 
     private fun parseMobileSession(json: String): MobileSession {

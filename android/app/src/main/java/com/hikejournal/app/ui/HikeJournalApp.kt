@@ -619,7 +619,6 @@ fun HikeJournalApp(viewModel: AppViewModel) {
             TopDestination.Archive -> Unit
             TopDestination.Species -> {
                 viewModel.loadSpecies()
-                viewModel.loadSpeciesDiscovery()
             }
             TopDestination.Review -> {
                 viewModel.loadReviewQueue(force = true)
@@ -890,6 +889,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                     questSightingsMap = state.questSightingsMap,
                     initialNearbyAreaName = speciesEntryAreaName,
                     loading = state.isSpeciesLoading,
+                    refreshing = state.isSpeciesRefreshing,
                     discoveryLoading = state.isDiscoveryLoading,
                     savingQuest = state.isSavingQuest,
                     offline = state.isOffline,
@@ -898,6 +898,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                     questMapNotice = state.questMapNotice,
                     onRefresh = { viewModel.loadSpecies(force = true) },
                     onRefreshDiscovery = { viewModel.loadSpeciesDiscovery(force = true) },
+                    onOpenDiscovery = { viewModel.loadSpeciesDiscovery() },
                     onLoadNearby = viewModel::loadNearbySpecies,
                     onSaveQuest = { title, hikeId, focusIds, onSaved ->
                         viewModel.saveNearbyQuest(title, hikeId, focusIds, onSaved)

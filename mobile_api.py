@@ -1737,7 +1737,20 @@ def _visible_species_data(
     hikes = hikes if hikes is not None else _visible_hikes(svc.repository)
     hikes_by_id = {str(hike["id"]): hike for hike in hikes}
     visible_hike_ids = set(hikes_by_id)
-    observation_rows = svc.repository.list_lightweight_observations(status="confirmed")
+    try:
+        observation_rows = svc.repository.list_lightweight_observations(
+            status="confirmed",
+            hike_ids=sorted(visible_hike_ids),
+        )
+        observation_rows.extend(
+            svc.repository.list_lightweight_observations(
+                status="confirmed",
+                unlinked_only=True,
+            )
+        )
+    except TypeError:
+        # Older repository adapters can still use the prior visibility filter.
+        observation_rows = svc.repository.list_lightweight_observations(status="confirmed")
     observations = [
         observation
         for observation in observation_rows
@@ -1778,6 +1791,8 @@ def _visible_species_data(
 def _visible_species_counts_by_hike(
     svc: Services,
     visible_hike_ids: set[str],
+    visible_photo_ids: list[str] | None = None,
+    photos_by_id: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, int]:
     """Count confirmed species for the journal list without signing media URLs."""
     list_observations = getattr(svc.repository, "list_lightweight_observations", None)
@@ -1791,27 +1806,38 @@ def _visible_species_counts_by_hike(
         return {hike_id: len(keys) for hike_id, keys in buckets.items()}
 
     context = _user_context()
-    observations = list_observations(status="confirmed")
+    photo_ids = list(dict.fromkeys(str(photo_id) for photo_id in (visible_photo_ids or []) if photo_id))
+    try:
+        observations = list_observations(status="confirmed", hike_ids=sorted(visible_hike_ids))
+        if photo_ids:
+            observations.extend(list_observations(status="confirmed", photo_ids=photo_ids))
+    except TypeError:
+        # Keep lightweight repository adapters used by older deployments and tests compatible.
+        observations = list_observations(status="confirmed")
     visible_observations = [
         observation
         for observation in observations
         if record_visible_for_user(observation, visible_hike_ids, context)
     ]
-    photos_by_id: dict[str, dict[str, Any]] = {}
+    resolved_photos_by_id = dict(photos_by_id or {})
     unresolved_photo_ids = [
         str(observation.get("photo_id"))
         for observation in visible_observations
-        if not observation.get("hike_id") and observation.get("photo_id")
+        if not observation.get("hike_id")
+        and observation.get("photo_id")
+        and str(observation.get("photo_id")) not in resolved_photos_by_id
     ]
     if unresolved_photo_ids:
         photos = svc.repository.list_photo_records_for_ids(unresolved_photo_ids)
-        photos_by_id = {str(photo.get("id")): photo for photo in photos if photo.get("id")}
+        resolved_photos_by_id.update(
+            {str(photo.get("id")): photo for photo in photos if photo.get("id")}
+        )
 
     buckets: dict[str, set[str]] = defaultdict(set)
     for observation in visible_observations:
         hike_id = str(observation.get("hike_id") or "")
         if not hike_id:
-            hike_id = str(photos_by_id.get(str(observation.get("photo_id") or ""), {}).get("hike_id") or "")
+            hike_id = str(resolved_photos_by_id.get(str(observation.get("photo_id") or ""), {}).get("hike_id") or "")
         if hike_id in visible_hike_ids:
             buckets[hike_id].add(_species_key(observation))
     return {hike_id: len(keys) for hike_id, keys in buckets.items()}
@@ -3110,7 +3136,12 @@ def list_hikes() -> list[dict[str, Any]]:
             photo_id = str(photo.get("id") or "")
             if photo_id:
                 photos_by_id[photo_id] = photo
-    species_count_by_hike = _visible_species_counts_by_hike(svc, set(hike_ids))
+    species_count_by_hike = _visible_species_counts_by_hike(
+        svc,
+        set(hike_ids),
+        visible_photo_ids=list(photos_by_id),
+        photos_by_id=photos_by_id,
+    )
     outing_payloads = []
     for hike in hikes:
         hike_id = str(hike["id"])

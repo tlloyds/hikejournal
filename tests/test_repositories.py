@@ -39,6 +39,45 @@ def test_large_batch_size_reduces_species_log_round_trips() -> None:
     assert len(chunks[-1]) == 73
 
 
+def test_lightweight_observations_can_limit_reads_to_unlinked_rows() -> None:
+    calls: list[tuple[str, tuple[object, ...]]] = []
+
+    class Query:
+        def select(self, columns):
+            calls.append(("select", (columns,)))
+            return self
+
+        def is_(self, column, value):
+            calls.append(("is", (column, value)))
+            return self
+
+        def eq(self, column, value):
+            calls.append(("eq", (column, value)))
+            return self
+
+        def range(self, start, end):
+            calls.append(("range", (start, end)))
+            return self
+
+        def execute(self):
+            calls.append(("execute", ()))
+            return type("Response", (), {"data": []})()
+
+    class Client:
+        def table(self, name):
+            calls.append(("table", (name,)))
+            return Query()
+
+    repository = HikeJournalRepository(client=Client())
+
+    assert repository.list_lightweight_observations(
+        status="confirmed",
+        unlinked_only=True,
+    ) == []
+    assert ("is", ("hike_id", "null")) in calls
+    assert ("eq", ("status", "confirmed")) in calls
+
+
 def test_selected_hike_marker_query_disables_clustering_without_changing_master_zoom() -> None:
     class RpcCall:
         def execute(self):

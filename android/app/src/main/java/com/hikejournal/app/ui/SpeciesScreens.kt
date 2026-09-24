@@ -149,6 +149,7 @@ fun SpeciesIndexScreen(
     questSightingsMap: QuestSightingsMap?,
     initialNearbyAreaName: String?,
     loading: Boolean,
+    refreshing: Boolean = false,
     discoveryLoading: Boolean,
     savingQuest: Boolean,
     offline: Boolean,
@@ -157,6 +158,7 @@ fun SpeciesIndexScreen(
     questMapNotice: String?,
     onRefresh: () -> Unit,
     onRefreshDiscovery: () -> Unit,
+    onOpenDiscovery: () -> Unit,
     onLoadNearby: (String?, String, Int, List<String>, Double?, Double?, Int) -> Unit,
     onSaveQuest: (String, String?, List<Long>, (FieldQuest) -> Unit) -> Unit,
     onSaveQuestFocus: (FieldQuest, List<Long>) -> Unit,
@@ -220,14 +222,19 @@ fun SpeciesIndexScreen(
         focusTaxonIds = focusTaxonIds.filter { it in availableIds }
         nearbyResultLimit = nearbySpecies?.resultLimit ?: StandardNearbyLimit
     }
+    LaunchedEffect(mode) {
+        if (mode != SpeciesMode.Collection) onOpenDiscovery()
+    }
     LaunchedEffect(initialNearbyAreaName, discoveryAreas) {
-        if (initialNearbyAreaName != null && (initialNearbyAreaName.isBlank() || discoveryAreas.isNotEmpty())) {
+        if (initialNearbyAreaName != null) {
             mode = SpeciesMode.Nearby
             areaSearch = initialNearbyAreaName
             selectedAreaId = discoveryAreas.firstOrNull {
                 it.name.equals(initialNearbyAreaName, ignoreCase = true)
             }?.id
-            onInitialAreaConsumed()
+            if (initialNearbyAreaName.isBlank() || discoveryAreas.isNotEmpty()) {
+                onInitialAreaConsumed()
+            }
         }
     }
     val locationPermission = rememberLauncherForActivityResult(
@@ -322,9 +329,9 @@ fun SpeciesIndexScreen(
                         onClick = {
                             if (mode == SpeciesMode.Collection) onRefresh() else onRefreshDiscovery()
                         },
-                        enabled = !loading && !discoveryLoading,
+                        enabled = !loading && !refreshing && !discoveryLoading,
                     ) {
-                        if (loading || discoveryLoading) CircularProgressIndicator(Modifier.size(20.dp), color = Paper, strokeWidth = 2.dp)
+                        if (loading || refreshing || discoveryLoading) CircularProgressIndicator(Modifier.size(20.dp), color = Paper, strokeWidth = 2.dp)
                         else Icon(Icons.Rounded.Refresh, "Refresh species", tint = Paper)
                     }
                 }

@@ -2,12 +2,13 @@ package com.hikejournal.app.data
 
 import android.content.Context
 import android.net.Uri
+import com.hikejournal.app.BuildConfig
 import com.hikejournal.app.data.local.OfflineDatabase
 import com.hikejournal.app.tracking.TrackingRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -15,8 +16,10 @@ import java.io.File
 import java.io.IOException
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.StandardCopyOption
+import java.security.MessageDigest
 import java.time.Instant
 import java.time.LocalDate
+import java.util.concurrent.ConcurrentHashMap
 
 data class HikeDeletionResult(
     val notice: String? = null,
@@ -30,6 +33,16 @@ data class CachedMapData(
 )
 
 private const val HIKE_PHOTO_PAGE_SIZE = 100
+
+private fun cacheMetricName(file: File): String = when {
+    file.name == "hikes.json" -> "hikes"
+    file.name == "sightings.json" -> "sightings"
+    file.name == "map-routes.json" -> "map_routes"
+    file.name.startsWith("hike-") -> "hike_detail"
+    file.name.startsWith("species-index-") -> "species_index"
+    file.name.startsWith("species-") -> "species_data"
+    else -> file.nameWithoutExtension.takeIf { it.matches(Regex("[A-Za-z_-]+")) } ?: "cache"
+}
 
 internal fun expectedPhotoPageOffsets(expectedPhotoCount: Int?): List<Int> =
     expectedPhotoCount
@@ -46,6 +59,7 @@ class HikeJournalRepository(context: Context) {
     private val fieldQueue = FieldOperationQueue(appContext)
     private val trackingRepository = TrackingRepository.get(appContext)
     private val cacheDirectory = File(context.filesDir, "journal-cache").apply { mkdirs() }
+    private val cacheLoadLocks = ConcurrentHashMap<String, Mutex>()
 
     val syncStatus = fieldQueue.status
 
@@ -158,12 +172,23 @@ class HikeJournalRepository(context: Context) {
      * immediately at launch, then use [loadHikes] to revalidate it in the background.
      */
     suspend fun loadCachedHikes(): List<Hike>? {
-        val cachedList = withContext(Dispatchers.IO) {
-            File(cacheDirectory, "hikes.json")
-                .takeIf(File::exists)
-                ?.readText()
-                ?.takeIf(String::isNotBlank)
-        }?.let { json -> withContext(Dispatchers.Default) { parseHikes(json) } }
+        val archiveCache = File(cacheDirectory, "hikes.json")
+        val cachedList = journalCacheMutex.withMeasuredLock("read:${cacheMetricName(archiveCache)}") {
+            val readStarted = PerformanceTrace.start()
+            withContext(Dispatchers.IO) {
+                archiveCache
+                    .takeIf(File::exists)
+                    ?.readText()
+                    ?.takeIf(String::isNotBlank)
+            }.also {
+                PerformanceTrace.recordSince("cache_read ${cacheMetricName(archiveCache)}", readStarted)
+            }
+        }?.let { json ->
+            val parseStarted = PerformanceTrace.start()
+            withContext(Dispatchers.Default) { parseHikes(json) }.also {
+                PerformanceTrace.recordSince("cache_parse ${cacheMetricName(archiveCache)}", parseStarted)
+            }
+        }
         val cachedDetails = loadCachedHikeFiles()
         if (cachedList == null && cachedDetails.none { it.isLocalDraft }) return null
 
@@ -346,7 +371,7 @@ class HikeJournalRepository(context: Context) {
         val weatherJson = JSONObject(api.enrichHikeWeatherJson(hikeId, force))
         val weather = parseWeatherSnapshot(weatherJson)
             ?: throw IllegalStateException("The companion returned no weather summary.")
-        journalCacheMutex.withLock {
+        journalCacheMutex.withMeasuredLock("write:hike_detail") {
             withContext(Dispatchers.IO) {
                 val cacheFile = File(cacheDirectory, "hike-$hikeId.json")
                 if (cacheFile.exists()) {
@@ -378,84 +403,93 @@ class HikeJournalRepository(context: Context) {
         hikeId: String,
         expectedPhotoCount: Int? = null,
         onProgress: ((Hike) -> Unit)? = null,
-    ): LoadResult<Hike> = journalCacheMutex.withLock {
+    ): LoadResult<Hike> {
         val cacheFile = File(cacheDirectory, "hike-$hikeId.json")
-        try {
-            val json = api.getHikeJson(hikeId)
-            val payload = JSONObject(json)
-            val localMarks = fieldQueue.localFieldMarks(hikeId)
-            onProgress?.invoke(hydrateHikePayload(payload, hikeId, localMarks))
-            val photos = JSONArray()
-            val routePayload = coroutineScope {
-                val routeRequest = async { JSONObject(api.getHikeRouteJson(hikeId)) }
+        return withCacheLoadLock(cacheFile) {
+            try {
+                val json = api.getHikeJson(hikeId)
+                val payload = JSONObject(json)
+                val localMarks = fieldQueue.localFieldMarks(hikeId)
+                onProgress?.invoke(hydrateHikePayload(payload, hikeId, localMarks))
+                val photos = JSONArray()
+                val routePayload = coroutineScope {
+                    val routeRequest = async { JSONObject(api.getHikeRouteJson(hikeId)) }
 
-                suspend fun appendPage(page: JSONObject): Int {
-                    val pagePhotos = page.optJSONArray("photos") ?: JSONArray()
-                    for (index in 0 until pagePhotos.length()) photos.put(pagePhotos.getJSONObject(index))
-                    payload.put("photos", photos)
-                    payload.put("photo_count", photos.length())
-                    onProgress?.invoke(hydrateHikePayload(payload, hikeId, localMarks))
-                    return if (page.isNull("next_offset")) -1 else page.optInt("next_offset", -1)
-                }
-
-                val expectedOffsets = expectedPhotoPageOffsets(expectedPhotoCount)
-                var offset = if (expectedOffsets.isEmpty()) {
-                    appendPage(JSONObject(api.getHikePhotosJson(hikeId, 0)))
-                } else {
-                    val pageRequests = expectedOffsets.map { pageOffset ->
-                        pageOffset to async {
-                            JSONObject(api.getHikePhotosJson(hikeId, pageOffset))
-                        }
+                    suspend fun appendPage(page: JSONObject): Int {
+                        val pagePhotos = page.optJSONArray("photos") ?: JSONArray()
+                        for (index in 0 until pagePhotos.length()) photos.put(pagePhotos.getJSONObject(index))
+                        payload.put("photos", photos)
+                        payload.put("photo_count", photos.length())
+                        onProgress?.invoke(hydrateHikePayload(payload, hikeId, localMarks))
+                        return if (page.isNull("next_offset")) -1 else page.optInt("next_offset", -1)
                     }
-                    var nextOffset = -1
-                    pageRequests.forEach { (_, request) -> nextOffset = appendPage(request.await()) }
-                    nextOffset
+
+                    val expectedOffsets = expectedPhotoPageOffsets(expectedPhotoCount)
+                    var offset = if (expectedOffsets.isEmpty()) {
+                        appendPage(JSONObject(api.getHikePhotosJson(hikeId, 0)))
+                    } else {
+                        val pageRequests = expectedOffsets.map { pageOffset ->
+                            pageOffset to async {
+                                JSONObject(api.getHikePhotosJson(hikeId, pageOffset))
+                            }
+                        }
+                        var nextOffset = -1
+                        pageRequests.forEach { (_, request) -> nextOffset = appendPage(request.await()) }
+                        nextOffset
+                    }
+                    while (offset >= 0 && offset !in expectedOffsets) {
+                        offset = appendPage(JSONObject(api.getHikePhotosJson(hikeId, offset)))
+                    }
+                    routeRequest.await()
                 }
-                while (offset >= 0 && offset !in expectedOffsets) {
-                    offset = appendPage(JSONObject(api.getHikePhotosJson(hikeId, offset)))
+                payload.put("photos", photos)
+                payload.put("photo_count", photos.length())
+                if (payload.optString("cover_url").isBlank()) {
+                    val coverId = payload.optString("cover_photo_id")
+                    val cover = if (coverId.isNotBlank()) {
+                        (0 until photos.length())
+                            .asSequence()
+                            .map { photos.getJSONObject(it) }
+                            .firstOrNull { it.optString("id") == coverId }
+                    } else {
+                        if (photos.length() > 0) photos.getJSONObject(photos.length() - 1) else null
+                    }
+                    payload.put("cover_url", cover?.optString("url").orEmpty())
                 }
-                routeRequest.await()
-            }
-            payload.put("photos", photos)
-            payload.put("photo_count", photos.length())
-            if (payload.optString("cover_url").isBlank()) {
-                val coverId = payload.optString("cover_photo_id")
-                val cover = if (coverId.isNotBlank()) {
-                    (0 until photos.length())
-                        .asSequence()
-                        .map { photos.getJSONObject(it) }
-                        .firstOrNull { it.optString("id") == coverId }
-                } else {
-                    if (photos.length() > 0) photos.getJSONObject(photos.length() - 1) else null
+                payload.put("route_segments", routePayload.optJSONArray("route_segments") ?: JSONArray())
+                if (!routePayload.isNull("duration_seconds")) {
+                    payload.put("duration_seconds", routePayload.optLong("duration_seconds"))
                 }
-                payload.put("cover_url", cover?.optString("url").orEmpty())
+                if (!routePayload.isNull("started_at")) {
+                    payload.put("route_started_at", routePayload.optString("started_at"))
+                }
+                journalCacheMutex.withMeasuredLock("write:${cacheMetricName(cacheFile)}") {
+                    val writeStarted = PerformanceTrace.start()
+                    withContext(Dispatchers.IO) {
+                        val preserveLocalDraft = runCatching {
+                            cacheFile.takeIf(File::exists)
+                                ?.readText()
+                                ?.let(::JSONObject)
+                                ?.optBoolean(LOCAL_DRAFT_MARKER)
+                        }.getOrNull() == true
+                        if (preserveLocalDraft) payload.put(LOCAL_DRAFT_MARKER, true)
+                        writeJsonAtomically(cacheFile, payload)
+                    }.also {
+                        PerformanceTrace.recordSince("cache_write ${cacheMetricName(cacheFile)}", writeStarted)
+                    }
+                }
+                val hydrated = hydrateHikePayload(payload, hikeId, localMarks)
+                if (hydrated.routeSegments.isNotEmpty()) trackingRepository.clearFinished(hikeId)
+                LoadResult(hydrated, fromCache = false)
+            } catch (networkError: Exception) {
+                val cached = readCachedText(cacheFile)
+                val parseStarted = PerformanceTrace.start()
+                val parsed = withContext(Dispatchers.Default) { cached?.let(::parseHike) }
+                if (cached != null) PerformanceTrace.recordSince("cache_parse ${cacheMetricName(cacheFile)}", parseStarted)
+                val overlay = fieldQueue.overlayHike(parsed, hikeId)
+                if (overlay == null) throw networkError
+                LoadResult(overlayRetainedTrackingRoute(overlay, hikeId), fromCache = true)
             }
-            payload.put("route_segments", routePayload.optJSONArray("route_segments") ?: JSONArray())
-            if (!routePayload.isNull("duration_seconds")) {
-                payload.put("duration_seconds", routePayload.optLong("duration_seconds"))
-            }
-            if (!routePayload.isNull("started_at")) {
-                payload.put("route_started_at", routePayload.optString("started_at"))
-            }
-            withContext(Dispatchers.IO) {
-                val preserveLocalDraft = runCatching {
-                    cacheFile.takeIf(File::exists)
-                        ?.readText()
-                        ?.let(::JSONObject)
-                        ?.optBoolean(LOCAL_DRAFT_MARKER)
-                }.getOrNull() == true
-                if (preserveLocalDraft) payload.put(LOCAL_DRAFT_MARKER, true)
-                writeJsonAtomically(cacheFile, payload)
-            }
-            val hydrated = hydrateHikePayload(payload, hikeId, localMarks)
-            if (hydrated.routeSegments.isNotEmpty()) trackingRepository.clearFinished(hikeId)
-            LoadResult(hydrated, fromCache = false)
-        } catch (networkError: Exception) {
-            val cached = withContext(Dispatchers.IO) { cacheFile.takeIf { it.exists() }?.readText() }
-            val parsed = withContext(Dispatchers.Default) { cached?.let(::parseHike) }
-            val overlay = fieldQueue.overlayHike(parsed, hikeId)
-            if (overlay == null) throw networkError
-            LoadResult(overlayRetainedTrackingRoute(overlay, hikeId), fromCache = true)
         }
     }
 
@@ -471,22 +505,19 @@ class HikeJournalRepository(context: Context) {
         return overlayRetainedTrackingRoute(overlay, hikeId)
     }
 
-    suspend fun loadCachedHike(hikeId: String, expectedPhotoCount: Int? = null): Hike? = journalCacheMutex.withLock {
+    suspend fun loadCachedHike(hikeId: String, expectedPhotoCount: Int? = null): Hike? {
         val cacheFile = File(cacheDirectory, "hike-$hikeId.json")
-        val parsed = withContext(Dispatchers.IO) {
-            cacheFile
-                .takeIf { it.exists() }
-                ?.readText()
-                ?.takeIf { it.isNotBlank() }
-                ?.let(::parseHike)
-        }
+        val cachedJson = readCachedText(cacheFile)
+        val parseStarted = PerformanceTrace.start()
+        val parsed = cachedJson?.let { json -> withContext(Dispatchers.Default) { parseHike(json) } }
+        if (cachedJson != null) PerformanceTrace.recordSince("cache_parse ${cacheMetricName(cacheFile)}", parseStarted)
         val cached = fieldQueue.overlayHike(
             parsed?.let { overlayFieldMarks(it, fieldQueue.localFieldMarks(hikeId)) },
             hikeId,
         )?.let {
             overlayRetainedTrackingRoute(it, hikeId)
         }
-        if (expectedPhotoCount != null && cached?.photoCount != expectedPhotoCount) null else cached
+        return if (expectedPhotoCount != null && cached?.photoCount != expectedPhotoCount) null else cached
     }
 
     private fun overlayFieldMarks(hike: Hike, local: List<FieldMark>): Hike {
@@ -496,9 +527,38 @@ class HikeJournalRepository(context: Context) {
         return hike.copy(fieldMarks = merged.values.sortedBy(FieldMark::markedAt))
     }
 
+    private fun speciesIndexCacheFile(): File {
+        val ownerKey = api.authAccount?.subject?.takeIf(String::isNotBlank) ?: "local"
+        val accountHash = MessageDigest.getInstance("SHA-256")
+            .digest(ownerKey.toByteArray(Charsets.UTF_8))
+            .take(12)
+            .joinToString("") { byte -> "%02x".format(byte) }
+        return File(cacheDirectory, "species-index-$accountHash.json")
+    }
+
+    suspend fun loadCachedSpecies(): LoadResult<List<SpeciesRecord>>? {
+        val cacheFile = speciesIndexCacheFile()
+        val legacyCacheFile = File(cacheDirectory, "species.json")
+        val json = readCachedText(cacheFile)
+            ?: (if (api.authAccount != null || !BuildConfig.GOOGLE_AUTH_ENABLED) {
+                readCachedText(legacyCacheFile)
+            } else {
+                null
+            })?.also { writeCachedText(cacheFile, it) }
+            ?: return null
+        val parseStarted = PerformanceTrace.start()
+        val species = withContext(Dispatchers.Default) { parseSpeciesList(json) }
+        PerformanceTrace.recordSince("cache_parse ${cacheMetricName(cacheFile)}", parseStarted)
+        val deletedHikeIds = fieldQueue.deletedHikeIds()
+        return LoadResult(
+            value = species.mapNotNull { it.withoutHikes(deletedHikeIds) },
+            fromCache = true,
+        )
+    }
+
     suspend fun loadSpecies(): LoadResult<List<SpeciesRecord>> {
         val result = loadWithCache(
-            cacheFile = File(cacheDirectory, "species.json"),
+            cacheFile = speciesIndexCacheFile(),
             fetch = api::getSpeciesJson,
             parse = ::parseSpeciesList,
         )
@@ -696,10 +756,13 @@ class HikeJournalRepository(context: Context) {
      * The caller can render this immediately and revalidate both feeds in the background.
      */
     suspend fun loadCachedMapData(): CachedMapData {
-        val (sightingsJson, routesJson) = journalCacheMutex.withLock {
+        val (sightingsJson, routesJson) = journalCacheMutex.withMeasuredLock("read:map-snapshot") {
+            val readStarted = PerformanceTrace.start()
             withContext(Dispatchers.IO) {
                 File(cacheDirectory, "sightings.json").takeIf(File::exists)?.readText() to
                     File(cacheDirectory, "map-routes.json").takeIf(File::exists)?.readText()
+            }.also {
+                PerformanceTrace.recordSince("cache_read map-snapshot", readStarted)
             }
         }
         val deletedHikeIds = fieldQueue.deletedHikeIds()
@@ -860,11 +923,7 @@ class HikeJournalRepository(context: Context) {
 
     suspend fun publishObservation(item: PublishItem, options: PublishOptions): PublishItem {
         val published = parsePublishItem(api.publishObservation(item.id, options))
-        withContext(Dispatchers.IO) {
-            File(cacheDirectory, "species-publish.json").delete()
-            File(cacheDirectory, "species.json").delete()
-            File(cacheDirectory, "sightings.json").delete()
-        }
+        invalidateSpeciesCaches()
         return published
     }
 
@@ -883,11 +942,7 @@ class HikeJournalRepository(context: Context) {
         candidate: ReviewCandidate?,
     ) {
         fieldQueue.queueReview(item, action, candidate)
-        withContext(Dispatchers.IO) {
-            File(cacheDirectory, "species-review.json").delete()
-            File(cacheDirectory, "species.json").delete()
-            File(cacheDirectory, "sightings.json").delete()
-        }
+        invalidateSpeciesCaches()
     }
 
     suspend fun createHike(draft: HikeDraft): Hike {
@@ -930,7 +985,7 @@ class HikeJournalRepository(context: Context) {
         )
     }
 
-    private suspend fun cacheLocalDraft(hike: Hike) = journalCacheMutex.withLock {
+    private suspend fun cacheLocalDraft(hike: Hike) = journalCacheMutex.withMeasuredLock("write:hike_detail") {
         withContext(Dispatchers.IO) {
             writeJsonAtomically(
                 File(cacheDirectory, "hike-${hike.id}.json"),
@@ -939,7 +994,7 @@ class HikeJournalRepository(context: Context) {
         }
     }
 
-    private suspend fun updateCachedDraft(hikeId: String, draft: HikeDraft) = journalCacheMutex.withLock {
+    private suspend fun updateCachedDraft(hikeId: String, draft: HikeDraft) = journalCacheMutex.withMeasuredLock("write:hike_detail") {
         withContext(Dispatchers.IO) {
             val cacheFile = File(cacheDirectory, "hike-$hikeId.json")
             if (!cacheFile.exists()) return@withContext
@@ -955,29 +1010,37 @@ class HikeJournalRepository(context: Context) {
         }
     }
 
-    private suspend fun loadCachedHikeFiles(): List<CachedHikeFile> = journalCacheMutex.withLock {
-        withContext(Dispatchers.IO) {
-            cacheDirectory.listFiles()
-                .orEmpty()
-                .asSequence()
-                .filter { it.isFile && it.name.startsWith("hike-") && it.extension == "json" }
-                .mapNotNull { file ->
-                    runCatching {
-                        val payload = JSONObject(file.readText())
-                        val hike = parseHike(payload.toString()).takeIf { it.id.isNotBlank() }
-                            ?: return@runCatching null
-                        CachedHikeFile(
-                            hike = hike,
-                            isLocalDraft = payload.optBoolean(LOCAL_DRAFT_MARKER),
-                        )
-                    }.getOrNull()
-                }
-                .toList()
+    private suspend fun loadCachedHikeFiles(): List<CachedHikeFile> {
+        val cachedFiles = journalCacheMutex.withMeasuredLock("read:hike-cache-files") {
+            val readStarted = PerformanceTrace.start()
+            withContext(Dispatchers.IO) {
+                cacheDirectory.listFiles()
+                    .orEmpty()
+                    .asSequence()
+                    .filter { it.isFile && it.name.startsWith("hike-") && it.extension == "json" }
+                    .mapNotNull { file -> runCatching { file to file.readText() }.getOrNull() }
+                    .toList()
+            }.also {
+                PerformanceTrace.recordSince("cache_read hike-cache-files", readStarted, "files=${it.size}")
+            }
         }
+        val parseStarted = PerformanceTrace.start()
+        val parsed = withContext(Dispatchers.Default) {
+            cachedFiles.mapNotNull { (_, json) ->
+                runCatching {
+                    val payload = JSONObject(json)
+                    val hike = parseHike(payload.toString()).takeIf { it.id.isNotBlank() }
+                        ?: return@runCatching null
+                    CachedHikeFile(hike = hike, isLocalDraft = payload.optBoolean(LOCAL_DRAFT_MARKER))
+                }.getOrNull()
+            }
+        }
+        PerformanceTrace.recordSince("cache_parse hike-cache-files", parseStarted, "files=${cachedFiles.size}")
+        return parsed
     }
 
     private suspend fun clearVerifiedLocalDraftMarkers(verifiedHikeIds: Set<String>) =
-        journalCacheMutex.withLock {
+        journalCacheMutex.withMeasuredLock("write:verified-hike-cache") {
             withContext(Dispatchers.IO) {
                 verifiedHikeIds.forEach { hikeId ->
                     val cacheFile = File(cacheDirectory, "hike-$hikeId.json")
@@ -1071,11 +1134,7 @@ class HikeJournalRepository(context: Context) {
 
     suspend fun assignKnownSpecies(photoId: String, hikeId: String?, species: SpeciesRecord) {
         fieldQueue.queueKnownSpecies(photoId, hikeId, species)
-        withContext(Dispatchers.IO) {
-            File(cacheDirectory, "species-review.json").delete()
-            File(cacheDirectory, "species-publish.json").delete()
-            File(cacheDirectory, "sightings.json").delete()
-        }
+        invalidateSpeciesCaches()
     }
 
     suspend fun assignCustomSpecies(
@@ -1098,6 +1157,9 @@ class HikeJournalRepository(context: Context) {
         File(cacheDirectory, "species-publish.json").delete()
         File(cacheDirectory, "sightings.json").delete()
         File(cacheDirectory, "species.json").delete()
+        cacheDirectory.listFiles().orEmpty()
+            .filter { it.name.startsWith("species-index-") && it.extension == "json" }
+            .forEach(File::delete)
     }
 
     suspend fun syncNow(): Boolean = FieldSyncEngine(appContext).drain()
@@ -1148,22 +1210,49 @@ class HikeJournalRepository(context: Context) {
         }
     }
 
+    private suspend fun readCachedText(cacheFile: File): String? =
+        journalCacheMutex.withMeasuredLock("read:${cacheMetricName(cacheFile)}") {
+            val readStarted = PerformanceTrace.start()
+            withContext(Dispatchers.IO) {
+                cacheFile.takeIf(File::exists)?.readText()?.takeIf(String::isNotBlank)
+            }.also {
+                PerformanceTrace.recordSince("cache_read ${cacheMetricName(cacheFile)}", readStarted)
+            }
+        }
+
+    private suspend fun writeCachedText(cacheFile: File, json: String) =
+        journalCacheMutex.withMeasuredLock("write:${cacheMetricName(cacheFile)}") {
+            val writeStarted = PerformanceTrace.start()
+            withContext(Dispatchers.IO) { writeJsonAtomically(cacheFile, json) }.also {
+                PerformanceTrace.recordSince("cache_write ${cacheMetricName(cacheFile)}", writeStarted)
+            }
+        }
+
+    private suspend fun <T> withCacheLoadLock(cacheFile: File, block: suspend () -> T): T {
+        val resourceLock = cacheLoadLocks.computeIfAbsent(cacheFile.absolutePath) { Mutex() }
+        return resourceLock.withMeasuredLock("resource:${cacheMetricName(cacheFile)}", block)
+    }
+
     private suspend fun <T> loadWithCache(
         cacheFile: File,
         fetch: suspend () -> String,
         parse: (String) -> T,
-    ): LoadResult<T> = journalCacheMutex.withLock {
+    ): LoadResult<T> = withCacheLoadLock(cacheFile) {
         try {
             val json = fetch()
-            withContext(Dispatchers.IO) { cacheFile.writeText(json) }
-            LoadResult(parse(json), fromCache = false)
+            writeCachedText(cacheFile, json)
+            val parseStarted = PerformanceTrace.start()
+            val value = withContext(Dispatchers.Default) { parse(json) }
+            PerformanceTrace.recordSince("cache_parse ${cacheMetricName(cacheFile)}", parseStarted)
+            LoadResult(value, fromCache = false)
         } catch (networkError: Exception) {
-            val cached = withContext(Dispatchers.IO) {
-                cacheFile.takeIf { it.exists() }?.readText()
-            }
+            val cached = readCachedText(cacheFile)
             if (cached.isNullOrBlank()) throw networkError
             if (!canUseCachedLoad(networkError)) throw networkError
-            LoadResult(parse(cached), fromCache = true)
+            val parseStarted = PerformanceTrace.start()
+            val value = withContext(Dispatchers.Default) { parse(cached) }
+            PerformanceTrace.recordSince("cache_parse ${cacheMetricName(cacheFile)}", parseStarted)
+            LoadResult(value, fromCache = true)
         }
     }
 }
@@ -1214,7 +1303,7 @@ internal suspend fun cacheHikeCover(
     hikeId: String,
     photoId: String?,
     coverUrl: String,
-) = journalCacheMutex.withLock {
+) = journalCacheMutex.withMeasuredLock("write:hike_detail_cover") {
     withContext(Dispatchers.IO) {
         val cacheDirectory = File(context.filesDir, "journal-cache")
         val detailCache = File(cacheDirectory, "hike-$hikeId.json")

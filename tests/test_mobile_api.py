@@ -447,6 +447,42 @@ def test_hike_list_only_decorates_selected_cover_from_lightweight_photo_index(mo
     assert payload[0]["cover_url"] == f"https://signed.example/{cover_id}"
 
 
+def test_hike_species_counts_scope_observations_to_visible_hikes_and_photos(monkeypatch):
+    calls = []
+    direct = {
+        "id": "observation-1",
+        "hike_id": "hike-1",
+        "photo_id": "photo-1",
+        "status": "confirmed",
+        "taxon_id": 17,
+    }
+    legacy_unlinked = {**direct, "id": "observation-legacy", "hike_id": None}
+
+    class Repository:
+        def list_lightweight_observations(self, *, status, hike_ids=None, photo_ids=None):
+            calls.append((status, hike_ids, photo_ids))
+            return [direct] if hike_ids is not None else [legacy_unlinked]
+
+    monkeypatch.setattr(
+        "mobile_api._user_context",
+        lambda: {"mode": "local-dev", "subject": None, "email": None},
+    )
+    service = type("Service", (), {"repository": Repository()})()
+
+    counts = mobile_api._visible_species_counts_by_hike(
+        service,
+        {"hike-1"},
+        visible_photo_ids=["photo-1"],
+        photos_by_id={"photo-1": {"id": "photo-1", "hike_id": "hike-1"}},
+    )
+
+    assert counts == {"hike-1": 1}
+    assert calls == [
+        ("confirmed", ["hike-1"], None),
+        ("confirmed", None, ["photo-1"]),
+    ]
+
+
 def test_main_map_routes_include_visible_hike_tracks(monkeypatch):
     class Repository:
         def list_hike_route_imports(self):

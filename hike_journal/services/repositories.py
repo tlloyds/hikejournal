@@ -1368,6 +1368,7 @@ class HikeJournalRepository:
         hike_ids: list[str] | None = None,
         photo_ids: list[str] | None = None,
         status: str | None = None,
+        unlinked_only: bool = False,
     ) -> list[dict[str, Any]]:
         normalized_hike_ids = None
         if hike_ids is not None:
@@ -1388,6 +1389,8 @@ class HikeJournalRepository:
                 query = query.eq("hike_id", hike_id)
             if normalized_hike_ids is not None:
                 query = query.in_("hike_id", normalized_hike_ids)
+            if unlinked_only:
+                query = query.is_("hike_id", "null")
             if status:
                 query = query.eq("status", status)
             if chunk_ids is not None:
@@ -1410,6 +1413,8 @@ class HikeJournalRepository:
                     query = query.eq("hike_id", hike_id)
                 if normalized_hike_ids is not None:
                     query = query.in_("hike_id", normalized_hike_ids)
+                if unlinked_only:
+                    query = query.is_("hike_id", "null")
                 if status:
                     query = query.eq("status", status)
                 if chunk_ids is not None:

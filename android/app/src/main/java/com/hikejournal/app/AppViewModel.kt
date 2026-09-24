@@ -12,6 +12,7 @@ import com.hikejournal.app.data.HikeDraft
 import com.hikejournal.app.data.HikeDeletionResult
 import com.hikejournal.app.data.ApiException
 import com.hikejournal.app.data.HikeJournalRepository
+import com.hikejournal.app.data.PerformanceTrace
 import com.hikejournal.app.data.HikeLocation
 import com.hikejournal.app.data.HikeLocationSuggestion
 import com.hikejournal.app.data.MediaLocationSummary
@@ -72,6 +73,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 
 enum class LongitudinalDestination { PlaceProfile, FieldBriefing, Comparison }
@@ -125,6 +128,7 @@ data class AppState(
     val uploadCurrent: Int = 0,
     val uploadTotal: Int = 0,
     val isSpeciesLoading: Boolean = false,
+    val isSpeciesRefreshing: Boolean = false,
     val isBadgeLoading: Boolean = false,
     val badgesHydrated: Boolean = false,
     val badgeNotice: String? = null,
@@ -195,6 +199,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         ),
     )
     val state: StateFlow<AppState> = _state.asStateFlow()
+    private var isSpeciesDiscoveryIndexLoading = false
     private var observedSpeciesBatchWorkId: UUID? = null
     private var observedPublishBatchWorkId: UUID? = null
     private var handledSpeciesBatchWorkId: UUID? = null
@@ -1005,21 +1010,51 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun loadSpecies(force: Boolean = false) {
-        if (_state.value.species.isNotEmpty() && !force) return
+        val current = _state.value
+        if (current.isSpeciesLoading || current.isSpeciesRefreshing) return
+        if (current.species.isNotEmpty() && !force) return
+        _state.update {
+            it.copy(
+                isSpeciesLoading = it.species.isEmpty(),
+                isSpeciesRefreshing = it.species.isNotEmpty(),
+                error = null,
+            )
+        }
         viewModelScope.launch {
-            _state.update { it.copy(isSpeciesLoading = true, error = null) }
+            val cacheStarted = PerformanceTrace.start()
+            if (_state.value.species.isEmpty()) {
+                runCatching { repository.loadCachedSpecies() }
+                    .getOrNull()
+                    ?.let { cached ->
+                        _state.update {
+                            it.copy(
+                                species = cached.value,
+                                isSpeciesLoading = false,
+                                isSpeciesRefreshing = true,
+                            )
+                        }
+                        PerformanceTrace.recordSince("species_cache_published", cacheStarted)
+                    }
+            }
             runCatching { repository.loadSpecies() }
                 .onSuccess { result ->
                     _state.update {
                         it.copy(
                             species = result.value,
                             isSpeciesLoading = false,
+                            isSpeciesRefreshing = false,
                             isOffline = result.fromCache,
                         )
                     }
                 }
                 .onFailure { error ->
-                    _state.update { it.copy(isSpeciesLoading = false, error = error.userMessage()) }
+                    _state.update {
+                        it.copy(
+                            isSpeciesLoading = false,
+                            isSpeciesRefreshing = false,
+                            error = error.userMessage(),
+                        )
+                    }
                 }
         }
     }
@@ -1053,28 +1088,39 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun loadSpeciesDiscovery(force: Boolean = false) {
-        if (_state.value.discoveryAreas.isNotEmpty() && _state.value.speciesQuests.isNotEmpty() && !force) return
+        val current = _state.value
+        if (isSpeciesDiscoveryIndexLoading) return
+        if (current.discoveryAreas.isNotEmpty() && current.speciesQuests.isNotEmpty() && !force) return
+        isSpeciesDiscoveryIndexLoading = true
+        _state.update { it.copy(isDiscoveryLoading = true, discoveryNotice = null) }
         viewModelScope.launch {
-            _state.update { it.copy(isDiscoveryLoading = true, discoveryNotice = null) }
-            runCatching {
-                repository.loadDiscoveryAreas() to repository.loadSpeciesQuests()
-            }.onSuccess { (areas, quests) ->
-                _state.update {
-                    it.copy(
-                        discoveryAreas = areas.value,
-                        speciesQuests = quests.value,
-                        isDiscoveryLoading = false,
-                        badgesHydrated = true,
-                        isOffline = areas.fromCache || quests.fromCache,
-                    )
+            try {
+                runCatching {
+                    coroutineScope {
+                        val areas = async { repository.loadDiscoveryAreas() }
+                        val quests = async { repository.loadSpeciesQuests() }
+                        areas.await() to quests.await()
+                    }
+                }.onSuccess { (areas, quests) ->
+                    _state.update {
+                        it.copy(
+                            discoveryAreas = areas.value,
+                            speciesQuests = quests.value,
+                            isDiscoveryLoading = false,
+                            badgesHydrated = true,
+                            isOffline = areas.fromCache || quests.fromCache,
+                        )
+                    }
+                }.onFailure { error ->
+                    _state.update {
+                        it.copy(
+                            isDiscoveryLoading = false,
+                            discoveryNotice = error.userMessage(),
+                        )
+                    }
                 }
-            }.onFailure { error ->
-                _state.update {
-                    it.copy(
-                        isDiscoveryLoading = false,
-                        discoveryNotice = error.userMessage(),
-                    )
-                }
+            } finally {
+                isSpeciesDiscoveryIndexLoading = false
             }
         }
     }
