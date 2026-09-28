@@ -108,8 +108,11 @@ private const val LAYER_ID = "hikejournal-sightings-circles"
 private const val SELECTED_SOURCE_ID = "hikejournal-selected-sighting"
 private const val SELECTED_LAYER_ID = "hikejournal-selected-sighting-circle"
 private const val ROUTE_SOURCE_ID = "hikejournal-routes"
+private const val ROUTE_REVEAL_SOURCE_ID = "hikejournal-route-reveal"
 private const val ROUTE_HALO_LAYER_ID = "hikejournal-route-halo"
 private const val ROUTE_LAYER_ID = "hikejournal-route-lines"
+private const val ROUTE_REVEAL_HALO_LAYER_ID = "hikejournal-route-reveal-halo"
+private const val ROUTE_REVEAL_LAYER_ID = "hikejournal-route-reveal-lines"
 private const val ROUTE_OVERLAP_LAYER_ID = "hikejournal-route-overlap-lines"
 private const val FLORIDA_TRAIL_SOURCE_ID = "florida-trail"
 private const val FLORIDA_TRAIL_HALO_LAYER_ID = "florida-trail-halo"
@@ -501,6 +504,7 @@ internal fun HikeJournalMap(
     focusedSightingId: String? = null,
     currentPoint: RoutePoint? = null,
     followCurrentPoint: Boolean = false,
+    routeRevealProgress: Float? = null,
     selectedTrailIds: Set<String>,
     showsPhotos: Boolean = true,
     showsRoutes: Boolean = true,
@@ -513,6 +517,7 @@ internal fun HikeJournalMap(
     var classifiedRoutes by remember(routeSegments) {
         mutableStateOf(classifyFloridaTrailOverlap(routeSegments, null))
     }
+    val replayPath = remember(routeSegments) { RouteReplayPath(routeSegments) }
     LaunchedEffect(selectedTrailIds) {
         if (showTrailOverlays) {
             val data = NationalScenicTrailOverlayData.load(context, selectedTrailIds)
@@ -536,6 +541,9 @@ internal fun HikeJournalMap(
     }
     val visibleSightings = if (showsPhotos) sightings else sightings.filter { it.url.isBlank() }
     val visibleRoutes = if (showsRoutes) classifiedRoutes else emptyList()
+    val revealedRoutes = routeRevealProgress?.let { progress ->
+        replayPath.visibleSegments(progress).map { points -> ClassifiedRouteSegment(points, false) }
+    }
     controller.tapRadiusPx = 24f * context.resources.displayMetrics.density
     controller.onSelect = onSelect
     controller.onViewportChanged = onViewportChanged
@@ -566,6 +574,7 @@ internal fun HikeJournalMap(
                         map = map,
                         sightings = visibleSightings,
                         routeSegments = visibleRoutes,
+                        routeRevealSegments = revealedRoutes,
                         floridaTrail = trailOverlays,
                         showFloridaTrail = showTrailOverlays,
                         currentPoint = currentPoint,
@@ -579,10 +588,11 @@ internal fun HikeJournalMap(
                 nextShowFloridaTrail = showTrailOverlays,
                 sightings = visibleSightings,
                 routeSegments = visibleRoutes,
+                routeRevealSegments = revealedRoutes,
                 floridaTrail = trailOverlays,
                 currentPoint = currentPoint,
             )
-            controller.updateMapData(visibleSightings, visibleRoutes, trailOverlays)
+            controller.updateMapData(visibleSightings, visibleRoutes, trailOverlays, revealedRoutes)
             controller.updateSelectedSighting(selectedSighting?.takeIf { showsPhotos })
             controller.updateCurrentPoint(currentPoint, followCurrentPoint)
         },
@@ -607,12 +617,14 @@ private class NativeMapController {
     private var lastFollowedPoint: RoutePoint? = null
     private var renderedSightings: List<Sighting>? = null
     private var renderedRouteSegments: List<ClassifiedRouteSegment>? = null
+    private var renderedRouteRevealSegments: List<ClassifiedRouteSegment>? = null
     private var renderedFloridaTrail: FeatureCollection? = null
 
     fun attach(
         map: MapLibreMap,
         sightings: List<Sighting>,
         routeSegments: List<ClassifiedRouteSegment>,
+        routeRevealSegments: List<ClassifiedRouteSegment>?,
         floridaTrail: FeatureCollection?,
         showFloridaTrail: Boolean,
         currentPoint: RoutePoint?,
@@ -645,6 +657,7 @@ private class NativeMapController {
             nextLayerMode = layerMode,
             sightings = sightings,
             routeSegments = routeSegments,
+            routeRevealSegments = routeRevealSegments,
             floridaTrail = floridaTrail,
             showFloridaTrail = showFloridaTrail,
             currentPoint = currentPoint,
@@ -656,6 +669,7 @@ private class NativeMapController {
         nextShowFloridaTrail: Boolean,
         sightings: List<Sighting>,
         routeSegments: List<ClassifiedRouteSegment>,
+        routeRevealSegments: List<ClassifiedRouteSegment>?,
         floridaTrail: FeatureCollection?,
         currentPoint: RoutePoint?,
     ) {
@@ -668,6 +682,7 @@ private class NativeMapController {
                 nextLayerMode = nextLayerMode,
                 sightings = sightings,
                 routeSegments = routeSegments,
+                routeRevealSegments = routeRevealSegments,
                 floridaTrail = floridaTrail,
                 showFloridaTrail = nextShowFloridaTrail,
                 currentPoint = currentPoint,
@@ -680,6 +695,7 @@ private class NativeMapController {
         nextLayerMode: MapLayerMode,
         sightings: List<Sighting>,
         routeSegments: List<ClassifiedRouteSegment>,
+        routeRevealSegments: List<ClassifiedRouteSegment>?,
         floridaTrail: FeatureCollection?,
         showFloridaTrail: Boolean,
         currentPoint: RoutePoint?,
@@ -699,6 +715,12 @@ private class NativeMapController {
                 )
             }
             style.addSource(GeoJsonSource(ROUTE_SOURCE_ID, routeFeatureCollection(routeSegments)))
+            style.addSource(
+                GeoJsonSource(
+                    ROUTE_REVEAL_SOURCE_ID,
+                    routeFeatureCollection(routeRevealSegments.orEmpty()),
+                ),
+            )
             style.addSource(GeoJsonSource(CURRENT_POSITION_SOURCE_ID, pointFeatureCollection(currentPoint)))
             val source = GeoJsonSource(SOURCE_ID, featureCollection(sightings))
             style.addSource(source)
@@ -726,16 +748,16 @@ private class NativeMapController {
             }
             style.addLayer(
                 LineLayer(ROUTE_HALO_LAYER_ID, ROUTE_SOURCE_ID).withProperties(
-                    lineColor("#263228"),
-                    lineWidth(8f),
-                    lineOpacity(0.72f),
+                    lineColor(if (routeRevealSegments == null) "#263228" else "#17251F"),
+                    lineWidth(if (routeRevealSegments == null) 8f else 5.5f),
+                    lineOpacity(if (routeRevealSegments == null) 0.72f else 0.78f),
                 ),
             )
             style.addLayer(
                 LineLayer(ROUTE_LAYER_ID, ROUTE_SOURCE_ID).withProperties(
-                    lineColor(HIKE_ROUTE_COLOR),
-                    lineWidth(5f),
-                    lineOpacity(0.98f),
+                    lineColor(if (routeRevealSegments == null) HIKE_ROUTE_COLOR else "#D7D8C5"),
+                    lineWidth(if (routeRevealSegments == null) 5f else 3.5f),
+                    lineOpacity(if (routeRevealSegments == null) 0.98f else 0.78f),
                 ),
             )
             if (showFloridaTrail) {
@@ -750,6 +772,20 @@ private class NativeMapController {
                 )
             }
             style.addLayer(
+                LineLayer(ROUTE_REVEAL_HALO_LAYER_ID, ROUTE_REVEAL_SOURCE_ID).withProperties(
+                    lineColor("#17251F"),
+                    lineWidth(8f),
+                    lineOpacity(0.82f),
+                ),
+            )
+            style.addLayer(
+                LineLayer(ROUTE_REVEAL_LAYER_ID, ROUTE_REVEAL_SOURCE_ID).withProperties(
+                    lineColor(HIKE_ROUTE_COLOR),
+                    lineWidth(5f),
+                    lineOpacity(1f),
+                ),
+            )
+            style.addLayer(
                 CircleLayer(CURRENT_POSITION_HALO_LAYER_ID, CURRENT_POSITION_SOURCE_ID).withProperties(
                     circleColor("#FFFCF3"),
                     circleRadius(12f),
@@ -758,7 +794,7 @@ private class NativeMapController {
             )
             style.addLayer(
                 CircleLayer(CURRENT_POSITION_LAYER_ID, CURRENT_POSITION_SOURCE_ID).withProperties(
-                    circleColor("#2587D8"),
+                    circleColor(if (routeRevealSegments == null) "#2587D8" else HIKE_ROUTE_COLOR),
                     circleRadius(7f),
                     circleOpacity(1f),
                     circleStrokeColor("#183A2D"),
@@ -785,8 +821,9 @@ private class NativeMapController {
             )
             renderedSightings = sightings
             renderedRouteSegments = routeSegments
+            renderedRouteRevealSegments = routeRevealSegments
             renderedFloridaTrail = floridaTrail
-            updateMapData(sightings, routeSegments, floridaTrail)
+            updateMapData(sightings, routeSegments, floridaTrail, routeRevealSegments)
             updateSelectedSighting(selectedSighting)
             updateCurrentPoint(currentPoint, followCurrentPoint, force = true)
         }
@@ -796,6 +833,7 @@ private class NativeMapController {
         sightings: List<Sighting>,
         routeSegments: List<ClassifiedRouteSegment>,
         floridaTrail: FeatureCollection?,
+        routeRevealSegments: List<ClassifiedRouteSegment>?,
     ) {
         val currentMap = map ?: return
         currentMap.getStyle { style ->
@@ -808,6 +846,12 @@ private class NativeMapController {
                     routeFeatureCollection(routeSegments),
                 )
                 renderedRouteSegments = routeSegments
+            }
+            if (routeRevealSegments != renderedRouteRevealSegments) {
+                style.getSourceAs<GeoJsonSource>(ROUTE_REVEAL_SOURCE_ID)?.setGeoJson(
+                    routeFeatureCollection(routeRevealSegments.orEmpty()),
+                )
+                renderedRouteRevealSegments = routeRevealSegments
             }
             if (showFloridaTrail && floridaTrail !== renderedFloridaTrail) {
                 style.getSourceAs<GeoJsonSource>(FLORIDA_TRAIL_SOURCE_ID)?.setGeoJson(

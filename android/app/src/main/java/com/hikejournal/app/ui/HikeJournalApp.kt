@@ -2391,6 +2391,7 @@ private fun JournalScreen(
                 }
                 if (hike.routeSegments.isNotEmpty()) {
                     JournalRoutePreview(
+                        routeTitle = hike.title,
                         routeSegments = hike.routeSegments,
                         modifier = Modifier.padding(top = 24.dp),
                     )

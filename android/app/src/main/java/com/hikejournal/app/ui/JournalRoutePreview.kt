@@ -11,8 +11,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -43,13 +47,16 @@ import com.hikejournal.app.ui.theme.TrailText
 
 @Composable
 internal fun JournalRoutePreview(
+    routeTitle: String,
     routeSegments: List<List<RoutePoint>>,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     val summary = remember(routeSegments) { journalRouteSummary(routeSegments) }
+    val replayPath = remember(routeSegments) { RouteReplayPath(routeSegments) }
     var satelliteMap by remember(routeSegments) { mutableStateOf<Bitmap?>(null) }
     var loading by remember(routeSegments) { mutableStateOf(true) }
+    var playbackOpen by remember(routeSegments) { mutableStateOf(false) }
 
     LaunchedEffect(routeSegments) {
         loading = true
@@ -105,6 +112,22 @@ internal fun JournalRoutePreview(
             style = MaterialTheme.typography.bodySmall,
             color = InkMuted,
             modifier = Modifier.padding(top = 8.dp),
+        )
+        if (replayPath.isPlayable) {
+            TextButton(
+                onClick = { playbackOpen = true },
+                modifier = Modifier.align(Alignment.End).padding(top = 2.dp),
+            ) {
+                Icon(Icons.Rounded.PlayArrow, null, tint = Trail)
+                Text("Play route", color = TrailText)
+            }
+        }
+    }
+    if (playbackOpen) {
+        RoutePlaybackDialog(
+            routeTitle = routeTitle,
+            routeSegments = routeSegments,
+            onDismiss = { playbackOpen = false },
         )
     }
 }
