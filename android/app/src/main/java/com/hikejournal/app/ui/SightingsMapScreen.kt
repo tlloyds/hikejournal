@@ -57,7 +57,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.hikejournal.app.BuildConfig
@@ -508,9 +510,15 @@ internal fun HikeJournalMap(
     selectedTrailIds: Set<String>,
     showsPhotos: Boolean = true,
     showsRoutes: Boolean = true,
+    routeFitTopInset: Dp = 0.dp,
+    routeFitBottomInset: Dp = 0.dp,
 ) {
     val context = LocalContext.current
     val controller = remember { NativeMapController() }
+    with(LocalDensity.current) {
+        controller.routeFitTopInsetPx = routeFitTopInset.roundToPx()
+        controller.routeFitBottomInsetPx = routeFitBottomInset.roundToPx()
+    }
     val showTrailOverlays = selectedTrailIds.isNotEmpty()
     var trailOverlays by remember { mutableStateOf<FeatureCollection?>(null) }
     var trailOverlayIndex by remember { mutableStateOf<FloridaTrailSegmentIndex?>(null) }
@@ -609,6 +617,8 @@ private class NativeMapController {
     var currentPoint: RoutePoint? = null
     var followCurrentPoint: Boolean = false
     var tapRadiusPx: Float = 24f
+    var routeFitTopInsetPx: Int = 0
+    var routeFitBottomInsetPx: Int = 0
     private var map: MapLibreMap? = null
     private var fitted = false
     private var layerMode = MapLayerMode.Satellite
@@ -938,7 +948,16 @@ private class NativeMapController {
         val bounds = LatLngBounds.Builder().apply {
             points.forEach(::include)
         }.build()
-        map.animateCamera(CameraUpdateFactory.newLatLngBounds(bounds, 90), 1000)
+        map.animateCamera(
+            CameraUpdateFactory.newLatLngBounds(
+                bounds,
+                90,
+                90 + routeFitTopInsetPx,
+                90,
+                90 + routeFitBottomInsetPx,
+            ),
+            1000,
+        )
     }
 
     private fun featureCollection(sightings: List<Sighting>): FeatureCollection {

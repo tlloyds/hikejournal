@@ -11,7 +11,10 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Pause
@@ -34,6 +37,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -55,12 +59,13 @@ internal fun RoutePlaybackDialog(
     val path = remember(routeSegments) { RouteReplayPath(routeSegments) }
     var progress by remember(path) { mutableFloatStateOf(0f) }
     var isPlaying by remember(path) { mutableStateOf(false) }
+    var playbackSpeed by remember(path) { mutableFloatStateOf(1f) }
 
-    LaunchedEffect(isPlaying, path) {
+    LaunchedEffect(isPlaying, path, playbackSpeed) {
         if (!isPlaying) return@LaunchedEffect
         if (progress >= 1f) progress = 0f
         val startingProgress = progress
-        val durationMillis = (ROUTE_REPLAY_DURATION_MILLIS * (1f - startingProgress))
+        val durationMillis = (ROUTE_REPLAY_DURATION_MILLIS * (1f - startingProgress) / playbackSpeed)
             .toLong()
             .coerceAtLeast(1L)
         val startTime = SystemClock.elapsedRealtime()
@@ -89,6 +94,8 @@ internal fun RoutePlaybackDialog(
                 routeRevealProgress = progress,
                 selectedTrailIds = emptySet(),
                 showsPhotos = false,
+                routeFitTopInset = 80.dp,
+                routeFitBottomInset = 240.dp,
             )
 
             Row(
@@ -182,7 +189,47 @@ internal fun RoutePlaybackDialog(
                         color = Paper,
                         modifier = Modifier.weight(1f).padding(start = 8.dp),
                     )
-                    Text("24 sec", style = MaterialTheme.typography.labelMedium, color = Paper.copy(alpha = 0.82f))
+                    Row(
+                        Modifier
+                            .background(Color(0x553A5C4A), RoundedCornerShape(12.dp))
+                            .selectableGroup(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        listOf(0.5f, 1f, 2f).forEach { speed ->
+                            val selected = playbackSpeed == speed
+                            Box(
+                                Modifier
+                                    .padding(3.dp)
+                                    .background(
+                                        color = if (selected) Paper else Color.Transparent,
+                                        shape = RoundedCornerShape(9.dp),
+                                    )
+                                    .selectable(
+                                        selected = selected,
+                                        role = Role.RadioButton,
+                                        onClick = { playbackSpeed = speed },
+                                    )
+                                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                            ) {
+                                Text(
+                                    text = when (speed) {
+                                        0.5f -> "0.5×"
+                                        1f -> "1×"
+                                        else -> "2×"
+                                    },
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (selected) Color(0xFF183A2D) else Paper,
+                                )
+                            }
+                        }
+                    }
+                    val replayDurationSeconds = (ROUTE_REPLAY_DURATION_MILLIS / 1000f / playbackSpeed).toInt()
+                    Text(
+                        "$replayDurationSeconds sec",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Paper.copy(alpha = 0.82f),
+                        modifier = Modifier.padding(start = 8.dp),
+                    )
                 }
             }
         }
