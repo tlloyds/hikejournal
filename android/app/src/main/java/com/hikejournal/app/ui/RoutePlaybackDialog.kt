@@ -46,6 +46,7 @@ import com.hikejournal.app.data.Sighting
 import com.hikejournal.app.ui.theme.Paper
 import com.hikejournal.app.ui.theme.Trail
 import kotlinx.coroutines.delay
+import java.util.Locale
 
 private const val ROUTE_REPLAY_DURATION_MILLIS = 24_000L
 private const val ROUTE_REPLAY_UPDATE_MILLIS = 66L
@@ -57,9 +58,12 @@ internal fun RoutePlaybackDialog(
     onDismiss: () -> Unit,
 ) {
     val path = remember(routeSegments) { RouteReplayPath(routeSegments) }
+    val routeMileMarkers = remember(path) { path.mileMarkers() }
     var progress by remember(path) { mutableFloatStateOf(0f) }
     var isPlaying by remember(path) { mutableStateOf(false) }
     var playbackSpeed by remember(path) { mutableFloatStateOf(1f) }
+    val completedDistanceMeters = path.distanceAt(progress)
+    val completedRouteMile = (completedDistanceMeters / ROUTE_REPLAY_METERS_PER_MILE).toInt()
 
     LaunchedEffect(isPlaying, path, playbackSpeed) {
         if (!isPlaying) return@LaunchedEffect
@@ -96,6 +100,8 @@ internal fun RoutePlaybackDialog(
                 showsPhotos = false,
                 routeFitTopInset = 80.dp,
                 routeFitBottomInset = 240.dp,
+                routeMileMarkers = routeMileMarkers,
+                completedRouteMile = completedRouteMile,
             )
 
             Row(
@@ -139,7 +145,12 @@ internal fun RoutePlaybackDialog(
                     .padding(start = 20.dp, end = 20.dp, top = 26.dp, bottom = 14.dp),
             ) {
                 Text(
-                    "Watch the route draw from start to finish.",
+                    String.format(
+                        Locale.US,
+                        "%.2f / %.2f mi",
+                        completedDistanceMeters / ROUTE_REPLAY_METERS_PER_MILE,
+                        path.totalDistanceMiles,
+                    ),
                     style = MaterialTheme.typography.bodyMedium,
                     color = Paper,
                 )

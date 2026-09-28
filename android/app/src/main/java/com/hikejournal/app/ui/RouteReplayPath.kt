@@ -6,6 +6,14 @@ import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.sqrt
 
+internal const val ROUTE_REPLAY_METERS_PER_MILE = 1_609.344
+
+internal data class RouteMileMarker(
+    val mile: Int,
+    val distanceMeters: Double,
+    val point: RoutePoint,
+)
+
 /** A distance-weighted view of a saved route for fast visual replay. */
 internal class RouteReplayPath(routeSegments: List<List<RoutePoint>>) {
     private data class Segment(
@@ -28,6 +36,19 @@ internal class RouteReplayPath(routeSegments: List<List<RoutePoint>>) {
     private val totalDistanceMeters = segments.sumOf(Segment::lengthMeters)
 
     val isPlayable: Boolean get() = totalDistanceMeters > 0.0
+    val totalDistanceMiles: Double get() = totalDistanceMeters / ROUTE_REPLAY_METERS_PER_MILE
+
+    fun distanceAt(progress: Float): Double = totalDistanceMeters * progress.coerceIn(0f, 1f)
+
+    fun mileMarkers(): List<RouteMileMarker> = buildList {
+        val wholeMiles = totalDistanceMiles.toInt()
+        for (mile in 1..wholeMiles) {
+            val distanceMeters = mile * ROUTE_REPLAY_METERS_PER_MILE
+            pointAt((distanceMeters / totalDistanceMeters).toFloat())?.let { point ->
+                add(RouteMileMarker(mile, distanceMeters, point))
+            }
+        }
+    }
 
     fun visibleSegments(progress: Float): List<List<RoutePoint>> {
         if (!isPlayable || progress <= 0f) return emptyList()

@@ -24,6 +24,24 @@ class RouteReplayPathTest {
     }
 
     @Test
+    fun distanceProgressAndMileMarkersFollowTheRouteGeometry() {
+        val path = RouteReplayPath(
+            listOf(listOf(point(0.0, 0.0), point(0.0, 0.03))),
+        )
+
+        val markers = path.mileMarkers()
+
+        assertEquals(2, markers.size)
+        assertEquals(listOf(1, 2), markers.map(RouteMileMarker::mile))
+        assertEquals(ROUTE_REPLAY_METERS_PER_MILE, markers.first().distanceMeters, 0.0001)
+        assertTrue(markers.first().point.longitude > 0.0)
+        assertTrue(markers.first().point.longitude < markers.last().point.longitude)
+        assertEquals(path.totalDistanceMiles * ROUTE_REPLAY_METERS_PER_MILE / 2.0, path.distanceAt(0.5f), 0.01)
+        assertEquals(0.0, path.distanceAt(-1f), 0.0)
+        assertEquals(path.totalDistanceMiles * ROUTE_REPLAY_METERS_PER_MILE, path.distanceAt(2f), 0.01)
+    }
+
+    @Test
     fun separateTrackSegmentsStaySeparateDuringReplay() {
         val first = listOf(point(0.0, 0.0), point(0.0, 0.01))
         val second = listOf(point(0.0, 0.05), point(0.0, 0.06))

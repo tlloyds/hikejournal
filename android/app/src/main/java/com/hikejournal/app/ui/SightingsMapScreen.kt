@@ -3,6 +3,10 @@
 package com.hikejournal.app.ui
 
 import android.graphics.RectF
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Typeface
 import android.os.Bundle
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -86,6 +90,7 @@ import org.maplibre.android.maps.Style
 import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.CircleLayer
 import org.maplibre.android.style.layers.LineLayer
+import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.android.style.layers.PropertyFactory.circleColor
 import org.maplibre.android.style.layers.PropertyFactory.circleOpacity
 import org.maplibre.android.style.layers.PropertyFactory.circleRadius
@@ -94,6 +99,10 @@ import org.maplibre.android.style.layers.PropertyFactory.circleStrokeWidth
 import org.maplibre.android.style.layers.PropertyFactory.lineColor
 import org.maplibre.android.style.layers.PropertyFactory.lineOpacity
 import org.maplibre.android.style.layers.PropertyFactory.lineWidth
+import org.maplibre.android.style.layers.PropertyFactory.iconAllowOverlap
+import org.maplibre.android.style.layers.PropertyFactory.iconIgnorePlacement
+import org.maplibre.android.style.layers.PropertyFactory.iconImage
+import org.maplibre.android.style.layers.PropertyFactory.iconSize
 import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.geojson.Feature
 import org.maplibre.geojson.FeatureCollection
@@ -115,6 +124,8 @@ private const val ROUTE_HALO_LAYER_ID = "hikejournal-route-halo"
 private const val ROUTE_LAYER_ID = "hikejournal-route-lines"
 private const val ROUTE_REVEAL_HALO_LAYER_ID = "hikejournal-route-reveal-halo"
 private const val ROUTE_REVEAL_LAYER_ID = "hikejournal-route-reveal-lines"
+private const val ROUTE_MILE_MARKER_SOURCE_ID = "hikejournal-route-mile-markers"
+private const val ROUTE_MILE_MARKER_LAYER_ID = "hikejournal-route-mile-markers"
 private const val ROUTE_OVERLAP_LAYER_ID = "hikejournal-route-overlap-lines"
 private const val FLORIDA_TRAIL_SOURCE_ID = "florida-trail"
 private const val FLORIDA_TRAIL_HALO_LAYER_ID = "florida-trail-halo"
@@ -512,6 +523,8 @@ internal fun HikeJournalMap(
     showsRoutes: Boolean = true,
     routeFitTopInset: Dp = 0.dp,
     routeFitBottomInset: Dp = 0.dp,
+    routeMileMarkers: List<RouteMileMarker> = emptyList(),
+    completedRouteMile: Int = 0,
 ) {
     val context = LocalContext.current
     val controller = remember { NativeMapController() }
@@ -519,6 +532,8 @@ internal fun HikeJournalMap(
         controller.routeFitTopInsetPx = routeFitTopInset.roundToPx()
         controller.routeFitBottomInsetPx = routeFitBottomInset.roundToPx()
     }
+    controller.routeMileMarkers = routeMileMarkers
+    controller.completedRouteMile = completedRouteMile
     val showTrailOverlays = selectedTrailIds.isNotEmpty()
     var trailOverlays by remember { mutableStateOf<FeatureCollection?>(null) }
     var trailOverlayIndex by remember { mutableStateOf<FloridaTrailSegmentIndex?>(null) }
@@ -619,6 +634,8 @@ private class NativeMapController {
     var tapRadiusPx: Float = 24f
     var routeFitTopInsetPx: Int = 0
     var routeFitBottomInsetPx: Int = 0
+    var routeMileMarkers: List<RouteMileMarker> = emptyList()
+    var completedRouteMile: Int = 0
     private var map: MapLibreMap? = null
     private var fitted = false
     private var layerMode = MapLayerMode.Satellite
@@ -628,6 +645,8 @@ private class NativeMapController {
     private var renderedSightings: List<Sighting>? = null
     private var renderedRouteSegments: List<ClassifiedRouteSegment>? = null
     private var renderedRouteRevealSegments: List<ClassifiedRouteSegment>? = null
+    private var renderedRouteMileMarkers: List<RouteMileMarker>? = null
+    private var renderedCompletedRouteMile = -1
     private var renderedFloridaTrail: FeatureCollection? = null
 
     fun attach(
@@ -731,6 +750,13 @@ private class NativeMapController {
                     routeFeatureCollection(routeRevealSegments.orEmpty()),
                 ),
             )
+            ensureRouteMileMarkerImages(style, routeMileMarkers)
+            style.addSource(
+                GeoJsonSource(
+                    ROUTE_MILE_MARKER_SOURCE_ID,
+                    routeMileMarkerFeatureCollection(routeMileMarkers, completedRouteMile),
+                ),
+            )
             style.addSource(GeoJsonSource(CURRENT_POSITION_SOURCE_ID, pointFeatureCollection(currentPoint)))
             val source = GeoJsonSource(SOURCE_ID, featureCollection(sightings))
             style.addSource(source)
@@ -796,6 +822,15 @@ private class NativeMapController {
                 ),
             )
             style.addLayer(
+                SymbolLayer(ROUTE_MILE_MARKER_LAYER_ID, ROUTE_MILE_MARKER_SOURCE_ID)
+                    .withProperties(
+                        iconImage(Expression.get("mile_icon")),
+                        iconSize(0.72f),
+                        iconAllowOverlap(true),
+                        iconIgnorePlacement(true),
+                    ),
+            )
+            style.addLayer(
                 CircleLayer(CURRENT_POSITION_HALO_LAYER_ID, CURRENT_POSITION_SOURCE_ID).withProperties(
                     circleColor("#FFFCF3"),
                     circleRadius(12f),
@@ -832,6 +867,8 @@ private class NativeMapController {
             renderedSightings = sightings
             renderedRouteSegments = routeSegments
             renderedRouteRevealSegments = routeRevealSegments
+            renderedRouteMileMarkers = routeMileMarkers
+            renderedCompletedRouteMile = completedRouteMile
             renderedFloridaTrail = floridaTrail
             updateMapData(sightings, routeSegments, floridaTrail, routeRevealSegments)
             updateSelectedSighting(selectedSighting)
@@ -862,6 +899,13 @@ private class NativeMapController {
                     routeFeatureCollection(routeRevealSegments.orEmpty()),
                 )
                 renderedRouteRevealSegments = routeRevealSegments
+            }
+            if (routeMileMarkers != renderedRouteMileMarkers || completedRouteMile != renderedCompletedRouteMile) {
+                style.getSourceAs<GeoJsonSource>(ROUTE_MILE_MARKER_SOURCE_ID)?.setGeoJson(
+                    routeMileMarkerFeatureCollection(routeMileMarkers, completedRouteMile),
+                )
+                renderedRouteMileMarkers = routeMileMarkers
+                renderedCompletedRouteMile = completedRouteMile
             }
             if (showFloridaTrail && floridaTrail !== renderedFloridaTrail) {
                 style.getSourceAs<GeoJsonSource>(FLORIDA_TRAIL_SOURCE_ID)?.setGeoJson(
@@ -986,6 +1030,64 @@ private class NativeMapController {
                 }
             }
         return FeatureCollection.fromFeatures(features)
+    }
+
+    private fun routeMileMarkerFeatureCollection(
+        markers: List<RouteMileMarker>,
+        completedMile: Int,
+    ): FeatureCollection = FeatureCollection.fromFeatures(
+        markers.map { marker ->
+            Feature.fromGeometry(Point.fromLngLat(marker.point.longitude, marker.point.latitude)).apply {
+                addStringProperty(
+                    "mile_icon",
+                    routeMileMarkerImageId(marker.mile, marker.mile <= completedMile),
+                )
+            }
+        },
+    )
+
+    private fun ensureRouteMileMarkerImages(style: Style, markers: List<RouteMileMarker>) {
+        markers.forEach { marker ->
+            listOf(false, true).forEach { completed ->
+                val imageId = routeMileMarkerImageId(marker.mile, completed)
+                if (style.getImage(imageId) == null) {
+                    style.addImage(imageId, createRouteMileMarkerImage(marker.mile, completed))
+                }
+            }
+        }
+    }
+
+    private fun routeMileMarkerImageId(mile: Int, completed: Boolean): String =
+        "hikejournal-mile-$mile-${if (completed) "passed" else "upcoming"}"
+
+    private fun createRouteMileMarkerImage(mile: Int, completed: Boolean): Bitmap {
+        val bitmap = Bitmap.createBitmap(48, 48, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val center = 24f
+        val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = if (completed) android.graphics.Color.rgb(209, 125, 66) else android.graphics.Color.rgb(255, 252, 243)
+        }
+        val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = android.graphics.Color.rgb(24, 58, 45)
+            style = Paint.Style.STROKE
+            strokeWidth = 3f
+        }
+        canvas.drawCircle(center, center, 20f, fill)
+        canvas.drawCircle(center, center, 20f, stroke)
+
+        val label = mile.toString()
+        val text = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = android.graphics.Color.rgb(24, 58, 45)
+            textAlign = Paint.Align.CENTER
+            textSize = when (label.length) {
+                1 -> 22f
+                2 -> 18f
+                else -> 14f
+            }
+            typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
+        }
+        canvas.drawText(label, center, center - (text.ascent() + text.descent()) / 2f, text)
+        return bitmap
     }
 
     private fun pointFeatureCollection(point: RoutePoint?): FeatureCollection =
