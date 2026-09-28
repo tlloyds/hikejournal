@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Pause
@@ -20,6 +21,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -39,7 +41,6 @@ import com.hikejournal.app.data.RoutePoint
 import com.hikejournal.app.data.Sighting
 import com.hikejournal.app.ui.theme.Paper
 import com.hikejournal.app.ui.theme.Trail
-import com.hikejournal.app.ui.theme.TrailText
 import kotlinx.coroutines.delay
 
 private const val ROUTE_REPLAY_DURATION_MILLIS = 24_000L
@@ -123,11 +124,12 @@ internal fun RoutePlaybackDialog(
                     .fillMaxWidth()
                     .background(
                         Brush.verticalGradient(
-                            listOf(Color.Transparent, Color(0xD9101A16), Color(0xF2101A16)),
+                            listOf(Color.Transparent, Color(0xE2183A2D), Color(0xF2183A2D)),
                         ),
                     )
+                    .padding(bottom = 56.dp)
                     .navigationBarsPadding()
-                    .padding(start = 20.dp, end = 20.dp, top = 34.dp, bottom = 18.dp),
+                    .padding(start = 20.dp, end = 20.dp, top = 26.dp, bottom = 14.dp),
             ) {
                 Text(
                     "Watch the route draw from start to finish.",
@@ -141,6 +143,13 @@ internal fun RoutePlaybackDialog(
                         progress = value
                     },
                     modifier = Modifier.fillMaxWidth(),
+                    colors = SliderDefaults.colors(
+                        thumbColor = Paper,
+                        activeTrackColor = Trail,
+                        inactiveTrackColor = Paper.copy(alpha = 0.72f),
+                        activeTickColor = Trail,
+                        inactiveTickColor = Paper.copy(alpha = 0.72f),
+                    ),
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(
@@ -148,7 +157,9 @@ internal fun RoutePlaybackDialog(
                             if (progress >= 1f) progress = 0f
                             isPlaying = !isPlaying
                         },
-                        modifier = Modifier.size(48.dp),
+                        modifier = Modifier
+                            .size(52.dp)
+                            .background(Paper, CircleShape),
                     ) {
                         Icon(
                             imageVector = when {
@@ -161,7 +172,7 @@ internal fun RoutePlaybackDialog(
                                 progress >= 1f -> "Replay route"
                                 else -> "Play route"
                             },
-                            tint = Trail,
+                            tint = Color(0xFF183A2D),
                             modifier = Modifier.size(32.dp),
                         )
                     }
@@ -171,7 +182,7 @@ internal fun RoutePlaybackDialog(
                         color = Paper,
                         modifier = Modifier.weight(1f).padding(start = 8.dp),
                     )
-                    Text("24 sec", style = MaterialTheme.typography.labelMedium, color = TrailText)
+                    Text("24 sec", style = MaterialTheme.typography.labelMedium, color = Paper.copy(alpha = 0.82f))
                 }
             }
         }
