@@ -24,4 +24,17 @@ class ReviewSyncRefreshTest {
         assertFalse(shouldRefreshReviewQueueAfterSync(true, 19, 0, false))
         assertFalse(shouldRefreshReviewQueueAfterSync(true, 0, 0, true))
     }
+
+    @Test
+    fun `requested review queue refreshes when validated connectivity returns`() {
+        assertTrue(shouldRefreshReviewQueueAfterReconnect(true, false, true))
+    }
+
+    @Test
+    fun `review reconnect refresh requires a requested queue and offline to online transition`() {
+        assertFalse(shouldRefreshReviewQueueAfterReconnect(false, false, true))
+        assertFalse(shouldRefreshReviewQueueAfterReconnect(true, null, true))
+        assertFalse(shouldRefreshReviewQueueAfterReconnect(true, true, true))
+        assertFalse(shouldRefreshReviewQueueAfterReconnect(true, false, false))
+    }
 }

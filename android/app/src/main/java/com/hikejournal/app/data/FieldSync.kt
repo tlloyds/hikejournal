@@ -2257,7 +2257,10 @@ private class NetworkMonitor(context: Context) {
     val connected: Flow<Boolean> = callbackFlow {
         fun current(): Boolean = manager.activeNetwork
             ?.let(manager::getNetworkCapabilities)
-            ?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+            ?.let { capabilities ->
+                capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                    capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+            } == true
         trySend(current())
         val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) { trySend(current()) }

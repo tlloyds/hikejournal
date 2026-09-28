@@ -89,6 +89,12 @@ internal fun shouldRefreshReviewQueueAfterSync(
     outstandingSyncCount == 0 &&
     connected
 
+internal fun shouldRefreshReviewQueueAfterReconnect(
+    reviewQueueRequested: Boolean,
+    previousConnected: Boolean?,
+    connected: Boolean,
+): Boolean = reviewQueueRequested && previousConnected == false && connected
+
 data class AppState(
     val authRequired: Boolean = BuildConfig.GOOGLE_AUTH_ENABLED,
     val authAccount: AuthAccount? = null,
@@ -251,6 +257,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
         viewModelScope.launch {
             var previousOutstandingSyncCount = 0
+            var previousConnected: Boolean? = null
             repository.syncStatus.collect { syncStatus ->
                 if (BuildConfig.GOOGLE_AUTH_ENABLED &&
                     _state.value.authAccount != null &&
@@ -267,7 +274,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     outstandingSyncCount = outstandingSyncCount,
                     connected = syncStatus.connected,
                 )
+                val reviewConnectionRestored = shouldRefreshReviewQueueAfterReconnect(
+                    reviewQueueRequested = reviewQueueRequested,
+                    previousConnected = previousConnected,
+                    connected = syncStatus.connected,
+                )
                 previousOutstandingSyncCount = outstandingSyncCount
+                previousConnected = syncStatus.connected
                 val journalNeedsRemoteUrls = syncStatus.connected &&
                     syncStatus.pendingCount == 0 &&
                     syncStatus.syncingCount == 0 &&
@@ -300,7 +313,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     // archive covers that still point to that file with the permanent URL.
                     refreshLibrary(showRefreshIndicator = false)
                 }
-                if (reviewUploadsSettled) {
+                if (reviewUploadsSettled || reviewConnectionRestored) {
                     loadReviewQueue(force = true)
                 }
             }
