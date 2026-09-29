@@ -1392,6 +1392,8 @@ fun HikeJournalApp(viewModel: AppViewModel) {
             nearbyRiverGaugeError = state.nearbyRiverGaugeError,
             addingRiverGauge = state.isAddingRiverGauge,
             riverGaugeError = state.riverGaugeSettingsError,
+            isConnectingInat = state.isConnectingInat,
+            inatConnectionError = state.inatConnectionError,
             addingPlace = state.isHikeLocationsLoading,
             deletingAccount = state.isAuthLoading,
             onOpenGettingStarted = {
@@ -1428,7 +1430,7 @@ fun HikeJournalApp(viewModel: AppViewModel) {
             onClearNearbyRiverGaugeSearch = viewModel::clearNearbyRiverGaugeSearch,
             onRemoveRiverGauge = viewModel::removeRiverGauge,
             onClearRiverGaugeError = viewModel::clearRiverGaugeSettingsError,
-            onConnectInat = viewModel::connectInat,
+            onConnectInat = viewModel::connectInatFromSettings,
         )
     }
 
@@ -4161,6 +4163,8 @@ private fun SettingsDialog(
     nearbyRiverGaugeError: String?,
     addingRiverGauge: Boolean,
     riverGaugeError: String?,
+    isConnectingInat: Boolean,
+    inatConnectionError: String?,
     addingPlace: Boolean,
     deletingAccount: Boolean,
     onDismiss: () -> Unit,
@@ -4473,9 +4477,26 @@ private fun SettingsDialog(
                 if (!inatConnected) {
                     Button(
                         onClick = onConnectInat,
+                        enabled = !isConnectingInat,
                         modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
                     ) {
-                        Text("Connect iNaturalist")
+                        if (isConnectingInat) {
+                            CircularProgressIndicator(
+                                Modifier.size(17.dp),
+                                color = Paper,
+                                strokeWidth = 2.dp,
+                            )
+                            Spacer(Modifier.width(8.dp))
+                        }
+                        Text(if (isConnectingInat) "Connecting…" else "Connect iNaturalist")
+                    }
+                    inatConnectionError?.let { message ->
+                        Text(
+                            message,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
                     }
                 }
                 HorizontalDivider(Modifier.padding(top = 18.dp))

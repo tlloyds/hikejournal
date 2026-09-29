@@ -151,6 +151,8 @@ data class AppState(
     val batchProgress: ReviewBatchStatus? = null,
     val resolvingSpeciesInfoPhotoId: String? = null,
     val prioritizingPhotoId: String? = null,
+    val isConnectingInat: Boolean = false,
+    val inatConnectionError: String? = null,
     val inatAuthorizationUrl: String? = null,
     val reviewUpdateId: String? = null,
     val speciesAssignmentId: String? = null,
@@ -1770,17 +1772,42 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun connectInat() {
-        if (!_state.value.syncStatus.connected) {
-            _state.update { it.copy(error = "Connecting iNaturalist needs a connection.") }
-            return
-        }
+        requestInatConnection(showInlineError = false)
+    }
+
+    fun connectInatFromSettings() {
+        requestInatConnection(showInlineError = true)
+    }
+
+    private fun requestInatConnection(showInlineError: Boolean) {
+        if (_state.value.isConnectingInat) return
         viewModelScope.launch {
-            _state.update { it.copy(error = null) }
+            _state.update {
+                it.copy(
+                    isConnectingInat = true,
+                    inatConnectionError = null,
+                    error = null,
+                )
+            }
             runCatching { repository.getInatAuthorizationUrl() }
-                .onSuccess { url -> _state.update { it.copy(inatAuthorizationUrl = url) } }
+                .onSuccess { url ->
+                    _state.update {
+                        it.copy(
+                            isConnectingInat = false,
+                            inatConnectionError = null,
+                            inatAuthorizationUrl = url,
+                        )
+                    }
+                }
                 .onFailure { error ->
-                    if (!handleAuthenticationFailure(error)) {
-                        _state.update { it.copy(error = error.userMessage()) }
+                    val message = error.userMessage()
+                    val authenticationHandled = handleAuthenticationFailure(error)
+                    _state.update {
+                        it.copy(
+                            isConnectingInat = false,
+                            inatConnectionError = message,
+                            error = if (authenticationHandled || showInlineError) null else message,
+                        )
                     }
                 }
         }
@@ -1792,11 +1819,25 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun completeInatConnection(connected: Boolean) {
         if (connected) {
-            _state.update { it.copy(error = null, publishQueue = it.publishQueue.copy(connected = true)) }
+            _state.update {
+                it.copy(
+                    error = null,
+                    isConnectingInat = false,
+                    inatConnectionError = null,
+                    publishQueue = it.publishQueue.copy(connected = true),
+                )
+            }
             loadReviewQueue(force = true)
             loadPublishQueue(force = true)
         } else {
-            _state.update { it.copy(error = "iNaturalist authorization did not complete. Please try again.") }
+            val message = "iNaturalist authorization did not complete. Please try again."
+            _state.update {
+                it.copy(
+                    isConnectingInat = false,
+                    inatConnectionError = message,
+                    error = message,
+                )
+            }
         }
     }
 
