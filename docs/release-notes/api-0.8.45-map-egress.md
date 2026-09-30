@@ -32,5 +32,6 @@ measure the reduction.
 ## Validation
 
 The focused API/repository suite passed (99 tests, one dependency deprecation
-warning). Production migration execution and Cloud Run health verification are
-recorded in the release evidence.
+warning). Cloud Build deployed commit `361ccae`, and Cloud Run `/health`
+returned HTTP 200 for version `0.8.45`. Production migration execution and
+deployment details are recorded in the release evidence.
