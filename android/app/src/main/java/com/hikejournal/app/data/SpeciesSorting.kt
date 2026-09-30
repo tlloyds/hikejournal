@@ -8,7 +8,8 @@ import java.time.ZoneOffset
 import java.util.Locale
 
 enum class SpeciesSort(val label: String) {
-    Alphabetical("Alphabetical"),
+    Alphabetical("Common name"),
+    ScientificName("Scientific name"),
     MostEncountered("Most encountered"),
     MostRecent("Most recent"),
 }
@@ -16,6 +17,12 @@ enum class SpeciesSort(val label: String) {
 private val alphabeticalSpeciesComparator = compareBy<SpeciesRecord>(
     { it.commonName.lowercase(Locale.ROOT) },
     { it.scientificName.lowercase(Locale.ROOT) },
+    { it.key.lowercase(Locale.ROOT) },
+)
+
+private val scientificNameSpeciesComparator = compareBy<SpeciesRecord>(
+    { it.scientificName.lowercase(Locale.ROOT) },
+    { it.commonName.lowercase(Locale.ROOT) },
     { it.key.lowercase(Locale.ROOT) },
 )
 
@@ -36,6 +43,7 @@ fun sortSpeciesRecords(
     sort: SpeciesSort,
 ): List<SpeciesRecord> = when (sort) {
     SpeciesSort.Alphabetical -> species.sortedWith(alphabeticalSpeciesComparator)
+    SpeciesSort.ScientificName -> species.sortedWith(scientificNameSpeciesComparator)
     SpeciesSort.MostEncountered -> species.sortedWith(
         compareByDescending<SpeciesRecord> { it.encounterCount }
             .then(alphabeticalSpeciesComparator),

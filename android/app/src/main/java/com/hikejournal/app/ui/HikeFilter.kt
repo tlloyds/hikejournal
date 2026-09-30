@@ -267,7 +267,7 @@ private fun SpeciesSortRow(
     onClick: () -> Unit,
 ) {
     val detail = when (sort) {
-        SpeciesSort.Alphabetical -> "Common name, A to Z"
+        SpeciesSort.Alphabetical, SpeciesSort.ScientificName -> "A to Z"
         SpeciesSort.MostEncountered -> "Highest encounter count first"
         SpeciesSort.MostRecent -> "Most recently observed first"
     }
