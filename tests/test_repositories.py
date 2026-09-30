@@ -149,6 +149,109 @@ def test_route_index_status_preserves_saved_routes_before_spatial_migration() ->
     ) == (1, 0)
 
 
+def test_mobile_route_projections_scope_and_skip_duplicate_indexed_geometry() -> None:
+    calls: list[tuple[str, tuple[object, ...]]] = []
+    route = {"hike_id": "hike-1", "track_geojson": {"type": "LineString"}}
+
+    class Query:
+        def select(self, columns):
+            calls.append(("select", (columns,)))
+            return self
+
+        def in_(self, column, values):
+            calls.append(("in", (column, values)))
+            return self
+
+        def eq(self, column, value):
+            calls.append(("eq", (column, value)))
+            return self
+
+        def order(self, column, desc=False):
+            calls.append(("order", (column, desc)))
+            return self
+
+        def limit(self, value):
+            calls.append(("limit", (value,)))
+            return self
+
+        def execute(self):
+            return type("Response", (), {"data": [route]})()
+
+    class Client:
+        def table(self, name):
+            calls.append(("table", (name,)))
+            return Query()
+
+    repository = HikeJournalRepository(client=Client())
+
+    assert repository.list_mobile_map_route_imports(["hike-1", "hike-2"]) == [route]
+    assert ("select", ("hike_id,track_geojson",)) in calls
+    assert ("in", ("hike_id", ["hike-1", "hike-2"])) in calls
+    assert not any("track_geom" in str(args) for name, args in calls if name == "select")
+
+    calls.clear()
+    replay_route = {
+        "track_geojson": {"type": "LineString"},
+        "started_at": "2026-09-28T14:00:00Z",
+        "duration_seconds": 120,
+        "distance_miles": 1.2,
+        "track_point_count": 14,
+    }
+
+    class ReplayQuery(Query):
+        def execute(self):
+            return type("Response", (), {"data": [replay_route]})()
+
+    class ReplayClient:
+        def table(self, name):
+            calls.append(("table", (name,)))
+            return ReplayQuery()
+
+    replay_repository = HikeJournalRepository(client=ReplayClient())
+    assert replay_repository.get_mobile_hike_route_import("hike-1") == replay_route
+    assert ("select", (
+        "track_geojson,started_at,duration_seconds,distance_miles,track_point_count",
+    )) in calls
+    assert ("eq", ("hike_id", "hike-1")) in calls
+
+
+def test_mobile_map_sightings_rpc_is_scoped_to_visible_hikes_and_owner() -> None:
+    calls = []
+    expected = [{"id": "photo-1", "lat": 28.1, "lng": -82.1}]
+
+    class RpcCall:
+        def execute(self):
+            return type("Response", (), {"data": expected})()
+
+    class Client:
+        def rpc(self, name, params):
+            calls.append((name, params))
+            return RpcCall()
+
+    repository = HikeJournalRepository(client=Client())
+    context = {
+        "mode": "google",
+        "user_id": "user-1",
+        "subject": "google-1",
+        "email": "hiker@example.com",
+        "identity_provider": "google",
+    }
+
+    assert repository.list_mobile_map_sightings(["hike-1"], context) == expected
+    assert calls == [(
+        "mobile_map_sightings",
+        {
+            "p_hike_ids": ["hike-1"],
+            "p_owner_user_id": "user-1",
+            "p_owner_subject": "google-1",
+            "p_owner_email": "hiker@example.com",
+            "p_identity_provider": "google",
+            "p_include_all": False,
+            "p_allow_legacy_email": True,
+        },
+    )]
+
+
 def test_quest_save_retries_without_wikipedia_fields_for_legacy_schema() -> None:
     class Table:
         def __init__(self, name):

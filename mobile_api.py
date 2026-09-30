@@ -5280,6 +5280,40 @@ def list_sightings() -> list[dict[str, Any]]:
     hikes_by_id = {str(hike["id"]): hike for hike in hikes}
     visible_hike_ids = set(hikes_by_id)
     context = _user_context()
+
+    list_mobile_map_sightings = getattr(
+        svc.repository, "list_mobile_map_sightings", None
+    )
+    if callable(list_mobile_map_sightings):
+        map_rows = list_mobile_map_sightings(sorted(visible_hike_ids), context)
+        if map_rows is not None:
+            sightings = []
+            for photo in map_rows:
+                hike = hikes_by_id.get(str(photo.get("hike_id") or ""))
+                sightings.append(
+                    {
+                        "id": str(photo.get("id") or ""),
+                        "hike_id": str((hike or {}).get("id") or "") or None,
+                        "hike_title": str((hike or {}).get("title") or "Everyday sighting"),
+                        "hike_date": str((hike or {}).get("hike_date") or ""),
+                        "location_name": str((hike or {}).get("location_name") or ""),
+                        "url": str(photo.get("public_url") or ""),
+                        "thumbnail_url": str(photo.get("thumbnail_url") or ""),
+                        "caption": str(photo.get("caption") or ""),
+                        "taken_at": photo.get("taken_at"),
+                        "lat": photo.get("lat"),
+                        "lng": photo.get("lng"),
+                        "species_name": str(photo.get("species_name") or ""),
+                        "scientific_name": str(photo.get("scientific_name") or ""),
+                        "confirmed": bool(photo.get("confirmed")),
+                    }
+                )
+            return sorted(
+                sightings,
+                key=lambda item: str(item.get("taken_at") or item.get("hike_date") or ""),
+                reverse=True,
+            )
+
     photos = [
         photo
         for photo in (
@@ -5336,8 +5370,24 @@ def list_sightings() -> list[dict[str, Any]]:
 def list_map_routes() -> list[dict[str, Any]]:
     """Return the visible hike tracks for the all-sightings map."""
     svc = get_services()
+    hikes = _visible_hikes(svc.repository)
+    visible_hike_ids = [str(hike["id"]) for hike in hikes if hike.get("id")]
+    list_mobile_map_routes = getattr(
+        svc.repository, "list_mobile_map_route_imports", None
+    )
+    if callable(list_mobile_map_routes):
+        route_imports = list_mobile_map_routes(visible_hike_ids)
+    else:
+        list_routes_by_hike = getattr(
+            svc.repository, "list_hike_route_imports_for_hike_ids", None
+        )
+        route_imports = (
+            list_routes_by_hike(visible_hike_ids)
+            if callable(list_routes_by_hike)
+            else svc.repository.list_hike_route_imports()
+        )
     route_imports_by_hike: dict[str, dict[str, Any]] = {}
-    for route_import in svc.repository.list_hike_route_imports():
+    for route_import in route_imports:
         hike_id = str(route_import.get("hike_id") or "")
         if hike_id:
             # Imports are newest-first, so preserve the first record if legacy data
@@ -5350,8 +5400,15 @@ def list_map_routes() -> list[dict[str, Any]]:
                 route_imports_by_hike.get(str(hike["id"]))
             ),
         }
-        for hike in _visible_hikes(svc.repository)
+        for hike in hikes
     ]
+
+
+def _mobile_route_import(repository: HikeJournalRepository, hike_id: str) -> dict[str, Any] | None:
+    getter = getattr(repository, "get_mobile_hike_route_import", None)
+    if callable(getter):
+        return getter(hike_id)
+    return repository.get_hike_route_import(hike_id)
 
 
 @app.get("/v1/hikes/{hike_id}", dependencies=[Depends(require_mobile_key)])
@@ -5383,7 +5440,7 @@ def get_hike(
         payload = _hike_payload(hike, photos=[], cover_photo=selected_cover)
         if include_route:
             payload["route_segments"] = route_import_to_route_groups(
-                svc.repository.get_hike_route_import(hike_id)
+                _mobile_route_import(svc.repository, hike_id)
             )
         payload["field_marks"] = _field_mark_payloads(svc.repository, hike_id)
         payload["weather"] = _weather_payload(svc.repository, hike_id)
@@ -5408,7 +5465,7 @@ def get_hike(
         ]
     if include_route:
         payload["route_segments"] = route_import_to_route_groups(
-            svc.repository.get_hike_route_import(hike_id)
+            _mobile_route_import(svc.repository, hike_id)
         )
     payload["field_marks"] = _field_mark_payloads(svc.repository, hike_id)
     payload["weather"] = _weather_payload(svc.repository, hike_id)
@@ -5487,7 +5544,7 @@ def get_hike_route(hike_id: str) -> dict[str, Any]:
     else:
         svc = get_services()
         _get_visible_hike(svc.repository, hike_id)
-        route_import = svc.repository.get_hike_route_import(hike_id)
+        route_import = _mobile_route_import(svc.repository, hike_id)
     route_import = route_import or {}
     return {
         "route_segments": route_import_to_route_groups(route_import),

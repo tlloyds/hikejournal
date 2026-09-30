@@ -355,6 +355,62 @@ class HikeJournalRepository:
         records = response.data or []
         return self.decorate_media_row(records[0]) if records else None
 
+    def list_mobile_map_route_imports(self, hike_ids: list[str]) -> list[dict[str, Any]]:
+        """Read only visible route geometry needed by the native map."""
+        normalized_ids = list(
+            dict.fromkeys(str(hike_id) for hike_id in hike_ids if str(hike_id).strip())
+        )
+        if not normalized_ids:
+            return []
+        try:
+            response = (
+                self.client.table("hike_route_imports")
+                .select("hike_id,track_geojson")
+                .in_("hike_id", normalized_ids)
+                .order("created_at", desc=True)
+                .execute()
+            )
+            return response.data or []
+        except Exception:
+            return []
+
+    def get_mobile_hike_route_import(self, hike_id: str) -> dict[str, Any] | None:
+        """Read replay geometry and metadata without the duplicate PostGIS geometry."""
+        try:
+            response = (
+                self.client.table("hike_route_imports")
+                .select(
+                    "track_geojson,started_at,duration_seconds,"
+                    "distance_miles,track_point_count"
+                )
+                .eq("hike_id", hike_id)
+                .limit(1)
+                .execute()
+            )
+        except Exception:
+            return None
+        records = response.data or []
+        return records[0] if records else None
+
+    def list_mobile_map_sightings(
+        self,
+        hike_ids: list[str],
+        user_context: dict[str, Any],
+    ) -> list[dict[str, Any]] | None:
+        """Fetch only owner-visible, geotagged photo and primary species fields."""
+        normalized_ids = list(
+            dict.fromkeys(str(hike_id) for hike_id in hike_ids if str(hike_id).strip())
+        )
+        try:
+            response = self.client.rpc(
+                "mobile_map_sightings",
+                {"p_hike_ids": normalized_ids, **_mobile_summary_owner_args(user_context)},
+            ).execute()
+        except Exception:
+            # Keep map loading compatible while the additive RPC migration is rolling out.
+            return None
+        return self.decorate_media_rows(response.data or [])
+
     def create_hike(self, draft: HikeDraft, *, hike_id: str | None = None) -> dict[str, Any]:
         payload = {
             "title": draft.title.strip(),

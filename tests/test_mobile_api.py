@@ -46,6 +46,7 @@ from mobile_api import (
     list_hikes,
     list_hike_locations,
     list_map_routes,
+    list_sightings,
     decide_species_review,
     derive_mobile_api_token,
     queue_photo_for_species_review,
@@ -569,8 +570,11 @@ def test_hike_species_counts_scope_observations_to_visible_hikes_and_photos(monk
 
 
 def test_main_map_routes_include_visible_hike_tracks(monkeypatch):
+    calls = []
+
     class Repository:
-        def list_hike_route_imports(self):
+        def list_mobile_map_route_imports(self, hike_ids):
+            calls.append(hike_ids)
             return [{
                 "hike_id": "hike-1",
                 "track_geojson": {
@@ -578,6 +582,9 @@ def test_main_map_routes_include_visible_hike_tracks(monkeypatch):
                     "coordinates": [[-82.1, 28.1], [-82.2, 28.2]],
                 }
             }]
+
+        def list_hike_route_imports(self):
+            raise AssertionError("The map must not fetch route rows for every account.")
 
     service = type("Service", (), {"repository": Repository()})()
     monkeypatch.setattr("mobile_api.get_services", lambda: service)
@@ -587,6 +594,58 @@ def test_main_map_routes_include_visible_hike_tracks(monkeypatch):
         "hike_id": "hike-1",
         "route_segments": [[{"lat": 28.1, "lng": -82.1}, {"lat": 28.2, "lng": -82.2}]],
     }]
+    assert calls == [["hike-1"]]
+
+
+def test_main_map_sightings_use_owner_scoped_projection(monkeypatch):
+    calls = []
+
+    class Repository:
+        def list_mobile_map_sightings(self, hike_ids, user_context):
+            calls.append((hike_ids, user_context))
+            return [{
+                "id": "photo-1",
+                "hike_id": "hike-1",
+                "public_url": "https://images.example/photo.jpg",
+                "thumbnail_url": "https://images.example/thumb.jpg",
+                "caption": "Red-tailed hawk",
+                "taken_at": "2026-09-28T14:00:00Z",
+                "lat": 28.1,
+                "lng": -82.1,
+                "species_name": "Red-tailed Hawk",
+                "scientific_name": "Buteo jamaicensis",
+                "confirmed": True,
+            }]
+
+    service = type("Service", (), {"repository": Repository()})()
+    monkeypatch.setattr("mobile_api.get_services", lambda: service)
+    monkeypatch.setattr(
+        "mobile_api._visible_hikes",
+        lambda _repository: [{
+            "id": "hike-1",
+            "title": "Pine Loop",
+            "hike_date": "2026-09-28",
+            "location_name": "Pine Preserve",
+        }],
+    )
+
+    assert list_sightings() == [{
+        "id": "photo-1",
+        "hike_id": "hike-1",
+        "hike_title": "Pine Loop",
+        "hike_date": "2026-09-28",
+        "location_name": "Pine Preserve",
+        "url": "https://images.example/photo.jpg",
+        "thumbnail_url": "https://images.example/thumb.jpg",
+        "caption": "Red-tailed hawk",
+        "taken_at": "2026-09-28T14:00:00Z",
+        "lat": 28.1,
+        "lng": -82.1,
+        "species_name": "Red-tailed Hawk",
+        "scientific_name": "Buteo jamaicensis",
+        "confirmed": True,
+    }]
+    assert calls[0][0] == ["hike-1"]
 
 
 def test_everyday_journal_photo_page_and_route_are_available_to_android(monkeypatch):
