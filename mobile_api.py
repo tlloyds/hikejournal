@@ -1304,22 +1304,106 @@ def _visible_hikes(repository: HikeJournalRepository) -> list[dict[str, Any]]:
     return result
 
 
-def _visible_standalone_photos(svc: Services) -> list[dict[str, Any]]:
+def _visible_standalone_photos(
+    svc: Services,
+    *,
+    mobile_projection: bool = False,
+    decorate: bool = True,
+) -> list[dict[str, Any]]:
     context = _user_context()
+    list_photos = (
+        getattr(svc.repository, "list_mobile_standalone_photos", None)
+        if mobile_projection
+        else None
+    )
+    photos = (
+        list_photos(decorate=decorate)
+        if callable(list_photos)
+        else svc.repository.list_standalone_photos()
+    )
     return [
         photo
-        for photo in svc.repository.list_standalone_photos()
+        for photo in photos
         if record_visible_for_user(photo, set(), context)
     ]
 
 
 def _standalone_hike_payload(svc: Services, *, include_details: bool = False) -> dict[str, Any]:
-    photos = _visible_standalone_photos(svc)
+    if not include_details:
+        summary_method = getattr(
+            svc.repository, "get_mobile_standalone_library_summary", None
+        )
+        if callable(summary_method):
+            try:
+                summary = summary_method(_user_context())
+            except Exception:
+                logger.warning(
+                    "Could not load the compact standalone journal summary; using the compatible photo projection.",
+                    exc_info=True,
+                )
+            else:
+                if summary is not None:
+                    cover = (
+                        {
+                            "id": str(summary.get("cover_photo_id") or ""),
+                            "public_url": str(summary.get("public_url") or ""),
+                            "storage_path": str(summary.get("storage_path") or ""),
+                            "thumbnail_storage_path": str(
+                                summary.get("thumbnail_storage_path") or ""
+                            ),
+                        }
+                        if summary.get("cover_photo_id")
+                        else None
+                    )
+                    decorate_media_row = getattr(
+                        svc.repository, "decorate_media_row", None
+                    )
+                    if cover is not None and callable(decorate_media_row):
+                        cover = decorate_media_row(cover)
+                    latest_date = str(summary.get("latest_date") or "")[:10]
+                    return _hike_payload(
+                        {
+                            "id": EVERYDAY_JOURNAL_ID,
+                            "title": "Everyday sightings",
+                            "hike_date": latest_date or date.today().isoformat(),
+                            "location_name": "",
+                            "notes": "Quick observations that are not tied to a hike.",
+                            "is_archived": False,
+                            "is_standalone": True,
+                        },
+                        photos=[cover] if cover else [],
+                        species_count=int(summary.get("species_count") or 0),
+                        cover_photo=cover,
+                        photo_count=int(summary.get("photo_count") or 0),
+                    )
+
+    photos = (
+        _visible_standalone_photos(svc)
+        if include_details
+        else _visible_standalone_photos(
+            svc,
+            mobile_projection=True,
+            decorate=False,
+        )
+    )
     photo_ids = [str(photo["id"]) for photo in photos if photo.get("id")]
     context = _user_context()
+    list_summary_observations = getattr(
+        svc.repository, "list_mobile_summary_observations_for_photo_ids", None
+    )
+    list_mobile_observations = getattr(
+        svc.repository, "list_mobile_observations_for_photo_ids", None
+    )
+    list_observations = (
+        list_mobile_observations
+        if include_details and callable(list_mobile_observations)
+        else list_summary_observations
+        if not include_details and callable(list_summary_observations)
+        else svc.repository.list_observations_for_photo_ids
+    )
     observations = [
         observation
-        for observation in svc.repository.list_observations_for_photo_ids(photo_ids)
+        for observation in list_observations(photo_ids)
         if record_visible_for_user(observation, set(), context)
     ] if photo_ids else []
     observations_by_photo: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -1338,6 +1422,19 @@ def _standalone_hike_payload(svc: Services, *, include_details: bool = False) ->
         ),
         date.today().isoformat(),
     )
+    cover_photo = None
+    if photos:
+        cover_photo = max(
+            photos,
+            key=lambda photo: (
+                str(photo.get("taken_at") or ""),
+                str(photo.get("created_at") or ""),
+            ),
+        )
+        if not include_details:
+            decorate_media_row = getattr(svc.repository, "decorate_media_row", None)
+            if callable(decorate_media_row):
+                cover_photo = decorate_media_row(cover_photo)
     payload = _hike_payload(
         {
             "id": EVERYDAY_JOURNAL_ID,
@@ -1350,6 +1447,7 @@ def _standalone_hike_payload(svc: Services, *, include_details: bool = False) ->
         },
         photos=photos,
         species_count=len(confirmed_species),
+        cover_photo=cover_photo,
     )
     if include_details:
         payload["photos"] = [
@@ -1572,6 +1670,7 @@ def _hike_payload(
     photos: list[dict[str, Any]],
     species_count: int = 0,
     cover_photo: dict[str, Any] | None = None,
+    photo_count: int | None = None,
 ) -> dict[str, Any]:
     cover_id = str(hike.get("cover_photo_id") or "")
     cover = cover_photo if cover_photo and (not cover_id or str(cover_photo.get("id") or "") == cover_id) else None
@@ -1604,7 +1703,7 @@ def _hike_payload(
         "cover_photo_id": cover_id or None,
         "cover_url": str((cover or {}).get("public_url") or ""),
         "cover_thumbnail_url": str((cover or {}).get("thumbnail_url") or ""),
-        "photo_count": len(photos),
+        "photo_count": len(photos) if photo_count is None else photo_count,
         "species_count": species_count,
     }
 
@@ -1719,10 +1818,14 @@ def _dated_visible_observations(svc: Services) -> list[dict[str, Any]]:
 def _visible_species_data(
     svc: Services,
     hikes: list[dict[str, Any]] | None = None,
+    *,
+    species_page_projection: bool = False,
 ) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
     global _species_data_cache
     context = _user_context()
     cache_key = _species_data_cache_key(context)
+    if species_page_projection:
+        cache_key = f"{cache_key}:species-pages"
     scoped_cache = _species_data_cache if isinstance(_species_data_cache, dict) else {}
     current_time = time.monotonic()
     scoped_cache = {
@@ -1730,6 +1833,11 @@ def _visible_species_data(
         for key, value in scoped_cache.items()
         if current_time - value[0] < 90
     }
+    if species_page_projection:
+        shared_cache = scoped_cache.get(_species_data_cache_key(context))
+        if shared_cache:
+            _species_data_cache = scoped_cache
+            return shared_cache[1]
     cached = scoped_cache.get(cache_key)
     if cached:
         _species_data_cache = scoped_cache
@@ -1738,16 +1846,27 @@ def _visible_species_data(
     hikes_by_id = {str(hike["id"]): hike for hike in hikes}
     visible_hike_ids = set(hikes_by_id)
     try:
-        observation_rows = svc.repository.list_lightweight_observations(
-            status="confirmed",
-            hike_ids=sorted(visible_hike_ids),
+        list_species_observations = getattr(
+            svc.repository, "list_mobile_species_observations", None
         )
-        observation_rows.extend(
-            svc.repository.list_lightweight_observations(
-                status="confirmed",
-                unlinked_only=True,
+        if species_page_projection and callable(list_species_observations):
+            observation_rows = list_species_observations(
+                hike_ids=sorted(visible_hike_ids),
             )
-        )
+            observation_rows.extend(
+                list_species_observations(unlinked_only=True)
+            )
+        else:
+            observation_rows = svc.repository.list_lightweight_observations(
+                status="confirmed",
+                hike_ids=sorted(visible_hike_ids),
+            )
+            observation_rows.extend(
+                svc.repository.list_lightweight_observations(
+                    status="confirmed",
+                    unlinked_only=True,
+                )
+            )
     except TypeError:
         # Older repository adapters can still use the prior visibility filter.
         observation_rows = svc.repository.list_lightweight_observations(status="confirmed")
@@ -1810,7 +1929,21 @@ def _visible_species_counts_by_hike(
     try:
         observations = list_observations(status="confirmed", hike_ids=sorted(visible_hike_ids))
         if photo_ids:
-            observations.extend(list_observations(status="confirmed", photo_ids=photo_ids))
+            try:
+                observations.extend(
+                    list_observations(
+                        status="confirmed",
+                        photo_ids=photo_ids,
+                        unlinked_only=True,
+                    )
+                )
+            except TypeError:
+                # Keep older repository adapters compatible; the production
+                # repository supports the null-hike filter and avoids repeating
+                # observations already returned by the hike-id query.
+                observations.extend(
+                    list_observations(status="confirmed", photo_ids=photo_ids)
+                )
     except TypeError:
         # Keep lightweight repository adapters used by older deployments and tests compatible.
         observations = list_observations(status="confirmed")
@@ -3095,7 +3228,21 @@ def list_hikes() -> list[dict[str, Any]]:
     hikes = _visible_hikes(svc.repository)
     hike_ids = [str(hike["id"]) for hike in hikes]
     weather_by_hike = _weather_payloads(svc.repository, hike_ids)
-    if hike_ids:
+    library_summaries: list[dict[str, Any]] | None = None
+    list_library_summaries = getattr(
+        svc.repository, "list_mobile_hike_library_summaries", None
+    )
+    if hike_ids and callable(list_library_summaries):
+        try:
+            library_summaries = list_library_summaries(hike_ids, _user_context())
+        except Exception:
+            logger.warning(
+                "Could not load compact hike summaries; using the compatible photo index.",
+                exc_info=True,
+            )
+    if library_summaries is not None:
+        photo_rows = library_summaries
+    elif hike_ids:
         list_photo_index = getattr(svc.repository, "list_photo_index_for_hikes", None)
         if callable(list_photo_index):
             photo_rows = list_photo_index(hike_ids)
@@ -3141,6 +3288,19 @@ def list_hikes() -> list[dict[str, Any]]:
         set(hike_ids),
         visible_photo_ids=list(photos_by_id),
         photos_by_id=photos_by_id,
+    ) if library_summaries is None else {
+        str(summary.get("hike_id") or ""): int(summary.get("species_count") or 0)
+        for summary in library_summaries
+        if summary.get("hike_id")
+    }
+    photo_count_by_hike = (
+        {
+            str(summary.get("hike_id") or ""): int(summary.get("photo_count") or 0)
+            for summary in library_summaries
+            if summary.get("hike_id")
+        }
+        if library_summaries is not None
+        else {}
     )
     outing_payloads = []
     for hike in hikes:
@@ -3166,6 +3326,9 @@ def list_hikes() -> list[dict[str, Any]]:
             photos=photos_by_hike.get(hike_id, []),
             species_count=species_count_by_hike.get(hike_id, 0),
             cover_photo=selected_cover,
+            photo_count=photo_count_by_hike.get(hike_id)
+            if library_summaries is not None
+            else None,
         )
         payload["weather"] = weather_by_hike.get(hike_id)
         outing_payloads.append(payload)
@@ -3561,7 +3724,9 @@ def _active_quest_focus_taxon_ids(quests: list[dict[str, Any]]) -> set[int]:
 @app.get("/v1/species", dependencies=[Depends(require_mobile_key)])
 def list_species() -> list[dict[str, Any]]:
     svc = get_services()
-    observations, photos_by_id, hikes_by_id = _visible_species_data(svc)
+    observations, photos_by_id, hikes_by_id = _visible_species_data(
+        svc, species_page_projection=True
+    )
     return _build_species_payloads(observations, photos_by_id, hikes_by_id)
 
 
@@ -5044,7 +5209,9 @@ def publish_species_observation(observation_id: str, payload: PublishInput) -> d
 @app.get("/v1/species/detail", dependencies=[Depends(require_mobile_key)])
 def get_species_detail(key: str) -> dict[str, Any]:
     svc = get_services()
-    observations, photos_by_id, hikes_by_id = _visible_species_data(svc)
+    observations, photos_by_id, hikes_by_id = _visible_species_data(
+        svc, species_page_projection=True
+    )
     matching = _decorate_observation_history(
         svc.repository,
         [observation for observation in observations if _species_key(observation) == key],
@@ -5195,7 +5362,7 @@ def get_hike(
 ) -> dict[str, Any]:
     svc = get_services()
     if hike_id == EVERYDAY_JOURNAL_ID:
-        return _standalone_hike_payload(svc, include_details=True)
+        return _standalone_hike_payload(svc, include_details=include_photos)
     hike = _get_visible_hike(svc.repository, hike_id)
     if not include_photos:
         # The Android client loads photos separately in small pages. Do not scan
@@ -5257,7 +5424,26 @@ def get_hike_photos(
     """Return a bounded page so photo-heavy hikes do not exceed proxy response limits."""
     svc = get_services()
     if hike_id == EVERYDAY_JOURNAL_ID:
-        page = _visible_standalone_photos(svc)[offset : offset + limit]
+        list_mobile_page = getattr(
+            svc.repository, "list_mobile_standalone_photos_page", None
+        )
+        if callable(list_mobile_page):
+            try:
+                page = list_mobile_page(
+                    offset=offset,
+                    limit=limit,
+                    user_context=_user_context(),
+                )
+            except Exception:
+                logger.warning(
+                    "Could not load a paged standalone-photo result; using the compatible photo projection.",
+                    exc_info=True,
+                )
+                page = _visible_standalone_photos(
+                    svc, mobile_projection=True
+                )[offset : offset + limit]
+        else:
+            page = _visible_standalone_photos(svc)[offset : offset + limit]
     else:
         _get_visible_hike(svc.repository, hike_id)
         list_mobile_photos_page = getattr(svc.repository, "list_mobile_photos_page", None)
@@ -5267,9 +5453,17 @@ def get_hike_photos(
             else svc.repository.list_photos_page(hike_id, offset=offset, limit=limit)
         )
     observations_by_photo: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    list_mobile_observations = getattr(
+        svc.repository, "list_mobile_observations_for_photo_ids", None
+    )
+    list_page_observations = (
+        list_mobile_observations
+        if callable(list_mobile_observations)
+        else svc.repository.list_observations_for_photo_ids
+    )
     page_observations = _decorate_observation_history(
         svc.repository,
-        svc.repository.list_observations_for_photo_ids(
+        list_page_observations(
             [str(photo.get("id") or "") for photo in page]
         ),
     )

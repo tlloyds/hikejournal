@@ -923,7 +923,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             }
     }
 
-    fun openHike(hikeId: String) {
+    fun openHike(hikeId: String, forceRefresh: Boolean = false) {
         val current = _state.value
         if (current.openingHikeId == hikeId) return
         val summary = current.hikes.firstOrNull { it.id == hikeId }
@@ -947,6 +947,19 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         it
                     }
                 }
+            }
+            if (cached != null && !forceRefresh && repository.wasHikeLoadedRecently(hikeId)) {
+                _state.update {
+                    if (it.openingHikeId == hikeId) {
+                        it.copy(
+                            openingHikeId = null,
+                            isOffline = !it.syncStatus.connected,
+                        )
+                    } else {
+                        it
+                    }
+                }
+                return@launch
             }
             runCatching {
                 repository.loadHike(hikeId, expectedPhotoCount = summary?.photoCount) { progress ->
@@ -1051,14 +1064,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         PerformanceTrace.recordSince("species_cache_published", cacheStarted)
                     }
             }
-            runCatching { repository.loadSpecies() }
+            runCatching { repository.loadSpecies(forceRefresh = force) }
                 .onSuccess { result ->
                     _state.update {
                         it.copy(
                             species = result.value,
                             isSpeciesLoading = false,
                             isSpeciesRefreshing = false,
-                            isOffline = result.fromCache,
+                            isOffline = result.fromCache || !it.syncStatus.connected,
                         )
                     }
                 }
@@ -1417,16 +1430,18 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun openSpecies(key: String) {
+    fun openSpecies(key: String) = openSpecies(key, forceRefresh = false)
+
+    fun openSpecies(key: String, forceRefresh: Boolean) {
         viewModelScope.launch {
             _state.update { it.copy(isSpeciesLoading = true, error = null) }
-            runCatching { repository.loadSpeciesDetail(key) }
+            runCatching { repository.loadSpeciesDetail(key, forceRefresh = forceRefresh) }
                 .onSuccess { result ->
                     _state.update {
                         it.copy(
                             speciesDetail = result.value,
                             isSpeciesLoading = false,
-                            isOffline = result.fromCache,
+                            isOffline = result.fromCache || !it.syncStatus.connected,
                         )
                     }
                 }
@@ -1461,6 +1476,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     it.copy(journal = cached, openingHikeId = null, isOffline = true)
                 }
                 onLoaded(photo)
+            }
+            if (openedFromCache && repository.wasHikeLoadedRecently(targetHikeId)) {
+                _state.update { it.copy(openingHikeId = null, isOffline = !it.syncStatus.connected) }
+                return@launch
             }
             runCatching { repository.loadHike(targetHikeId) }
                 .onSuccess { result ->
@@ -2614,7 +2633,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 }
                 onSaved()
-                if (editingId != null) openHike(savedId)
+                if (editingId != null) openHike(savedId, forceRefresh = true)
             }.onFailure { error ->
                 _state.update { it.copy(isRefreshing = false, error = error.userMessage()) }
             }
@@ -2625,7 +2644,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             runCatching { repository.setArchived(hike.id, !hike.isArchived) }
                 .onSuccess {
-                    if (_state.value.journal?.id == hike.id) openHike(hike.id)
+                    if (_state.value.journal?.id == hike.id) openHike(hike.id, forceRefresh = true)
                     refreshLibrary()
                 }
                 .onFailure { error -> _state.update { it.copy(error = error.userMessage()) } }
@@ -2750,7 +2769,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     .onFailure { error -> _state.update { it.copy(error = error.userMessage()) } }
                 _state.update { it.copy(prioritizingPhotoId = null) }
             } else {
-                openHike(hikeId)
+                openHike(hikeId, forceRefresh = true)
             }
         }
     }
@@ -3102,7 +3121,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 .onSuccess {
                     _state.update { state -> state.copy(isSyncing = false) }
                     refreshLibrary()
-                    _state.value.journal?.id?.let(::openHike)
+                    _state.value.journal?.id?.let { openHike(it, forceRefresh = true) }
                 }
                 .onFailure { error ->
                     _state.update { it.copy(isSyncing = false, error = error.userMessage()) }

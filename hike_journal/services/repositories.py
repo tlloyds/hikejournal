@@ -55,6 +55,14 @@ MOBILE_PHOTO_COLUMNS_WITHOUT_THUMBNAIL = (
     "id,hike_id,owner_subject,owner_email,caption,public_url,storage_path,lat,lng,taken_at,created_at,"
     "width,height,content_type,processing_status"
 )
+MOBILE_PHOTO_COLUMNS_WITH_OWNER_ID = MOBILE_PHOTO_COLUMNS.replace(
+    "id,hike_id,owner_subject", "id,hike_id,owner_user_id,owner_subject"
+)
+MOBILE_PHOTO_COLUMNS_WITH_OWNER_ID_WITHOUT_THUMBNAIL = (
+    MOBILE_PHOTO_COLUMNS_WITHOUT_THUMBNAIL.replace(
+        "id,hike_id,owner_subject", "id,hike_id,owner_user_id,owner_subject"
+    )
+)
 MOBILE_MAP_PHOTO_COLUMNS = (
     "id,hike_id,owner_subject,owner_email,caption,public_url,storage_path,lat,lng,taken_at,created_at,"
     "width,height"
@@ -63,6 +71,45 @@ MOBILE_MAP_PHOTO_COLUMNS_WITH_THUMBNAIL = (
     "id,hike_id,owner_subject,owner_email,caption,public_url,storage_path,lat,lng,taken_at,created_at,"
     "width,height,thumbnail_storage_path:exif_json->>hikejournal_thumbnail_storage_path"
 )
+
+MOBILE_DETAIL_OBSERVATION_COLUMNS = (
+    "id,photo_id,hike_id,owner_user_id,owner_subject,owner_email,taxon_id,species_taxon_id,iconic_taxon_name,"
+    "common_name,scientific_name,status,is_primary,observed_on,occurrence_precision,"
+    "identification_confidence,identification_provenance,"
+    "wikipedia_url:raw_response_json->taxon_enrichment->>wikipedia_url,"
+    "wikipedia_summary:raw_response_json->taxon_enrichment->>wikipedia_summary"
+)
+MOBILE_SUMMARY_OBSERVATION_COLUMNS = (
+    "id,photo_id,hike_id,owner_user_id,owner_subject,owner_email,taxon_id,species_taxon_id,"
+    "common_name,scientific_name,status"
+)
+MOBILE_SPECIES_OBSERVATION_COLUMNS = (
+    "id,photo_id,hike_id,owner_user_id,owner_subject,owner_email,taxon_id,species_taxon_id,"
+    "rank,iconic_taxon_name,common_name,scientific_name,status,is_primary,identified_at,"
+    "observed_on,occurrence_precision,identification_confidence,identification_provenance,"
+    "wikipedia_url:raw_response_json->taxon_enrichment->>wikipedia_url,"
+    "wikipedia_summary:raw_response_json->taxon_enrichment->>wikipedia_summary,"
+    "ecology_label:raw_response_json->taxon_enrichment->ecology->>label,"
+    "ecology_establishment_status:raw_response_json->taxon_enrichment->ecology->>establishment_status,"
+    "ecology_region_code:raw_response_json->taxon_enrichment->ecology->>region_code,"
+    "ecology_place_name:raw_response_json->taxon_enrichment->ecology->>place_name,"
+    "ecology_source:raw_response_json->taxon_enrichment->ecology->>source,"
+    "ecology_source_url:raw_response_json->taxon_enrichment->ecology->>source_url"
+)
+
+
+def _mobile_summary_owner_args(user_context: dict[str, Any]) -> dict[str, Any]:
+    provider = str(
+        user_context.get("identity_provider") or user_context.get("mode") or ""
+    ).strip().lower()
+    return {
+        "p_owner_user_id": str(user_context.get("user_id") or "").strip() or None,
+        "p_owner_subject": str(user_context.get("subject") or "").strip() or None,
+        "p_owner_email": str(user_context.get("email") or "").strip().lower() or None,
+        "p_identity_provider": provider or None,
+        "p_include_all": user_context.get("mode") == "local-dev",
+        "p_allow_legacy_email": provider in {"", "google", "legacy", "local", "local-dev"},
+    }
 
 
 def _slugify_location_name(value: str) -> str:
@@ -877,6 +924,81 @@ class HikeJournalRepository:
             )
         )
 
+    def list_mobile_standalone_photos(
+        self, *, decorate: bool = True
+    ) -> list[dict[str, Any]]:
+        """Fetch standalone photos without transferring their raw EXIF JSON."""
+        try:
+            return self._select_all_rows(
+                lambda: (
+                    self.client.table("photos")
+                    .select(MOBILE_PHOTO_COLUMNS_WITH_OWNER_ID)
+                    .is_("hike_id", "null")
+                    .order("taken_at", desc=True)
+                    .order("created_at", desc=True)
+                ),
+                decorate=decorate,
+            )
+        except Exception:
+            try:
+                return self._select_all_rows(
+                    lambda: (
+                        self.client.table("photos")
+                        .select(MOBILE_PHOTO_COLUMNS_WITH_OWNER_ID_WITHOUT_THUMBNAIL)
+                        .is_("hike_id", "null")
+                        .order("taken_at", desc=True)
+                        .order("created_at", desc=True)
+                    ),
+                    decorate=decorate,
+                )
+            except Exception:
+                return self._select_all_rows(
+                    lambda: (
+                        self.client.table("photos")
+                        .select(MOBILE_PHOTO_COLUMNS_WITHOUT_THUMBNAIL)
+                        .is_("hike_id", "null")
+                        .order("taken_at", desc=True)
+                        .order("created_at", desc=True)
+                    ),
+                    decorate=decorate,
+                )
+
+    def list_mobile_standalone_photos_page(
+        self, *, offset: int, limit: int, user_context: dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        """Fetch a bounded standalone-photo page for the native journal API."""
+        response = self.client.rpc(
+            "mobile_standalone_photo_page",
+            {
+                "p_offset": offset,
+                "p_limit": limit,
+                **_mobile_summary_owner_args(user_context),
+            },
+        ).execute()
+        return self.decorate_media_rows(response.data or [])
+
+    def list_mobile_hike_library_summaries(
+        self, hike_ids: list[str], user_context: dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        normalized_ids = [str(hike_id) for hike_id in hike_ids if str(hike_id).strip()]
+        if not normalized_ids:
+            return []
+        response = self.client.rpc(
+            "mobile_hike_library_summaries",
+            {"p_hike_ids": normalized_ids, **_mobile_summary_owner_args(user_context)},
+        ).execute()
+        return response.data or []
+
+    def get_mobile_standalone_library_summary(
+        self, user_context: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        response = self.client.rpc(
+            "mobile_standalone_library_summary",
+            _mobile_summary_owner_args(user_context),
+        ).execute()
+        data = response.data or []
+        return data[0] if data else None
+
     def list_map_photos(self, hike_id: str | None = None) -> list[dict[str, Any]]:
         def query_factory():
             query = (
@@ -1229,17 +1351,33 @@ class HikeJournalRepository:
             try:
                 response = (
                     self.client.table("photos")
-                    .select(MOBILE_PHOTO_COLUMNS)
+                    .select(MOBILE_PHOTO_COLUMNS_WITH_OWNER_ID)
                     .in_("id", chunk_ids)
                     .execute()
                 )
             except Exception:
-                response = (
-                    self.client.table("photos")
-                    .select(MOBILE_PHOTO_COLUMNS_WITHOUT_THUMBNAIL)
-                    .in_("id", chunk_ids)
-                    .execute()
-                )
+                try:
+                    response = (
+                        self.client.table("photos")
+                        .select(MOBILE_PHOTO_COLUMNS_WITH_OWNER_ID_WITHOUT_THUMBNAIL)
+                        .in_("id", chunk_ids)
+                        .execute()
+                    )
+                except Exception:
+                    try:
+                        response = (
+                            self.client.table("photos")
+                            .select(MOBILE_PHOTO_COLUMNS)
+                            .in_("id", chunk_ids)
+                            .execute()
+                        )
+                    except Exception:
+                        response = (
+                            self.client.table("photos")
+                            .select(MOBILE_PHOTO_COLUMNS_WITHOUT_THUMBNAIL)
+                            .in_("id", chunk_ids)
+                            .execute()
+                        )
             for row in self.decorate_media_rows(response.data or []):
                 row_id = str(row.get("id") or "")
                 if row_id:
@@ -1458,6 +1596,105 @@ class HikeJournalRepository:
             rows.extend(response.data or [])
         return rows
 
+    def list_mobile_observations_for_photo_ids(
+        self, photo_ids: list[str]
+    ) -> list[dict[str, Any]]:
+        """Fetch only observation fields serialized by the Android photo API."""
+        normalized_ids = [str(photo_id) for photo_id in photo_ids if str(photo_id).strip()]
+        if not normalized_ids:
+            return []
+        rows: list[dict[str, Any]] = []
+        for chunk_ids in self._chunks(normalized_ids):
+            try:
+                response = (
+                    self.client.table("species_observations")
+                    .select(MOBILE_DETAIL_OBSERVATION_COLUMNS)
+                    .in_("photo_id", chunk_ids)
+                    .order("is_primary", desc=True)
+                    .order("identified_at", desc=True)
+                    .execute()
+                )
+            except Exception:
+                # Older databases may not yet have the natural-history columns;
+                # the established projection retains its compatible fallback.
+                rows.extend(self.list_lightweight_observations(photo_ids=chunk_ids))
+            else:
+                rows.extend(response.data or [])
+        return rows
+
+    def list_mobile_summary_observations_for_photo_ids(
+        self, photo_ids: list[str]
+    ) -> list[dict[str, Any]]:
+        """Fetch the compact fields needed to count standalone species."""
+        normalized_ids = [str(photo_id) for photo_id in photo_ids if str(photo_id).strip()]
+        if not normalized_ids:
+            return []
+        rows: list[dict[str, Any]] = []
+        for chunk_ids in self._chunks(normalized_ids):
+            try:
+                response = (
+                    self.client.table("species_observations")
+                    .select(MOBILE_SUMMARY_OBSERVATION_COLUMNS)
+                    .in_("photo_id", chunk_ids)
+                    .eq("status", "confirmed")
+                    .is_("hike_id", "null")
+                    .execute()
+                )
+            except Exception:
+                response = (
+                    self.client.table("species_observations")
+                    .select(
+                        "id,photo_id,hike_id,owner_subject,owner_email,taxon_id,species_taxon_id,"
+                        "common_name,scientific_name,status"
+                    )
+                    .in_("photo_id", chunk_ids)
+                    .eq("status", "confirmed")
+                    .is_("hike_id", "null")
+                    .execute()
+                )
+            rows.extend(response.data or [])
+        return rows
+
+    def list_mobile_species_observations(
+        self,
+        *,
+        hike_ids: list[str] | None = None,
+        unlinked_only: bool = False,
+    ) -> list[dict[str, Any]]:
+        """Fetch the narrower observation shape consumed by species pages."""
+        normalized_hike_ids = None
+        if hike_ids is not None:
+            normalized_hike_ids = [
+                str(hike_id) for hike_id in hike_ids if str(hike_id).strip()
+            ]
+            if not normalized_hike_ids:
+                return []
+
+        def query_factory(columns: str):
+            query = (
+                self.client.table("species_observations")
+                .select(columns)
+                .eq("status", "confirmed")
+            )
+            if normalized_hike_ids is not None:
+                query = query.in_("hike_id", normalized_hike_ids)
+            if unlinked_only:
+                query = query.is_("hike_id", "null")
+            return query
+
+        try:
+            return self._select_all_rows(
+                lambda: query_factory(MOBILE_SPECIES_OBSERVATION_COLUMNS),
+                decorate=False,
+            )
+        except Exception:
+            # Retain compatibility with older schemas and repository adapters.
+            return self.list_lightweight_observations(
+                hike_ids=normalized_hike_ids,
+                status="confirmed",
+                unlinked_only=unlinked_only,
+            )
+
     def list_observations_by_ids(self, observation_ids: list[str]) -> list[dict[str, Any]]:
         normalized_ids = [str(observation_id) for observation_id in observation_ids if str(observation_id).strip()]
         if not normalized_ids:
@@ -1481,7 +1718,10 @@ class HikeJournalRepository:
         for chunk_ids in self._chunks(normalized_ids, size=200):
             response = (
                 self.client.table("identification_events")
-                .select("*")
+                .select(
+                    "id,observation_id,species_taxon_id,taxon_id,scientific_name,common_name,"
+                    "source,confidence,actor,note,became_current,created_at"
+                )
                 .in_("observation_id", chunk_ids)
                 .order("created_at", desc=True)
                 .execute()
@@ -1497,7 +1737,7 @@ class HikeJournalRepository:
         for chunk_ids in self._chunks(normalized_ids, size=200):
             response = (
                 self.client.table("observation_annotations")
-                .select("*")
+                .select("id,observation_id,category,code,metadata,created_at")
                 .in_("observation_id", chunk_ids)
                 .order("created_at")
                 .execute()

@@ -2,6 +2,7 @@ package com.hikejournal.app.data
 
 import android.content.Context
 import android.net.Uri
+import android.os.SystemClock
 import com.hikejournal.app.BuildConfig
 import com.hikejournal.app.data.local.OfflineDatabase
 import com.hikejournal.app.tracking.TrackingRepository
@@ -60,6 +61,9 @@ class HikeJournalRepository(context: Context) {
     private val trackingRepository = TrackingRepository.get(appContext)
     private val cacheDirectory = File(context.filesDir, "journal-cache").apply { mkdirs() }
     private val cacheLoadLocks = ConcurrentHashMap<String, Mutex>()
+    private val recentlyLoadedHikes = ConcurrentHashMap<String, Long>()
+    private val recentlyLoadedSpeciesIndexes = ConcurrentHashMap<String, Long>()
+    private val recentlyLoadedSpeciesDetails = ConcurrentHashMap<String, Long>()
 
     val syncStatus = fieldQueue.status
 
@@ -67,6 +71,20 @@ class HikeJournalRepository(context: Context) {
     val pairingKey: String get() = api.pairingKey
     val authAccount: AuthAccount? get() = api.authAccount
     val hasStoredSession: Boolean get() = api.hasStoredSession
+
+    fun wasHikeLoadedRecently(hikeId: String, maxAgeMs: Long = 30_000L): Boolean {
+        val loadedAt = recentlyLoadedHikes[hikeId] ?: return false
+        val age = SystemClock.elapsedRealtime() - loadedAt
+        if (age < 0L || age > maxAgeMs) {
+            recentlyLoadedHikes.remove(hikeId, loadedAt)
+            return false
+        }
+        return true
+    }
+
+    fun invalidateHikeLoad(hikeId: String) {
+        recentlyLoadedHikes.remove(hikeId)
+    }
 
     suspend fun authenticateGoogle(credential: String, nonce: String): AuthAccount =
         api.authenticateGoogle(credential, nonce)
@@ -84,6 +102,9 @@ class HikeJournalRepository(context: Context) {
     }
 
     private suspend fun clearLocalAccountData() = withContext(Dispatchers.IO) {
+        recentlyLoadedHikes.clear()
+        recentlyLoadedSpeciesIndexes.clear()
+        recentlyLoadedSpeciesDetails.clear()
         OfflineDatabase.get(appContext).clearAllTables()
         listOf(
             cacheDirectory,
@@ -106,6 +127,9 @@ class HikeJournalRepository(context: Context) {
     fun updateConnection(serverUrl: String, pairingKey: String) {
         api.serverUrl = serverUrl
         api.pairingKey = pairingKey
+        recentlyLoadedHikes.clear()
+        recentlyLoadedSpeciesIndexes.clear()
+        recentlyLoadedSpeciesDetails.clear()
         SyncScheduler.schedule(appContext)
     }
 
@@ -480,6 +504,7 @@ class HikeJournalRepository(context: Context) {
                 }
                 val hydrated = hydrateHikePayload(payload, hikeId, localMarks)
                 if (hydrated.routeSegments.isNotEmpty()) trackingRepository.clearFinished(hikeId)
+                recentlyLoadedHikes[hikeId] = SystemClock.elapsedRealtime()
                 LoadResult(hydrated, fromCache = false)
             } catch (networkError: Exception) {
                 val cached = readCachedText(cacheFile)
@@ -556,27 +581,65 @@ class HikeJournalRepository(context: Context) {
         )
     }
 
-    suspend fun loadSpecies(): LoadResult<List<SpeciesRecord>> {
+    suspend fun loadSpecies(forceRefresh: Boolean = false): LoadResult<List<SpeciesRecord>> {
+        val cacheKey = speciesIndexCacheFile().absolutePath
+        if (!forceRefresh && wasLoadedRecently(recentlyLoadedSpeciesIndexes, cacheKey)) {
+            loadCachedSpecies()?.let { return it.copy(fromCache = false) }
+        }
         val result = loadWithCache(
             cacheFile = speciesIndexCacheFile(),
             fetch = api::getSpeciesJson,
             parse = ::parseSpeciesList,
         )
+        if (!result.fromCache) {
+            recentlyLoadedSpeciesIndexes[cacheKey] = SystemClock.elapsedRealtime()
+        }
         val deletedHikeIds = fieldQueue.deletedHikeIds()
         return result.copy(
             value = result.value.mapNotNull { it.withoutHikes(deletedHikeIds) },
         )
     }
 
-    suspend fun loadSpeciesDetail(key: String): LoadResult<SpeciesRecord> {
+    suspend fun loadSpeciesDetail(
+        key: String,
+        forceRefresh: Boolean = false,
+    ): LoadResult<SpeciesRecord> {
+        val cacheFile = File(cacheDirectory, "species-${key.hashCode()}.json")
+        val freshnessKey = "${speciesIndexCacheFile().absolutePath}:$key"
+        if (!forceRefresh && wasLoadedRecently(recentlyLoadedSpeciesDetails, freshnessKey)) {
+            val cachedJson = readCachedText(cacheFile)
+            if (cachedJson != null) {
+                val cached = withContext(Dispatchers.Default) { parseSpecies(cachedJson) }
+                    .withoutHikes(fieldQueue.deletedHikeIds())
+                    ?: throw IllegalStateException("This species record was removed with its hike.")
+                return LoadResult(cached, fromCache = false)
+            }
+        }
         val result = loadWithCache(
-            cacheFile = File(cacheDirectory, "species-${key.hashCode()}.json"),
+            cacheFile = cacheFile,
             fetch = { api.getSpeciesDetailJson(key) },
             parse = ::parseSpecies,
         )
+        if (!result.fromCache) {
+            recentlyLoadedSpeciesDetails[freshnessKey] = SystemClock.elapsedRealtime()
+        }
         val filtered = result.value.withoutHikes(fieldQueue.deletedHikeIds())
             ?: throw IllegalStateException("This species record was removed with its hike.")
         return result.copy(value = filtered)
+    }
+
+    private fun wasLoadedRecently(
+        cache: ConcurrentHashMap<String, Long>,
+        key: String,
+        maxAgeMs: Long = 60_000L,
+    ): Boolean {
+        val loadedAt = cache[key] ?: return false
+        val age = SystemClock.elapsedRealtime() - loadedAt
+        if (age < 0L || age > maxAgeMs) {
+            cache.remove(key, loadedAt)
+            return false
+        }
+        return true
     }
 
     suspend fun loadDiscoveryAreas(query: String = ""): LoadResult<List<DiscoveryArea>> = loadWithCache(
@@ -1112,7 +1175,10 @@ class HikeJournalRepository(context: Context) {
     suspend fun updateCaption(photoId: String, hikeId: String?, caption: String) =
         fieldQueue.queueCaption(photoId, hikeId, caption)
 
-    suspend fun deletePhoto(photoId: String, hikeId: String?) = fieldQueue.queueDeletePhoto(photoId, hikeId)
+    suspend fun deletePhoto(photoId: String, hikeId: String?) {
+        fieldQueue.queueDeletePhoto(photoId, hikeId)
+        invalidateSpeciesCaches()
+    }
 
     suspend fun setSpeciesReview(
         photoId: String,
@@ -1153,6 +1219,8 @@ class HikeJournalRepository(context: Context) {
     }
 
     private suspend fun invalidateSpeciesCaches() = withContext(Dispatchers.IO) {
+        recentlyLoadedSpeciesIndexes.clear()
+        recentlyLoadedSpeciesDetails.clear()
         File(cacheDirectory, "species-review.json").delete()
         File(cacheDirectory, "species-publish.json").delete()
         File(cacheDirectory, "sightings.json").delete()

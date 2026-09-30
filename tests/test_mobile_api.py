@@ -447,6 +447,91 @@ def test_hike_list_only_decorates_selected_cover_from_lightweight_photo_index(mo
     assert payload[0]["cover_url"] == f"https://signed.example/{cover_id}"
 
 
+def test_hike_list_uses_compact_library_summaries_when_available(monkeypatch):
+    hike_id = "11111111-1111-4111-8111-111111111111"
+    cover_id = "22222222-2222-4222-8222-222222222222"
+
+    class Repository:
+        def list_mobile_hike_library_summaries(self, hike_ids, user_context):
+            assert hike_ids == [hike_id]
+            assert user_context["mode"] == "local-dev"
+            return [{
+                "hike_id": hike_id,
+                "photo_count": 12,
+                "species_count": 3,
+                "id": cover_id,
+                "public_url": "r2://photos/cover.jpg",
+                "storage_path": "photos/cover.jpg",
+            }]
+
+        def list_photo_index_for_hikes(self, _hike_ids):
+            raise AssertionError("The row-by-row photo index should be skipped.")
+
+        def list_hike_weather_snapshots(self):
+            return []
+
+        def decorate_media_row(self, photo):
+            return {**photo, "public_url": "https://signed.example/cover.jpg"}
+
+    service = type("Service", (), {"repository": Repository(), "client": object()})()
+    monkeypatch.setattr("mobile_api.get_services", lambda: service)
+    monkeypatch.setattr(
+        "mobile_api._user_context",
+        lambda: {"mode": "local-dev", "subject": None, "email": None},
+    )
+    monkeypatch.setattr(
+        "mobile_api._visible_hikes",
+        lambda _repository: [{"id": hike_id, "title": "Pine Loop"}],
+    )
+    monkeypatch.setattr("mobile_api._standalone_hike_payload", lambda _service: {"id": "everyday"})
+
+    payload = list_hikes()
+
+    assert payload[0]["photo_count"] == 12
+    assert payload[0]["species_count"] == 3
+    assert payload[0]["cover_url"] == "https://signed.example/cover.jpg"
+
+
+def test_everyday_hike_header_respects_photo_exclusion_and_compact_summary(monkeypatch):
+    cover_id = "22222222-2222-4222-8222-222222222222"
+    calls = []
+
+    class Repository:
+        def get_mobile_standalone_library_summary(self, user_context):
+            calls.append(user_context)
+            return {
+                "photo_count": 7,
+                "species_count": 2,
+                "latest_date": "2026-09-28T14:00:00Z",
+                "cover_photo_id": cover_id,
+                "public_url": "r2://photos/cover.jpg",
+                "storage_path": "photos/cover.jpg",
+                "thumbnail_storage_path": "photos/thumb.jpg",
+            }
+
+        def list_standalone_photos(self):
+            raise AssertionError("The compact header should not list every photo.")
+
+        def decorate_media_row(self, photo):
+            return {**photo, "public_url": "https://signed.example/cover.jpg", "thumbnail_url": "https://signed.example/thumb.jpg"}
+
+    service = type("Service", (), {"repository": Repository()})()
+    monkeypatch.setattr("mobile_api.get_services", lambda: service)
+    monkeypatch.setattr(
+        "mobile_api._user_context",
+        lambda: {"mode": "local-dev", "subject": None, "email": None},
+    )
+
+    payload = get_hike("everyday", include_photos=False, include_route=False)
+
+    assert len(calls) == 1
+    assert payload["photo_count"] == 7
+    assert payload["species_count"] == 2
+    assert payload["cover_url"] == "https://signed.example/cover.jpg"
+    assert payload["cover_thumbnail_url"] == "https://signed.example/thumb.jpg"
+    assert "photos" not in payload
+
+
 def test_hike_species_counts_scope_observations_to_visible_hikes_and_photos(monkeypatch):
     calls = []
     direct = {
