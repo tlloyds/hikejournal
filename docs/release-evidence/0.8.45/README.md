@@ -39,7 +39,8 @@
 - Signing lineage was applied. Android 15 (API 35) accepted an in-place upgrade
   from the prior release (version code `175`) to `176`; `MainActivity` launched
   with no `FATAL EXCEPTION` in the captured runtime log.
-- Cloud Run deployment and `/health` verification: pending.
+- The `main` push deployed through the `deploy-main-to-cloud-run` trigger.
+  HTTPS `/health` returned HTTP 200 with `{"status":"ok","service":"hikejournal-mobile","version":"0.8.45"}`.
 - `git diff --check` and iOS version validator: passed.
 
 ## Artifacts
