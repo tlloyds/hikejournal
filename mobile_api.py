@@ -1255,6 +1255,44 @@ def _visible_hike_locations(repository: HikeJournalRepository) -> list[dict[str,
     )
 
 
+def _visible_hike_locations_for_tags(
+    repository: HikeJournalRepository,
+    tags: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Resolve the few tagged places without transferring the national library."""
+    location_ids = list(dict.fromkeys(
+        str(tag.get("location_id") or "") for tag in tags if tag.get("location_id")
+    ))
+    if not location_ids:
+        return []
+    list_by_ids = getattr(repository, "list_hike_locations_by_ids", None)
+    if not callable(list_by_ids):
+        return _visible_hike_locations(repository)
+    context = _user_context()
+    locations = [
+        location for location in list_by_ids(location_ids)
+        if (not location.get("owner_subject") and not location.get("owner_email"))
+        or user_owns_record(location, context)
+    ]
+    # A tagged route alias may redirect to a canonical place that has a
+    # different ID. Fetch only those canonical rows needed by the tags.
+    list_by_slugs = getattr(repository, "list_hike_locations_by_slugs", None)
+    if callable(list_by_slugs):
+        present_slugs = {str(item.get("slug") or "") for item in locations}
+        target_slugs = sorted({
+            canonical_location_slug(item)
+            for item in locations
+            if canonical_location_slug(item) not in present_slugs
+        })
+        if target_slugs:
+            locations.extend(
+                item for item in list_by_slugs(target_slugs)
+                if (not item.get("owner_subject") and not item.get("owner_email"))
+                or user_owns_record(item, context)
+            )
+    return _enrich_library_location_coordinates(locations)
+
+
 def _enrich_library_location_coordinates(
     locations: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
@@ -1292,10 +1330,17 @@ def _visible_hikes(repository: HikeJournalRepository) -> list[dict[str, Any]]:
         # those mutations leak into the short-lived shared cache.
         return deepcopy(cached[1])
     visible = filter_hikes_for_user(repository.list_hikes(), _user_context())
+    hike_ids = [str(hike["id"]) for hike in visible if hike.get("id")]
+    list_tags_for_hikes = getattr(repository, "list_hike_location_tags_for_hike_ids", None)
+    tags = (
+        list_tags_for_hikes(hike_ids)
+        if callable(list_tags_for_hikes)
+        else repository.list_hike_location_tags()
+    ) if hike_ids else []
     result = attach_location_tags_to_hikes(
         visible,
-        _visible_hike_locations(repository),
-        repository.list_hike_location_tags(),
+        _visible_hike_locations_for_tags(repository, tags),
+        tags,
     )
     _visible_hikes_cache[cache_key] = (time.monotonic(), deepcopy(result))
     if len(_visible_hikes_cache) > 256:
@@ -3344,8 +3389,25 @@ def list_hike_locations(
     state_code = str(state or "FL").strip().upper()
     if state_code not in US_STATE_CODES:
         raise HTTPException(status_code=422, detail="Use a two-letter U.S. state code.")
+    repository = get_services().repository
+    context = _user_context()
+    list_for_state = getattr(repository, "list_mobile_hike_locations_for_state", None)
+    if callable(list_for_state) and context.get("mode") != "local-dev":
+        candidate_locations = list_for_state(
+            state_code,
+            include_legacy_florida=state_code == "FL",
+            owner_subject=str(context.get("subject") or "") or None,
+            owner_email=str(context.get("email") or "") or None,
+        )
+        visible_locations = [
+            location for location in candidate_locations
+            if (not location.get("owner_subject") and not location.get("owner_email"))
+            or user_owns_record(location, context)
+        ]
+    else:
+        visible_locations = _visible_hike_locations(repository)
     visible_locations = _enrich_library_location_coordinates(
-        _visible_hike_locations(get_services().repository)
+        visible_locations
     )
     visible_locations = [
         location
@@ -3462,11 +3524,30 @@ def _resolve_visible_place_location(
         raw_slug = str(direct.get("slug") or "").strip() or slugify_location_name(
             str(direct.get("name") or "")
         )
-        if (
-            (not owner_subject and not owner_email) or user_owns_record(direct, context)
-        ) and canonical_location_slug(direct) == raw_slug:
+        if (not owner_subject and not owner_email) or user_owns_record(direct, context):
+            if canonical_location_slug(direct) == raw_slug:
+                enriched = _enrich_library_location_coordinates([direct])
+                return (enriched[0] if enriched else direct), str(direct.get("id") or location_id)
+            scoped = _visible_hike_locations_for_tags(
+                repository, [{"location_id": location_id}]
+            )
+            scoped_id = canonical_location_id_map(scoped).get(location_id, location_id)
+            canonical = next(
+                (
+                    item for item in canonicalize_hike_locations(scoped)
+                    if str(item.get("id") or "") == scoped_id
+                ),
+                None,
+            )
+            if canonical is not None:
+                return canonical, scoped_id
             enriched = _enrich_library_location_coordinates([direct])
             return (enriched[0] if enriched else direct), str(direct.get("id") or location_id)
+
+        return None, location_id
+
+    if callable(get_location):
+        return None, location_id
 
     locations = _visible_hike_locations(repository)
     canonical_id = canonical_location_id_map(locations).get(location_id, location_id)
@@ -3479,6 +3560,15 @@ def _resolve_visible_place_location(
         None,
     )
     return location, canonical_id
+
+
+def _resolve_visible_discovery_area(svc: Services, location_id: str) -> dict[str, Any]:
+    location, canonical_id = _resolve_visible_place_location(svc, location_id)
+    if location is None:
+        raise ValueError("Choose a saved area with coordinates.")
+    return SpeciesDiscoveryService(svc.repository).resolve_area(
+        svc.repository, canonical_id, locations=[location]
+    )
 
 
 def _place_profile_data(
@@ -3644,11 +3734,7 @@ def get_field_briefing(
     svc = get_services()
     try:
         normalized_radius = normalize_radius(radius_km)
-        area = SpeciesDiscoveryService.resolve_area(
-            svc.repository,
-            location_id,
-            locations=_visible_hike_locations(svc.repository),
-        )
+        area = _resolve_visible_discovery_area(svc, location_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     observations, photos_by_id = _discovery_collection_data(svc)
@@ -3762,11 +3848,7 @@ def get_nearby_species(
     service = SpeciesDiscoveryService(svc.repository)
     if area_id:
         try:
-            area = service.resolve_area(
-                svc.repository,
-                area_id,
-                locations=_visible_hike_locations(svc.repository),
-            )
+            area = _resolve_visible_discovery_area(svc, area_id)
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
     else:
@@ -3814,11 +3896,7 @@ def get_nearby_species_sightings(
     service = SpeciesDiscoveryService(svc.repository)
     if area_id:
         try:
-            area = service.resolve_area(
-                svc.repository,
-                area_id,
-                locations=_visible_hike_locations(svc.repository),
-            )
+            area = _resolve_visible_discovery_area(svc, area_id)
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
     else:
@@ -3869,11 +3947,7 @@ def create_species_quest(payload: SpeciesQuestInput) -> dict[str, Any]:
     area_id = str(payload.area_id or "").strip()
     if area_id:
         try:
-            area = service.resolve_area(
-                svc.repository,
-                area_id,
-                locations=_visible_hike_locations(svc.repository),
-            )
+            area = _resolve_visible_discovery_area(svc, area_id)
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
     else:
@@ -5652,13 +5726,17 @@ def _sync_hike_location_tags(
     hike: dict[str, Any],
     payload: HikeInput,
 ) -> None:
+    if payload.location_id:
+        selected = _visible_hike_locations_for_tags(
+            repository, [{"location_id": payload.location_id}]
+        )
+        canonical_id = canonical_location_id_map(selected).get(payload.location_id)
+        repository.set_hike_location_tags(
+            str(hike["id"]), [canonical_id] if canonical_id else []
+        )
+        return
     locations = _visible_hike_locations(repository)
-    canonical_ids = canonical_location_id_map(locations)
-    location_ids = (
-        [canonical_ids[payload.location_id]]
-        if payload.location_id and payload.location_id in canonical_ids
-        else suggest_location_ids_for_hike(hike, locations)
-    )
+    location_ids = suggest_location_ids_for_hike(hike, locations)
     repository.set_hike_location_tags(str(hike["id"]), location_ids)
 
 

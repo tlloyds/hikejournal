@@ -2056,6 +2056,39 @@ def test_discovery_area_endpoint_returns_coordinate_backed_locations(monkeypatch
     assert result[0]["id"] == "area-1"
 
 
+def test_saved_discovery_area_uses_direct_place_read(monkeypatch):
+    class Repository:
+        def get_hike_location(self, location_id):
+            assert location_id == "area-1"
+            return {"id": "area-1", "name": "Wetland", "slug": "wetland", "lat": 28.1, "lng": -82.2}
+
+        def list_hike_locations(self):
+            raise AssertionError("The nationwide place library must not be fetched")
+
+    monkeypatch.setattr("mobile_api._user_context", lambda: {"mode": "local-dev"})
+    service = type("Service", (), {"repository": Repository()})()
+
+    area = mobile_api._resolve_visible_discovery_area(service, "area-1")
+
+    assert area["id"] == "area-1"
+    assert area["lat"] == 28.1
+
+
+def test_missing_discovery_area_does_not_scan_place_library(monkeypatch):
+    class Repository:
+        def get_hike_location(self, location_id):
+            assert location_id == "missing"
+            return None
+
+        def list_hike_locations(self):
+            raise AssertionError("The nationwide place library must not be fetched")
+
+    service = type("Service", (), {"repository": Repository()})()
+
+    with pytest.raises(ValueError, match="Choose a saved area"):
+        mobile_api._resolve_visible_discovery_area(service, "missing")
+
+
 def test_place_profile_endpoint_allows_planning_before_a_recorded_visit(monkeypatch):
     repository = type(
         "Repository",
@@ -2284,6 +2317,76 @@ def test_native_hike_locations_returns_selected_state_and_personal_places(monkey
     ]
 
 
+def test_native_hike_locations_queries_only_requested_state_and_owner(monkeypatch):
+    calls = []
+
+    class Repository:
+        def list_hike_locations(self):
+            raise AssertionError("The nationwide place library must not be fetched")
+
+        def list_mobile_hike_locations_for_state(self, state_code, **kwargs):
+            calls.append((state_code, kwargs))
+            return [
+                {"id": "maine", "name": "Acadia", "state": "ME", "lat": 44, "lng": -68},
+                {"id": "other", "name": "Private", "owner_subject": "someone-else"},
+                {"id": "mine", "name": "Family Woods", "owner_subject": "person-1"},
+            ]
+
+    monkeypatch.setattr("mobile_api.get_services", lambda: type("Service", (), {"repository": Repository()})())
+    monkeypatch.setattr("mobile_api._user_context", lambda: {
+        "mode": "google", "subject": "person-1", "email": "hiker@example.com",
+    })
+
+    result = list_hike_locations("ME")
+
+    assert [location["id"] for location in result] == ["maine", "mine"]
+    assert calls == [("ME", {
+        "include_legacy_florida": False,
+        "owner_subject": "person-1",
+        "owner_email": "hiker@example.com",
+    })]
+
+
+def test_visible_hikes_resolve_only_tagged_locations_and_canonical_alias(monkeypatch):
+    calls = []
+
+    class Repository:
+        def list_hikes(self):
+            return [{"id": "hike-1", "title": "Black Bear"}]
+
+        def list_hike_location_tags_for_hike_ids(self, hike_ids):
+            calls.append(("tags", hike_ids))
+            return [{"hike_id": "hike-1", "location_id": "alias", "is_primary": True}]
+
+        def list_hike_locations_by_ids(self, location_ids):
+            calls.append(("ids", location_ids))
+            return [{"id": "alias", "name": "Black Bear Loop", "slug": "black-bear-wilderness-loop"}]
+
+        def list_hike_locations_by_slugs(self, slugs):
+            calls.append(("slugs", slugs))
+            return [{"id": "canonical", "name": "Black Bear Wilderness Area", "slug": "black-bear-wilderness-area"}]
+
+        def list_hike_locations(self):
+            raise AssertionError("The nationwide place library must not be fetched")
+
+    monkeypatch.setattr("mobile_api._user_context", lambda: {"mode": "local-dev"})
+    mobile_api._visible_hikes_cache.clear()
+    try:
+        hikes = mobile_api._visible_hikes(Repository())
+    finally:
+        mobile_api._visible_hikes_cache.clear()
+
+    tag = hikes[0]["location_tags"][0]
+    assert tag["id"] == "canonical"
+    assert tag["name"] == "Black Bear Wilderness Area"
+    assert tag["is_primary"] is True
+    assert calls == [
+        ("tags", ["hike-1"]),
+        ("ids", ["alias"]),
+        ("slugs", ["black-bear-wilderness-area"]),
+    ]
+
+
 def test_native_hike_locations_rejects_non_state_code():
     with pytest.raises(HTTPException) as error:
         list_hike_locations("XX")
@@ -2347,6 +2450,62 @@ def test_create_hike_correlates_selected_imported_location(monkeypatch):
     assert repository.created_draft.owner_subject == "google-subject-1"
     assert repository.created_draft.owner_email == "hiker@example.com"
     assert mobile_api.EXISTING_MOBILE_ENTITLEMENT_ENFORCEMENT_ENABLED is False
+
+
+def test_selected_hike_location_write_avoids_nationwide_scan(monkeypatch):
+    class Repository:
+        tags = None
+
+        def list_hike_locations_by_ids(self, location_ids):
+            assert location_ids == ["selected"]
+            return [{"id": "selected", "name": "Local preserve", "slug": "local-preserve"}]
+
+        def list_hike_locations_by_slugs(self, slugs):
+            assert slugs == []
+            return []
+
+        def list_hike_locations(self):
+            raise AssertionError("The nationwide place library must not be fetched")
+
+        def set_hike_location_tags(self, hike_id, location_ids):
+            self.tags = (hike_id, location_ids)
+
+    repository = Repository()
+    monkeypatch.setattr("mobile_api._user_context", lambda: {"mode": "local-dev"})
+
+    mobile_api._sync_hike_location_tags(
+        repository,
+        {"id": "hike-1"},
+        HikeInput(title="Walk", hike_date="2026-09-30", location_id="selected"),
+    )
+
+    assert repository.tags == ("hike-1", ["selected"])
+
+
+def test_unknown_selected_hike_location_write_does_not_scan_library(monkeypatch):
+    class Repository:
+        tags = None
+
+        def list_hike_locations_by_ids(self, location_ids):
+            assert location_ids == ["unknown"]
+            return []
+
+        def list_hike_locations(self):
+            raise AssertionError("The nationwide place library must not be fetched")
+
+        def set_hike_location_tags(self, hike_id, location_ids):
+            self.tags = (hike_id, location_ids)
+
+    repository = Repository()
+    monkeypatch.setattr("mobile_api._user_context", lambda: {"mode": "local-dev"})
+
+    mobile_api._sync_hike_location_tags(
+        repository,
+        {"id": "hike-1"},
+        HikeInput(title="Walk", hike_date="2026-09-30", location_id="unknown"),
+    )
+
+    assert repository.tags == ("hike-1", [])
 
 
 def test_current_location_discovery_rounds_coordinates_before_query(monkeypatch):
@@ -2597,7 +2756,10 @@ def test_create_species_quest_converts_target_save_failure_to_service_error(monk
 
         def resolve_area(self, _repository, area_id, *, locations=None):
             assert area_id == "area-1"
-            assert locations == [{"id": "area-1", "name": "Wetland", "lat": 28.1, "lng": -82.2}]
+            assert len(locations) == 1
+            assert {key: locations[0][key] for key in ("id", "name", "lat", "lng")} == {
+                "id": "area-1", "name": "Wetland", "lat": 28.1, "lng": -82.2,
+            }
             return {"id": "area-1", "name": "Wetland", "lat": 28.1, "lng": -82.2}
 
         def nearby(self, **_kwargs):

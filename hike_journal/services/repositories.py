@@ -73,18 +73,18 @@ MOBILE_MAP_PHOTO_COLUMNS_WITH_THUMBNAIL = (
 )
 
 MOBILE_DETAIL_OBSERVATION_COLUMNS = (
-    "id,photo_id,hike_id,owner_user_id,owner_subject,owner_email,taxon_id,species_taxon_id,iconic_taxon_name,"
+    "id,photo_id,hike_id,owner_subject,owner_email,taxon_id,species_taxon_id,iconic_taxon_name,"
     "common_name,scientific_name,status,is_primary,observed_on,occurrence_precision,"
     "identification_confidence,identification_provenance,"
     "wikipedia_url:raw_response_json->taxon_enrichment->>wikipedia_url,"
     "wikipedia_summary:raw_response_json->taxon_enrichment->>wikipedia_summary"
 )
 MOBILE_SUMMARY_OBSERVATION_COLUMNS = (
-    "id,photo_id,hike_id,owner_user_id,owner_subject,owner_email,taxon_id,species_taxon_id,"
+    "id,photo_id,hike_id,owner_subject,owner_email,taxon_id,species_taxon_id,"
     "common_name,scientific_name,status"
 )
 MOBILE_SPECIES_OBSERVATION_COLUMNS = (
-    "id,photo_id,hike_id,owner_user_id,owner_subject,owner_email,taxon_id,species_taxon_id,"
+    "id,photo_id,hike_id,owner_subject,owner_email,taxon_id,species_taxon_id,"
     "rank,iconic_taxon_name,common_name,scientific_name,status,is_primary,identified_at,"
     "observed_on,occurrence_precision,identification_confidence,identification_provenance,"
     "wikipedia_url:raw_response_json->taxon_enrichment->>wikipedia_url,"
@@ -95,6 +95,10 @@ MOBILE_SPECIES_OBSERVATION_COLUMNS = (
     "ecology_place_name:raw_response_json->taxon_enrichment->ecology->>place_name,"
     "ecology_source:raw_response_json->taxon_enrichment->ecology->>source,"
     "ecology_source_url:raw_response_json->taxon_enrichment->ecology->>source_url"
+)
+
+MOBILE_HIKE_LOCATION_COLUMNS = (
+    "id,name,slug,aliases,location_type,source,state,lat,lng,owner_subject,owner_email"
 )
 
 
@@ -466,6 +470,58 @@ class HikeJournalRepository:
         except Exception:
             return []
 
+    def list_mobile_hike_locations_for_state(
+        self,
+        state_code: str,
+        *,
+        include_legacy_florida: bool = False,
+        owner_subject: str | None = None,
+        owner_email: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Load the requested state and personal places, never the national library."""
+        def location_query():
+            return self.client.table("hike_locations").select(MOBILE_HIKE_LOCATION_COLUMNS)
+
+        queries = [lambda: location_query().eq("state", state_code).order("name")]
+        if include_legacy_florida:
+            queries.append(lambda: location_query().is_("state", "null").order("name"))
+        if owner_subject:
+            queries.append(lambda: location_query().eq("owner_subject", owner_subject).order("name"))
+        if owner_email:
+            queries.append(lambda: location_query().eq("owner_email", owner_email).order("name"))
+        rows: dict[str, dict[str, Any]] = {}
+        for query in queries:
+            for row in self._select_all_rows(query, decorate=False):
+                if row.get("id"):
+                    rows[str(row["id"])] = row
+        return list(rows.values())
+
+    def list_hike_locations_by_ids(self, location_ids: list[str]) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        for ids in self._chunks(list(dict.fromkeys(location_ids)), size=200):
+            rows.extend(self._select_all_rows(
+                lambda ids=ids: (
+                    self.client.table("hike_locations")
+                    .select(MOBILE_HIKE_LOCATION_COLUMNS)
+                    .in_("id", ids)
+                ),
+                decorate=False,
+            ))
+        return rows
+
+    def list_hike_locations_by_slugs(self, slugs: list[str]) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        for values in self._chunks(list(dict.fromkeys(slugs)), size=200):
+            rows.extend(self._select_all_rows(
+                lambda values=values: (
+                    self.client.table("hike_locations")
+                    .select(MOBILE_HIKE_LOCATION_COLUMNS)
+                    .in_("slug", values)
+                ),
+                decorate=False,
+            ))
+        return rows
+
     def list_hike_location_tags(self) -> list[dict[str, Any]]:
         try:
             return self._select_all_rows(
@@ -473,6 +529,19 @@ class HikeJournalRepository:
             )
         except Exception:
             return []
+
+    def list_hike_location_tags_for_hike_ids(self, hike_ids: list[str]) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        for ids in self._chunks(list(dict.fromkeys(hike_ids)), size=200):
+            rows.extend(self._select_all_rows(
+                lambda ids=ids: (
+                    self.client.table("hike_location_tags")
+                    .select("hike_id,location_id,is_primary")
+                    .in_("hike_id", ids)
+                ),
+                decorate=False,
+            ))
+        return rows
 
     def list_hike_location_tags_for_location(self, location_id: str) -> list[dict[str, Any]]:
         try:

@@ -4,7 +4,106 @@ import pytest
 
 from hike_journal.domain.map_data import MapViewport
 from hike_journal.models import HikeDraft
-from hike_journal.services.repositories import HikeJournalRepository, LIGHTWEIGHT_OBSERVATION_COLUMNS
+from hike_journal.services.repositories import (
+    HikeJournalRepository,
+    LIGHTWEIGHT_OBSERVATION_COLUMNS,
+    MOBILE_DETAIL_OBSERVATION_COLUMNS,
+    MOBILE_HIKE_LOCATION_COLUMNS,
+    MOBILE_SPECIES_OBSERVATION_COLUMNS,
+    MOBILE_SUMMARY_OBSERVATION_COLUMNS,
+)
+
+
+def test_mobile_hike_location_queries_are_scoped_and_projected() -> None:
+    calls = []
+
+    class Query:
+        def select(self, columns):
+            calls.append(("select", columns))
+            return self
+
+        def in_(self, column, values):
+            calls.append(("in", column, values))
+            return self
+
+        def eq(self, column, value):
+            calls.append(("eq", column, value))
+            return self
+
+        def is_(self, column, value):
+            calls.append(("is", column, value))
+            return self
+
+        def order(self, column):
+            return self
+
+        def range(self, start, end):
+            calls.append(("range", start, end))
+            return self
+
+        def execute(self):
+            return type("Response", (), {"data": []})()
+
+    class Client:
+        def table(self, name):
+            calls.append(("table", name))
+            return Query()
+
+    repository = HikeJournalRepository(client=Client())
+    repository.list_hike_locations_by_ids(["place-1"])
+    repository.list_hike_locations_by_slugs(["canonical-place"])
+    repository.list_hike_location_tags_for_hike_ids(["hike-1"])
+    repository.list_mobile_hike_locations_for_state(
+        "ME", owner_subject="person-1", owner_email="hiker@example.com"
+    )
+
+    assert ("in", "id", ["place-1"]) in calls
+    assert ("in", "slug", ["canonical-place"]) in calls
+    assert ("in", "hike_id", ["hike-1"]) in calls
+    assert ("eq", "state", "ME") in calls
+    assert ("eq", "owner_subject", "person-1") in calls
+    assert ("eq", "owner_email", "hiker@example.com") in calls
+    assert ("select", MOBILE_HIKE_LOCATION_COLUMNS) in calls
+    assert ("select", "*") not in calls
+
+
+def test_mobile_observation_projections_use_columns_in_schema() -> None:
+    for projection in (
+        MOBILE_DETAIL_OBSERVATION_COLUMNS,
+        MOBILE_SUMMARY_OBSERVATION_COLUMNS,
+        MOBILE_SPECIES_OBSERVATION_COLUMNS,
+    ):
+        assert "owner_user_id" not in projection
+
+    calls = []
+
+    class Query:
+        def select(self, columns):
+            calls.append(columns)
+            if "owner_user_id" in columns:
+                raise AssertionError("species_observations has no owner_user_id column")
+            return self
+
+        def eq(self, *_args):
+            return self
+
+        def is_(self, *_args):
+            return self
+
+        def range(self, *_args):
+            return self
+
+        def execute(self):
+            return type("Response", (), {"data": []})()
+
+    class Client:
+        def table(self, name):
+            assert name == "species_observations"
+            return Query()
+
+    repository = HikeJournalRepository(client=Client())
+    assert repository.list_mobile_species_observations(unlinked_only=True) == []
+    assert calls == [MOBILE_SPECIES_OBSERVATION_COLUMNS]
 
 
 def test_lightweight_observations_include_species_log_photo_preference() -> None:
