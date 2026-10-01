@@ -39,7 +39,11 @@ exist in the schema. The retry used a broader observation projection.
 - `git diff --check`: passed.
 - No SQL migration is required. The existing API contract and Android binary
   are unchanged.
-- Deployment and post-deployment usage evidence: pending.
+- Cloud Build `deploy-main-to-cloud-run` succeeded for code commit `a1ea0eb`
+  (build `46c116b4-df5e-43f5-a283-9db68225a8e8`). Cloud Run `/health`
+  returned HTTP 200 with version `0.8.45`.
+- Post-deployment Supabase egress measurement is pending new app traffic and
+  the next hourly usage update.
 
 ## Debug-log triage
 

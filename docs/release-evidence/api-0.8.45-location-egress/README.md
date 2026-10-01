@@ -3,6 +3,8 @@
 **Scope:** API only. Canonical version stays `0.8.45`; Android, iOS, Web, and
 shared clients have no functional changes or new artifacts.
 
+**Release tag:** `api-0.8.45-location-egress`.
+
 ## Before the change
 
 - Supabase usage on 30 September 2026: 618.81 MB PostgREST egress (100% of
@@ -20,4 +22,8 @@ shared clients have no functional changes or new artifacts.
   dependency deprecation warning.
 - Focused tests assert that hike, place picker, and selected-place writes use
   scoped projections; canonical place aliases still resolve correctly.
-- Deployment and post-deployment usage verification: pending.
+- Cloud Build `deploy-main-to-cloud-run` succeeded for code commit `a1ea0eb`
+  (build `46c116b4-df5e-43f5-a283-9db68225a8e8`). HTTPS `/health`
+  returned HTTP 200 with `{"status":"ok","service":"hikejournal-mobile","version":"0.8.45"}`.
+- Post-deployment usage verification is pending new app traffic and the next
+  hourly Supabase egress update.
