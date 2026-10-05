@@ -19,6 +19,8 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
@@ -27,6 +29,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -70,6 +73,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -83,6 +87,9 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.semantics
 import androidx.core.content.ContextCompat
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -101,11 +108,13 @@ import com.hikejournal.app.data.ObservationTypeFilter
 import com.hikejournal.app.data.Photo
 import com.hikejournal.app.data.QuestSightingsMap
 import com.hikejournal.app.data.SpeciesRecord
+import com.hikejournal.app.data.SpeciesJumpTarget
 import com.hikejournal.app.data.SpeciesSort
 import com.hikejournal.app.data.filterDiscoveryAreas
 import com.hikejournal.app.data.filterSpeciesBySearch
 import com.hikejournal.app.data.filterSpeciesByObservationType
 import com.hikejournal.app.data.sortSpeciesRecords
+import com.hikejournal.app.data.speciesJumpTargets
 import com.hikejournal.app.ui.theme.Ink
 import com.hikejournal.app.ui.theme.InkMuted
 import com.hikejournal.app.ui.theme.Line
@@ -129,6 +138,8 @@ private enum class SpeciesMode(val label: String) {
 private const val QuestFocusLimit = 10
 private const val StandardNearbyLimit = 50
 private const val ExpandedNearbyLimit = 100
+// Header, tabs, outing filter, life filter, search, and index title precede the rows.
+private const val CollectionFirstSpeciesItem = 6
 
 data class SpeciesCollectionPreferences(
     val query: String = "",
@@ -278,6 +289,7 @@ fun SpeciesIndexScreen(
     val typeScopedSpecies = filterSpeciesByObservationType(scopedSpecies, observationType)
     val filtered = filterSpeciesBySearch(typeScopedSpecies, query)
         .let { items -> sortSpeciesRecords(items, speciesSort) }
+    val jumpTargets = speciesJumpTargets(filtered, speciesSort)
     val browseContext = buildList {
         hikes.firstOrNull { it.id == selectedHikeId }?.title?.let(::add)
         if (observationType != ObservationTypeFilter.All) add(observationType.label)
@@ -441,7 +453,9 @@ fun SpeciesIndexScreen(
             }
         } else {
             items(filtered, key = { it.key }) { record ->
-                SpeciesIndexRow(record) { key -> onOpenSpecies(key, filtered, browseContext) }
+                SpeciesIndexRow(record, reserveJumpRail = jumpTargets.isNotEmpty()) { key ->
+                    onOpenSpecies(key, filtered, browseContext)
+                }
             }
             item(key = "collection-back-to-top") {
                 FieldBackToTop {
@@ -822,6 +836,22 @@ fun SpeciesIndexScreen(
             }
         }
         }
+        }
+        if (
+            mode == SpeciesMode.Collection && jumpTargets.isNotEmpty() &&
+            listState.firstVisibleItemIndex >= CollectionFirstSpeciesItem
+        ) {
+            SpeciesJumpRail(
+                modifier = Modifier.align(Alignment.BottomEnd)
+                    .fillMaxHeight(0.68f)
+                    .padding(bottom = 100.dp),
+                targets = jumpTargets,
+                currentSpeciesIndex = (listState.firstVisibleItemIndex - CollectionFirstSpeciesItem)
+                    .coerceIn(0, filtered.lastIndex),
+                onJump = { speciesIndex ->
+                    scope.launch { listState.scrollToItem(CollectionFirstSpeciesItem + speciesIndex) }
+                },
+            )
         }
     }
 
@@ -1619,10 +1649,90 @@ internal fun requestOneShotLocation(
 }
 
 @Composable
-private fun SpeciesIndexRow(record: SpeciesRecord, onOpen: (String) -> Unit) {
+private fun SpeciesJumpRail(
+    modifier: Modifier,
+    targets: List<SpeciesJumpTarget>,
+    currentSpeciesIndex: Int,
+    onJump: (Int) -> Unit,
+) {
+    var touchedIndex by remember(targets) { mutableIntStateOf(-1) }
+    val currentOnJump by rememberUpdatedState(onJump)
+    val selectedIndex = if (touchedIndex >= 0) touchedIndex else
+        targets.indexOfLast { it.speciesIndex <= currentSpeciesIndex }.coerceAtLeast(0)
+
+    Column(
+        modifier
+            .width(34.dp)
+            .clip(RoundedCornerShape(topStart = 12.dp, bottomStart = 12.dp))
+            .background(Moss)
+            .pointerInput(targets) {
+                awaitEachGesture {
+                    val down = awaitFirstDown()
+                    var lastJump = -1
+                    fun jumpAt(y: Float) {
+                        if (size.height <= 0) return
+                        val index = ((y / size.height) * targets.size).toInt()
+                            .coerceIn(0, targets.lastIndex)
+                        touchedIndex = index
+                        if (index != lastJump) {
+                            lastJump = index
+                            currentOnJump(targets[index].speciesIndex)
+                        }
+                    }
+                    jumpAt(down.position.y)
+                    do {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                        if (change.pressed) {
+                            jumpAt(change.position.y)
+                            change.consume()
+                        }
+                    } while (change.pressed)
+                    touchedIndex = -1
+                }
+            }
+            .semantics { contentDescription = "Species quick jump" },
+        verticalArrangement = Arrangement.SpaceEvenly,
+    ) {
+        targets.forEachIndexed { index, target ->
+            Box(
+                Modifier.fillMaxWidth().weight(1f).semantics {
+                    contentDescription = "Jump to ${target.label}"
+                    onClick {
+                        onJump(target.speciesIndex)
+                        true
+                    }
+                },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    target.label,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontSize = 10.sp,
+                        lineHeight = 11.sp,
+                        fontWeight = if (index == selectedIndex) FontWeight.Bold else FontWeight.Medium,
+                    ),
+                    color = if (index == selectedIndex) Color(0xFFD4E7BA) else Paper,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SpeciesIndexRow(
+    record: SpeciesRecord,
+    reserveJumpRail: Boolean,
+    onOpen: (String) -> Unit,
+) {
     Column(Modifier.fillMaxWidth().clickable { onOpen(record.key) }) {
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 13.dp),
+            Modifier.fillMaxWidth().padding(
+                start = 20.dp,
+                end = if (reserveJumpRail) 48.dp else 20.dp,
+                top = 13.dp,
+                bottom = 13.dp,
+            ),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(Modifier.size(92.dp).background(Moss)) {

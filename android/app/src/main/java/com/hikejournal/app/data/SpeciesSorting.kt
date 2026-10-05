@@ -14,6 +14,29 @@ enum class SpeciesSort(val label: String) {
     MostRecent("Most recent"),
 }
 
+data class SpeciesJumpTarget(val label: String, val speciesIndex: Int)
+
+private const val QuickJumpMinimumSpecies = 30
+
+fun speciesJumpTargets(species: List<SpeciesRecord>, sort: SpeciesSort): List<SpeciesJumpTarget> {
+    if (species.size < QuickJumpMinimumSpecies) return emptyList()
+    return when (sort) {
+        SpeciesSort.Alphabetical, SpeciesSort.ScientificName -> {
+            val seen = mutableSetOf<String>()
+            species.mapIndexedNotNull { index, record ->
+                val name = if (sort == SpeciesSort.ScientificName) record.scientificName else record.commonName
+                val initial = name.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "#"
+                if (seen.add(initial)) SpeciesJumpTarget(initial, index) else null
+            }
+        }
+        SpeciesSort.MostEncountered, SpeciesSort.MostRecent ->
+            (0..4).map { step ->
+                val index = (species.lastIndex * step + 2) / 4
+                SpeciesJumpTarget("${index + 1}", index)
+            }
+    }
+}
+
 private val alphabeticalSpeciesComparator = compareBy<SpeciesRecord>(
     { it.commonName.lowercase(Locale.ROOT) },
     { it.scientificName.lowercase(Locale.ROOT) },

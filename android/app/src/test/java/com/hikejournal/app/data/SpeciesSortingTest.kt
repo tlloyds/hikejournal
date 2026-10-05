@@ -61,15 +61,47 @@ class SpeciesSortingTest {
         )
     }
 
+    @Test
+    fun `quick jump only appears for long visible lists and uses the selected name sort`() {
+        val records = (1..29).map { species("A$it") }
+        assertEquals(emptyList<SpeciesJumpTarget>(), speciesJumpTargets(records, SpeciesSort.Alphabetical))
+
+        val longList = sortSpeciesRecords(
+            records + species("Birch", scientificName = "Zeta") +
+                species("Cedar", scientificName = "Beta"),
+            SpeciesSort.Alphabetical,
+        )
+        assertEquals(
+            listOf(SpeciesJumpTarget("A", 0), SpeciesJumpTarget("B", 29), SpeciesJumpTarget("C", 30)),
+            speciesJumpTargets(longList, SpeciesSort.Alphabetical),
+        )
+
+        val scientificList = sortSpeciesRecords(longList, SpeciesSort.ScientificName)
+        assertEquals(
+            listOf(SpeciesJumpTarget("A", 0), SpeciesJumpTarget("B", 29), SpeciesJumpTarget("Z", 30)),
+            speciesJumpTargets(scientificList, SpeciesSort.ScientificName),
+        )
+    }
+
+    @Test
+    fun `non alphabetical quick jump offers evenly spaced list positions`() {
+        val records = (1..41).map { species("Species $it") }
+        assertEquals(
+            listOf(1, 11, 21, 31, 41).map { SpeciesJumpTarget("$it", it - 1) },
+            speciesJumpTargets(records, SpeciesSort.MostRecent),
+        )
+    }
+
     private fun species(
         commonName: String,
         encounterCount: Int = 1,
         latestSeen: String? = null,
+        scientificName: String = commonName,
     ) = SpeciesRecord(
         key = commonName,
         taxonId = null,
         commonName = commonName,
-        scientificName = commonName,
+        scientificName = scientificName,
         rank = "species",
         iconicTaxonName = "Other",
         wikipediaUrl = "",
