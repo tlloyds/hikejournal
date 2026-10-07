@@ -1,6 +1,7 @@
 package com.hikejournal.app.ui
 
 import com.hikejournal.app.data.Hike
+import com.hikejournal.app.data.MapBounds
 import com.hikejournal.app.data.Photo
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -8,6 +9,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class HikeMapScreenTest {
+    @Test
+    fun `late summary bounds still replace an earlier cache fit`() {
+        val bounds = MapBounds(west = -81.6, south = 28.2, east = -81.1, north = 28.7)
+
+        assertTrue(shouldApplySummaryMapBounds(bounds, alreadyApplied = false))
+        assertFalse(shouldApplySummaryMapBounds(bounds, alreadyApplied = true))
+        assertFalse(shouldApplySummaryMapBounds(null, alreadyApplied = false))
+    }
+
     @Test
     fun `photo viewer is hidden while its map is open`() {
         val selected = photo("selected", 28.1, -82.1)

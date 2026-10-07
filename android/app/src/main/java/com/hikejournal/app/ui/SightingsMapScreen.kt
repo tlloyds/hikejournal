@@ -162,6 +162,9 @@ internal enum class MapLayerMode { Trail, Satellite }
 
 internal data class MapViewport(val bounds: LatLngBounds, val zoom: Double)
 
+internal fun shouldApplySummaryMapBounds(bounds: MapBounds?, alreadyApplied: Boolean): Boolean =
+    bounds != null && !alreadyApplied
+
 @Composable
 fun SightingsMapScreen(
     sightings: List<Sighting>,
@@ -661,6 +664,7 @@ private class NativeMapController {
     var waitForInitialBounds: Boolean = false
     private var map: MapLibreMap? = null
     private var fitted = false
+    private var fittedToInitialBounds = false
     private var layerMode = MapLayerMode.Satellite
     private var showFloridaTrail = true
     private var clickListenerAttached = false
@@ -968,13 +972,15 @@ private class NativeMapController {
                 )
                 renderedFloridaTrail = floridaTrail
             }
-            if (!fitted && !followCurrentPoint && (
-                    initialBounds != null ||
-                        (!waitForInitialBounds && (sightings.isNotEmpty() || routeSegments.isNotEmpty()))
-                )
+            if (!followCurrentPoint && shouldApplySummaryMapBounds(initialBounds, fittedToInitialBounds)) {
+                fitted = true
+                fittedToInitialBounds = true
+                fitMap(currentMap, sightings, routeSegments, initialBounds)
+            } else if (!fitted && !followCurrentPoint && initialBounds == null && !waitForInitialBounds &&
+                (sightings.isNotEmpty() || routeSegments.isNotEmpty())
             ) {
                 fitted = true
-                fitMap(currentMap, sightings, routeSegments, initialBounds)
+                fitMap(currentMap, sightings, routeSegments, null)
             }
         }
     }

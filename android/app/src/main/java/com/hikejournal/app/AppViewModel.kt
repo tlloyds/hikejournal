@@ -1535,6 +1535,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun loadSightings(force: Boolean = false) {
         if ((mapDataValidated && !force) || _state.value.isMapLoading) return
+        // Keep the map from fitting an incomplete cache snapshot while the
+        // summary request is still resolving its full photo bounds.
+        _state.update { it.copy(isMapLoading = true, error = null) }
         viewModelScope.launch {
             if (_state.value.sightings.isEmpty() && _state.value.mapRouteSegments.isEmpty()) {
                 runCatching { repository.loadCachedMapData() }
@@ -1549,33 +1552,31 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         }
                     }
             }
-            _state.update { it.copy(isMapLoading = true, error = null) }
-                runCatching {
-                    repository.loadMobileMapSummary() to repository.loadMapRouteSegments()
-                }.onSuccess { (summary, routes) ->
-                    mapDataValidated = !summary.fromCache && !routes.fromCache
-                    _state.update {
-                        it.copy(
-                            mapPhotoCount = summary.value.photoCount,
-                            mapBounds = summary.value.bounds,
-                            mapRouteSegments = routes.value,
-                            isMapLoading = lastMapViewport != null,
-                            isOffline = summary.fromCache || routes.fromCache,
-                        )
-                    }
-                    lastMapViewport?.let { viewport ->
-                        loadMapViewport(
-                            west = viewport.west,
-                            south = viewport.south,
-                            east = viewport.east,
-                            north = viewport.north,
-                            zoom = viewport.zoom,
-                        )
-                    }
+            runCatching {
+                repository.loadMobileMapSummary() to repository.loadMapRouteSegments()
+            }.onSuccess { (summary, routes) ->
+                mapDataValidated = !summary.fromCache && !routes.fromCache
+                _state.update {
+                    it.copy(
+                        mapPhotoCount = summary.value.photoCount,
+                        mapBounds = summary.value.bounds,
+                        mapRouteSegments = routes.value,
+                        isMapLoading = lastMapViewport != null,
+                        isOffline = summary.fromCache || routes.fromCache,
+                    )
                 }
-                .onFailure { error ->
-                    _state.update { it.copy(isMapLoading = false, error = error.userMessage()) }
+                lastMapViewport?.let { viewport ->
+                    loadMapViewport(
+                        west = viewport.west,
+                        south = viewport.south,
+                        east = viewport.east,
+                        north = viewport.north,
+                        zoom = viewport.zoom,
+                    )
                 }
+            }.onFailure { error ->
+                _state.update { it.copy(isMapLoading = false, error = error.userMessage()) }
+            }
         }
     }
 
