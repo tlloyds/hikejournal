@@ -959,10 +959,21 @@ fun HikeJournalApp(viewModel: AppViewModel) {
                 destination == TopDestination.Map -> SightingsMapScreen(
                     sightings = state.sightings,
                     routeSegments = state.mapRouteSegments,
+                    photoCount = state.mapPhotoCount,
+                    initialBounds = state.mapBounds,
                     selectedTrailIds = selectedTrailIds,
                     loading = state.isMapLoading,
                     openingPhotoId = openingMapPhotoId,
                     onRefresh = { viewModel.loadSightings(force = true) },
+                    onMapViewportChanged = { west, south, east, north, zoom ->
+                        viewModel.loadMapViewport(
+                            west = west,
+                            south = south,
+                            east = east,
+                            north = north,
+                            zoom = zoom,
+                        )
+                    },
                     onOpenHike = viewModel::openEncounterHike,
                     onOpenPhoto = { sighting ->
                         openingMapPhotoId = sighting.id

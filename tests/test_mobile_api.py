@@ -47,6 +47,8 @@ from mobile_api import (
     list_hike_locations,
     list_map_routes,
     list_sightings,
+    get_mobile_map_summary,
+    get_mobile_map_viewport,
     decide_species_review,
     derive_mobile_api_token,
     queue_photo_for_species_review,
@@ -646,6 +648,112 @@ def test_main_map_sightings_use_owner_scoped_projection(monkeypatch):
         "confirmed": True,
     }]
     assert calls[0][0] == ["hike-1"]
+
+
+def test_main_map_summary_is_owner_scoped_and_keeps_only_extent_and_count(monkeypatch):
+    calls = []
+
+    class Repository:
+        def get_mobile_map_summary(self, user_context):
+            calls.append(user_context)
+            return {"photo_count": 127, "bounds": [-82.1, 27.9, -81.0, 29.2]}
+
+    service = type("Service", (), {"repository": Repository()})()
+    monkeypatch.setattr("mobile_api.get_services", lambda: service)
+    monkeypatch.setattr("mobile_api._user_context", lambda: {"subject": "google-1"})
+
+    assert get_mobile_map_summary() == {
+        "photo_count": 127,
+        "bounds": [-82.1, 27.9, -81.0, 29.2],
+    }
+    assert calls == [{"subject": "google-1"}]
+
+
+def test_mobile_config_advertises_viewport_map_photos(monkeypatch):
+    monkeypatch.setattr(
+        "mobile_api._mobile_job_store",
+        lambda: mobile_api.InMemoryMobileJobStore(),
+    )
+
+    assert "viewport_map_photos" in mobile_api.app_config()["capabilities"]
+
+
+def test_main_map_viewport_returns_only_current_points_and_cluster_counts(monkeypatch):
+    calls = []
+
+    class Repository:
+        def get_mobile_map_viewport(self, user_context, viewport):
+            calls.append((user_context, viewport))
+            return {
+                "type": "FeatureCollection",
+                "features": [
+                    {
+                        "type": "Feature",
+                        "geometry": {"type": "Point", "coordinates": [-82.1, 28.2]},
+                        "properties": {
+                            "kind": "photo",
+                            "id": "photo-1",
+                            "hike_id": "hike-1",
+                            "caption": "Egret",
+                            "storage_path": "photos/one.jpg",
+                            "thumbnail_storage_path": "thumbs/one.jpg",
+                        },
+                    },
+                    {
+                        "type": "Feature",
+                        "geometry": {"type": "Point", "coordinates": [-82.0, 28.3]},
+                        "properties": {"kind": "cluster", "id": "cluster:1:2", "cluster_count": 37},
+                    },
+                ],
+                "meta": {"matched": 38, "clustered": True},
+            }
+
+        def decorate_media_row(self, photo):
+            assert photo["storage_path"] == "photos/one.jpg"
+            assert photo["thumbnail_storage_path"] == "thumbs/one.jpg"
+            return {"public_url": "https://images.example/photo", "thumbnail_url": "https://images.example/thumb"}
+
+    service = type("Service", (), {"repository": Repository()})()
+    monkeypatch.setattr("mobile_api.get_services", lambda: service)
+    monkeypatch.setattr("mobile_api._user_context", lambda: {"subject": "google-1"})
+
+    payload = get_mobile_map_viewport(west=-83, south=27, east=-80, north=30, zoom=8)
+
+    assert payload["meta"] == {"matched": 38, "clustered": True}
+    assert payload["features"] == [
+        {
+            "kind": "photo",
+            "id": "photo-1",
+            "hike_id": "hike-1",
+            "caption": "Egret",
+            "lat": 28.2,
+            "lng": -82.1,
+            "hike_title": "Everyday sighting",
+            "hike_date": "",
+            "location_name": "",
+            "species_name": "",
+            "scientific_name": "",
+            "confirmed": False,
+            "url": "https://images.example/photo",
+            "thumbnail_url": "https://images.example/thumb",
+        },
+        {
+            "kind": "cluster",
+            "id": "cluster:1:2",
+            "cluster_count": 37,
+            "lat": 28.3,
+            "lng": -82.0,
+        },
+    ]
+    assert calls[0][0] == {"subject": "google-1"}
+    assert calls[0][1] == mobile_api.MapViewport(-83, 27, -80, 30, 8)
+
+
+def test_main_map_viewport_rejects_empty_bounds():
+    with pytest.raises(HTTPException) as raised:
+        get_mobile_map_viewport(west=-82, south=28, east=-82, north=28, zoom=8)
+
+    assert raised.value.status_code == 422
 
 
 def test_everyday_journal_photo_page_and_route_are_available_to_android(monkeypatch):

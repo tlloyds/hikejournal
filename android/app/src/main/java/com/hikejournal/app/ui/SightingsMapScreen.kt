@@ -70,6 +70,7 @@ import com.hikejournal.app.BuildConfig
 import com.hikejournal.app.data.OfflineMapPack
 import com.hikejournal.app.data.OfflineMapPacks
 import com.hikejournal.app.data.NationalScenicTrailOverlays
+import com.hikejournal.app.data.MapBounds
 import com.hikejournal.app.data.RoutePoint
 import com.hikejournal.app.data.Sighting
 import com.hikejournal.app.ui.theme.Ink
@@ -116,6 +117,8 @@ import kotlinx.coroutines.withContext
 
 private const val SOURCE_ID = "hikejournal-sightings"
 private const val LAYER_ID = "hikejournal-sightings-circles"
+private const val CLUSTER_LAYER_ID = "hikejournal-sightings-clusters"
+private const val CLUSTER_LABEL_LAYER_ID = "hikejournal-sightings-cluster-labels"
 private const val SELECTED_SOURCE_ID = "hikejournal-selected-sighting"
 private const val SELECTED_LAYER_ID = "hikejournal-selected-sighting-circle"
 private const val ROUTE_SOURCE_ID = "hikejournal-routes"
@@ -163,10 +166,13 @@ internal data class MapViewport(val bounds: LatLngBounds, val zoom: Double)
 fun SightingsMapScreen(
     sightings: List<Sighting>,
     routeSegments: List<List<RoutePoint>>,
+    photoCount: Int,
+    initialBounds: MapBounds?,
     selectedTrailIds: Set<String>,
     loading: Boolean,
     openingPhotoId: String?,
     onRefresh: () -> Unit,
+    onMapViewportChanged: (west: Double, south: Double, east: Double, north: Double, zoom: Double) -> Unit,
     onOpenHike: (String) -> Unit,
     onOpenPhoto: (Sighting) -> Unit,
 ) {
@@ -188,10 +194,21 @@ fun SightingsMapScreen(
             selectedSighting = selected,
             layerMode = layerMode,
             onSelect = { selected = it },
-            onViewportChanged = { viewport = it },
+            onViewportChanged = {
+                viewport = it
+                onMapViewportChanged(
+                    it.bounds.longitudeWest,
+                    it.bounds.latitudeSouth,
+                    it.bounds.longitudeEast,
+                    it.bounds.latitudeNorth,
+                    it.zoom,
+                )
+            },
             selectedTrailIds = selectedTrailIds,
             showsPhotos = showsPhotos,
             showsRoutes = showsRoutes,
+            initialBounds = initialBounds,
+            waitForInitialBounds = loading || initialBounds != null,
             modifier = Modifier.fillMaxSize(),
         )
 
@@ -203,7 +220,7 @@ fun SightingsMapScreen(
                     Text("HikeJournal", style = MaterialTheme.typography.titleMedium, color = Color(0xFFB7C8B5))
                     Text("Sightings map", style = MaterialTheme.typography.headlineMedium, color = Paper)
                     Text(
-                        "${sightings.size} GEOTAGGED PHOTOS · ${routeSegments.size} ROUTE SEGMENTS",
+                        "$photoCount GEOTAGGED PHOTOS · ${routeSegments.size} ROUTE SEGMENTS",
                         style = MaterialTheme.typography.labelSmall,
                         color = Color(0xFFB7C8B5),
                     )
@@ -525,6 +542,8 @@ internal fun HikeJournalMap(
     routeFitBottomInset: Dp = 0.dp,
     routeMileMarkers: List<RouteMileMarker> = emptyList(),
     completedRouteMile: Int = 0,
+    initialBounds: MapBounds? = null,
+    waitForInitialBounds: Boolean = false,
 ) {
     val context = LocalContext.current
     val controller = remember { NativeMapController() }
@@ -534,6 +553,8 @@ internal fun HikeJournalMap(
     }
     controller.routeMileMarkers = routeMileMarkers
     controller.completedRouteMile = completedRouteMile
+    controller.initialBounds = initialBounds
+    controller.waitForInitialBounds = waitForInitialBounds
     val showTrailOverlays = selectedTrailIds.isNotEmpty()
     var trailOverlays by remember { mutableStateOf<FeatureCollection?>(null) }
     var trailOverlayIndex by remember { mutableStateOf<FloridaTrailSegmentIndex?>(null) }
@@ -562,7 +583,7 @@ internal fun HikeJournalMap(
             )
         }
     }
-    val visibleSightings = if (showsPhotos) sightings else sightings.filter { it.url.isBlank() }
+    val visibleSightings = if (showsPhotos) sightings else emptyList()
     val visibleRoutes = if (showsRoutes) classifiedRoutes else emptyList()
     val revealedRoutes = routeRevealProgress?.let { progress ->
         replayPath.visibleSegments(progress).map { points -> ClassifiedRouteSegment(points, false) }
@@ -636,6 +657,8 @@ private class NativeMapController {
     var routeFitBottomInsetPx: Int = 0
     var routeMileMarkers: List<RouteMileMarker> = emptyList()
     var completedRouteMile: Int = 0
+    var initialBounds: MapBounds? = null
+    var waitForInitialBounds: Boolean = false
     private var map: MapLibreMap? = null
     private var fitted = false
     private var layerMode = MapLayerMode.Satellite
@@ -664,21 +687,32 @@ private class NativeMapController {
             clickListenerAttached = true
             map.addOnMapClickListener { latLng ->
                 val point = map.projection.toScreenLocation(latLng)
-                val features = map.queryRenderedFeatures(
-                    RectF(
-                        point.x - tapRadiusPx,
-                        point.y - tapRadiusPx,
-                        point.x + tapRadiusPx,
-                        point.y + tapRadiusPx,
-                    ),
-                    LAYER_ID,
+                val tapArea = RectF(
+                    point.x - tapRadiusPx,
+                    point.y - tapRadiusPx,
+                    point.x + tapRadiusPx,
+                    point.y + tapRadiusPx,
                 )
+                val cluster = map.queryRenderedFeatures(tapArea, CLUSTER_LAYER_ID).firstOrNull()
+                if (cluster != null) {
+                    map.animateCamera(
+                        CameraUpdateFactory.newLatLngZoom(
+                            latLng,
+                            (map.cameraPosition.zoom + 2.0).coerceAtMost(20.0),
+                        ),
+                        450,
+                    )
+                    return@addOnMapClickListener true
+                }
+                val features = map.queryRenderedFeatures(tapArea, LAYER_ID)
                 val id = features.firstOrNull()?.getStringProperty("sighting_id")
                 sightingsById[id]?.let(onSelect)
                 id != null
             }
             map.addOnCameraIdleListener {
-                onViewportChanged(MapViewport(map.projection.visibleRegion.latLngBounds, map.cameraPosition.zoom))
+                if (fitted || !waitForInitialBounds) {
+                    onViewportChanged(MapViewport(map.projection.visibleRegion.latLngBounds, map.cameraPosition.zoom))
+                }
             }
         }
         loadStyle(
@@ -853,6 +887,27 @@ private class NativeMapController {
                     circleOpacity(0.88f),
                     circleStrokeColor("#123B4A"),
                     circleStrokeWidth(1.4f),
+                ).withFilter(Expression.eq(Expression.get("kind"), "photo")),
+            )
+            style.addLayer(
+                CircleLayer(CLUSTER_LAYER_ID, SOURCE_ID).withProperties(
+                    circleColor("#F47A32"),
+                    circleRadius(18f),
+                    circleOpacity(0.95f),
+                    circleStrokeColor("#FFFCF3"),
+                    circleStrokeWidth(2f),
+                ).withFilter(Expression.eq(Expression.get("kind"), "cluster")),
+            )
+            style.addLayer(
+                SymbolLayer(CLUSTER_LABEL_LAYER_ID, SOURCE_ID).withFilter(
+                    Expression.eq(Expression.get("kind"), "cluster"),
+                ).withProperties(
+                    org.maplibre.android.style.layers.PropertyFactory.textField(Expression.get("cluster_count")),
+                    org.maplibre.android.style.layers.PropertyFactory.textSize(11f),
+                    org.maplibre.android.style.layers.PropertyFactory.textColor("#183A2D"),
+                    org.maplibre.android.style.layers.PropertyFactory.textHaloColor("#FFFCF3"),
+                    org.maplibre.android.style.layers.PropertyFactory.textHaloWidth(1f),
+                    org.maplibre.android.style.layers.PropertyFactory.textAllowOverlap(true),
                 ),
             )
             style.addLayer(
@@ -913,9 +968,13 @@ private class NativeMapController {
                 )
                 renderedFloridaTrail = floridaTrail
             }
-            if (!fitted && !followCurrentPoint && (sightings.isNotEmpty() || routeSegments.isNotEmpty())) {
+            if (!fitted && !followCurrentPoint && (
+                    initialBounds != null ||
+                        (!waitForInitialBounds && (sightings.isNotEmpty() || routeSegments.isNotEmpty()))
+                )
+            ) {
                 fitted = true
-                fitMap(currentMap, sightings, routeSegments)
+                fitMap(currentMap, sightings, routeSegments, initialBounds)
             }
         }
     }
@@ -958,6 +1017,7 @@ private class NativeMapController {
         map: MapLibreMap,
         sightings: List<Sighting>,
         routeSegments: List<ClassifiedRouteSegment>,
+        initialBounds: MapBounds?,
     ) {
         sightings.firstOrNull { it.id == focusedSightingId }?.let { focused ->
             map.animateCamera(
@@ -968,6 +1028,23 @@ private class NativeMapController {
                         .build(),
                 ),
                 900,
+            )
+            return
+        }
+        if (initialBounds != null) {
+            val bounds = LatLngBounds.Builder()
+                .include(LatLng(initialBounds.north, initialBounds.east))
+                .include(LatLng(initialBounds.south, initialBounds.west))
+                .build()
+            map.animateCamera(
+                CameraUpdateFactory.newLatLngBounds(
+                    bounds,
+                    90,
+                    90 + routeFitTopInsetPx,
+                    90,
+                    90 + routeFitBottomInsetPx,
+                ),
+                1000,
             )
             return
         }
@@ -1008,6 +1085,8 @@ private class NativeMapController {
         val features = sightings.map { sighting ->
             Feature.fromGeometry(Point.fromLngLat(sighting.longitude, sighting.latitude)).apply {
                 addStringProperty("sighting_id", sighting.id)
+                addStringProperty("kind", if (sighting.clusterCount > 0) "cluster" else "photo")
+                addNumberProperty("cluster_count", sighting.clusterCount)
             }
         }
         return FeatureCollection.fromFeatures(features)

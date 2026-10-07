@@ -571,6 +571,19 @@ data class Sighting(
     val scientificName: String,
     val confirmed: Boolean,
     val thumbnailUrl: String = "",
+    val clusterCount: Int = 0,
+)
+
+data class MapBounds(
+    val west: Double,
+    val south: Double,
+    val east: Double,
+    val north: Double,
+)
+
+data class MobileMapSummary(
+    val photoCount: Int,
+    val bounds: MapBounds?,
 )
 
 data class ReviewCandidate(
@@ -879,6 +892,55 @@ fun parseSightings(json: String): List<Sighting> {
             confirmed = item.optBoolean("confirmed"),
         )
     }
+}
+
+fun parseMobileMapSummary(json: String): MobileMapSummary {
+    val root = JSONObject(json)
+    val rawBounds = root.optJSONArray("bounds")
+    val bounds = if (rawBounds != null && rawBounds.length() == 4) {
+        val west = rawBounds.optDouble(0, Double.NaN)
+        val south = rawBounds.optDouble(1, Double.NaN)
+        val east = rawBounds.optDouble(2, Double.NaN)
+        val north = rawBounds.optDouble(3, Double.NaN)
+        if (listOf(west, south, east, north).all(Double::isFinite) && west <= east && south <= north) {
+            MapBounds(
+                west = if (west == east) west - 0.01 else west,
+                south = if (south == north) south - 0.01 else south,
+                east = if (west == east) east + 0.01 else east,
+                north = if (south == north) north + 0.01 else north,
+            )
+        } else {
+            null
+        }
+    } else {
+        null
+    }
+    return MobileMapSummary(root.optInt("photo_count").coerceAtLeast(0), bounds)
+}
+
+fun parseMobileMapViewport(json: String): List<Sighting> {
+    val features = JSONObject(json).optJSONArray("features") ?: JSONArray()
+    return List(features.length()) { index ->
+        val item = features.getJSONObject(index)
+        val isCluster = item.optString("kind") == "cluster"
+        Sighting(
+            id = item.optString("id"),
+            hikeId = item.optNullableString("hike_id"),
+            hikeTitle = item.optString("hike_title", item.optString("title", "Everyday sighting")),
+            hikeDate = item.optString("hike_date"),
+            locationName = item.optString("location_name"),
+            url = item.optString("url"),
+            caption = item.optString("caption"),
+            takenAt = item.optNullableString("taken_at"),
+            latitude = item.optDouble("lat"),
+            longitude = item.optDouble("lng"),
+            speciesName = item.optString("species_name"),
+            scientificName = item.optString("scientific_name"),
+            confirmed = item.optBoolean("confirmed"),
+            thumbnailUrl = item.optString("thumbnail_url"),
+            clusterCount = if (isCluster) item.optInt("cluster_count").coerceAtLeast(1) else 0,
+        )
+    }.filter { it.id.isNotBlank() && it.latitude.isFinite() && it.longitude.isFinite() }
 }
 
 fun parseReviewQueue(json: String): List<ReviewItem> {

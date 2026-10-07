@@ -12,6 +12,7 @@ import com.hikejournal.app.data.HikeDraft
 import com.hikejournal.app.data.HikeDeletionResult
 import com.hikejournal.app.data.ApiException
 import com.hikejournal.app.data.HikeJournalRepository
+import com.hikejournal.app.data.MapBounds
 import com.hikejournal.app.data.PerformanceTrace
 import com.hikejournal.app.data.HikeLocation
 import com.hikejournal.app.data.HikeLocationSuggestion
@@ -76,8 +77,18 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 
 enum class LongitudinalDestination { PlaceProfile, FieldBriefing, Comparison }
+
+private data class MapViewportRequest(
+    val west: Double,
+    val south: Double,
+    val east: Double,
+    val north: Double,
+    val zoom: Double,
+)
 
 internal fun shouldRefreshReviewQueueAfterSync(
     reviewQueueRequested: Boolean,
@@ -119,6 +130,8 @@ data class AppState(
     val questSightingsMap: QuestSightingsMap? = null,
     val sightings: List<Sighting> = emptyList(),
     val mapRouteSegments: List<List<com.hikejournal.app.data.RoutePoint>> = emptyList(),
+    val mapPhotoCount: Int = 0,
+    val mapBounds: MapBounds? = null,
     val reviewQueue: List<ReviewItem> = emptyList(),
     val publishQueue: PublishQueue = PublishQueue(false, 0, 0, 0, emptyList()),
     val companionConfig: CompanionConfig = CompanionConfig(webUrl = BuildConfig.DEFAULT_WEB_URL),
@@ -213,6 +226,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private var handledSpeciesBatchWorkId: UUID? = null
     private var handledPublishBatchWorkId: UUID? = null
     private var mapDataValidated = false
+    private var mapViewportJob: Job? = null
+    private var mapViewportRequestGeneration = 0
+    private var lastMapViewport: MapViewportRequest? = null
     private var loadedTrackingMarksForHikeId: String? = null
     private var reviewQueueRequested = false
     private var fieldBriefingLocationId: String? = null
@@ -1534,22 +1550,64 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     }
             }
             _state.update { it.copy(isMapLoading = true, error = null) }
-            runCatching {
-                repository.loadSightings() to repository.loadMapRouteSegments()
-            }.onSuccess { (sightings, routes) ->
-                    mapDataValidated = !sightings.fromCache && !routes.fromCache
+                runCatching {
+                    repository.loadMobileMapSummary() to repository.loadMapRouteSegments()
+                }.onSuccess { (summary, routes) ->
+                    mapDataValidated = !summary.fromCache && !routes.fromCache
                     _state.update {
                         it.copy(
-                            sightings = sightings.value,
+                            mapPhotoCount = summary.value.photoCount,
+                            mapBounds = summary.value.bounds,
                             mapRouteSegments = routes.value,
-                            isMapLoading = false,
-                            isOffline = sightings.fromCache || routes.fromCache,
+                            isMapLoading = lastMapViewport != null,
+                            isOffline = summary.fromCache || routes.fromCache,
+                        )
+                    }
+                    lastMapViewport?.let { viewport ->
+                        loadMapViewport(
+                            west = viewport.west,
+                            south = viewport.south,
+                            east = viewport.east,
+                            north = viewport.north,
+                            zoom = viewport.zoom,
                         )
                     }
                 }
                 .onFailure { error ->
                     _state.update { it.copy(isMapLoading = false, error = error.userMessage()) }
                 }
+        }
+    }
+
+    fun loadMapViewport(
+        west: Double,
+        south: Double,
+        east: Double,
+        north: Double,
+        zoom: Double,
+    ) {
+        val viewport = MapViewportRequest(west, south, east, north, zoom)
+        lastMapViewport = viewport
+        val requestGeneration = ++mapViewportRequestGeneration
+        mapViewportJob?.cancel()
+        mapViewportJob = viewModelScope.launch {
+            delay(180)
+            runCatching {
+                repository.loadMobileMapViewport(west, south, east, north, zoom)
+            }.onSuccess { pins ->
+                if (requestGeneration != mapViewportRequestGeneration) return@onSuccess
+                _state.update {
+                    it.copy(
+                        sightings = pins,
+                        isMapLoading = false,
+                        isOffline = false,
+                        error = null,
+                    )
+                }
+            }.onFailure { error ->
+                if (requestGeneration != mapViewportRequestGeneration) return@onFailure
+                _state.update { it.copy(isMapLoading = false, error = error.userMessage()) }
+            }
         }
     }
 

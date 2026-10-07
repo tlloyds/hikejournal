@@ -306,6 +306,18 @@ class HikeJournalApi(private val context: Context) {
 
     suspend fun getSightingsJson(): String = request("/v1/sightings")
 
+    suspend fun getMobileMapSummaryJson(): String = request("/v1/map/summary")
+
+    suspend fun getMobileMapViewportJson(
+        west: Double,
+        south: Double,
+        east: Double,
+        north: Double,
+        zoom: Double,
+    ): String = request(
+        "/v1/map/viewport?west=$west&south=$south&east=$east&north=$north&zoom=$zoom",
+    )
+
     suspend fun getMapRoutesJson(): String = request("/v1/routes")
 
     suspend fun getReviewQueueJson(): String = request("/v1/species/review")

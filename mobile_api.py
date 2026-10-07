@@ -55,6 +55,7 @@ from hike_journal.domain.routes import (
     route_import_to_route_groups,
     sync_hike_route_import,
 )
+from hike_journal.domain.map_data import MapViewport
 from hike_journal.models import HikeDraft, SpeciesCandidate
 from hike_journal.services.exif import extract_metadata
 from hike_journal.services.image_processing import build_thumbnail, optimize_image
@@ -3185,7 +3186,13 @@ def operations_metrics() -> dict[str, Any]:
 @app.get("/v1/config", dependencies=[Depends(require_mobile_key)])
 def app_config() -> dict[str, Any]:
     store = _mobile_job_store()
-    capabilities = ["api_contract_v1", "operational_health", "gzip_responses", *_auth_capabilities()]
+    capabilities = [
+        "api_contract_v1",
+        "operational_health",
+        "gzip_responses",
+        "viewport_map_photos",
+        *_auth_capabilities(),
+    ]
     if not isinstance(store, InMemoryMobileJobStore):
         capabilities.append("durable_background_jobs")
     return {
@@ -5438,6 +5445,74 @@ def list_sightings() -> list[dict[str, Any]]:
         key=lambda item: str(item.get("taken_at") or item.get("hike_date") or ""),
         reverse=True,
     )
+
+
+@app.get("/v1/map/summary", dependencies=[Depends(require_mobile_key)])
+def get_mobile_map_summary() -> dict[str, Any]:
+    svc = get_services()
+    getter = getattr(svc.repository, "get_mobile_map_summary", None)
+    summary = getter(_user_context()) if callable(getter) else None
+    if summary is None:
+        raise HTTPException(status_code=503, detail="The map summary is temporarily unavailable.")
+    return {
+        "photo_count": max(0, int(summary.get("photo_count") or 0)),
+        "bounds": summary.get("bounds"),
+    }
+
+
+@app.get("/v1/map/viewport", dependencies=[Depends(require_mobile_key)])
+def get_mobile_map_viewport(
+    west: float = Query(ge=-180, le=180),
+    south: float = Query(ge=-90, le=90),
+    east: float = Query(ge=-180, le=180),
+    north: float = Query(ge=-90, le=90),
+    zoom: float = Query(ge=0, le=22),
+) -> dict[str, Any]:
+    if south >= north or west == east:
+        raise HTTPException(status_code=422, detail="Map bounds must describe a non-empty viewport.")
+    svc = get_services()
+    getter = getattr(svc.repository, "get_mobile_map_viewport", None)
+    viewport = MapViewport(west=west, south=south, east=east, north=north, zoom=zoom)
+    payload = getter(_user_context(), viewport) if callable(getter) else None
+    if payload is None:
+        raise HTTPException(status_code=503, detail="Map points are temporarily unavailable.")
+
+    points: list[dict[str, Any]] = []
+    for feature in payload.get("features") or []:
+        if not isinstance(feature, dict):
+            continue
+        geometry = feature.get("geometry") or {}
+        coordinates = geometry.get("coordinates")
+        properties = feature.get("properties") or {}
+        if geometry.get("type") != "Point" or not isinstance(coordinates, list) or len(coordinates) < 2:
+            continue
+        try:
+            longitude, latitude = float(coordinates[0]), float(coordinates[1])
+        except (TypeError, ValueError):
+            continue
+        point = {**properties, "lat": latitude, "lng": longitude}
+        if point.get("kind") == "photo":
+            decorator = getattr(svc.repository, "decorate_media_row", None)
+            media = decorator(
+                {
+                    "public_url": point.pop("public_url", None),
+                    "storage_path": point.pop("storage_path", None),
+                    "thumbnail_storage_path": point.pop("thumbnail_storage_path", None),
+                }
+            ) if callable(decorator) else {}
+            hike_id = str(point.get("hike_id") or "")
+            point["hike_id"] = hike_id or None
+            point["hike_title"] = str(point.get("hike_title") or "Everyday sighting")
+            point["hike_date"] = str(point.get("hike_date") or "")
+            point["location_name"] = str(point.get("location_name") or "")
+            point["caption"] = str(point.get("caption") or "")
+            point["species_name"] = str(point.get("species_name") or "")
+            point["scientific_name"] = str(point.get("scientific_name") or "")
+            point["confirmed"] = bool(point.get("confirmed"))
+            point["url"] = str(media.get("public_url") or "")
+            point["thumbnail_url"] = str(media.get("thumbnail_url") or "")
+        points.append(point)
+    return {"features": points, "meta": payload.get("meta") or {}}
 
 
 @app.get("/v1/routes", dependencies=[Depends(require_mobile_key)])

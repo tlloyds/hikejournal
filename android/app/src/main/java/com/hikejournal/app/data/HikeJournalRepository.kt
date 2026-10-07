@@ -814,6 +814,26 @@ class HikeJournalRepository(context: Context) {
         return result.copy(value = result.value.filterNot { it.hikeId in deletedHikeIds })
     }
 
+    suspend fun loadMobileMapSummary(): LoadResult<MobileMapSummary> = loadWithCache(
+        cacheFile = File(cacheDirectory, "map-summary.json"),
+        fetch = api::getMobileMapSummaryJson,
+        parse = ::parseMobileMapSummary,
+    )
+
+    suspend fun loadMobileMapViewport(
+        west: Double,
+        south: Double,
+        east: Double,
+        north: Double,
+        zoom: Double,
+    ): List<Sighting> {
+        val sightings = withContext(Dispatchers.IO) {
+            parseMobileMapViewport(api.getMobileMapViewportJson(west, south, east, north, zoom))
+        }
+        val deletedHikeIds = fieldQueue.deletedHikeIds()
+        return sightings.filterNot { it.hikeId in deletedHikeIds }
+    }
+
     /**
      * Reads the last complete map snapshot without waiting for the companion service.
      * The caller can render this immediately and revalidate both feeds in the background.

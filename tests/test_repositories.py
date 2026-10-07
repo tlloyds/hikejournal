@@ -351,6 +351,65 @@ def test_mobile_map_sightings_rpc_is_scoped_to_visible_hikes_and_owner() -> None
     )]
 
 
+def test_mobile_map_viewport_rpcs_are_owner_scoped_and_bounded() -> None:
+    calls = []
+    summary = {"photo_count": 125, "bounds": [-82.1, 27.9, -81.0, 29.2]}
+    viewport_payload = {
+        "type": "FeatureCollection",
+        "features": [],
+        "meta": {"matched": 125, "clustered": True},
+    }
+
+    class RpcCall:
+        def __init__(self, name):
+            self.name = name
+
+        def execute(self):
+            value = summary if self.name == "mobile_map_summary" else viewport_payload
+            return type("Response", (), {"data": value})()
+
+    class Client:
+        def rpc(self, name, params):
+            calls.append((name, params))
+            return RpcCall(name)
+
+    repository = HikeJournalRepository(client=Client())
+    context = {
+        "mode": "google",
+        "user_id": "user-1",
+        "subject": "google-1",
+        "email": "hiker@example.com",
+        "identity_provider": "google",
+    }
+    viewport = MapViewport(-82, 27, -80, 30, 8)
+
+    assert repository.get_mobile_map_summary(context) == summary
+    assert repository.get_mobile_map_viewport(context, viewport) == viewport_payload
+    owner_args = {
+        "p_owner_user_id": "user-1",
+        "p_owner_subject": "google-1",
+        "p_owner_email": "hiker@example.com",
+        "p_identity_provider": "google",
+        "p_include_all": False,
+        "p_allow_legacy_email": True,
+    }
+    assert calls == [
+        ("mobile_map_summary", owner_args),
+        (
+            "mobile_map_viewport",
+            {
+                "p_west": -82,
+                "p_south": 27,
+                "p_east": -80,
+                "p_north": 30,
+                "p_zoom": 8,
+                "p_max_features": 2500,
+                **owner_args,
+            },
+        ),
+    ]
+
+
 def test_quest_save_retries_without_wikipedia_fields_for_legacy_schema() -> None:
     class Table:
         def __init__(self, name):

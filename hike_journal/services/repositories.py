@@ -415,6 +415,44 @@ class HikeJournalRepository:
             return None
         return self.decorate_media_rows(response.data or [])
 
+    def get_mobile_map_summary(
+        self,
+        user_context: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        """Return a small owner-scoped extent and count for the native map."""
+        try:
+            response = self.client.rpc(
+                "mobile_map_summary",
+                _mobile_summary_owner_args(user_context),
+            ).execute()
+        except Exception:
+            return None
+        payload = response.data
+        if isinstance(payload, list) and len(payload) == 1:
+            payload = payload[0]
+        return payload if isinstance(payload, dict) else None
+
+    def get_mobile_map_viewport(
+        self,
+        user_context: dict[str, Any],
+        viewport: MapViewport,
+    ) -> dict[str, Any] | None:
+        """Return bounded map points for the current camera, clustered by the database."""
+        params = {
+            "p_west": viewport.west,
+            "p_south": viewport.south,
+            "p_east": viewport.east,
+            "p_north": viewport.north,
+            "p_zoom": viewport.zoom,
+            "p_max_features": MAX_VIEWPORT_FEATURES,
+            **_mobile_summary_owner_args(user_context),
+        }
+        try:
+            response = self.client.rpc("mobile_map_viewport", params).execute()
+        except Exception:
+            return None
+        return normalize_rpc_payload(response.data, include_meta=True)
+
     def create_hike(self, draft: HikeDraft, *, hike_id: str | None = None) -> dict[str, Any]:
         payload = {
             "title": draft.title.strip(),
