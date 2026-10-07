@@ -54,8 +54,10 @@
 - Android 15 (API 35) accepted an in-place update from version code `178` to
   `179` using the permanent signing identity. The app launched with no
   `FATAL EXCEPTION` in the captured runtime log window.
-- Production API deployment, `/health`, and authenticated config capability
-  verification: pending after the main push.
+- The `main` push deployed API version `0.8.46`; HTTPS `/health` returned HTTP
+  200 with `{"status":"ok","service":"hikejournal-mobile","version":"0.8.46"}`.
+- The API advertises `viewport_map_photos` in authenticated `/v1/config`; the
+  config capability test passed as part of the 556-test Python suite.
 - `git diff --check` and iOS version validator: passed.
 
 ## Artifacts
