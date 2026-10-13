@@ -1,5 +1,11 @@
 # HikeJournal delivery roadmaps
 
+The current October 2026 cross-platform store effort is captured in the
+[iOS and Android launch plan](IOS_ANDROID_STORE_LAUNCH_PLAN.md), supported by
+the [October 12 parity audit](../ANDROID_IOS_RELEASE_PARITY_AUDIT_2026-10-12.md).
+It reconciles later shipped work with the older Track A/B/C snapshots and
+includes paid Plus, complimentary access, iOS ports, and explicit release gates.
+
 These documents are the authoritative delivery roadmaps for hardening the
 single-owner Android companion, evolving HikeJournal into a multi-user product,
 and publishing it through Google Play.

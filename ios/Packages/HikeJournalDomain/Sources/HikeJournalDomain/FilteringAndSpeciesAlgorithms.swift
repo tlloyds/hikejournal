@@ -93,12 +93,14 @@ public func filterSpeciesByObservationType(
 
 public enum SpeciesSort: String, Codable, CaseIterable, Equatable, Sendable {
     case alphabetical = "Alphabetical"
+    case scientificName = "ScientificName"
     case mostEncountered = "MostEncountered"
     case mostRecent = "MostRecent"
 
     public var label: String {
         switch self {
         case .alphabetical: "Alphabetical"
+        case .scientificName: "Scientific name"
         case .mostEncountered: "Most encountered"
         case .mostRecent: "Most recent"
         }
@@ -169,6 +171,15 @@ public func sortSpeciesRecords(_ species: [SpeciesRecord], by sort: SpeciesSort)
     species.sorted { left, right in
         switch sort {
         case .alphabetical:
+            return alphabeticalSpeciesOrder(left, right)
+        case .scientificName:
+            let leftName = left.scientificName.domainFolded
+            let rightName = right.scientificName.domainFolded
+            if leftName != rightName {
+                if leftName.isEmpty { return false }
+                if rightName.isEmpty { return true }
+                return leftName < rightName
+            }
             return alphabeticalSpeciesOrder(left, right)
         case .mostEncountered:
             if left.encounterCount != right.encounterCount {

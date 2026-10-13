@@ -1,5 +1,12 @@
 # HikeJournal iOS feature parity
 
+> Historical implementation ledger. For the October 2026 Android baseline,
+> confirmed iOS gaps, fresh verification failures, and paid store launch work,
+> use the [October 12 parity audit](../docs/ANDROID_IOS_RELEASE_PARITY_AUDIT_2026-10-12.md)
+> and [implementation plan](../docs/roadmaps/IOS_ANDROID_STORE_LAUNCH_PLAN.md).
+> “Implemented” below describes the earlier source inventory; it does not
+> certify current feature parity or store readiness.
+
 This ledger is derived from repository code at root version 0.8.6. Android remains the behavioral reference; `mobile_api.py`, Python services, and SQL migrations are the shared data contract. A screen is marked implemented only when its underlying API, local state, and user action are wired.
 
 Status meanings:

@@ -61,7 +61,7 @@ final class MapRouteOverlapTests: XCTestCase {
         "type": "Feature",
         "geometry": ["type": "LineString", "coordinates": coordinates],
         "properties": [:],
-      ]
+      ]]
     ])
   }
 

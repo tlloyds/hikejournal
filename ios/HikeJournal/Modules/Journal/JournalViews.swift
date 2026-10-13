@@ -1164,6 +1164,11 @@ private struct JournalMediaDetailView: View {
     @State private var showingKnownSpecies = false
     @State private var showingRemoveSpecies = false
     @State private var showingDelete = false
+    @State private var showingPhotoShare = false
+    @State private var preparingPhotoShare = false
+    @State private var photoShareFile: URL?
+    @State private var photoShareCaption = ""
+    @State private var photoShareError: String?
     @State private var working = false
     @State private var recommendationTask: Task<Void, Never>?
     @State private var recommendation: ReviewItem?
@@ -1268,6 +1273,11 @@ private struct JournalMediaDetailView: View {
                     hikeID: hikeID,
                     currentSpecies: currentPhoto.journalDisplaySpecies
                 )
+            }
+            .sheet(isPresented: $showingPhotoShare) {
+                if let photoShareFile {
+                    HikeJournalActivityShareView(items: [photoShareFile, photoShareCaption])
+                }
             }
             .confirmationDialog("Remove this species ID?", isPresented: $showingRemoveSpecies) {
                 Button("Remove species ID", role: .destructive) {
@@ -1507,6 +1517,25 @@ private struct JournalMediaDetailView: View {
 
     private var mediaActions: some View {
         VStack(spacing: 8) {
+            if !currentPhoto.contentType.hasPrefix("video/") {
+                Button(action: shareCurrentPhoto) {
+                    Label(
+                        preparingPhotoShare ? "Preparing photo…" : "Share photo",
+                        systemImage: preparingPhotoShare ? "hourglass" : "square.and.arrow.up"
+                    )
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(Color(red: 0.72, green: 0.82, blue: 0.69))
+                .disabled(preparingPhotoShare)
+                if let photoShareError {
+                    Text(photoShareError)
+                        .font(HikeJournalTheme.body(13))
+                        .foregroundStyle(Color.white.opacity(0.78))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+
             Button {
                 showingCaption = true
             } label: {
@@ -1537,6 +1566,26 @@ private struct JournalMediaDetailView: View {
             Button("Delete media", role: .destructive) { showingDelete = true }
                 .font(HikeJournalTheme.label(15, relativeTo: .headline))
                 .frame(maxWidth: .infinity, minHeight: 44)
+        }
+    }
+
+    private func shareCurrentPhoto() {
+        guard !preparingPhotoShare, !currentPhoto.contentType.hasPrefix("video/") else { return }
+        let photo = currentPhoto
+        preparingPhotoShare = true
+        photoShareError = nil
+        Task { @MainActor in
+            defer { preparingPhotoShare = false }
+            do {
+                photoShareFile = try await HikeSharePreparer.prepare(photo: photo)
+                photoShareCaption = photo.caption
+                showingPhotoShare = true
+            } catch is CancellationError {
+                return
+            } catch {
+                photoShareError = (error as? LocalizedError)?.errorDescription
+                    ?? "HikeJournal could not prepare this photo. Check your connection and try again."
+            }
         }
     }
 

@@ -83,7 +83,7 @@ struct HikeShareSheet: View {
                     set: { if !$0 { activityItems = nil } }
                 )
             ) {
-                ActivityShareView(items: activityItems ?? [])
+                HikeJournalActivityShareView(items: activityItems ?? [])
                     .ignoresSafeArea()
             }
         }
@@ -506,13 +506,19 @@ enum HikeShareMapSnapshotter {
 
 private enum HikeSharePreparationError: LocalizedError {
     case storageUnavailable
+    case photoUnavailable
 
     var errorDescription: String? {
-        "HikeJournal could not create a protected temporary share copy."
+        switch self {
+        case .storageUnavailable:
+            "HikeJournal could not create a protected temporary share copy."
+        case .photoUnavailable:
+            "HikeJournal could not prepare this photo. Check your connection and try again."
+        }
     }
 }
 
-private enum HikeSharePreparer {
+enum HikeSharePreparer {
     struct Prepared {
         let items: [Any]
         let omittedPhotoCount: Int
@@ -555,6 +561,24 @@ private enum HikeSharePreparer {
             }
         }
         return Prepared(items: attachments + [caption(for: hike)], omittedPhotoCount: omitted)
+    }
+
+    @MainActor
+    static func prepare(photo: Photo) async throws -> URL {
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory
+            .appendingPathComponent("HikeJournalSharedOutings", isDirectory: true)
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        cleanExpiredFiles(in: directory, fileManager: fileManager)
+        guard let url = try await cachedPhoto(
+            photo,
+            index: 0,
+            safeHikeID: safeComponent(photo.id),
+            directory: directory
+        ) else {
+            throw HikeSharePreparationError.photoUnavailable
+        }
+        return url
     }
 
     @MainActor
@@ -626,7 +650,7 @@ private enum HikeSharePreparer {
     }
 }
 
-private struct ActivityShareView: UIViewControllerRepresentable {
+struct HikeJournalActivityShareView: UIViewControllerRepresentable {
     let items: [Any]
 
     func makeUIViewController(context: Context) -> UIActivityViewController {

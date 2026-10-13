@@ -64,6 +64,15 @@ final class FilteringAndGroupingTests: XCTestCase {
             sortSpeciesRecords(recent, by: .mostRecent).map(\.commonName),
             ["Later UTC instant", "Local next day", "Blank", "Missing"]
         )
+        let scientific = [
+            fixtureSpecies(nil, name: "Willowherb", scientificName: "Epilobium ciliatum"),
+            fixtureSpecies(nil, name: "Anhinga", scientificName: "Anhinga anhinga"),
+            fixtureSpecies(nil, name: "Unknown", scientificName: ""),
+        ]
+        XCTAssertEqual(
+            sortSpeciesRecords(scientific, by: .scientificName).map(\.commonName),
+            ["Anhinga", "Willowherb", "Unknown"]
+        )
         XCTAssertEqual(
             latestObservedValue(["bad", "2026-01-01", "2026-01-02T01:00:00Z"]),
             "2026-01-02T01:00:00Z"

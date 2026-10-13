@@ -50,6 +50,7 @@ func fixtureHike(
 func fixtureSpecies(
     _ taxonId: Int64?,
     name: String,
+    scientificName: String? = nil,
     iconicTaxonName: String = "Other",
     encounterCount: Int = 1,
     latestSeen: String? = nil,
@@ -60,7 +61,7 @@ func fixtureSpecies(
         key: key ?? taxonId.map { "taxon:\($0)" } ?? name,
         taxonId: taxonId,
         commonName: name,
-        scientificName: "Example \(name)",
+        scientificName: scientificName ?? "Example \(name)",
         rank: "species",
         iconicTaxonName: iconicTaxonName,
         wikipediaUrl: "",

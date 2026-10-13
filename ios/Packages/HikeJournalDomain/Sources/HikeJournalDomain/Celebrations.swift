@@ -168,9 +168,13 @@ public func buildReviewBatchCelebration(
 
     let imageItems = possibleNew.isEmpty ? suggestions : possibleNew
     var seenImages = Set<String>()
-    let images = imageItems.lazy.map { $0.0.photo.url }.filter {
-        !$0.isEmpty && seenImages.insert($0).inserted
-    }.prefix(3)
+    var images: [String] = []
+    for item in imageItems {
+        let url = item.0.photo.url
+        guard !url.isEmpty, seenImages.insert(url).inserted else { continue }
+        images.append(url)
+        if images.count == 3 { break }
+    }
 
     return FieldCelebration(
         id: "batch:\(status.jobId)",
@@ -178,7 +182,7 @@ public func buildReviewBatchCelebration(
         eyebrow: "THE FIELD NOTES ARE IN",
         title: title,
         detail: detail,
-        imageUrls: Array(images),
+        imageUrls: images,
         highlights: [
             CelebrationHighlight(value: String(status.processedCount), label: "photos read"),
             CelebrationHighlight(value: String(suggestions.count), label: "unique IDs"),

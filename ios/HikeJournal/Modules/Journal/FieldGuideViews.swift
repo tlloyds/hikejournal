@@ -19,7 +19,7 @@ struct FieldGuideWorkspaceView: View {
     @State private var section: FieldWorkspaceSection = .guide
     @State private var search = ""
     @State private var taxonFilter = "All"
-    @State private var sort: SpeciesSort = .latest
+    @State private var sort: SpeciesSort = .mostRecent
     @StateObject private var oauth = INaturalistWebSession()
 
     init(model: AppModel, initialSection: FieldWorkspaceSection = .guide) {
@@ -66,7 +66,9 @@ struct FieldGuideWorkspaceView: View {
                                 }
                             }
                             Picker("Sort", selection: $sort) {
-                                ForEach(SpeciesSort.allCases) { sort in Text(sort.title).tag(sort) }
+                                ForEach(SpeciesSort.allCases, id: \.rawValue) { sort in
+                                    Text(sort.label).tag(sort)
+                                }
                             }
                         } label: {
                             Image(systemName: "line.3.horizontal.decrease.circle")
@@ -183,17 +185,7 @@ struct FieldGuideWorkspaceView: View {
         let values = filterSpeciesBySearch(journal.species, query: query).filter { species in
             taxonFilter == "All" || species.iconicTaxonName == taxonFilter
         }
-        return values.sorted { lhs, rhs in
-            switch sort {
-            case .latest:
-                if lhs.latestSeen != rhs.latestSeen { return (lhs.latestSeen ?? "") > (rhs.latestSeen ?? "") }
-            case .encounters:
-                if lhs.encounterCount != rhs.encounterCount { return lhs.encounterCount > rhs.encounterCount }
-            case .name:
-                break
-            }
-            return lhs.commonName.localizedCaseInsensitiveCompare(rhs.commonName) == .orderedAscending
-        }
+        return sortSpeciesRecords(values, by: sort)
     }
 
     private var filteredSightings: [Sighting] {
@@ -311,20 +303,6 @@ enum FieldWorkspaceSection: String, CaseIterable, Identifiable {
         case .quests: "Search quests"
         case .review: "Search review queue"
         case .publish: "Search publishing queue"
-        }
-    }
-}
-
-private enum SpeciesSort: String, CaseIterable, Identifiable {
-    case latest
-    case encounters
-    case name
-    var id: String { rawValue }
-    var title: String {
-        switch self {
-        case .latest: "Most recently seen"
-        case .encounters: "Most encountered"
-        case .name: "Name"
         }
     }
 }
