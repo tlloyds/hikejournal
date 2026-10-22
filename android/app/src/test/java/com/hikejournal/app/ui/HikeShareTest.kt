@@ -15,8 +15,34 @@ class HikeShareTest {
     fun `social carousel reserves one item for the trail card`() {
         val photos = List(24) { index -> photo("photo-$index") }
 
-        assertEquals(19, socialSharePhotos(photos).size)
-        assertEquals(20, socialSharePhotos(photos).size + 1)
+        for (keepsake in listOf(HikeShareKeepsake.FIRST, HikeShareKeepsake.LAST)) {
+            assertEquals(19, socialSharePhotos(photos, keepsake).size)
+            assertEquals(20, keepsake.orderedItems("card", socialSharePhotos(photos, keepsake).map(Photo::id)).size)
+        }
+    }
+
+    @Test
+    fun `no keepsake allows twenty album photos and excludes the card`() {
+        val photos = List(24) { index -> photo("photo-$index") }
+
+        assertEquals(20, socialSharePhotos(photos, HikeShareKeepsake.NONE).size)
+        assertEquals(photos.take(20).map(Photo::id), HikeShareKeepsake.NONE.orderedItems("card", photos.map(Photo::id)))
+    }
+
+    @Test
+    fun `keepsake placement preserves selected photo order`() {
+        val photos = listOf("photo-8", "photo-2", "photo-14")
+
+        assertEquals(listOf("card") + photos, HikeShareKeepsake.FIRST.orderedItems("card", photos))
+        assertEquals(photos + "card", HikeShareKeepsake.LAST.orderedItems("card", photos))
+        assertEquals(photos, HikeShareKeepsake.NONE.orderedItems(null, photos))
+    }
+
+    @Test
+    fun `keepsake alone works in either position but no keepsake has no items`() {
+        assertEquals(listOf("card"), HikeShareKeepsake.FIRST.orderedItems("card", emptyList()))
+        assertEquals(listOf("card"), HikeShareKeepsake.LAST.orderedItems("card", emptyList()))
+        assertTrue(HikeShareKeepsake.NONE.orderedItems("card", emptyList()).isEmpty())
     }
 
     @Test
@@ -24,10 +50,14 @@ class HikeShareTest {
         val photos = listOf(
             photo("image"),
             photo("video", contentType = "video/mp4"),
+            photo("uppercase-video", contentType = "VIDEO/MP4"),
             photo("missing").copy(url = ""),
+            photo("blank").copy(url = "   "),
         )
 
-        assertEquals(listOf("image"), socialSharePhotos(photos).map(Photo::id))
+        for (keepsake in HikeShareKeepsake.entries) {
+            assertEquals(listOf("image"), socialSharePhotos(photos, keepsake).map(Photo::id))
+        }
     }
 
     @Test

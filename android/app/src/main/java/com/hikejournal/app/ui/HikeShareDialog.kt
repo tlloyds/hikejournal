@@ -35,11 +35,14 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -56,6 +59,8 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -76,6 +81,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -115,7 +121,25 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 
 internal const val MAX_SOCIAL_CAROUSEL_ITEMS = 20
-internal const val MAX_SOCIAL_PHOTOS = MAX_SOCIAL_CAROUSEL_ITEMS - 1
+
+internal enum class HikeShareKeepsake(val label: String, val orderDescription: String) {
+    FIRST("Keepsake first", "The trail keepsake shares first, followed by your selected photos."),
+    LAST("Keepsake last", "Your selected photos share first, followed by the trail keepsake."),
+    NONE("No keepsake", "Only your selected photos will be shared."),
+    ;
+
+    val includesKeepsake: Boolean get() = this != NONE
+    val maximumPhotos: Int get() = MAX_SOCIAL_CAROUSEL_ITEMS - if (includesKeepsake) 1 else 0
+
+    fun <T : Any> orderedItems(keepsake: T?, photos: List<T>): List<T> {
+        val selected = photos.take(maximumPhotos)
+        return when (this) {
+            FIRST -> listOfNotNull(keepsake) + selected
+            LAST -> selected + listOfNotNull(keepsake)
+            NONE -> selected
+        }
+    }
+}
 
 internal data class ShareRoutePoint(val x: Float, val y: Float)
 
@@ -135,9 +159,12 @@ internal fun HikeShareDialog(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val availablePhotos = remember(hike.photos) {
-        hike.photos.filter { !it.contentType.startsWith("video/") && it.url.isNotBlank() }
+        hike.photos.filter { !it.contentType.startsWith("video/", ignoreCase = true) && it.url.isNotBlank() }
     }
+    var keepsake by remember(hike.id) { mutableStateOf(HikeShareKeepsake.FIRST) }
     var selectedIds by remember(hike.id) { mutableStateOf<List<String>>(emptyList()) }
+    val maximumPhotos = keepsake.maximumPhotos
+    val imageCount = selectedIds.size + if (keepsake.includesKeepsake) 1 else 0
     var preparing by remember(hike.id) { mutableStateOf(false) }
     var errorMessage by remember(hike.id) { mutableStateOf<String?>(null) }
     var satelliteMap by remember(hike.id) { mutableStateOf<Bitmap?>(null) }
@@ -172,13 +199,14 @@ internal fun HikeShareDialog(
     val navigationBarPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
     fun beginShare() {
-        if (preparing) return
+        if (preparing || imageCount == 0) return
         preparing = true
         errorMessage = null
         val photosById = availablePhotos.associateBy(Photo::id)
-        val selectedPhotos = selectedIds.mapNotNull(photosById::get).take(MAX_SOCIAL_PHOTOS)
+        val shareKeepsake = keepsake
+        val selectedPhotos = socialSharePhotos(selectedIds.mapNotNull(photosById::get), shareKeepsake)
         scope.launch {
-            runCatching { prepareHikeShare(context, hike, selectedPhotos, satelliteMap) }
+            runCatching { prepareHikeShare(context, hike, selectedPhotos, satelliteMap, shareKeepsake) }
                 .onSuccess { prepared ->
                     preparing = false
                     launchHikeShare(context, prepared)
@@ -240,67 +268,108 @@ internal fun HikeShareDialog(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                item(key = "share-preview", span = { GridItemSpan(maxLineSpan) }) {
-                    Box {
-                        Image(
-                            bitmap = preview.asImageBitmap(),
-                            contentDescription = "Social card preview for ${hike.title}",
-                            contentScale = ContentScale.Fit,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .aspectRatio(4f / 5f)
-                                .clip(RoundedCornerShape(8.dp))
-                                .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(8.dp))
-                                .alpha(previewPresence)
-                                .scale(0.97f + previewPresence * 0.03f),
-                        )
-                        if (satelliteLoading) {
+                item(key = "keepsake-choice", span = { GridItemSpan(maxLineSpan) }) {
+                    Column(Modifier.fillMaxWidth().selectableGroup()) {
+                        Text("TRAIL KEEPSAKE", style = MaterialTheme.typography.labelSmall, color = Color(0xFFF1BE79))
+                        HikeShareKeepsake.entries.forEach { option ->
                             Row(
-                                Modifier
-                                    .align(Alignment.TopEnd)
-                                    .padding(10.dp)
-                                    .background(Color(0xD9183A2D), RoundedCornerShape(5.dp))
-                                    .padding(horizontal = 10.dp, vertical = 7.dp),
+                                Modifier.fillMaxWidth().selectable(
+                                    selected = keepsake == option,
+                                    enabled = !preparing,
+                                    role = Role.RadioButton,
+                                    onClick = {
+                                        keepsake = option
+                                        selectedIds = selectedIds.take(option.maximumPhotos)
+                                    },
+                                ).heightIn(min = 48.dp).padding(vertical = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                CircularProgressIndicator(Modifier.size(15.dp), color = Paper, strokeWidth = 2.dp)
-                                Text(
-                                    "Loading satellite map",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = Paper,
-                                    modifier = Modifier.padding(start = 7.dp),
+                                RadioButton(
+                                    selected = keepsake == option,
+                                    onClick = null,
+                                    enabled = !preparing,
+                                    colors = RadioButtonDefaults.colors(
+                                        selectedColor = Trail,
+                                        unselectedColor = Paper.copy(alpha = 0.7f),
+                                    ),
                                 )
+                                Text(option.label, style = MaterialTheme.typography.bodyLarge, color = Paper,
+                                    modifier = Modifier.padding(start = 10.dp))
                             }
                         }
+                        Text(
+                            "${keepsake.orderDescription} Choose up to $maximumPhotos photos. " +
+                                "Adding a keepsake keeps your first 19 selections.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFFD6E0D3),
+                            modifier = Modifier.padding(bottom = 8.dp),
+                        )
                     }
                 }
 
-                item(key = "share-copy", span = { GridItemSpan(maxLineSpan) }) {
-                    AnimatedVisibility(
-                        visible = revealed,
-                        enter = fadeIn(tween(360, delayMillis = 100)) +
-                            slideInVertically(tween(420, delayMillis = 100)) { it / 7 },
-                    ) {
-                        Column(Modifier.fillMaxWidth().padding(top = 9.dp, bottom = 8.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Rounded.AutoAwesome, null, tint = Trail, modifier = Modifier.size(18.dp))
+                if (keepsake.includesKeepsake) {
+                    item(key = "share-preview", span = { GridItemSpan(maxLineSpan) }) {
+                        Box {
+                            Image(
+                                bitmap = preview.asImageBitmap(),
+                                contentDescription = "Social card preview for ${hike.title}",
+                                contentScale = ContentScale.Fit,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .aspectRatio(4f / 5f)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(8.dp))
+                                    .alpha(previewPresence)
+                                    .scale(0.97f + previewPresence * 0.03f),
+                            )
+                            if (satelliteLoading) {
+                                Row(
+                                    Modifier
+                                        .align(Alignment.TopEnd)
+                                        .padding(10.dp)
+                                        .background(Color(0xD9183A2D), RoundedCornerShape(5.dp))
+                                        .padding(horizontal = 10.dp, vertical = 7.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    CircularProgressIndicator(Modifier.size(15.dp), color = Paper, strokeWidth = 2.dp)
+                                    Text(
+                                        "Loading satellite map",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Paper,
+                                        modifier = Modifier.padding(start = 7.dp),
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    item(key = "share-copy", span = { GridItemSpan(maxLineSpan) }) {
+                        AnimatedVisibility(
+                            visible = revealed,
+                            enter = fadeIn(tween(360, delayMillis = 100)) +
+                                slideInVertically(tween(420, delayMillis = 100)) { it / 7 },
+                        ) {
+                            Column(Modifier.fillMaxWidth().padding(top = 9.dp, bottom = 8.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Rounded.AutoAwesome, null, tint = Trail, modifier = Modifier.size(18.dp))
+                                    Text(
+                                        "TRAIL KEEPSAKE",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = Color(0xFFF1BE79),
+                                        modifier = Modifier.padding(start = 8.dp),
+                                    )
+                                }
                                 Text(
-                                    "TRAIL KEEPSAKE",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = Color(0xFFF1BE79),
-                                    modifier = Modifier.padding(start = 8.dp),
+                                    if (satelliteMap != null) {
+                                        "Your route is layered over satellite imagery."
+                                    } else {
+                                        "Your map, date, time, and distance are already set."
+                                    },
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = Color(0xFFD6E0D3),
+                                    modifier = Modifier.padding(top = 7.dp),
                                 )
                             }
-                            Text(
-                                if (satelliteMap != null) {
-                                    "Your route is layered over satellite imagery."
-                                } else {
-                                    "Your map, date, time, and distance are already set."
-                                },
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = Color(0xFFD6E0D3),
-                                modifier = Modifier.padding(top = 7.dp),
-                            )
                         }
                     }
                 }
@@ -313,28 +382,28 @@ internal fun HikeShareDialog(
                         ) {
                             Column(Modifier.weight(1f)) {
                                 Text("ADD HIKE PHOTOS", style = MaterialTheme.typography.labelSmall, color = Color(0xFFF1BE79))
-                                Text("Choose up to $MAX_SOCIAL_PHOTOS", style = MaterialTheme.typography.titleLarge, color = Paper)
+                                Text("Choose up to $maximumPhotos", style = MaterialTheme.typography.titleLarge, color = Paper)
                             }
                             Column(horizontalAlignment = Alignment.End) {
                                 Text(
-                                    "${selectedIds.size}/$MAX_SOCIAL_PHOTOS",
+                                    "${selectedIds.size}/$maximumPhotos",
                                     style = MaterialTheme.typography.labelMedium,
                                     color = Color(0xFFD6E0D3),
                                 )
                                 TextButton(
                                     onClick = {
                                         selectedIds = if (
-                                            selectedIds.size == min(availablePhotos.size, MAX_SOCIAL_PHOTOS)
+                                            selectedIds.size == min(availablePhotos.size, maximumPhotos)
                                         ) {
                                             emptyList()
                                         } else {
-                                            availablePhotos.take(MAX_SOCIAL_PHOTOS).map(Photo::id)
+                                            availablePhotos.take(maximumPhotos).map(Photo::id)
                                         }
                                     },
                                     enabled = !preparing,
                                 ) {
                                     Text(
-                                        if (selectedIds.size == min(availablePhotos.size, MAX_SOCIAL_PHOTOS)) {
+                                        if (selectedIds.size == min(availablePhotos.size, maximumPhotos)) {
                                             "Clear"
                                         } else {
                                             "Select all"
@@ -347,7 +416,7 @@ internal fun HikeShareDialog(
                     }
                     items(availablePhotos, key = Photo::id) { photo ->
                         val selectedIndex = selectedIds.indexOf(photo.id).takeIf { it >= 0 }
-                        val canSelect = selectedIndex != null || selectedIds.size < MAX_SOCIAL_PHOTOS
+                        val canSelect = selectedIndex != null || selectedIds.size < maximumPhotos
                         SharePhotoTile(
                             photo = photo,
                             selectionIndex = selectedIndex,
@@ -356,17 +425,29 @@ internal fun HikeShareDialog(
                                 selectedIds = if (selectedIndex != null) {
                                     selectedIds - photo.id
                                 } else {
-                                    (selectedIds + photo.id).take(MAX_SOCIAL_PHOTOS)
+                                    (selectedIds + photo.id).take(maximumPhotos)
                                 }
                             },
                         )
                     }
                     item(key = "photo-order", span = { GridItemSpan(maxLineSpan) }) {
                         Text(
-                            "The trail card shares first, followed by your selected photos — ${selectedIds.size + 1} of $MAX_SOCIAL_CAROUSEL_ITEMS items.",
+                            "${keepsake.orderDescription} $imageCount of $MAX_SOCIAL_CAROUSEL_ITEMS images. Videos are excluded.",
                             style = MaterialTheme.typography.bodySmall,
                             color = Color(0xFFB8C9BC),
                             modifier = Modifier.padding(top = 4.dp, bottom = 6.dp),
+                        )
+                    }
+                }
+
+                if (!keepsake.includesKeepsake && selectedIds.isEmpty()) {
+                    item(key = "photo-required", span = { GridItemSpan(maxLineSpan) }) {
+                        Text(
+                            if (availablePhotos.isEmpty()) "This outing has no photos to share. Choose a keepsake to share its route."
+                            else "Select at least one photo to share without a keepsake.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Paper,
+                            modifier = Modifier.padding(vertical = 12.dp),
                         )
                     }
                 }
@@ -392,7 +473,7 @@ internal fun HikeShareDialog(
                 ) {
                     Button(
                         onClick = ::beginShare,
-                        enabled = !preparing,
+                        enabled = !preparing && imageCount > 0,
                         colors = ButtonDefaults.buttonColors(containerColor = Trail, contentColor = Paper),
                         modifier = Modifier.fillMaxWidth().height(52.dp),
                     ) {
@@ -404,9 +485,9 @@ internal fun HikeShareDialog(
                         Spacer(Modifier.width(8.dp))
                         Text(
                             if (preparing) {
-                                "Preparing ${selectedIds.size + 1} images…"
+                                "Preparing $imageCount images…"
                             } else {
-                                "Share ${selectedIds.size + 1} image${if (selectedIds.isEmpty()) "" else "s"}"
+                                "Share $imageCount image${if (imageCount == 1) "" else "s"}"
                             }
                         )
                     }
@@ -461,8 +542,12 @@ private fun SharePhotoTile(
     }
 }
 
-internal fun socialSharePhotos(photos: List<Photo>): List<Photo> =
-    photos.filter { !it.contentType.startsWith("video/") && it.url.isNotBlank() }.take(MAX_SOCIAL_PHOTOS)
+internal fun socialSharePhotos(
+    photos: List<Photo>,
+    keepsake: HikeShareKeepsake = HikeShareKeepsake.FIRST,
+): List<Photo> = photos.filter {
+    !it.contentType.startsWith("video/", ignoreCase = true) && it.url.isNotBlank()
+}.take(keepsake.maximumPhotos)
 
 internal fun projectShareRoute(
     routeSegments: List<List<RoutePoint>>,
@@ -797,13 +882,16 @@ private fun textLines(text: String, paint: Paint, maxWidth: Float, maxLines: Int
     return limited
 }
 
-private suspend fun prepareHikeShare(
+internal suspend fun prepareHikeShare(
     context: Context,
     hike: Hike,
     photos: List<Photo>,
     satelliteMap: Bitmap?,
+    keepsake: HikeShareKeepsake,
 ): PreparedHikeShare {
-    val resolvedSatelliteMap = satelliteMap ?: captureSatelliteRouteMap(context, hike.routeSegments)
+    val resolvedSatelliteMap = if (keepsake.includesKeepsake) {
+        satelliteMap ?: captureSatelliteRouteMap(context, hike.routeSegments)
+    } else null
     return withContext(Dispatchers.IO) {
         val shareDirectory = File(context.cacheDir, "shared_hikes").apply { mkdirs() }
         shareDirectory.listFiles().orEmpty()
@@ -811,29 +899,31 @@ private suspend fun prepareHikeShare(
             .forEach(File::delete)
 
         val safeHikeId = hike.id.replace(Regex("[^A-Za-z0-9._-]"), "-").take(64).ifBlank { "outing" }
-        val cardFile = File(shareDirectory, "HikeJournal-$safeHikeId.jpg")
-        FileOutputStream(cardFile).use { output ->
-            check(
-                renderHikeShareCard(context, hike, resolvedSatelliteMap)
-                    .compress(Bitmap.CompressFormat.JPEG, 94, output),
-            ) {
-                "HikeJournal could not save the trail card."
+        val cardUri = if (keepsake.includesKeepsake) {
+            val cardFile = File(shareDirectory, "HikeJournal-$safeHikeId.jpg")
+            FileOutputStream(cardFile).use { output ->
+                check(
+                    renderHikeShareCard(context, hike, resolvedSatelliteMap)
+                        .compress(Bitmap.CompressFormat.JPEG, 94, output),
+                ) {
+                    "HikeJournal could not save the trail card."
+                }
             }
-        }
-        val uris = arrayListOf(
-            FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", cardFile),
-        )
+            FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", cardFile)
+        } else null
         val cachedPhotos = coroutineScope {
-            photos.take(MAX_SOCIAL_PHOTOS).mapIndexed { index, photo ->
+            socialSharePhotos(photos, keepsake).mapIndexed { index, photo ->
                 async {
                     runCatching { cacheSharedPhoto(context, photo, shareDirectory, safeHikeId, index) }
                         .getOrNull()
                 }
             }.awaitAll()
         }
-        cachedPhotos.filterNotNull().forEach { file ->
-            uris += FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+        val photoUris = cachedPhotos.filterNotNull().map { file ->
+            FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
         }
+        val uris = ArrayList(keepsake.orderedItems(cardUri, photoUris))
+        check(uris.isNotEmpty()) { "No selected photos were available. Check your connection and try again." }
         PreparedHikeShare(
             uris = uris,
             caption = buildString {

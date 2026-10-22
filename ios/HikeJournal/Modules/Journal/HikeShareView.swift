@@ -3,13 +3,46 @@ import MapKit
 import SwiftUI
 import UIKit
 
-struct HikeShareSheet: View {
-    private static let maximumPhotos = 19
+enum HikeShareKeepsake: String, CaseIterable, Identifiable {
+    case first = "Keepsake first"
+    case last = "Keepsake last"
+    case none = "No keepsake"
 
+    var id: Self { self }
+    var includesKeepsake: Bool { self != .none }
+    var maximumPhotos: Int { includesKeepsake ? 19 : 20 }
+    var orderDescription: String {
+        switch self {
+        case .first: "The trail keepsake shares first, followed by your selected photos."
+        case .last: "Your selected photos share first, followed by the trail keepsake."
+        case .none: "Only your selected photos will be shared."
+        }
+    }
+
+    func orderedItems<T>(keepsake: T?, photos: [T]) -> [T] {
+        let selected = Array(photos.prefix(maximumPhotos))
+        let card = keepsake.map { [$0] } ?? []
+        switch self {
+        case .first: return card + selected
+        case .last: return selected + card
+        case .none: return selected
+        }
+    }
+
+    func shareablePhotos(_ photos: [Photo]) -> [Photo] {
+        Array(photos.filter {
+            !$0.contentType.lowercased().hasPrefix("video/")
+                && !$0.url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }.prefix(maximumPhotos))
+    }
+}
+
+struct HikeShareSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let hike: Hike
 
+    @State private var keepsake = HikeShareKeepsake.first
     @State private var selectedPhotoIDs: [String] = []
     @State private var satelliteMap: UIImage?
     @State private var preparing = false
@@ -28,14 +61,26 @@ struct HikeShareSheet: View {
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: 24) {
-                        HikeShareCard(hike: hike, satelliteMap: satelliteMap)
-                            .aspectRatio(4 / 5, contentMode: .fit)
-                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                            .shadow(color: .black.opacity(0.25), radius: 18, y: 10)
-                            .accessibilityLabel("HikeJournal trail keepsake for \(hike.title)")
+                        keepsakePicker
+
+                        if keepsake.includesKeepsake {
+                            HikeShareCard(hike: hike, satelliteMap: satelliteMap)
+                                .aspectRatio(4 / 5, contentMode: .fit)
+                                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                .shadow(color: .black.opacity(0.25), radius: 18, y: 10)
+                                .accessibilityLabel("HikeJournal trail keepsake for \(hike.title)")
+                        }
 
                         if !availablePhotos.isEmpty {
                             photoPicker
+                        }
+
+                        if !keepsake.includesKeepsake && selectedPhotoIDs.isEmpty {
+                            Text(availablePhotos.isEmpty
+                                 ? "This outing has no photos to share. Choose a keepsake to share its route."
+                                 : "Select at least one photo to share without a keepsake.")
+                                .font(HikeJournalTheme.body(15))
+                                .foregroundStyle(Color(red: 1, green: 0.98, blue: 0.93))
                         }
 
                         if let errorMessage {
@@ -59,7 +104,7 @@ struct HikeShareSheet: View {
                     }
                 }
                 .buttonStyle(TrailButtonStyle())
-                .disabled(preparing)
+                .disabled(preparing || imageCount == 0)
                 .padding(.horizontal, 20)
                 .padding(.vertical, 12)
                 .background(.ultraThinMaterial)
@@ -89,6 +134,41 @@ struct HikeShareSheet: View {
         }
     }
 
+    private var keepsakePicker: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("TRAIL KEEPSAKE")
+                .font(HikeJournalTheme.label(11))
+                .tracking(1.2)
+                .foregroundStyle(Color(red: 0.95, green: 0.73, blue: 0.45))
+            ForEach(HikeShareKeepsake.allCases) { option in
+                Button {
+                    withAnimation(reduceMotion ? nil : .snappy(duration: 0.25)) {
+                        keepsake = option
+                        selectedPhotoIDs = Array(selectedPhotoIDs.prefix(option.maximumPhotos))
+                    }
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: keepsake == option ? "largecircle.fill.circle" : "circle")
+                            .foregroundStyle(Color(red: 0.95, green: 0.73, blue: 0.45))
+                        Text(option.rawValue)
+                            .font(HikeJournalTheme.body(17))
+                            .foregroundStyle(Color(red: 1, green: 0.98, blue: 0.93))
+                        Spacer()
+                    }
+                    .frame(minHeight: 44)
+                    .padding(.vertical, 8)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(keepsake == option ? .isSelected : [])
+            }
+            Text("\(keepsake.orderDescription) Choose up to \(keepsake.maximumPhotos) photos. Adding a keepsake keeps your first 19 selections.")
+                .font(HikeJournalTheme.body(13))
+                .foregroundStyle(Color(red: 0.76, green: 0.83, blue: 0.78))
+        }
+        .disabled(preparing)
+    }
+
     private var photoPicker: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .bottom) {
@@ -97,20 +177,20 @@ struct HikeShareSheet: View {
                         .font(HikeJournalTheme.label(11))
                         .tracking(1.2)
                         .foregroundStyle(Color(red: 0.95, green: 0.73, blue: 0.45))
-                    Text("Choose up to \(Self.maximumPhotos)")
+                    Text("Choose up to \(keepsake.maximumPhotos)")
                         .font(HikeJournalTheme.display(27, relativeTo: .title2))
                         .foregroundStyle(Color(red: 1, green: 0.98, blue: 0.93))
                 }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 1) {
-                    Text("\(selectedPhotoIDs.count)/\(Self.maximumPhotos)")
+                    Text("\(selectedPhotoIDs.count)/\(keepsake.maximumPhotos)")
                         .font(HikeJournalTheme.label(13))
                         .foregroundStyle(Color(red: 0.76, green: 0.83, blue: 0.78))
                     Button(allSelected ? "Clear" : "Select all") {
                         withAnimation(reduceMotion ? nil : .snappy(duration: 0.25)) {
                             selectedPhotoIDs = allSelected
                                 ? []
-                                : availablePhotos.prefix(Self.maximumPhotos).map(\.id)
+                                : availablePhotos.prefix(keepsake.maximumPhotos).map(\.id)
                         }
                     }
                     .font(HikeJournalTheme.label(14, relativeTo: .headline))
@@ -145,36 +225,42 @@ struct HikeShareSheet: View {
                         }
                     }
                     .buttonStyle(.plain)
-                    .disabled(selectedIndex == nil && selectedPhotoIDs.count >= Self.maximumPhotos)
+                    .disabled(selectedIndex == nil && selectedPhotoIDs.count >= keepsake.maximumPhotos)
                     .accessibilityLabel(photo.caption.isEmpty ? "Hike photo" : photo.caption)
                     .accessibilityValue(selectedIndex.map { "Selected \($0 + 1)" } ?? "Not selected")
                 }
             }
 
-            Text("The trail keepsake shares first, followed by selected photos. Videos are excluded from the image carousel.")
+            Text("\(keepsake.orderDescription) Videos are excluded from the image carousel.")
                 .font(HikeJournalTheme.body(13))
                 .foregroundStyle(Color(red: 0.72, green: 0.79, blue: 0.74))
         }
+        .disabled(preparing)
     }
 
     private var availablePhotos: [Photo] {
         hike.photos.filter {
-            !$0.contentType.lowercased().hasPrefix("video/") && !$0.url.isEmpty
+            !$0.contentType.lowercased().hasPrefix("video/")
+                && !$0.url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
     }
 
     private var selectedPhotos: [Photo] {
         let photosByID = Dictionary(uniqueKeysWithValues: availablePhotos.map { ($0.id, $0) })
-        return selectedPhotoIDs.compactMap { photosByID[$0] }.prefix(Self.maximumPhotos).map { $0 }
+        return keepsake.shareablePhotos(selectedPhotoIDs.compactMap { photosByID[$0] })
     }
 
     private var allSelected: Bool {
         !availablePhotos.isEmpty
-            && selectedPhotoIDs.count == min(availablePhotos.count, Self.maximumPhotos)
+            && selectedPhotoIDs.count == min(availablePhotos.count, keepsake.maximumPhotos)
+    }
+
+    private var imageCount: Int {
+        selectedPhotoIDs.count + (keepsake.includesKeepsake ? 1 : 0)
     }
 
     private var shareButtonTitle: String {
-        let count = selectedPhotoIDs.count + 1
+        let count = imageCount
         return "Share \(count) image\(count == 1 ? "" : "s")"
     }
 
@@ -182,33 +268,40 @@ struct HikeShareSheet: View {
         withAnimation(reduceMotion ? nil : .snappy(duration: 0.22)) {
             if let index = selectedPhotoIDs.firstIndex(of: photo.id) {
                 selectedPhotoIDs.remove(at: index)
-            } else if selectedPhotoIDs.count < Self.maximumPhotos {
+            } else if selectedPhotoIDs.count < keepsake.maximumPhotos {
                 selectedPhotoIDs.append(photo.id)
             }
         }
     }
 
     private func prepareShare() {
-        guard !preparing else { return }
+        guard !preparing, imageCount > 0 else { return }
         preparing = true
         errorMessage = nil
+        let shareKeepsake = keepsake
+        let photos = selectedPhotos
         Task { @MainActor in
             defer { preparing = false }
-            let card = HikeShareCard(hike: hike, satelliteMap: satelliteMap)
-                .frame(width: 1_080, height: 1_350)
-                .environment(\.colorScheme, .dark)
-            let renderer = ImageRenderer(content: card)
-            renderer.scale = 1
-            guard let image = renderer.uiImage,
-                  let jpeg = image.jpegData(compressionQuality: 0.94) else {
-                errorMessage = "HikeJournal could not render this trail keepsake."
-                return
+            var cardData: Data?
+            if shareKeepsake.includesKeepsake {
+                let card = HikeShareCard(hike: hike, satelliteMap: satelliteMap)
+                    .frame(width: 1_080, height: 1_350)
+                    .environment(\.colorScheme, .dark)
+                let renderer = ImageRenderer(content: card)
+                renderer.scale = 1
+                guard let image = renderer.uiImage,
+                      let jpeg = image.jpegData(compressionQuality: 0.94) else {
+                    errorMessage = "HikeJournal could not render this trail keepsake."
+                    return
+                }
+                cardData = jpeg
             }
             do {
                 let prepared = try await HikeSharePreparer.prepare(
-                    cardData: jpeg,
+                    cardData: cardData,
                     hike: hike,
-                    photos: selectedPhotos
+                    photos: photos,
+                    keepsake: shareKeepsake
                 )
                 activityItems = prepared.items
                 if prepared.omittedPhotoCount > 0 {
@@ -507,6 +600,7 @@ enum HikeShareMapSnapshotter {
 private enum HikeSharePreparationError: LocalizedError {
     case storageUnavailable
     case photoUnavailable
+    case noImages
 
     var errorDescription: String? {
         switch self {
@@ -514,6 +608,8 @@ private enum HikeSharePreparationError: LocalizedError {
             "HikeJournal could not create a protected temporary share copy."
         case .photoUnavailable:
             "HikeJournal could not prepare this photo. Check your connection and try again."
+        case .noImages:
+            "No selected photos were available. Check your connection and try again."
         }
     }
 }
@@ -525,7 +621,13 @@ enum HikeSharePreparer {
     }
 
     @MainActor
-    static func prepare(cardData: Data, hike: Hike, photos: [Photo]) async throws -> Prepared {
+    static func prepare(
+        cardData: Data?,
+        hike: Hike,
+        photos: [Photo],
+        keepsake: HikeShareKeepsake = .first,
+        session: URLSession = .shared
+    ) async throws -> Prepared {
         let fileManager = FileManager.default
         let directory = fileManager.temporaryDirectory
             .appendingPathComponent("HikeJournalSharedOutings", isDirectory: true)
@@ -533,24 +635,30 @@ enum HikeSharePreparer {
         cleanExpiredFiles(in: directory, fileManager: fileManager)
 
         let safeID = safeComponent(hike.id)
-        let cardURL = directory.appendingPathComponent("HikeJournal-\(safeID).jpg")
-        do {
-            try cardData.write(to: cardURL, options: [.atomic, .completeFileProtectionUnlessOpen])
-        } catch {
-            throw HikeSharePreparationError.storageUnavailable
+        var cardURL: URL?
+        if keepsake.includesKeepsake {
+            guard let cardData else { throw HikeSharePreparationError.storageUnavailable }
+            let destination = directory.appendingPathComponent("HikeJournal-\(safeID).jpg")
+            do {
+                try cardData.write(to: destination, options: [.atomic, .completeFileProtectionUnlessOpen])
+                cardURL = destination
+            } catch {
+                throw HikeSharePreparationError.storageUnavailable
+            }
         }
 
-        var attachments = [cardURL]
+        var photoURLs: [URL] = []
         var omitted = 0
-        for (index, photo) in photos.prefix(19).enumerated() {
+        for (index, photo) in keepsake.shareablePhotos(photos).enumerated() {
             do {
                 if let url = try await cachedPhoto(
                     photo,
                     index: index,
                     safeHikeID: safeID,
-                    directory: directory
+                    directory: directory,
+                    session: session
                 ) {
-                    attachments.append(url)
+                    photoURLs.append(url)
                 } else {
                     omitted += 1
                 }
@@ -560,6 +668,8 @@ enum HikeSharePreparer {
                 omitted += 1
             }
         }
+        let attachments = keepsake.orderedItems(keepsake: cardURL, photos: photoURLs)
+        guard !attachments.isEmpty else { throw HikeSharePreparationError.noImages }
         return Prepared(items: attachments + [caption(for: hike)], omittedPhotoCount: omitted)
     }
 
@@ -586,14 +696,15 @@ enum HikeSharePreparer {
         _ photo: Photo,
         index: Int,
         safeHikeID: String,
-        directory: URL
+        directory: URL,
+        session: URLSession = .shared
     ) async throws -> URL? {
         guard let source = URL(string: photo.url), source.scheme?.lowercased() == "https" else {
             return nil
         }
         var request = URLRequest(url: source, cachePolicy: .returnCacheDataElseLoad, timeoutInterval: 30)
         request.setValue("image/*", forHTTPHeaderField: "Accept")
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await session.data(for: request)
         try Task.checkCancellation()
         guard let http = response as? HTTPURLResponse,
               (200..<300).contains(http.statusCode),
