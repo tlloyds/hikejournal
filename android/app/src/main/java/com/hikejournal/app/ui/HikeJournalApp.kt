@@ -3553,7 +3553,7 @@ private fun PhotoViewer(
                 if (!photo.isVideo) {
                     IdentificationSafetyReminder(
                         modifier = Modifier.padding(bottom = 12.dp),
-                        color = Paper.copy(alpha = 0.85f),
+                        color = Paper,
                     )
                 }
                 identifiedSpecies?.let { species ->

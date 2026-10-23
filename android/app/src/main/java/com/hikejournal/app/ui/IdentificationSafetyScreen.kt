@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.ui.text.ExperimentalTextApi::class)
+
 package com.hikejournal.app.ui
 
 import androidx.compose.foundation.background
@@ -6,14 +8,18 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -29,13 +35,35 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontVariation
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.hikejournal.app.R
 import com.hikejournal.app.data.IdentificationSafetyPreferences
-import com.hikejournal.app.ui.theme.Ink
-import com.hikejournal.app.ui.theme.InkMuted
 import com.hikejournal.app.ui.theme.Moss
-import com.hikejournal.app.ui.theme.Paper
-import com.hikejournal.app.ui.theme.Parchment
+
+// The bundled variable font defaults to ExtraLight. Select real weight-axis values
+// rather than labelling the same default face with several different weights.
+private val SafetyBodyFamily = FontFamily(
+    Font(R.font.source_sans_3, weight = FontWeight.Medium,
+        variationSettings = FontVariation.Settings(FontVariation.weight(500))),
+    Font(R.font.source_sans_3, weight = FontWeight.SemiBold,
+        variationSettings = FontVariation.Settings(FontVariation.weight(600))),
+)
+private val SafetyDisplayFamily = FontFamily(
+    Font(R.font.cormorant_garamond, weight = FontWeight.SemiBold,
+        variationSettings = FontVariation.Settings(FontVariation.weight(600))),
+)
+private val SafetyInk = Color(0xFF101A14)
+private val SafetyLink = Color(0xFF164D33)
+private val SafetySurface = Color(0xFFFFFFFF)
+private val SafetySurfaceEnd = Color(0xFFF4F6F0)
 
 internal object IdentificationSafetyNotice {
     const val Title = "Identification safety"
@@ -72,24 +100,41 @@ internal fun IdentificationSafetyScreen(
 ) {
     var understood by rememberSaveable { mutableStateOf(false) }
     val uriHandler = LocalUriHandler.current
+    val bodyStyle = MaterialTheme.typography.bodyLarge.copy(
+        fontFamily = SafetyBodyFamily, fontWeight = FontWeight.Medium,
+        fontSize = 18.sp, lineHeight = 28.sp,
+    )
+    val labelStyle = bodyStyle.copy(fontWeight = FontWeight.SemiBold, fontSize = 17.sp, lineHeight = 25.sp)
+    val buttonColors = ButtonDefaults.buttonColors(
+        containerColor = Moss, contentColor = Color.White,
+        disabledContainerColor = Color(0xFFD9E0D7), disabledContentColor = Color(0xFF344237),
+    )
     Column(
         Modifier.fillMaxSize()
-            .background(Brush.verticalGradient(listOf(Paper, Parchment)))
+            .background(Brush.verticalGradient(listOf(SafetySurface, SafetySurfaceEnd)))
             .statusBarsPadding().navigationBarsPadding(),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Column(
-            Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(24.dp),
+            Modifier.weight(1f).widthIn(max = 640.dp).fillMaxWidth()
+                .verticalScroll(rememberScrollState()).padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
-            Text("HikeJournal", style = MaterialTheme.typography.displaySmall, color = Moss)
-            Text(IdentificationSafetyNotice.Title, style = MaterialTheme.typography.headlineMedium, color = Ink)
-            Text(IdentificationSafetyNotice.Affiliation, style = MaterialTheme.typography.bodyLarge, color = InkMuted)
-            Text(IdentificationSafetyNotice.Accuracy, style = MaterialTheme.typography.bodyLarge, color = Ink)
-            Text(IdentificationSafetyNotice.Verification, style = MaterialTheme.typography.bodyLarge, color = Ink)
-            Text(IdentificationSafetyNotice.Consumption, style = MaterialTheme.typography.bodyLarge, color = Ink)
-            Text(IdentificationSafetyNotice.Purpose, style = MaterialTheme.typography.bodyMedium, color = InkMuted)
+            Text("HikeJournal", style = MaterialTheme.typography.headlineLarge.copy(
+                fontFamily = SafetyDisplayFamily, fontWeight = FontWeight.SemiBold,
+                fontSize = 40.sp, lineHeight = 46.sp,
+            ), color = Moss)
+            Text(IdentificationSafetyNotice.Title, style = MaterialTheme.typography.headlineMedium.copy(
+                fontFamily = SafetyDisplayFamily, fontWeight = FontWeight.SemiBold,
+            ), color = SafetyInk, modifier = Modifier.semantics { heading() })
+            Text(IdentificationSafetyNotice.Affiliation, style = bodyStyle, color = SafetyInk)
+            Text(IdentificationSafetyNotice.Accuracy, style = bodyStyle, color = SafetyInk)
+            Text(IdentificationSafetyNotice.Verification, style = bodyStyle, color = SafetyInk)
+            Text(IdentificationSafetyNotice.Consumption, style = bodyStyle.copy(fontWeight = FontWeight.SemiBold), color = SafetyInk)
+            Text(IdentificationSafetyNotice.Purpose, style = bodyStyle, color = SafetyInk)
             TextButton(onClick = { uriHandler.openUri(IdentificationSafetyNotice.GuidanceURL) }) {
-                Text("About iNaturalist suggestions")
+                Text("About iNaturalist suggestions", style = labelStyle, color = SafetyLink,
+                    textDecoration = TextDecoration.Underline)
             }
             if (onAcknowledge != null) {
                 Row(
@@ -100,27 +145,34 @@ internal fun IdentificationSafetyScreen(
                     ).padding(vertical = 10.dp),
                     verticalAlignment = Alignment.Top,
                 ) {
-                    Checkbox(checked = understood, onCheckedChange = null)
-                    Text(IdentificationSafetyNotice.Acknowledgment, style = MaterialTheme.typography.bodyMedium,
-                        color = Ink, modifier = Modifier.padding(start = 12.dp))
+                    Checkbox(checked = understood, onCheckedChange = null,
+                        colors = CheckboxDefaults.colors(checkedColor = Moss,
+                            uncheckedColor = SafetyInk, checkmarkColor = Color.White))
+                    Text(IdentificationSafetyNotice.Acknowledgment, style = bodyStyle,
+                        color = SafetyInk, modifier = Modifier.padding(start = 12.dp))
                 }
             }
         }
         if (onAcknowledge != null) {
-            Button(onClick = onAcknowledge, enabled = understood,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 12.dp)) {
-                Text("Acknowledge and continue")
+            Button(onClick = onAcknowledge, enabled = understood, colors = buttonColors,
+                modifier = Modifier.widthIn(max = 640.dp).fillMaxWidth()
+                    .padding(horizontal = 24.dp, vertical = 12.dp).heightIn(min = 56.dp)) {
+                Text("Acknowledge and continue", style = labelStyle)
             }
         } else if (onClose != null) {
-            Button(onClick = onClose,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 12.dp)) {
-                Text("Done")
+            Button(onClick = onClose, colors = buttonColors,
+                modifier = Modifier.widthIn(max = 640.dp).fillMaxWidth()
+                    .padding(horizontal = 24.dp, vertical = 12.dp).heightIn(min = 56.dp)) {
+                Text("Done", style = labelStyle)
             }
         }
     }
 }
 
 @Composable
-internal fun IdentificationSafetyReminder(modifier: Modifier = Modifier, color: Color = InkMuted) {
-    Text(IdentificationSafetyNotice.Reminder, style = MaterialTheme.typography.bodySmall, color = color, modifier = modifier)
+internal fun IdentificationSafetyReminder(modifier: Modifier = Modifier, color: Color = SafetyInk) {
+    Text(IdentificationSafetyNotice.Reminder, style = MaterialTheme.typography.bodyMedium.copy(
+        fontFamily = SafetyBodyFamily, fontWeight = FontWeight.Medium,
+        fontSize = 15.sp, lineHeight = 23.sp,
+    ), color = color, modifier = modifier)
 }
