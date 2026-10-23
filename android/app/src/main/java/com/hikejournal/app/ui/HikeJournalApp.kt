@@ -203,6 +203,7 @@ import com.hikejournal.app.data.detectCurrentUsState
 import com.hikejournal.app.data.WeatherSnapshot
 import com.hikejournal.app.data.localMediaAccess
 import com.hikejournal.app.data.requiredLocalMediaPermissions
+import com.hikejournal.app.data.reviewConfidenceLabel
 import com.hikejournal.app.tracking.TrackingStatus
 import com.hikejournal.app.ui.theme.Fern
 import com.hikejournal.app.ui.theme.Ink
@@ -3820,6 +3821,9 @@ private fun DirectPhotoReviewDialog(
                         Text(candidate.commonName, style = MaterialTheme.typography.titleMedium, color = Ink)
                         if (candidate.scientificName.isNotBlank()) {
                             Text(candidate.scientificName, style = MaterialTheme.typography.bodyMedium, color = InkMuted, fontStyle = FontStyle.Italic)
+                        }
+                        reviewConfidenceLabel(candidate.confidence)?.let { confidence ->
+                            Text(confidence, style = MaterialTheme.typography.bodySmall, color = InkMuted)
                         }
                     }
                 }
