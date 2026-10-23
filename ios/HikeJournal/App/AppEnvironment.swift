@@ -116,6 +116,7 @@ final class AppModel: ObservableObject {
     let media: MediaAttachmentStore
     let maps: MapStore
     let riverGauges: RiverGaugePreferencesStore
+    let identificationSafety: IdentificationSafetyStore
 
     private let onboardingStore: OnboardingStoring
     private let locationPermission: LocationPermissionClient
@@ -126,6 +127,7 @@ final class AppModel: ObservableObject {
         configuration = environment.configuration
         version = environment.version
         onboardingStore = environment.onboardingStore
+        identificationSafety = IdentificationSafetyStore(defaults: environment.preferencesDefaults)
         locationPermission = environment.locationPermission
         deepLinkRouter = DeepLinkRouter(callbackScheme: environment.configuration.callbackScheme)
         let authentication = AuthenticationStore(

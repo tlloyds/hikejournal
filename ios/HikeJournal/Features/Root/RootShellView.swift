@@ -808,6 +808,11 @@ private struct SettingsHomeView: View {
                     Button("View getting started") {
                         model.replayOnboarding()
                     }
+                    NavigationLink(IdentificationSafetyNotice.title) {
+                        IdentificationSafetyView()
+                            .navigationTitle(IdentificationSafetyNotice.title)
+                            .navigationBarTitleDisplayMode(.inline)
+                    }
                 }
 
                 Section("Recording") {

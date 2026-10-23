@@ -184,6 +184,7 @@ import com.hikejournal.app.data.HikeDraft
 import com.hikejournal.app.data.HikeLocation
 import com.hikejournal.app.data.HikeLocationSuggestion
 import com.hikejournal.app.data.GettingStartedPreferences
+import com.hikejournal.app.data.IdentificationSafetyPreferences
 import com.hikejournal.app.data.LocalMediaAccess
 import com.hikejournal.app.data.MapDisplayPreferences
 import com.hikejournal.app.data.MediaLocationSummary
@@ -303,6 +304,15 @@ private enum class TrackingPreflightIssue {
 
 @Composable
 fun HikeJournalApp(viewModel: AppViewModel) {
+    val context = LocalContext.current
+    val safetyPreferences = remember(context) { IdentificationSafetyPreferences(context) }
+    IdentificationSafetyGate(preferences = safetyPreferences) {
+        HikeJournalAppContent(viewModel)
+    }
+}
+
+@Composable
+private fun HikeJournalAppContent(viewModel: AppViewModel) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val authScope = rememberCoroutineScope()
@@ -3540,6 +3550,12 @@ private fun PhotoViewer(
                         .padding(horizontal = 16.dp)
                         .padding(top = 16.dp, bottom = 32.dp),
                 ) {
+                if (!photo.isVideo) {
+                    IdentificationSafetyReminder(
+                        modifier = Modifier.padding(bottom = 12.dp),
+                        color = Paper.copy(alpha = 0.85f),
+                    )
+                }
                 identifiedSpecies?.let { species ->
                     Text(species.commonName.ifBlank { species.scientificName }, style = MaterialTheme.typography.titleMedium, color = Color(0xFFBFD2B9))
                     OutlinedButton(
@@ -3783,6 +3799,7 @@ private fun DirectPhotoReviewDialog(
             Modifier
                 .fillMaxWidth()
                 .background(Paper, RoundedCornerShape(24.dp))
+                .verticalScroll(rememberScrollState())
                 .padding(20.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -3792,6 +3809,7 @@ private fun DirectPhotoReviewDialog(
                 }
                 IconButton(onClick = onDismiss) { Icon(Icons.Rounded.Close, "Close", tint = Ink) }
             }
+            IdentificationSafetyReminder(Modifier.padding(top = 10.dp, bottom = 6.dp))
             item.candidates.forEachIndexed { index, candidate ->
                 Row(
                     Modifier.fillMaxWidth().clickable { selectedIndex = index }.padding(vertical = 10.dp),
@@ -4207,6 +4225,7 @@ private fun SettingsDialog(
     var detectingLocationState by rememberSaveable { mutableStateOf(false) }
     var locationStateError by rememberSaveable { mutableStateOf<String?>(null) }
     var deleteAccountConfirmation by rememberSaveable { mutableStateOf(false) }
+    var safetyNoticeOpen by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val openWebUrl = remember(webUrl) { validSettingsWebUrl(webUrl) }
@@ -4302,6 +4321,15 @@ private fun SettingsDialog(
         )
         return
     }
+    if (safetyNoticeOpen) {
+        Dialog(
+            onDismissRequest = { safetyNoticeOpen = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+        ) {
+            IdentificationSafetyScreen(onClose = { safetyNoticeOpen = false })
+        }
+        return
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Settings", style = MaterialTheme.typography.headlineMedium) },
@@ -4389,6 +4417,10 @@ private fun SettingsDialog(
                     Icon(Icons.Rounded.ChevronRight, contentDescription = "Open getting started guide", tint = Fern)
                 }
                 HorizontalDivider(Modifier.padding(top = 12.dp))
+                TextButton(onClick = { safetyNoticeOpen = true }) {
+                    Text(IdentificationSafetyNotice.Title)
+                }
+                HorizontalDivider()
                 Text("Places", style = MaterialTheme.typography.titleMedium, color = Ink, modifier = Modifier.padding(top = 16.dp))
                 Text(
                     "$locationStateName hiking places are loaded for search and GPS suggestions. Change the state whenever your hiking plans move.",

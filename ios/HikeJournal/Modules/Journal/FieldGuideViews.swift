@@ -420,6 +420,7 @@ struct SpeciesDetailView: View {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     speciesHero
                     VStack(alignment: .leading, spacing: 28) {
+                        IdentificationSafetyReminder()
                         if !value.wikipediaSummary.isEmpty {
                             FieldSection(title: "Field notes") {
                                 Text(value.wikipediaSummary)
@@ -1648,6 +1649,7 @@ private struct ReviewCardPage: View {
                 }
 
                 VStack(alignment: .leading, spacing: 14) {
+                    IdentificationSafetyReminder()
                     if item.candidates.isEmpty {
                         waitingContent
                     } else {

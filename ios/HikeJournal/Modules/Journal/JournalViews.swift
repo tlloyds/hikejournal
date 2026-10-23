@@ -1196,6 +1196,9 @@ private struct JournalMediaDetailView: View {
                     VStack(alignment: .leading, spacing: 0) {
                         mediaPlane
                         VStack(alignment: .leading, spacing: 16) {
+                            if !currentPhoto.contentType.lowercased().hasPrefix("video/") {
+                                IdentificationSafetyReminder(color: .white.opacity(0.82))
+                            }
                             if let species = primarySpecies {
                                 identification(species)
                             } else if let recommendation = currentRecommendation,

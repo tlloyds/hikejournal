@@ -46,23 +46,25 @@ private struct AppRootView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        ZStack {
-            switch model.phase {
-            case .onboarding:
-                OnboardingView(model: model)
-                    .transition(reduceMotion ? .opacity : .move(edge: .leading).combined(with: .opacity))
-            case .journal:
-                Group {
-                    if model.isBootstrapped {
-                        RootShellView(model: model)
-                    } else {
-                        JournalBootstrapView()
+        IdentificationSafetyGate(store: model.identificationSafety) {
+            ZStack {
+                switch model.phase {
+                case .onboarding:
+                    OnboardingView(model: model)
+                        .transition(reduceMotion ? .opacity : .move(edge: .leading).combined(with: .opacity))
+                case .journal:
+                    Group {
+                        if model.isBootstrapped {
+                            RootShellView(model: model)
+                        } else {
+                            JournalBootstrapView()
+                        }
                     }
+                        .transition(reduceMotion ? .opacity : .move(edge: .trailing).combined(with: .opacity))
                 }
-                    .transition(reduceMotion ? .opacity : .move(edge: .trailing).combined(with: .opacity))
             }
+            .animation(reduceMotion ? nil : .snappy(duration: 0.48), value: model.phase)
         }
-        .animation(reduceMotion ? nil : .snappy(duration: 0.48), value: model.phase)
     }
 }
 

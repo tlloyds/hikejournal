@@ -566,6 +566,7 @@ private fun ReviewItemContent(
 
         item {
             Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 22.dp)) {
+                IdentificationSafetyReminder(Modifier.padding(bottom = 14.dp))
                 if (item.candidates.isEmpty()) {
                     val photoSynced = reviewPhotoIsSynced(item)
                     Text(

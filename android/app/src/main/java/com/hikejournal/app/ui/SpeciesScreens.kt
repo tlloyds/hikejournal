@@ -1816,6 +1816,7 @@ fun SpeciesDetailScreen(
                     color = TrailText,
                 )
                 Text(species.commonName, style = MaterialTheme.typography.displayMedium, color = Ink)
+                IdentificationSafetyReminder(Modifier.padding(top = 10.dp, bottom = 8.dp))
                 if (species.scientificName.isNotBlank()) {
                     Text(
                         species.scientificName,
