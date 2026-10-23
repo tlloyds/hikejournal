@@ -556,8 +556,6 @@ internal fun HikeJournalMap(
     }
     controller.routeMileMarkers = routeMileMarkers
     controller.completedRouteMile = completedRouteMile
-    controller.initialBounds = initialBounds
-    controller.waitForInitialBounds = waitForInitialBounds
     val showTrailOverlays = selectedTrailIds.isNotEmpty()
     var trailOverlays by remember { mutableStateOf<FeatureCollection?>(null) }
     var trailOverlayIndex by remember { mutableStateOf<FloridaTrailSegmentIndex?>(null) }
@@ -630,6 +628,11 @@ internal fun HikeJournalMap(
             }
         },
         update = {
+            // These inputs must be captured by AndroidView's update lambda. Mutating
+            // the remembered controller during composition does not invalidate the
+            // native view when only the summary/loading state changes.
+            controller.initialBounds = initialBounds
+            controller.waitForInitialBounds = waitForInitialBounds
             controller.updateLayer(
                 nextLayerMode = layerMode,
                 nextShowFloridaTrail = showTrailOverlays,
