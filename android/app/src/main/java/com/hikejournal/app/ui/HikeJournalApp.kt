@@ -40,7 +40,10 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.rememberTransformableState
+import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -142,13 +145,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
@@ -159,6 +165,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
@@ -3551,7 +3558,12 @@ private fun PhotoViewer(
                         colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xB018221C)),
                     ) { Icon(Icons.Rounded.Fullscreen, "Open full-screen video", tint = Paper) }
                 } else {
-                    AsyncImage(photo.url, photo.caption, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+                    ZoomablePhotoImage(
+                        model = photo.url,
+                        contentDescription = photo.caption,
+                        photoKey = photo.id,
+                        modifier = Modifier.fillMaxSize(),
+                    )
                     FilledIconButton(
                         onClick = { photoFullscreen = true },
                         modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
@@ -3904,13 +3916,85 @@ private fun FullscreenPhotoViewer(
                 )
             },
         ) {
-            AsyncImage(photo.url, photo.caption, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+            ZoomablePhotoImage(
+                model = photo.url,
+                contentDescription = photo.caption,
+                photoKey = photo.id,
+                modifier = Modifier.fillMaxSize(),
+            )
             FilledIconButton(
                 onClick = onDismiss,
                 modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(12.dp),
                 colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xB018221C)),
             ) { Icon(Icons.Rounded.Close, "Exit full-screen photo", tint = Paper) }
         }
+    }
+}
+
+@Composable
+private fun ZoomablePhotoImage(
+    model: String,
+    contentDescription: String?,
+    photoKey: String,
+    modifier: Modifier = Modifier,
+) {
+    var scale by remember(photoKey) { mutableFloatStateOf(1f) }
+    var offset by remember(photoKey) { mutableStateOf(Offset.Zero) }
+    var viewportSize by remember(photoKey) { mutableStateOf(IntSize.Zero) }
+    val transformState = rememberTransformableState { zoomChange, panChange, _ ->
+        val nextScale = (scale * zoomChange).coerceIn(1f, 5f)
+        val scaleRatio = nextScale / scale
+        val maxX = viewportSize.width * (nextScale - 1f) / 2f
+        val maxY = viewportSize.height * (nextScale - 1f) / 2f
+        scale = nextScale
+        offset = if (nextScale == 1f) {
+            Offset.Zero
+        } else {
+            Offset(
+                x = (offset.x * scaleRatio + panChange.x).coerceIn(-maxX, maxX),
+                y = (offset.y * scaleRatio + panChange.y).coerceIn(-maxY, maxY),
+            )
+        }
+    }
+
+    Box(
+        modifier
+            .clipToBounds()
+            .onSizeChanged { viewportSize = it }
+            .transformable(state = transformState, canPan = { scale > 1f })
+            .pointerInput(photoKey) {
+                detectTapGestures(
+                    onDoubleTap = {
+                        scale = if (scale > 1f) 1f else 2.5f
+                        offset = Offset.Zero
+                    },
+                )
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        AsyncImage(
+            model = model,
+            contentDescription = contentDescription,
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                    translationX = offset.x
+                    translationY = offset.y
+                },
+            contentScale = ContentScale.Fit,
+        )
+        Text(
+            "Pinch or double-tap to zoom",
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 16.dp)
+                .background(Color(0x99101811), CircleShape)
+                .padding(horizontal = 12.dp, vertical = 7.dp),
+            color = Paper,
+            style = MaterialTheme.typography.labelSmall,
+        )
     }
 }
 
