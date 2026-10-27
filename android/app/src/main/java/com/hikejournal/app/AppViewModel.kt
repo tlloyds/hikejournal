@@ -1020,6 +1020,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    suspend fun loadHikeForShare(hike: Hike): Hike {
+        repository.loadCachedHike(hike.id, expectedPhotoCount = hike.photoCount)?.let { return it }
+        return repository.loadHike(hike.id, expectedPhotoCount = hike.photoCount).value
+    }
+
     fun closeJournal() {
         _state.update { it.copy(journal = null, openingHikeId = null, error = null) }
         refreshLibrary()

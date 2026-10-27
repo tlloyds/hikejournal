@@ -828,6 +828,10 @@ private fun HikeJournalAppContent(viewModel: AppViewModel) {
                     val journal = state.journal!!
                     JournalScreen(
                         hike = journal,
+                        sameDayHikes = (state.hikes.filter { it.hikeDate.take(10) == journal.hikeDate.take(10) } + journal)
+                            .distinctBy(Hike::id)
+                            .sortedWith(compareBy<Hike> { it.routeStartedAt.orEmpty() }.thenBy { it.title }),
+                        onLoadHikeForShare = viewModel::loadHikeForShare,
                         state = state,
                         onBack = viewModel::closeJournal,
                         onEdit = if (journal.isStandalone) null else ({
@@ -2349,6 +2353,8 @@ private fun HikeComparisonPickerDialog(
 @Composable
 private fun JournalScreen(
     hike: Hike,
+    sameDayHikes: List<Hike>,
+    onLoadHikeForShare: suspend (Hike) -> Hike,
     state: AppState,
     onBack: () -> Unit,
     onEdit: (() -> Unit)?,
@@ -2368,6 +2374,7 @@ private fun JournalScreen(
     var selectingForReview by remember(hike.id) { mutableStateOf(false) }
     var selectedReviewIds by remember(hike.id) { mutableStateOf<Set<String>>(emptySet()) }
     var shareDialogOpen by remember(hike.id) { mutableStateOf(false) }
+    var multiShareDialogOpen by remember(hike.id) { mutableStateOf(false) }
     val journalListState = rememberLazyListState()
     val journalScrollScope = rememberCoroutineScope()
     val reviewEligiblePhotos = hike.photos.filter { !it.isVideo && it.processingStatus != "in_review" }
@@ -2670,7 +2677,23 @@ private fun JournalScreen(
         }
     }
     if (shareDialogOpen) {
-        HikeShareDialog(hike = hike, onDismiss = { shareDialogOpen = false })
+        HikeShareDialog(
+            hike = hike,
+            sameDayHikes = sameDayHikes,
+            onShareMultiple = {
+                shareDialogOpen = false
+                multiShareDialogOpen = true
+            },
+            onDismiss = { shareDialogOpen = false },
+        )
+    }
+    if (multiShareDialogOpen) {
+        MultiHikeShareDialog(
+            currentHike = hike,
+            sameDayHikes = sameDayHikes,
+            onLoadHike = onLoadHikeForShare,
+            onDismiss = { multiShareDialogOpen = false },
+        )
     }
 }
 

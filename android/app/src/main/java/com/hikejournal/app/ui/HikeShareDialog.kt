@@ -36,6 +36,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -47,6 +48,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -55,6 +57,7 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.IosShare
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -149,11 +152,15 @@ internal data class PreparedHikeShare(
     val omittedPhotoCount: Int,
 )
 
+private data class HikeSharePhotoRef(val hikeId: String, val photoId: String)
+
 private val shareHttpClient = OkHttpClient()
 
 @Composable
 internal fun HikeShareDialog(
     hike: Hike,
+    sameDayHikes: List<Hike> = listOf(hike),
+    onShareMultiple: () -> Unit = {},
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -304,6 +311,20 @@ internal fun HikeShareDialog(
                             color = Color(0xFFD6E0D3),
                             modifier = Modifier.padding(bottom = 8.dp),
                         )
+                    }
+                }
+
+                if (sameDayHikes.size > 1) {
+                    item(key = "share-multiple-outings", span = { GridItemSpan(maxLineSpan) }) {
+                        TextButton(
+                            onClick = onShareMultiple,
+                            enabled = !preparing,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Icon(Icons.Rounded.IosShare, null, Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Combine ${sameDayHikes.size} outings from this day")
+                        }
                     }
                 }
 
@@ -495,6 +516,409 @@ internal fun HikeShareDialog(
             }
         }
     }
+}
+
+@Composable
+internal fun MultiHikeShareDialog(
+    currentHike: Hike,
+    sameDayHikes: List<Hike>,
+    onLoadHike: suspend (Hike) -> Hike,
+    onDismiss: () -> Unit,
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val outings = remember(currentHike.id, sameDayHikes) {
+        (sameDayHikes + currentHike).distinctBy(Hike::id)
+            .sortedWith(compareBy<Hike> { it.routeStartedAt.orEmpty() }.thenBy { it.title })
+    }
+    var hikesById by remember(currentHike.id) {
+        mutableStateOf(outings.associateBy(Hike::id) + (currentHike.id to currentHike))
+    }
+    var selectedHikeIds by remember(currentHike.id) { mutableStateOf(listOf(currentHike.id)) }
+    var loadedHikeIds by remember(currentHike.id) { mutableStateOf(setOf(currentHike.id)) }
+    var loadingHikeIds by remember(currentHike.id) { mutableStateOf(emptySet<String>()) }
+    var loadErrors by remember(currentHike.id) { mutableStateOf(emptyMap<String, String>()) }
+    var selectedPhotoRefs by remember(currentHike.id) { mutableStateOf(emptyList<HikeSharePhotoRef>()) }
+    var keepsake by remember(currentHike.id) { mutableStateOf(HikeShareKeepsake.FIRST) }
+    var satelliteMaps by remember(currentHike.id) { mutableStateOf<Map<String, Bitmap?>>(emptyMap()) }
+    var preparing by remember(currentHike.id) { mutableStateOf(false) }
+    var errorMessage by remember(currentHike.id) { mutableStateOf<String?>(null) }
+
+    val selectedHikes = selectedHikeIds.mapNotNull(hikesById::get)
+    val cardCount = if (keepsake.includesKeepsake) selectedHikeIds.size else 0
+    val maximumPhotos = (MAX_SOCIAL_CAROUSEL_ITEMS - cardCount).coerceAtLeast(0)
+    val imageCount = cardCount + selectedPhotoRefs.size
+    val routeKey = selectedHikes.map { it.id to it.routeSegments }
+
+    LaunchedEffect(routeKey) {
+        selectedHikes.filter { it.routeSegments.isNotEmpty() && it.id !in satelliteMaps }
+            .forEach { hike ->
+                satelliteMaps = satelliteMaps + (hike.id to null)
+                satelliteMaps = satelliteMaps + (hike.id to captureSatelliteRouteMap(context, hike.routeSegments))
+            }
+    }
+    LaunchedEffect(selectedHikeIds, keepsake) {
+        if (selectedPhotoRefs.size > maximumPhotos) {
+            selectedPhotoRefs = selectedPhotoRefs.take(maximumPhotos)
+        }
+    }
+
+    fun loadHikeDetails(summary: Hike) {
+        if (summary.id in loadedHikeIds || summary.id in loadingHikeIds) return
+        loadingHikeIds = loadingHikeIds + summary.id
+        loadErrors = loadErrors - summary.id
+        scope.launch {
+            runCatching { onLoadHike(summary) }
+                .onSuccess { detail ->
+                    hikesById = hikesById + (summary.id to detail)
+                    loadedHikeIds = loadedHikeIds + summary.id
+                }
+                .onFailure { error ->
+                    loadErrors = loadErrors + (summary.id to (error.message ?: "Could not load this outing."))
+                }
+            loadingHikeIds = loadingHikeIds - summary.id
+        }
+    }
+
+    fun toggleHike(hike: Hike) {
+        if (hike.id == currentHike.id || preparing) return
+        if (hike.id in selectedHikeIds) {
+            selectedHikeIds = selectedHikeIds - hike.id
+            selectedPhotoRefs = selectedPhotoRefs.filterNot { it.hikeId == hike.id }
+        } else {
+            if (keepsake.includesKeepsake && selectedHikeIds.size >= MAX_SOCIAL_CAROUSEL_ITEMS) return
+            selectedHikeIds = selectedHikeIds + hike.id
+            loadHikeDetails(hike)
+        }
+    }
+
+    fun beginShare() {
+        if (preparing || selectedHikeIds.size < 2 || imageCount == 0) return
+        if (selectedHikeIds.any { it !in loadedHikeIds || it in loadingHikeIds }) return
+        preparing = true
+        errorMessage = null
+        val shareHikes = selectedHikes
+        val photosByKey = shareHikes.flatMap { outing ->
+            outing.photos.map { photo -> HikeSharePhotoRef(outing.id, photo.id) to photo }
+        }.toMap()
+        val sharePhotos = selectedPhotoRefs.mapNotNull(photosByKey::get)
+        val shareMaps = satelliteMaps.toMap()
+        scope.launch {
+            runCatching {
+                prepareMultiHikeShare(context, shareHikes, sharePhotos, shareMaps, keepsake)
+            }.onSuccess { prepared ->
+                preparing = false
+                launchHikeShare(context, prepared)
+                if (prepared.omittedPhotoCount > 0) {
+                    Toast.makeText(
+                        context,
+                        "${prepared.omittedPhotoCount} photo${if (prepared.omittedPhotoCount == 1) " was" else "s were"} unavailable; the rest are ready to share.",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
+            }.onFailure { error ->
+                preparing = false
+                errorMessage = error.message ?: "HikeJournal could not prepare these images."
+            }
+        }
+    }
+
+    val cardPreviews = remember(
+        keepsake,
+        selectedHikes.map { hike -> listOf(hike.id, hike.title, hike.hikeDate, hike.distanceMiles, hike.routeSegments) },
+        satelliteMaps,
+    ) {
+        if (!keepsake.includesKeepsake) emptyList() else selectedHikes.map { hike ->
+            hike.id to renderHikeShareCard(context, hike, satelliteMaps[hike.id], width = 270, height = 338)
+        }
+    }
+    val navigationBarPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val allDetailsLoaded = selectedHikeIds.all { it in loadedHikeIds } && loadingHikeIds.isEmpty()
+    val canShare = selectedHikeIds.size >= 2 && allDetailsLoaded && imageCount > 0 && !preparing
+
+    Dialog(
+        onDismissRequest = { if (!preparing) onDismiss() },
+        properties = DialogProperties(
+            dismissOnBackPress = !preparing,
+            dismissOnClickOutside = false,
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false,
+        ),
+    ) {
+        Column(
+            Modifier.fillMaxSize()
+                .background(Brush.verticalGradient(listOf(MossSoft, Moss, Color(0xFF10281F))))
+                .statusBarsPadding(),
+        ) {
+            Row(
+                Modifier.fillMaxWidth().padding(start = 18.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("HIKEJOURNAL", style = MaterialTheme.typography.labelSmall, color = Color(0xFFF1BE79))
+                    Text("Share your day", style = MaterialTheme.typography.headlineMedium, color = Paper)
+                }
+                IconButton(onClick = onDismiss, enabled = !preparing) {
+                    Icon(Icons.Rounded.Close, "Close multi-hike share", tint = Paper)
+                }
+            }
+
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(2),
+                Modifier.weight(1f),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 18.dp, end = 18.dp, bottom = 22.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                item(key = "outing-picker-title", span = { GridItemSpan(maxLineSpan) }) {
+                    Column(Modifier.fillMaxWidth().padding(top = 5.dp)) {
+                        Text("OUTINGS FROM ${currentHike.hikeDate.take(10)}", style = MaterialTheme.typography.labelSmall, color = Color(0xFFF1BE79))
+                        Text("Choose the hikes to share together", style = MaterialTheme.typography.titleLarge, color = Paper)
+                        Text(
+                            "Include at least two. Their photos and keepsakes share as one carousel.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFFD6E0D3),
+                            modifier = Modifier.padding(top = 3.dp),
+                        )
+                    }
+                }
+                items(outings, key = { "outing-${it.id}" }, span = { GridItemSpan(maxLineSpan) }) { hike ->
+                    val selected = hike.id in selectedHikeIds
+                    Row(
+                        Modifier.fillMaxWidth()
+                            .clickable(
+                                enabled = hike.id != currentHike.id && !preparing &&
+                                    (selected || !keepsake.includesKeepsake || selectedHikeIds.size < MAX_SOCIAL_CAROUSEL_ITEMS),
+                            ) { toggleHike(hike) }
+                            .padding(vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Checkbox(
+                            checked = selected,
+                            onCheckedChange = null,
+                            enabled = hike.id != currentHike.id && !preparing &&
+                                (selected || !keepsake.includesKeepsake || selectedHikeIds.size < MAX_SOCIAL_CAROUSEL_ITEMS),
+                        )
+                        Column(Modifier.weight(1f).padding(start = 8.dp)) {
+                            Text(hike.title.ifBlank { "Untitled hike" }, style = MaterialTheme.typography.titleMedium, color = Paper)
+                            Text(
+                                buildString {
+                                    append(hikeShareDateTime(hike))
+                                    val place = hike.primaryLocationName.ifBlank { hike.locationName }
+                                    if (place.isNotBlank()) append(" · $place")
+                                    if (hike.id == currentHike.id) append(" · Current outing")
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFFD6E0D3),
+                            )
+                        }
+                        if (hike.id in loadingHikeIds) {
+                            CircularProgressIndicator(Modifier.padding(start = 8.dp).size(19.dp), color = Trail, strokeWidth = 2.dp)
+                        }
+                    }
+                    loadErrors[hike.id]?.let { message ->
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text(message, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = Color(0xFFFFD0C5))
+                            TextButton(onClick = { loadHikeDetails(hike) }, enabled = !preparing) { Text("Retry") }
+                        }
+                    }
+                    HorizontalShareDivider()
+                }
+
+                item(key = "multi-keepsake-choice", span = { GridItemSpan(maxLineSpan) }) {
+                    Column(Modifier.fillMaxWidth().selectableGroup().padding(top = 8.dp)) {
+                        Text("TRAIL KEEPSAKE CARDS", style = MaterialTheme.typography.labelSmall, color = Color(0xFFF1BE79))
+                        HikeShareKeepsake.entries.forEach { option ->
+                            val canChooseOption = !preparing &&
+                                (option == HikeShareKeepsake.NONE || selectedHikeIds.size <= MAX_SOCIAL_CAROUSEL_ITEMS)
+                            val label = when (option) {
+                                HikeShareKeepsake.FIRST -> "Keepsake cards first"
+                                HikeShareKeepsake.LAST -> "Keepsake cards last"
+                                HikeShareKeepsake.NONE -> "No keepsake cards"
+                            }
+                            Row(
+                                Modifier.fillMaxWidth().selectable(
+                                    selected = keepsake == option,
+                                    enabled = canChooseOption,
+                                    role = Role.RadioButton,
+                                    onClick = { keepsake = option },
+                                ).heightIn(min = 48.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                RadioButton(
+                                    selected = keepsake == option,
+                                    onClick = null,
+                                    enabled = canChooseOption,
+                                    colors = RadioButtonDefaults.colors(selectedColor = Trail, unselectedColor = Paper.copy(alpha = 0.7f)),
+                                )
+                                Text(label, style = MaterialTheme.typography.bodyLarge, color = Paper, modifier = Modifier.padding(start = 10.dp))
+                            }
+                        }
+                        Text(
+                            "Each selected hike gets its own card. The cards go before or after all selected photos. " +
+                                "Cards count toward the $MAX_SOCIAL_CAROUSEL_ITEMS-image limit.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFFD6E0D3),
+                            modifier = Modifier.padding(bottom = 5.dp),
+                        )
+                        if (selectedHikeIds.size > MAX_SOCIAL_CAROUSEL_ITEMS) {
+                            Text(
+                                "Select 20 or fewer hikes to add a keepsake card for each one.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFFFFD0C5),
+                                modifier = Modifier.padding(bottom = 5.dp),
+                            )
+                        }
+                    }
+                }
+
+                if (cardPreviews.isNotEmpty()) {
+                    item(key = "multi-card-previews", span = { GridItemSpan(maxLineSpan) }) {
+                        Column {
+                            Text("YOUR KEEPSAKE CARDS", style = MaterialTheme.typography.labelSmall, color = Color(0xFFF1BE79))
+                            Row(
+                                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 7.dp),
+                                horizontalArrangement = Arrangement.spacedBy(9.dp),
+                            ) {
+                                cardPreviews.forEach { (hikeId, bitmap) ->
+                                    val title = hikesById[hikeId]?.title.orEmpty()
+                                    Column(Modifier.width(158.dp)) {
+                                        Image(
+                                            bitmap = bitmap.asImageBitmap(),
+                                            contentDescription = "Trail keepsake for $title",
+                                            contentScale = ContentScale.Fit,
+                                            modifier = Modifier.fillMaxWidth().aspectRatio(4f / 5f)
+                                                .clip(RoundedCornerShape(6.dp))
+                                                .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(6.dp)),
+                                        )
+                                        Text(title, style = MaterialTheme.typography.labelMedium, color = Paper, maxLines = 1)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                item(key = "multi-photo-label", span = { GridItemSpan(maxLineSpan) }) {
+                    Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                        Text("ADD PHOTOS", style = MaterialTheme.typography.labelSmall, color = Color(0xFFF1BE79))
+                        Text("${selectedPhotoRefs.size} of $maximumPhotos photos · $imageCount of $MAX_SOCIAL_CAROUSEL_ITEMS images", style = MaterialTheme.typography.titleLarge, color = Paper)
+                    }
+                }
+
+                selectedHikes.forEach { outing ->
+                    val detailLoading = outing.id in loadingHikeIds || outing.id !in loadedHikeIds
+                    val availablePhotos = outing.photos.filter {
+                        !it.contentType.startsWith("video/", ignoreCase = true) && it.url.isNotBlank()
+                    }
+                    val outingRefs = selectedPhotoRefs.filter { it.hikeId == outing.id }
+                    item(key = "multi-photo-heading-${outing.id}", span = { GridItemSpan(maxLineSpan) }) {
+                        Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(outing.title.ifBlank { "Untitled hike" }, style = MaterialTheme.typography.titleLarge, color = Paper)
+                                Text("${outingRefs.size}/${availablePhotos.size} photos selected", style = MaterialTheme.typography.bodySmall, color = Color(0xFFD6E0D3))
+                            }
+                            if (availablePhotos.isNotEmpty()) {
+                                TextButton(
+                                    onClick = {
+                                        val allSelected = availablePhotos.all { photo ->
+                                            HikeSharePhotoRef(outing.id, photo.id) in selectedPhotoRefs
+                                        }
+                                        selectedPhotoRefs = if (allSelected) {
+                                            selectedPhotoRefs.filterNot { it.hikeId == outing.id }
+                                        } else {
+                                            val remaining = (maximumPhotos - selectedPhotoRefs.size).coerceAtLeast(0)
+                                            selectedPhotoRefs + availablePhotos
+                                                .filterNot { photo -> HikeSharePhotoRef(outing.id, photo.id) in selectedPhotoRefs }
+                                                .take(remaining)
+                                                .map { HikeSharePhotoRef(outing.id, it.id) }
+                                        }
+                                    },
+                                    enabled = !preparing && (outingRefs.isNotEmpty() || selectedPhotoRefs.size < maximumPhotos),
+                                ) {
+                                    Text(if (outingRefs.size == availablePhotos.size) "Clear" else "Select available", color = Color(0xFFF1BE79))
+                                }
+                            }
+                        }
+                    }
+                    if (detailLoading) {
+                        item(key = "multi-photo-loading-${outing.id}", span = { GridItemSpan(maxLineSpan) }) {
+                            Text("Loading photos and route…", style = MaterialTheme.typography.bodySmall, color = Color(0xFFD6E0D3))
+                        }
+                    } else if (availablePhotos.isEmpty()) {
+                        item(key = "multi-photo-empty-${outing.id}", span = { GridItemSpan(maxLineSpan) }) {
+                            Text("No photos are available for this outing.", style = MaterialTheme.typography.bodySmall, color = Color(0xFFD6E0D3))
+                        }
+                    } else {
+                        items(availablePhotos, key = { photo -> "multi-photo-${outing.id}-${photo.id}" }) { photo ->
+                            val ref = HikeSharePhotoRef(outing.id, photo.id)
+                            val selectedIndex = selectedPhotoRefs.indexOf(ref).takeIf { it >= 0 }
+                            SharePhotoTile(
+                                photo = photo,
+                                selectionIndex = selectedIndex,
+                                enabled = !preparing && (selectedIndex != null || selectedPhotoRefs.size < maximumPhotos),
+                                onClick = {
+                                    selectedPhotoRefs = if (selectedIndex != null) {
+                                        selectedPhotoRefs - ref
+                                    } else if (selectedPhotoRefs.size < maximumPhotos) {
+                                        selectedPhotoRefs + ref
+                                    } else {
+                                        selectedPhotoRefs
+                                    }
+                                },
+                            )
+                        }
+                    }
+                }
+
+                if (selectedHikeIds.size < 2) {
+                    item(key = "multi-share-required", span = { GridItemSpan(maxLineSpan) }) {
+                        Text("Choose another outing to make a multi-hike share.", style = MaterialTheme.typography.bodyMedium, color = Paper, modifier = Modifier.padding(vertical = 10.dp))
+                    }
+                }
+                errorMessage?.let { message ->
+                    item(key = "multi-share-error", span = { GridItemSpan(maxLineSpan) }) {
+                        Text(message, style = MaterialTheme.typography.bodyMedium, color = Color(0xFFFFD0C5), modifier = Modifier.padding(vertical = 14.dp))
+                    }
+                }
+            }
+
+            Surface(color = Color(0xF2183A2D), shadowElevation = 12.dp) {
+                Box(
+                    Modifier.fillMaxWidth().padding(horizontal = 20.dp)
+                        .padding(top = 13.dp, bottom = navigationBarPadding + 14.dp),
+                ) {
+                    Button(
+                        onClick = ::beginShare,
+                        enabled = canShare,
+                        colors = ButtonDefaults.buttonColors(containerColor = Trail, contentColor = Paper),
+                        modifier = Modifier.fillMaxWidth().height(52.dp),
+                    ) {
+                        if (preparing) {
+                            CircularProgressIndicator(Modifier.size(19.dp), color = Paper, strokeWidth = 2.dp)
+                        } else {
+                            Icon(Icons.Rounded.IosShare, null, Modifier.size(19.dp))
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            when {
+                                preparing -> "Preparing $imageCount images…"
+                                selectedHikeIds.size < 2 -> "Choose another outing"
+                                !allDetailsLoaded -> "Loading outings…"
+                                imageCount == 0 -> "Choose images to share"
+                                else -> "Share $imageCount images from ${selectedHikeIds.size} hikes"
+                            },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HorizontalShareDivider() {
+    androidx.compose.material3.HorizontalDivider(color = Color.White.copy(alpha = 0.18f))
 }
 
 @Composable
@@ -936,6 +1360,90 @@ internal suspend fun prepareHikeShare(
                     append(" miles")
                 }
                 append(" · HikeJournal")
+            },
+            omittedPhotoCount = cachedPhotos.count { it == null },
+        )
+    }
+}
+
+internal suspend fun prepareMultiHikeShare(
+    context: Context,
+    hikes: List<Hike>,
+    photos: List<Photo>,
+    satelliteMaps: Map<String, Bitmap?>,
+    keepsake: HikeShareKeepsake,
+): PreparedHikeShare {
+    val selectedHikes = hikes.distinctBy(Hike::id)
+    require(selectedHikes.size >= 2) { "Choose at least two hikes to share together." }
+    val maximumPhotos = (MAX_SOCIAL_CAROUSEL_ITEMS - if (keepsake.includesKeepsake) selectedHikes.size else 0)
+        .coerceAtLeast(0)
+    val selectedPhotos = photos.filter {
+        !it.contentType.startsWith("video/", ignoreCase = true) && it.url.isNotBlank()
+    }.take(maximumPhotos)
+    val resolvedMaps = if (keepsake.includesKeepsake) {
+        selectedHikes.associate { hike ->
+            hike.id to (satelliteMaps[hike.id] ?: captureSatelliteRouteMap(context, hike.routeSegments))
+        }
+    } else {
+        emptyMap()
+    }
+
+    return withContext(Dispatchers.IO) {
+        val shareDirectory = File(context.cacheDir, "shared_hikes").apply { mkdirs() }
+        shareDirectory.listFiles().orEmpty()
+            .filter { System.currentTimeMillis() - it.lastModified() > 24L * 60L * 60L * 1_000L }
+            .forEach(File::delete)
+
+        val cardUris = if (keepsake.includesKeepsake) {
+            selectedHikes.map { hike ->
+                val safeHikeId = hike.id.replace(Regex("[^A-Za-z0-9._-]"), "-").take(64).ifBlank { "outing" }
+                val cardFile = File(shareDirectory, "HikeJournal-$safeHikeId.jpg")
+                FileOutputStream(cardFile).use { output ->
+                    check(
+                        renderHikeShareCard(context, hike, resolvedMaps[hike.id])
+                            .compress(Bitmap.CompressFormat.JPEG, 94, output),
+                    ) { "HikeJournal could not save a trail card." }
+                }
+                FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", cardFile)
+            }
+        } else {
+            emptyList()
+        }
+        val cachedPhotos = coroutineScope {
+            selectedPhotos.mapIndexed { index, photo ->
+                async {
+                    val safeHikeId = photo.hikeId.orEmpty().replace(Regex("[^A-Za-z0-9._-]"), "-").take(64).ifBlank { "outing" }
+                    runCatching { cacheSharedPhoto(context, photo, shareDirectory, safeHikeId, index) }.getOrNull()
+                }
+            }.awaitAll()
+        }
+        val photoUris = cachedPhotos.filterNotNull().map { file ->
+            FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+        }
+        val orderedUris = when (keepsake) {
+            HikeShareKeepsake.FIRST -> cardUris + photoUris
+            HikeShareKeepsake.LAST -> photoUris + cardUris
+            HikeShareKeepsake.NONE -> photoUris
+        }
+        check(orderedUris.isNotEmpty()) { "No selected photos were available. Check your connection and try again." }
+        PreparedHikeShare(
+            uris = ArrayList(orderedUris),
+            caption = buildString {
+                append("HikeJournal · ")
+                append(selectedHikes.size)
+                append(" hikes\n")
+                append(selectedHikes.joinToString("\n") { hike ->
+                    buildString {
+                        append(hike.title.ifBlank { "Untitled hike" })
+                        append(" · ")
+                        append(hikeShareDateTime(hike))
+                        hike.distanceMiles?.let {
+                            append(" · ")
+                            append(hikeShareDistance(hike))
+                            append(" miles")
+                        }
+                    }
+                })
             },
             omittedPhotoCount = cachedPhotos.count { it == null },
         )
