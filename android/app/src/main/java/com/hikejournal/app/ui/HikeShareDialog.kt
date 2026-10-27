@@ -21,6 +21,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -62,6 +63,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Surface
@@ -316,14 +318,19 @@ internal fun HikeShareDialog(
 
                 if (sameDayHikes.size > 1) {
                     item(key = "share-multiple-outings", span = { GridItemSpan(maxLineSpan) }) {
-                        TextButton(
+                        OutlinedButton(
                             onClick = onShareMultiple,
                             enabled = !preparing,
+                            border = BorderStroke(1.dp, Color(0xFFF1BE79).copy(alpha = 0.85f)),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFF1BE79)),
                             modifier = Modifier.fillMaxWidth(),
                         ) {
-                            Icon(Icons.Rounded.IosShare, null, Modifier.size(18.dp))
+                            Icon(Icons.Rounded.IosShare, null, Modifier.size(18.dp), tint = Color(0xFFF1BE79))
                             Spacer(Modifier.width(8.dp))
-                            Text("Combine ${sameDayHikes.size} outings from this day")
+                            Text(
+                                "Combine ${sameDayHikes.size} outings from this day",
+                                color = Color(0xFFF1BE79),
+                            )
                         }
                     }
                 }
