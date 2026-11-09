@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="HikeJournal is a private field journal for the places, photos, species, and routes that make an outing worth remembering.">
+  <meta name="theme-color" content="#324223">
+  <title>HikeJournal — keep the wild close</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=DM+Mono:wght@400;500&family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --forest: #324223;
+      --forest-deep: #1d2a17;
+      --paper: #f5f1e7;
+      --paper-soft: #e2e8d4;
+      --ink: #293520;
+      --muted: #59634f;
+      --line: rgba(50, 66, 35, .18);
+      --orange: #d17d42;
+      --sage: #aece76;
+      --cream: #f4eceb;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--paper);
+      font-family: 'Source Sans 3', sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: inherit; text-decoration: none; }
+    img { display: block; max-width: 100%; }
+    .eyebrow, .meta, .nav-link, .button, .feature-label, .footer-label {
+      font-family: 'DM Mono', monospace;
+      text-transform: uppercase;
+      letter-spacing: .12em;
+    }
+    .hero {
+      min-height: 92svh;
+      position: relative;
+      overflow: hidden;
+      isolation: isolate;
+      color: var(--cream);
+      background:
+        linear-gradient(90deg, rgba(8, 31, 21, .94) 0%, rgba(8, 31, 21, .74) 34%, rgba(8, 31, 21, .20) 73%, rgba(8, 31, 21, .40) 100%),
+        linear-gradient(180deg, rgba(9, 31, 22, .38) 0%, transparent 45%, rgba(9, 31, 22, .62) 100%),
+        url('assets/hero-landscape.svg') center 42% / cover no-repeat;
+    }
+    .hero::after {
+      content: '';
+      position: absolute;
+      inset: auto 0 0;
+      height: 18%;
+      z-index: -1;
+      background: linear-gradient(180deg, transparent, rgba(8, 31, 21, .56));
+      pointer-events: none;
+    }
+    .nav {
+      width: min(1180px, calc(100% - 56px));
+      margin: 0 auto;
+      padding: 24px 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+    }
+    .wordmark {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 1.03rem;
+      font-weight: 800;
+      letter-spacing: .015em;
+    }
+    .mark {
+      width: 32px;
+      height: 32px;
+      display: grid;
+      place-items: center;
+      border: 1px solid rgba(255, 250, 240, .45);
+      border-radius: 50%;
+      background: rgba(255, 250, 240, .08);
+    }
+    .mark svg { width: 20px; height: 20px; }
+    .nav-links { display: flex; align-items: center; gap: 28px; }
+    .nav-link { color: rgba(255, 250, 240, .74); font-size: .66rem; transition: color 180ms ease; }
+    .nav-link:hover { color: var(--cream); }
+    .hero-inner {
+      width: min(1180px, calc(100% - 56px));
+      min-height: calc(92svh - 80px);
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      padding: 7vh 0 10vh;
+    }
+    .hero-copy { max-width: 650px; animation: rise-in 800ms cubic-bezier(.22,.78,.27,1) both; }
+    .eyebrow { color: var(--sage); font-size: .68rem; }
+    h1, h2, h3 { font-family: 'Cormorant Garamond', Georgia, serif; font-weight: 600; }
+    h1 {
+      max-width: 720px;
+      margin: 22px 0 22px;
+      font-size: clamp(3.5rem, 8.5vw, 8rem);
+      line-height: .91;
+      letter-spacing: -.065em;
+    }
+    .hero-copy p {
+      max-width: 480px;
+      margin: 0;
+      color: rgba(255, 250, 240, .78);
+      font-size: clamp(1rem, 1.7vw, 1.24rem);
+      line-height: 1.6;
+    }
+    .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 18px; margin-top: 34px; }
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 48px;
+      padding: 0 21px;
+      border: 1px solid transparent;
+      border-radius: 999px;
+      font-size: .68rem;
+      font-weight: 500;
+      transition: transform 180ms ease, background 180ms ease, border-color 180ms ease;
+    }
+    .button:hover { transform: translateY(-2px); }
+    .button.primary { color: var(--forest-deep); background: var(--sage); }
+    .button.primary:hover { background: #c2dd91; }
+    .button.ghost { color: var(--cream); border-color: rgba(255, 250, 240, .34); }
+    .button.ghost:hover { border-color: rgba(255, 250, 240, .7); background: rgba(255,255,255,.08); }
+    .scroll-note {
+      position: absolute;
+      right: max(28px, calc((100vw - 1180px) / 2));
+      bottom: 30px;
+      color: rgba(255, 250, 240, .56);
+      font-size: .61rem;
+      writing-mode: vertical-rl;
+      animation: drift 2.8s ease-in-out infinite;
+    }
+    .section { padding: clamp(78px, 10vw, 150px) max(28px, calc((100vw - 1180px) / 2)); }
+    .section.paper { background: var(--paper); }
+    .section.dark {
+      color: var(--cream);
+      background-color: var(--forest);
+      background-image: linear-gradient(rgba(50, 66, 35, .91), rgba(50, 66, 35, .91)), url('assets/hj-pattern-green.jpg');
+      background-size: cover;
+      background-position: center;
+    }
+    .section-head { max-width: 650px; }
+    .section h2 { margin: 18px 0 20px; font-size: clamp(2.6rem, 5vw, 5.2rem); line-height: .98; letter-spacing: -.055em; }
+    .section-intro { max-width: 550px; color: var(--muted); font-size: 1.05rem; line-height: 1.7; }
+    .dark .section-intro { color: rgba(255, 250, 240, .68); }
+    .feature-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(300px, .75fr);
+      gap: clamp(48px, 8vw, 120px);
+      align-items: center;
+    }
+    .feature-list { margin-top: 50px; border-top: 1px solid var(--line); }
+    .feature {
+      display: grid;
+      grid-template-columns: 40px minmax(0, 1fr);
+      gap: 20px;
+      padding: 24px 0;
+      border-bottom: 1px solid var(--line);
+    }
+    .feature-index { color: var(--orange); font-family: 'DM Mono', monospace; font-size: .8rem; padding-top: 5px; }
+    .feature h3 { margin: 0 0 7px; font-size: 1.65rem; }
+    .feature p { max-width: 450px; margin: 0; color: var(--muted); line-height: 1.65; }
+    .screen-wrap { position: relative; align-self: stretch; display: flex; align-items: center; justify-content: flex-end; }
+    .screen {
+      width: min(100%, 430px);
+      border-radius: 30px;
+      box-shadow: 0 30px 80px rgba(15, 39, 28, .16);
+      transform: rotate(2.4deg);
+      transition: transform 500ms cubic-bezier(.22,.78,.27,1);
+    }
+    .screen-wrap:hover .screen { transform: rotate(0deg) translateY(-8px); }
+    .caption { position: absolute; right: -18px; bottom: 16px; max-width: 190px; color: var(--muted); font-family: 'DM Mono', monospace; font-size: .6rem; line-height: 1.6; text-align: right; }
+    .map-section { position: relative; overflow: hidden; min-height: 690px; display: flex; align-items: flex-end; background: var(--forest-deep); }
+    .map-section::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(90deg, rgba(29, 42, 23, .96) 0%, rgba(29, 42, 23, .64) 40%, rgba(29, 42, 23, .08) 78%), url('assets/hero-landscape.svg') center / cover no-repeat;
+      opacity: .95;
+      transition: transform 1.2s cubic-bezier(.2,.7,.2,1);
+    }
+    .map-section:hover::before { transform: scale(1.035); }
+    .map-copy { position: relative; z-index: 1; max-width: 520px; }
+    .map-copy h2 { color: var(--cream); }
+    .map-copy .button { margin-top: 14px; }
+    .closing { display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, .7fr); align-items: end; gap: 60px; }
+    .closing h2 { max-width: 700px; }
+    .closing-aside { padding-bottom: 8px; color: var(--muted); line-height: 1.7; }
+    footer { color: rgba(255, 250, 240, .72); background: var(--forest-deep); padding: 35px max(28px, calc((100vw - 1180px) / 2)) 42px; }
+    .footer-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 30px; }
+    .footer-label { margin-bottom: 12px; color: var(--sage); font-size: .64rem; }
+    .footer-wordmark { color: var(--cream); font-size: 1.2rem; font-weight: 800; }
+    .footer-links { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 22px; font-size: .84rem; }
+    .footer-links a:hover { color: var(--cream); }
+    .copyright { margin: 44px 0 0; color: rgba(255, 250, 240, .42); font-size: .72rem; }
+    @keyframes rise-in { from { opacity: 0; transform: translateY(22px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes drift { 0%,100% { transform: translateY(0); } 50% { transform: translateY(8px); } }
+    @media (max-width: 760px) {
+      .nav, .hero-inner { width: min(100% - 40px, 1180px); }
+      .nav { padding-top: 18px; }
+      .nav-links { gap: 14px; }
+      .nav-link { font-size: .57rem; }
+      .hero { min-height: 88svh; background-position: 58% 42%; }
+      .hero-inner { min-height: calc(88svh - 68px); padding: 5vh 0 11vh; }
+      h1 { font-size: clamp(3.2rem, 17vw, 6rem); }
+      .hero-copy p { font-size: 1rem; }
+      .scroll-note { display: none; }
+      .feature-layout, .closing { grid-template-columns: 1fr; }
+      .screen-wrap { justify-content: center; margin-top: 25px; }
+      .screen { width: min(100%, 390px); }
+      .caption { right: 0; bottom: -30px; }
+      .map-section { min-height: 620px; }
+      .map-section::before { background-position: 63% center; }
+      .footer-row { align-items: flex-start; flex-direction: column; }
+      .footer-links { justify-content: flex-start; }
+    }
+    .wordmark img { display:block; width:min(196px, 42vw); height:auto; }
+    .footer-brand { width:min(190px, 46vw); height:auto; margin-bottom:10px; }
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <header class="hero" id="top">
+    <nav class="nav" aria-label="Primary navigation">
+      <a class="wordmark" href="#top" aria-label="HikeJournal home">
+        <img src="assets/hj-logo-horizontal.svg" alt="HikeJournal">
+      </a>
+      <div class="nav-links"><a class="nav-link" href="#journal">The journal</a><a class="nav-link" href="#field-guide">Field guide</a><a class="nav-link" href="/privacy/">Privacy</a></div>
+    </nav>
+    <div class="hero-inner">
+      <div class="hero-copy">
+        <div class="eyebrow">A private field journal</div>
+        <h1>HikeJournal</h1>
+        <p>Keep the wild close. Give every outing a place to live: its route, photographs, field notes, and the species you met along the way.</p>
+        <div class="actions"><a class="button primary" href="#journal">Explore the journal</a><a class="button ghost" href="/support/">Get support</a></div>
+      </div>
+    </div>
+    <div class="scroll-note meta">Scroll to wander</div>
+  </header>
+
+  <main>
+    <section class="section paper" id="journal">
+      <div class="feature-layout">
+        <div>
+          <div class="eyebrow" style="color: var(--orange)">01 / The journal</div>
+          <div class="section-head"><h2>Make a record of being there.</h2><p class="section-intro">A quiet home for the details that disappear first: what you saw, where you walked, what the light was doing, and why you want to remember it.</p></div>
+          <div class="feature-list">
+            <article class="feature"><div class="feature-index">01</div><div><h3>Photograph the day</h3><p>Keep the frame, caption, and memory together in one outing instead of scattered across your camera roll.</p></div></article>
+            <article class="feature"><div class="feature-index">02</div><div><h3>Walk without a signal</h3><p>Record a route offline and let it find its way into your journal when you are back in range.</p></div></article>
+            <article class="feature"><div class="feature-index">03</div><div><h3>Come back to the pattern</h3><p>See places, seasons, distances, and field marks build into a personal history over time.</p></div></article>
+          </div>
+        </div>
+        <div class="screen-wrap"><img class="screen" src="assets/journal-screen.jpg" alt="HikeJournal outing with photos and field notes"><div class="caption">The field journal, shaped for the trail.</div></div>
+      </div>
+    </section>
+
+    <section class="section dark" id="field-guide">
+      <div class="feature-layout">
+        <div class="section-head"><div class="eyebrow">02 / Field guide</div><h2>A field guide made from your own encounters.</h2><p class="section-intro">Review the plants, animals, and signs you notice. Build a collection that belongs to the places you actually walk.</p><div class="actions"><a class="button primary" href="/privacy/">Learn about your data</a></div></div>
+        <div class="screen-wrap"><img class="screen" src="assets/species-screen.jpg" alt="HikeJournal field guide showing a species collection"><div class="caption">Your collection grows from the trail, one encounter at a time.</div></div>
+      </div>
+    </section>
+
+    <section class="section map-section" id="map">
+      <div class="map-copy"><div class="eyebrow">03 / Sightings map</div><h2>See the places your attention has changed.</h2><p class="section-intro">Routes and confirmed species become a living map of your wandering — private by default, ready to explore when you are.</p></div>
+    </section>
+
+    <section class="section paper">
+      <div class="closing"><div><div class="eyebrow" style="color: var(--orange)">A slower kind of archive</div><h2>Leave room for the next trail.</h2></div><div class="closing-aside"><p>HikeJournal is built for personal use: no ads, no public feed, no pressure to turn a walk into content.</p><a class="button" style="border-color: var(--forest); color: var(--forest)" href="/privacy/">Read the privacy policy</a></div></div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="footer-row"><div><img class="footer-brand" src="assets/hj-logo-horizontal.svg" alt="HikeJournal"><div class="footer-label">Made for paying attention</div></div><div class="footer-links"><a href="/privacy/">Privacy</a><a href="/support/">Support</a><a href="/account-deletion/">Delete your account</a><a href="https://github.com/tlloyds/hikejournal" target="_blank" rel="noreferrer">Source</a></div></div>
+    <p class="copyright">© 2026 HikeJournal. Keep your own field notes.</p>
+  </footer>
+</body>
+</html>

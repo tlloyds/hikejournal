@@ -224,7 +224,7 @@ fun QuestSightingsMapScreen(
         Column(
             Modifier
                 .fillMaxWidth()
-                .background(Color(0xF2183A2D))
+                .background(Color(0xF2324223))
                 .statusBarsPadding()
                 .padding(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 11.dp),
         ) {
@@ -240,7 +240,7 @@ fun QuestSightingsMapScreen(
                             "FIELD QUEST · INATURALIST"
                         },
                         style = MaterialTheme.typography.labelSmall,
-                        color = Color(0xFFB7C8B5),
+                        color = Color(0xFFD8E0D5),
                     )
                     Text(
                         taxon.commonName,
@@ -251,7 +251,7 @@ fun QuestSightingsMapScreen(
                     Text(
                         taxon.scientificName,
                         style = MaterialTheme.typography.bodyMedium,
-                        color = Color(0xFFB7C8B5),
+                        color = Color(0xFFD8E0D5),
                         maxLines = 1,
                     )
                 }
@@ -288,7 +288,7 @@ fun QuestSightingsMapScreen(
                     mapData?.let { "${it.mappedCount} OF ${it.totalResults} SIGHTINGS MAPPED" }
                         ?: "GATHERING SIGHTINGS…",
                     style = MaterialTheme.typography.labelSmall,
-                    color = Color(0xFFB7C8B5),
+                    color = Color(0xFFD8E0D5),
                 )
                 if (mapData != null) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -307,7 +307,7 @@ fun QuestSightingsMapScreen(
                             if (obscuredCount > 0) "$publicCount exact · $obscuredCount approx"
                             else "$publicCount reports",
                             style = MaterialTheme.typography.labelSmall,
-                            color = Color(0xFFB7C8B5),
+                            color = Color(0xFFD8E0D5),
                         )
                     }
                 }
@@ -316,7 +316,7 @@ fun QuestSightingsMapScreen(
                 Text(
                     "IMAGERY © ESRI · MAXAR · EARTHSTAR · GIS COMMUNITY",
                     style = MaterialTheme.typography.labelSmall,
-                    color = Color(0xFFB7C8B5),
+                    color = Color(0xFFD8E0D5),
                     modifier = Modifier.padding(start = 48.dp, top = 3.dp),
                 )
             }
@@ -365,7 +365,7 @@ fun QuestSightingsMapScreen(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .background(Color(0xD9183A2D))
+                    .background(Color(0xD9324223))
                     .padding(horizontal = 18.dp, vertical = 12.dp),
             )
         }
@@ -630,7 +630,7 @@ private class QuestNativeMapController {
                     circleColor("#F4F0E5"),
                     circleRadius(8f),
                     circleOpacity(1f),
-                    circleStrokeColor("#183A2D"),
+                    circleStrokeColor("#324223"),
                     circleStrokeWidth(2.2f),
                 ),
             )

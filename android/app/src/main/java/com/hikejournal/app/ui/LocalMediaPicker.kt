@@ -465,7 +465,7 @@ private fun LocalMediaGrid(
                     enter = fadeIn(tween(120)),
                     exit = fadeOut(tween(100)),
                 ) {
-                    Box(Modifier.fillMaxSize().background(Color(0x52183A2D))) {
+                    Box(Modifier.fillMaxSize().background(Color(0x52324223))) {
                         Box(
                             Modifier
                                 .align(Alignment.TopEnd)

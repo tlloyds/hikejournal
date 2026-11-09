@@ -248,7 +248,7 @@ internal fun HikeShareDialog(
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
-                        listOf(MossSoft, Moss, Color(0xFF10281F)),
+                        listOf(MossSoft, Moss, Color(0xFF1D2A17)),
                     )
                 )
                 .statusBarsPadding(),
@@ -355,7 +355,7 @@ internal fun HikeShareDialog(
                                     Modifier
                                         .align(Alignment.TopEnd)
                                         .padding(10.dp)
-                                        .background(Color(0xD9183A2D), RoundedCornerShape(5.dp))
+                                        .background(Color(0xD9324223), RoundedCornerShape(5.dp))
                                         .padding(horizontal = 10.dp, vertical = 7.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
@@ -492,7 +492,7 @@ internal fun HikeShareDialog(
                 }
             }
 
-            Surface(color = Color(0xF2183A2D), shadowElevation = 12.dp) {
+            Surface(color = Color(0xF2324223), shadowElevation = 12.dp) {
                 Box(
                     Modifier
                         .fillMaxWidth()
@@ -654,7 +654,7 @@ internal fun MultiHikeShareDialog(
     ) {
         Column(
             Modifier.fillMaxSize()
-                .background(Brush.verticalGradient(listOf(MossSoft, Moss, Color(0xFF10281F))))
+                .background(Brush.verticalGradient(listOf(MossSoft, Moss, Color(0xFF1D2A17))))
                 .statusBarsPadding(),
         ) {
             Row(
@@ -890,7 +890,7 @@ internal fun MultiHikeShareDialog(
                 }
             }
 
-            Surface(color = Color(0xF2183A2D), shadowElevation = 12.dp) {
+            Surface(color = Color(0xF2324223), shadowElevation = 12.dp) {
                 Box(
                     Modifier.fillMaxWidth().padding(horizontal = 20.dp)
                         .padding(top = 13.dp, bottom = navigationBarPadding + 14.dp),
@@ -1071,7 +1071,7 @@ internal fun renderHikeShareCard(
         0f,
         0f,
         safeHeight.toFloat(),
-        intArrayOf(0xFF315844.toInt(), 0xFF183A2D.toInt(), 0xFF10281F.toInt()),
+        intArrayOf(0xFF465A32.toInt(), 0xFF324223.toInt(), 0xFF1D2A17.toInt()),
         floatArrayOf(0f, 0.58f, 1f),
         Shader.TileMode.CLAMP,
     )
@@ -1087,7 +1087,7 @@ internal fun renderHikeShareCard(
     canvas.drawText("HIKEJOURNAL", 72f * sx, 76f * sy, paint)
     paint.letterSpacing = 0f
 
-    paint.color = 0xFFFFFCF3.toInt()
+    paint.color = 0xFFF5F1E7.toInt()
     paint.typeface = Typeface.create(displayFont, Typeface.BOLD)
     paint.textSize = 55f * sx
     canvas.drawText("Trail keepsake", 72f * sx, 132f * sy, paint)
@@ -1115,12 +1115,12 @@ internal fun renderHikeShareCard(
             0f,
             mapTop + mapHeight,
             0x00000000,
-            0xAA10281F.toInt(),
+            0xAA1D2A17.toInt(),
             Shader.TileMode.CLAMP,
         )
         canvas.drawRect(mapBounds, paint)
         paint.shader = null
-        paint.color = 0xE6FFFCF3.toInt()
+        paint.color = 0xE6F5F1E7.toInt()
         paint.typeface = Typeface.create(bodyFont, Typeface.BOLD)
         paint.textSize = 18f * sx
         paint.letterSpacing = 0.04f
@@ -1157,9 +1157,9 @@ internal fun renderHikeShareCard(
         paint.style = Paint.Style.FILL
         val start = projected.first().first()
         val end = projected.last().last()
-        paint.color = 0xFFFFFCF3.toInt()
+        paint.color = 0xFFF5F1E7.toInt()
         canvas.drawCircle(mapLeft + start.x, mapTop + start.y, 15f * sx, paint)
-        paint.color = 0xFF183A2D.toInt()
+        paint.color = 0xFF324223.toInt()
         canvas.drawCircle(mapLeft + start.x, mapTop + start.y, 7f * sx, paint)
         paint.color = 0xFFD17D42.toInt()
         canvas.drawCircle(mapLeft + end.x, mapTop + end.y, 15f * sx, paint)
@@ -1185,7 +1185,7 @@ internal fun renderHikeShareCard(
     canvas.drawText(eyebrow.take(52), 72f * sx, 835f * sy, paint)
     paint.letterSpacing = 0f
 
-    paint.color = 0xFFFFFCF3.toInt()
+    paint.color = 0xFFF5F1E7.toInt()
     paint.typeface = Typeface.create(displayFont, Typeface.BOLD)
     paint.textSize = 72f * sx
     val titleLines = textLines(
@@ -1209,7 +1209,7 @@ internal fun renderHikeShareCard(
     paint.color = 0x33FFFFFF
     canvas.drawRect(72f * sx, metricsTop - 34f * sy, safeWidth - 72f * sx, metricsTop - 32f * sy, paint)
 
-    paint.color = 0xFFFFFCF3.toInt()
+    paint.color = 0xFFF5F1E7.toInt()
     paint.typeface = Typeface.create(bodyFont, Typeface.BOLD)
     paint.textSize = 66f * sx
     canvas.drawText(hikeShareDistance(hike), 72f * sx, metricsTop + 55f * sy, paint)

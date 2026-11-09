@@ -210,11 +210,7 @@ private fun GettingStartedHero(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                "HIKEJOURNAL",
-                style = MaterialTheme.typography.displaySmall,
-                color = Paper,
-            )
+            BrandWordmark(Modifier.width(180.dp).height(58.dp))
             TextButton(onClick = onDismiss) {
                 Text("Skip", color = Paper)
             }
@@ -294,7 +290,7 @@ private fun GettingStartedLandscape(modifier: Modifier = Modifier) {
     Canvas(
         modifier.background(
             Brush.linearGradient(
-                listOf(Color(0xFF315844), Moss),
+                listOf(Color(0xFF465A32), Moss),
             ),
         ),
     ) {

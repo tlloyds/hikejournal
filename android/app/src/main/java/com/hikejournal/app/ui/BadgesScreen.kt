@@ -75,6 +75,7 @@ import com.hikejournal.app.data.BadgeMetric
 import com.hikejournal.app.data.BadgeSymbol
 import com.hikejournal.app.data.TrailBadge
 import com.hikejournal.app.data.calculateTrailBadges
+import com.hikejournal.app.ui.theme.Fern
 import com.hikejournal.app.ui.theme.Ink
 import com.hikejournal.app.ui.theme.InkMuted
 import com.hikejournal.app.ui.theme.Line
@@ -174,32 +175,21 @@ private fun BadgesHeader(
     onBack: () -> Unit,
     onRefresh: () -> Unit,
 ) {
-    Column(
-        Modifier.fillMaxWidth().background(Moss).statusBarsPadding().padding(bottom = 24.dp),
-    ) {
-        Row(
-            Modifier.fillMaxWidth().padding(start = 6.dp, end = 6.dp, top = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = Paper)
-            }
-            Column(Modifier.weight(1f)) {
-                Text("HIKEJOURNAL", style = MaterialTheme.typography.labelSmall, color = Color(0xFFB8C9B6))
-                Text("Trail medals", style = MaterialTheme.typography.headlineLarge, color = Paper)
-            }
+    PatternedForestSurface(Modifier.fillMaxWidth()) {
+      Column(Modifier.fillMaxWidth().statusBarsPadding().padding(bottom = 24.dp)) {
+        Row(Modifier.fillMaxWidth().padding(start = 6.dp, end = 6.dp, top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = Paper) }
+            BrandMark(Modifier.size(width = 36.dp, height = 44.dp))
+            Text("Trail medals", style = MaterialTheme.typography.headlineMedium, color = Paper, modifier = Modifier.weight(1f).padding(start = 10.dp))
             IconButton(onClick = onRefresh, enabled = !loading) {
-                if (loading) {
-                    CircularProgressIndicator(Modifier.size(19.dp), color = Paper, strokeWidth = 2.dp)
-                } else {
-                    Icon(Icons.Rounded.Refresh, "Refresh medals", tint = Paper)
-                }
+                if (loading) CircularProgressIndicator(Modifier.size(19.dp), color = Paper, strokeWidth = 2.dp)
+                else Icon(Icons.Rounded.Refresh, "Refresh medals", tint = Paper)
             }
         }
         Text(
             "$earnedCount OF $totalCount EARNED · LIFETIME PROGRESS",
             style = MaterialTheme.typography.labelSmall,
-            color = Trail,
+            color = Fern,
             modifier = Modifier.padding(start = 20.dp, top = 4.dp),
         )
         if (nextBadge != null) {
@@ -213,7 +203,7 @@ private fun BadgesHeader(
                     forcePreview = true,
                 )
                 Column(Modifier.weight(1f).padding(start = 16.dp)) {
-                    Text("NEXT MEDAL", style = MaterialTheme.typography.labelSmall, color = Color(0xFFB8C9B6))
+                    Text("NEXT MEDAL", style = MaterialTheme.typography.labelSmall, color = Color(0xFFD8E0D5))
                     Text(nextBadge.definition.title, style = MaterialTheme.typography.headlineSmall, color = Paper)
                     Text(
                         badgeProgressLabel(nextBadge),
@@ -237,6 +227,7 @@ private fun BadgesHeader(
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 22.dp),
             )
         }
+      }
     }
 }
 
@@ -515,7 +506,7 @@ private fun medalPalette(finish: BadgeFinish, active: Boolean): MedalPalette {
         )
         BadgeFinish.Evergreen -> MedalPalette(
             Color(0xFFAEC8AF), Color(0xFF52755C), Color(0xFF1C3A2D),
-            Color(0xFFF3E8C9), Moss, Color(0xFF315844), Color(0xFF183A2D),
+            Color(0xFFF3E8C9), Moss, Color(0xFF465A32), Color(0xFF324223),
         )
     }
 }

@@ -314,40 +314,23 @@ fun SpeciesIndexScreen(
             contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 104.dp),
         ) {
         item {
-            Column(
-                Modifier.fillMaxWidth().background(Moss).statusBarsPadding().padding(start = 20.dp, end = 8.dp, top = 17.dp, bottom = 22.dp),
-            ) {
-                Row(verticalAlignment = Alignment.Top) {
-                    Column(Modifier.weight(1f)) {
-                        Text("HikeJournal", style = MaterialTheme.typography.headlineSmall, color = Color(0xFFB7C8B5))
-                        Text(
-                            when (mode) {
-                                SpeciesMode.Collection -> "Field guide"
-                                SpeciesMode.Nearby -> "Nearby field list"
-                                SpeciesMode.Quests -> "Field quests"
-                            },
-                            style = MaterialTheme.typography.displayMedium,
-                            color = Paper,
-                        )
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(headerCount, style = MaterialTheme.typography.labelSmall, color = Color(0xFFB7C8B5))
-                            if (offline) {
-                                Spacer(Modifier.width(9.dp))
-                                Icon(Icons.Rounded.CloudOff, null, tint = Trail, modifier = Modifier.size(15.dp))
-                            }
-                        }
-                    }
+            BrandScreenHeader(
+                title = when (mode) {
+                    SpeciesMode.Collection -> "Field guide"
+                    SpeciesMode.Nearby -> "Nearby field list"
+                    SpeciesMode.Quests -> "Field quests"
+                },
+                detail = headerCount + if (offline) " · OFFLINE" else "",
+                actions = {
                     IconButton(
-                        onClick = {
-                            if (mode == SpeciesMode.Collection) onRefresh() else onRefreshDiscovery()
-                        },
+                        onClick = { if (mode == SpeciesMode.Collection) onRefresh() else onRefreshDiscovery() },
                         enabled = !loading && !refreshing && !discoveryLoading,
                     ) {
                         if (loading || refreshing || discoveryLoading) CircularProgressIndicator(Modifier.size(20.dp), color = Paper, strokeWidth = 2.dp)
                         else Icon(Icons.Rounded.Refresh, "Refresh species", tint = Paper)
                     }
-                }
-            }
+                },
+            )
         }
         item {
             SpeciesModeTabs(
@@ -1916,7 +1899,7 @@ private fun SpeciesHero(species: SpeciesRecord, onBack: () -> Unit) {
             Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = Paper)
         }
         Column(Modifier.align(Alignment.BottomStart).padding(20.dp)) {
-            Text("HikeJournal", style = MaterialTheme.typography.headlineSmall, color = Color(0xFFD7DFD2))
+            BrandWordmark(Modifier.width(160.dp).height(52.dp))
             Text(species.commonName, style = MaterialTheme.typography.headlineLarge, color = Paper, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
     }

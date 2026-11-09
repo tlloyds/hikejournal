@@ -98,7 +98,7 @@ fun HikeMapScreen(
         Row(
             Modifier
                 .fillMaxWidth()
-                .background(Color(0xF2183A2D))
+                .background(Color(0xF2324223))
                 .statusBarsPadding()
                 .padding(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -110,7 +110,7 @@ fun HikeMapScreen(
                 Text(
                     "HikeJournal",
                     style = MaterialTheme.typography.titleMedium,
-                    color = Color(0xFFB7C8B5),
+                    color = Color(0xFFD8E0D5),
                 )
                 Text(
                     hike?.title?.takeIf { it.isNotBlank() } ?: "Photo location",
@@ -126,7 +126,7 @@ fun HikeMapScreen(
                         sightings.count { it.url.isBlank() },
                     ),
                     style = MaterialTheme.typography.labelSmall,
-                    color = Color(0xFFB7C8B5),
+                    color = Color(0xFFD8E0D5),
                 )
                 MapRouteLegend(
                     selectedTrailIds = selectedTrailIds,

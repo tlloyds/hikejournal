@@ -93,6 +93,7 @@ import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.IosShare
 import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Map
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PlayCircle
@@ -1754,7 +1755,6 @@ private fun LibraryScreen(
                     refreshing = state.isRefreshing,
                     onRefresh = onRefresh,
                     onSettings = onSettings,
-                    onBadges = onBadges,
                 )
             }
             if (shouldShowSyncStrip(state.syncStatus, state.isSyncing)) {
@@ -1768,9 +1768,7 @@ private fun LibraryScreen(
                     )
                 }
             }
-            item {
-                PlanningPlaceRow(onOpen = onPlanPlaces)
-            }
+            item { LibraryActionStrip(onPlanPlaces = onPlanPlaces, onBadges = onBadges) }
             tracking?.let { active ->
                 item(key = "active-hike:${active.sessionId}") {
                     ActiveHikeRow(tracking = active, onOpen = onOpenTracking)
@@ -1786,10 +1784,15 @@ private fun LibraryScreen(
                     Text(
                         if (showArchived) "CURRENT + ARCHIVED" else "CURRENT OUTINGS",
                         style = MaterialTheme.typography.labelSmall,
-                        color = InkMuted,
+                        color = TrailText,
                     )
                     TextButton(onClick = { showArchived = !showArchived }) {
-                        Text(if (showArchived) "Hide archived" else "Show archived")
+                        Text(if (showArchived) "Current" else "Archives")
+                        Icon(
+                            if (showArchived) Icons.Rounded.KeyboardArrowUp else Icons.Rounded.KeyboardArrowDown,
+                            contentDescription = if (showArchived) "Show current outings" else "Show archived outings",
+                            modifier = Modifier.size(18.dp),
+                        )
                     }
                 }
             }
@@ -1836,25 +1839,31 @@ private fun LibraryScreen(
 }
 
 @Composable
-private fun PlanningPlaceRow(onOpen: () -> Unit) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onOpen)
-            .padding(horizontal = 20.dp, vertical = 15.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
+private fun LibraryActionStrip(onPlanPlaces: () -> Unit, onBadges: () -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(bottom = 2.dp)) {
         Box(
-            Modifier.size(44.dp).background(Lichen, CircleShape),
+            Modifier
+                .weight(1f)
+                .background(Fern)
+                .clickable(onClick = onPlanPlaces)
+                .heightIn(min = 58.dp)
+                .padding(horizontal = 13.dp, vertical = 10.dp),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(Icons.Rounded.WbSunny, contentDescription = null, tint = Trail)
+            Text("PLAN MY NEXT HIKE", style = MaterialTheme.typography.labelLarge, color = Moss)
         }
-        Column(Modifier.weight(1f).padding(start = 13.dp)) {
-            Text("PLAN A VISIT", style = MaterialTheme.typography.labelSmall, color = TrailText)
-            Text("Weather, water levels, and what to look for", style = MaterialTheme.typography.titleMedium, color = Ink)
+        Box(Modifier.width(1.dp).heightIn(min = 58.dp).background(Moss.copy(alpha = 0.2f)))
+        Box(
+            Modifier
+                .weight(1f)
+                .background(Lichen)
+                .clickable(onClick = onBadges)
+                .heightIn(min = 58.dp)
+                .padding(horizontal = 13.dp, vertical = 10.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("VIEW MY TRAIL MEDALS", style = MaterialTheme.typography.labelLarge, color = Moss)
         }
-        Icon(Icons.Rounded.ChevronRight, contentDescription = "Browse place profiles", tint = Fern)
     }
     HorizontalDivider(color = Line)
 }
@@ -1947,62 +1956,37 @@ private fun LibraryHeader(
     refreshing: Boolean,
     onRefresh: () -> Unit,
     onSettings: () -> Unit,
-    onBadges: () -> Unit,
 ) {
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .background(Moss)
-            .statusBarsPadding()
-            .padding(start = 20.dp, end = 8.dp, top = 18.dp, bottom = 22.dp),
-    ) {
-        Row(verticalAlignment = Alignment.Top) {
-            Column(Modifier.weight(1f)) {
-                Text("HikeJournal", style = MaterialTheme.typography.displayMedium, color = Paper)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        "$hikeCount OUTINGS · ${String.format(Locale.US, "%.1f", totalMiles)} MI HIKED · FIELD ARCHIVE",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color(0xFFE1E9DD),
-                    )
-                    if (offline) {
-                        Spacer(Modifier.width(10.dp))
-                        Icon(Icons.Rounded.CloudOff, null, tint = Trail, modifier = Modifier.size(15.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("OFFLINE", style = MaterialTheme.typography.labelSmall, color = TrailText)
-                    }
+    PatternedForestSurface(Modifier.fillMaxWidth()) {
+        Column(
+            Modifier.fillMaxWidth().statusBarsPadding().padding(start = 18.dp, end = 6.dp, top = 12.dp, bottom = 18.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                BrandWordmark(Modifier.width(180.dp).height(58.dp))
+                Spacer(Modifier.weight(1f))
+                IconButton(onClick = onRefresh, enabled = !refreshing) {
+                    if (refreshing) CircularProgressIndicator(Modifier.size(20.dp), color = Paper, strokeWidth = 2.dp)
+                    else Icon(Icons.Rounded.Refresh, "Refresh", tint = Paper)
+                }
+                IconButton(onClick = onSettings) {
+                    Icon(Icons.Rounded.Settings, "Settings", tint = Paper)
                 }
             }
-            IconButton(onClick = onRefresh, enabled = !refreshing) {
-                if (refreshing) CircularProgressIndicator(Modifier.size(20.dp), color = Paper, strokeWidth = 2.dp)
-                else Icon(Icons.Rounded.Refresh, "Refresh", tint = Paper)
-            }
-            IconButton(onClick = onSettings) {
-                Icon(Icons.Rounded.Settings, "Settings", tint = Paper)
-            }
-        }
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .clickable(onClick = onBadges)
-                .padding(top = 16.dp, bottom = 1.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                Icons.Rounded.WorkspacePremium,
-                contentDescription = null,
-                tint = Trail,
-                modifier = Modifier.size(25.dp),
-            )
-            Column(Modifier.weight(1f).padding(start = 11.dp)) {
-                Text("TRAIL MEDALS", style = MaterialTheme.typography.labelSmall, color = Trail)
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 4.dp)) {
                 Text(
-                    "Milestones from every outing and field find",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Color(0xFFD7DFD2),
+                    "$hikeCount OUTINGS · ${String.format(Locale.US, "%.1f", totalMiles)} MI HIKED",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color(0xFFE1E9DD),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
+                if (offline) {
+                    Spacer(Modifier.width(8.dp))
+                    Icon(Icons.Rounded.CloudOff, null, tint = Trail, modifier = Modifier.size(15.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("OFFLINE", style = MaterialTheme.typography.labelSmall, color = Color(0xFFF4ECEB))
+                }
             }
-            Icon(Icons.Rounded.ChevronRight, "View trail medals", tint = Color(0xFFB8C9B6))
         }
     }
 }
@@ -2851,7 +2835,7 @@ private fun JournalHero(
                 }
             }
         }
-        Text("HikeJournal", style = MaterialTheme.typography.headlineSmall, color = Paper, modifier = Modifier.align(Alignment.BottomStart).padding(20.dp))
+        BrandWordmark(Modifier.width(160.dp).height(52.dp).align(Alignment.BottomStart).padding(20.dp))
     }
 }
 
@@ -3503,7 +3487,7 @@ private fun PhotoViewer(
         Column(Modifier.fillMaxSize().background(Color(0xFF101511)).statusBarsPadding()) {
             Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onDismiss) { Icon(Icons.Rounded.Close, "Close", tint = Paper) }
-                Text("HikeJournal", style = MaterialTheme.typography.headlineSmall, color = Paper, modifier = Modifier.weight(1f))
+                BrandMark(Modifier.size(width = 30.dp, height = 36.dp).weight(1f))
                 Text("$position OF $total", style = MaterialTheme.typography.labelSmall, color = Color(0xFFBFD2B9))
                 if (!photo.isVideo) {
                     IconButton(
@@ -3766,7 +3750,7 @@ private fun PhotoViewer(
                     Button(
                         onClick = { onSaveCaption(caption) },
                         modifier = Modifier.fillMaxWidth().padding(top = 10.dp).height(52.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF315844), contentColor = Paper),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF465A32), contentColor = Paper),
                     ) { Text("Save note") }
                     Spacer(Modifier.height(16.dp))
                 }
@@ -5321,11 +5305,11 @@ private fun EmptyPhotos(onAdd: () -> Unit) {
     }
 }
 
-private val MossSoftFallback = Color(0xFF315844)
+private val MossSoftFallback = Color(0xFF465A32)
 
 @Composable
 private fun MountainField(modifier: Modifier = Modifier) {
-    Canvas(modifier.background(Brush.linearGradient(listOf(Color(0xFF315844), Color(0xFF183A2D))))) {
+    Canvas(modifier.background(Brush.linearGradient(listOf(Color(0xFF465A32), Color(0xFF324223))))) {
         val back = Path().apply {
             moveTo(0f, size.height * .78f)
             lineTo(size.width * .34f, size.height * .26f)

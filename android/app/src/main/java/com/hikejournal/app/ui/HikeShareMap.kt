@@ -99,12 +99,12 @@ internal fun satelliteShareStyle(routeSegments: List<List<RoutePoint>>): String?
     }
     layers.put(
         JSONObject(
-            """{"id":"$SHARE_START_LAYER","type":"circle","source":"$SHARE_START_SOURCE","paint":{"circle-color":"#FFFCF3","circle-radius":7,"circle-opacity":1,"circle-stroke-color":"#183A2D","circle-stroke-width":3}}""",
+            """{"id":"$SHARE_START_LAYER","type":"circle","source":"$SHARE_START_SOURCE","paint":{"circle-color":"#F5F1E7","circle-radius":7,"circle-opacity":1,"circle-stroke-color":"#324223","circle-stroke-width":3}}""",
         ),
     )
     layers.put(
         JSONObject(
-            """{"id":"$SHARE_END_LAYER","type":"circle","source":"$SHARE_END_SOURCE","paint":{"circle-color":"#F09A55","circle-radius":7,"circle-opacity":1,"circle-stroke-color":"#FFFCF3","circle-stroke-width":2}}""",
+            """{"id":"$SHARE_END_LAYER","type":"circle","source":"$SHARE_END_SOURCE","paint":{"circle-color":"#F09A55","circle-radius":7,"circle-opacity":1,"circle-stroke-color":"#F5F1E7","circle-stroke-width":2}}""",
         ),
     )
     return style.toString()

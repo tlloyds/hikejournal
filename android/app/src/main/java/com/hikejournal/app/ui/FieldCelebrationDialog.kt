@@ -92,7 +92,7 @@ internal fun FieldCelebrationDialog(
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
-                        colors = listOf(MossSoft, Moss, Color(0xFF10281F)),
+                        colors = listOf(MossSoft, Moss, Color(0xFF1D2A17)),
                     )
                 )
                 .statusBarsPadding(),

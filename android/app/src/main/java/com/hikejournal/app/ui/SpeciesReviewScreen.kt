@@ -136,52 +136,52 @@ fun SpeciesReviewScreen(
     }
 
     Column(Modifier.fillMaxSize().background(Parchment)) {
-        Row(
-            Modifier.fillMaxWidth().background(Moss).statusBarsPadding().padding(start = 20.dp, end = 8.dp, top = 15.dp, bottom = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text("HikeJournal", style = MaterialTheme.typography.titleMedium, color = Color(0xFFB7C8B5))
-                Text("Species review", style = MaterialTheme.typography.headlineMedium, color = Paper)
-                val syncSuffix = when {
-                    unsyncedWaitingItems.any { it.photo.syncState == "needs_attention" } ->
-                        " · ${unsyncedWaitingItems.size} NEED SYNC"
-                    unsyncedWaitingItems.isNotEmpty() -> " · ${unsyncedWaitingItems.size} SYNCING"
-                    else -> ""
+        PatternedForestSurface(Modifier.fillMaxWidth()) {
+            Column(Modifier.fillMaxWidth().statusBarsPadding().padding(start = 18.dp, end = 8.dp, top = 12.dp, bottom = 10.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    BrandMark(Modifier.size(width = 42.dp, height = 50.dp))
+                    Column(Modifier.weight(1f).padding(start = 10.dp)) {
+                        Text("Species review", style = MaterialTheme.typography.headlineMedium, color = Paper, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        val syncSuffix = when {
+                            unsyncedWaitingItems.any { it.photo.syncState == "needs_attention" } -> " · ${unsyncedWaitingItems.size} NEED SYNC"
+                            unsyncedWaitingItems.isNotEmpty() -> " · ${unsyncedWaitingItems.size} SYNCING"
+                            else -> ""
+                        }
+                        Text("$pendingCount TO DECIDE · $waitingCount NEED ID$syncSuffix", style = MaterialTheme.typography.labelSmall, color = Color(0xFFD8E0D5))
+                    }
+                    IconButton(onClick = onRefresh, enabled = !loading && decidingId == null) {
+                        if (loading) CircularProgressIndicator(Modifier.size(20.dp), color = Paper, strokeWidth = 2.dp)
+                        else Icon(Icons.Rounded.Refresh, "Refresh review queue", tint = Paper)
+                    }
                 }
-                Text("$pendingCount TO DECIDE · $waitingCount NEED ID$syncSuffix", style = MaterialTheme.typography.labelSmall, color = Color(0xFFB7C8B5))
-            }
-            TextButton(
-                onClick = {
-                    if (batchResumable) batchMode = true
-                    else if (inatConnected) batchMode = true else onConnectInat()
-                },
-                enabled = if (batchResumable) {
-                    !loading
-                } else {
-                    waitingItems.isNotEmpty() && unsyncedWaitingItems.isEmpty() && !loading && !offline
-                },
-                colors = ButtonDefaults.textButtonColors(
-                    contentColor = Paper,
-                    disabledContentColor = Color(0xFFD6E0D2),
-                ),
-            ) {
-                Text(
-                    when {
-                        loading -> "Loading"
-                        batchResumable -> "Resume batch"
-                        unsyncedWaitingItems.isNotEmpty() -> "Syncing"
-                        !inatConnected -> "Connect iNaturalist"
-                        else -> "Batch ID"
+                TextButton(
+                    onClick = {
+                        if (batchResumable) batchMode = true
+                        else if (inatConnected) batchMode = true else onConnectInat()
                     },
-                )
-            }
-            IconButton(onClick = onRefresh, enabled = !loading && decidingId == null) {
-                if (loading) CircularProgressIndicator(Modifier.size(20.dp), color = Paper, strokeWidth = 2.dp)
-                else Icon(Icons.Rounded.Refresh, "Refresh review queue", tint = Paper)
+                    enabled = if (batchResumable) {
+                        !loading
+                    } else {
+                        waitingItems.isNotEmpty() && unsyncedWaitingItems.isEmpty() && !loading && !offline
+                    },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = Paper,
+                        disabledContentColor = Color(0xFFE6EDD9),
+                    ),
+                    modifier = Modifier.align(Alignment.End),
+                ) {
+                    Text(
+                        when {
+                            loading -> "Loading"
+                            batchResumable -> "Resume batch"
+                            unsyncedWaitingItems.isNotEmpty() -> "Syncing"
+                            !inatConnected -> "Connect iNaturalist"
+                            else -> "Batch ID"
+                        },
+                    )
+                }
             }
         }
-
         if (offline) {
             Text(
                 "OFFLINE COPY · DECISIONS PAUSE UNTIL CONNECTED",
@@ -552,14 +552,14 @@ private fun ReviewItemContent(
                 )
                 Box(
                     Modifier.fillMaxWidth().height(130.dp).align(Alignment.BottomCenter).background(
-                        Brush.verticalGradient(listOf(Color.Transparent, Color(0xD8183A2D))),
+                        Brush.verticalGradient(listOf(Color.Transparent, Color(0xD8324223))),
                     ),
                 )
                 Column(Modifier.align(Alignment.BottomStart).padding(20.dp)) {
-                    Text("$position OF $total", style = MaterialTheme.typography.labelSmall, color = Color(0xFFD6E0D2))
+                    Text("$position OF $total", style = MaterialTheme.typography.labelSmall, color = Color(0xFFE6EDD9))
                     Text(item.hikeTitle, style = MaterialTheme.typography.headlineMedium, color = Paper, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     val place = item.locationName.ifBlank { item.hikeDate }
-                    if (place.isNotBlank()) Text(place, style = MaterialTheme.typography.bodyMedium, color = Color(0xFFD6E0D2), maxLines = 1)
+                    if (place.isNotBlank()) Text(place, style = MaterialTheme.typography.bodyMedium, color = Color(0xFFE6EDD9), maxLines = 1)
                 }
             }
         }

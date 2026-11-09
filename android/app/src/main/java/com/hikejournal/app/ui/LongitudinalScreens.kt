@@ -1185,7 +1185,7 @@ private fun FieldPageHero(
 ) {
     Box(
         Modifier.fillMaxWidth().height(360.dp).background(
-            Brush.linearGradient(listOf(Color(0xFF315844), Moss)),
+            Brush.linearGradient(listOf(Color(0xFF465A32), Moss)),
         ),
     ) {
         if (imageUrl.isNotBlank()) {
@@ -1214,7 +1214,7 @@ private fun FieldPageHero(
             Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back", tint = Paper)
         }
         Column(Modifier.align(Alignment.BottomStart).padding(horizontal = 20.dp, vertical = 24.dp)) {
-            Text("HikeJournal", style = MaterialTheme.typography.headlineSmall, color = Paper)
+            BrandWordmark(Modifier.width(168.dp).height(54.dp))
             Text(
                 kicker,
                 style = MaterialTheme.typography.labelMedium,

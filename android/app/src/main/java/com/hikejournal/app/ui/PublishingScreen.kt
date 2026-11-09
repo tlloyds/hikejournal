@@ -89,6 +89,7 @@ import com.hikejournal.app.data.buildPublishObservationGroups
 import com.hikejournal.app.data.splitPublishObservationGroups
 import com.hikejournal.app.ui.theme.Ink
 import com.hikejournal.app.ui.theme.InkMuted
+import com.hikejournal.app.ui.theme.Fern
 import com.hikejournal.app.ui.theme.Moss
 import com.hikejournal.app.ui.theme.Paper
 import com.hikejournal.app.ui.theme.Parchment
@@ -166,45 +167,47 @@ fun PublishingScreen(
 
     Box(Modifier.fillMaxSize().background(Parchment)) {
         Column(Modifier.fillMaxSize()) {
-            Column(
-                Modifier.fillMaxWidth().background(Moss).statusBarsPadding().padding(start = 20.dp, end = 8.dp, top = 15.dp, bottom = 10.dp),
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("HikeJournal", style = MaterialTheme.typography.titleMedium, color = Color(0xFFB7C8B5))
-                        Text("Publish", style = MaterialTheme.typography.headlineMedium, color = Paper)
-                        Text(
-                            "$readyCount READY · $attentionCount ATTENTION · $postedCount POSTED",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = Color(0xFFB7C8B5),
-                        )
-                    }
-                    TextButton(
-                        onClick = { if (queue.connected) batchMode = true else onConnectInat() },
-                        enabled = readyCount > 0 && !offline && !batchPublishing && publishingId == null,
-                        colors = ButtonDefaults.textButtonColors(contentColor = Paper),
-                    ) {
-                        Text(if (queue.connected) "Batch post" else "Connect iNaturalist")
-                    }
-                    IconButton(onClick = onRefresh, enabled = !loading && publishingId == null && !batchPublishing) {
-                        if (loading) CircularProgressIndicator(Modifier.size(20.dp), color = Paper, strokeWidth = 2.dp)
-                        else Icon(Icons.Rounded.Refresh, "Refresh publishing queue", tint = Paper)
-                    }
-                }
-                Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    PublishFilter.entries.forEach { option ->
-                        val count = when (option) {
-                            PublishFilter.Ready -> readyCount
-                            PublishFilter.Attention -> attentionCount
-                            PublishFilter.Posted -> postedCount
+            PatternedForestSurface(Modifier.fillMaxWidth()) {
+                Column(Modifier.fillMaxWidth().statusBarsPadding().padding(start = 18.dp, end = 8.dp, top = 12.dp, bottom = 8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        BrandMark(Modifier.size(width = 42.dp, height = 50.dp))
+                        Column(Modifier.weight(1f).padding(start = 10.dp)) {
+                            Text("Publish", style = MaterialTheme.typography.headlineMedium, color = Paper, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(
+                                "$readyCount READY · $attentionCount ATTENTION · $postedCount POSTED",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color(0xFFD8E0D5),
+                            )
                         }
+                        IconButton(onClick = onRefresh, enabled = !loading && publishingId == null && !batchPublishing) {
+                            if (loading) CircularProgressIndicator(Modifier.size(20.dp), color = Paper, strokeWidth = 2.dp)
+                            else Icon(Icons.Rounded.Refresh, "Refresh publishing queue", tint = Paper)
+                        }
+                    }
+                    Row(Modifier.fillMaxWidth().padding(top = 3.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                         TextButton(
-                            onClick = { filter = option; index = 0 },
-                            modifier = Modifier.weight(1f).then(
-                                if (filter == option) Modifier.background(Trail, RoundedCornerShape(5.dp)) else Modifier,
-                            ),
+                            onClick = { if (queue.connected) batchMode = true else onConnectInat() },
+                            enabled = readyCount > 0 && !offline && !batchPublishing && publishingId == null,
+                            colors = ButtonDefaults.textButtonColors(contentColor = Paper),
                         ) {
-                            Text("${option.label} · $count", color = if (filter == option) Paper else Color(0xFFB7C8B5))
+                            Text(if (queue.connected) "Batch post" else "Connect iNaturalist")
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                            PublishFilter.entries.forEach { option ->
+                                val count = when (option) {
+                                    PublishFilter.Ready -> readyCount
+                                    PublishFilter.Attention -> attentionCount
+                                    PublishFilter.Posted -> postedCount
+                                }
+                                TextButton(
+                                    onClick = { filter = option; index = 0 },
+                                    modifier = Modifier.then(
+                                        if (filter == option) Modifier.background(Fern, RoundedCornerShape(5.dp)) else Modifier,
+                                    ),
+                                ) {
+                                    Text("${option.label} · $count", color = if (filter == option) Moss else Color(0xFFD8E0D5))
+                                }
+                            }
                         }
                     }
                 }
@@ -646,14 +649,14 @@ private fun PublishItemContent(
                 AsyncImage(item.photo.url, item.commonName, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                 Box(
                     Modifier.fillMaxWidth().height(160.dp).align(Alignment.BottomCenter).background(
-                        Brush.verticalGradient(listOf(Color.Transparent, Color(0xE0183A2D))),
+                        Brush.verticalGradient(listOf(Color.Transparent, Color(0xE0324223))),
                     ),
                 )
                 Column(Modifier.align(Alignment.BottomStart).padding(20.dp)) {
-                    Text("${publishStateLabel(item.state)} · $position OF $total", style = MaterialTheme.typography.labelSmall, color = Color(0xFFD6E0D2))
+                    Text("${publishStateLabel(item.state)} · $position OF $total", style = MaterialTheme.typography.labelSmall, color = Color(0xFFE6EDD9))
                     Text(item.commonName, style = MaterialTheme.typography.headlineLarge, color = Paper, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     if (item.scientificName.isNotBlank()) {
-                        Text(item.scientificName, style = MaterialTheme.typography.bodyLarge, color = Color(0xFFD6E0D2), fontStyle = FontStyle.Italic)
+                        Text(item.scientificName, style = MaterialTheme.typography.bodyLarge, color = Color(0xFFE6EDD9), fontStyle = FontStyle.Italic)
                     }
                 }
             }

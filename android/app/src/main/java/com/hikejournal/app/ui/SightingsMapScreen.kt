@@ -216,16 +216,16 @@ fun SightingsMapScreen(
         )
 
         Column(
-            Modifier.fillMaxWidth().background(Color(0xF2183A2D)).statusBarsPadding().padding(start = 20.dp, end = 8.dp, top = 12.dp, bottom = 12.dp),
+            Modifier.fillMaxWidth().background(Moss.copy(alpha = 0.96f)).statusBarsPadding().padding(start = 12.dp, end = 8.dp, top = 10.dp, bottom = 12.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                BrandMark(Modifier.size(width = 34.dp, height = 40.dp))
                 Column(Modifier.weight(1f)) {
-                    Text("HikeJournal", style = MaterialTheme.typography.titleMedium, color = Color(0xFFB7C8B5))
-                    Text("Sightings map", style = MaterialTheme.typography.headlineMedium, color = Paper)
+                    Text("Sightings map", style = MaterialTheme.typography.headlineSmall, color = Paper, maxLines = 1)
                     Text(
                         "$photoCount GEOTAGGED PHOTOS · ${routeSegments.size} ROUTE SEGMENTS",
                         style = MaterialTheme.typography.labelSmall,
-                        color = Color(0xFFB7C8B5),
+                        color = Color(0xFFD8E0D5),
                     )
                 }
                 TextButton(onClick = {
@@ -254,7 +254,7 @@ fun SightingsMapScreen(
                 Text(
                     "IMAGERY © ESRI · MAXAR · EARTHSTAR · GIS COMMUNITY",
                     style = MaterialTheme.typography.labelSmall,
-                    color = Color(0xFFB7C8B5),
+                    color = Color(0xFFD8E0D5),
                     modifier = Modifier.padding(top = 3.dp),
                 )
             }
@@ -494,7 +494,7 @@ private fun SightingInspector(
                 contentScale = ContentScale.Crop,
             )
             if (openingPhoto) {
-                Box(Modifier.fillMaxSize().background(Color(0x99183A2D)))
+                Box(Modifier.fillMaxSize().background(Color(0x99324223)))
                 CircularProgressIndicator(Modifier.size(24.dp), color = Paper, strokeWidth = 2.dp)
             }
         }
@@ -873,7 +873,7 @@ private class NativeMapController {
             )
             style.addLayer(
                 CircleLayer(CURRENT_POSITION_HALO_LAYER_ID, CURRENT_POSITION_SOURCE_ID).withProperties(
-                    circleColor("#FFFCF3"),
+                    circleColor("#F5F1E7"),
                     circleRadius(12f),
                     circleOpacity(0.74f),
                 ),
@@ -883,7 +883,7 @@ private class NativeMapController {
                     circleColor(if (routeRevealSegments == null) "#2587D8" else HIKE_ROUTE_COLOR),
                     circleRadius(7f),
                     circleOpacity(1f),
-                    circleStrokeColor("#183A2D"),
+                    circleStrokeColor("#324223"),
                     circleStrokeWidth(1.5f),
                 ),
             )
@@ -901,7 +901,7 @@ private class NativeMapController {
                     circleColor("#F47A32"),
                     circleRadius(18f),
                     circleOpacity(0.95f),
-                    circleStrokeColor("#FFFCF3"),
+                    circleStrokeColor("#F5F1E7"),
                     circleStrokeWidth(2f),
                 ).withFilter(Expression.eq(Expression.get("kind"), "cluster")),
             )
@@ -911,8 +911,8 @@ private class NativeMapController {
                 ).withProperties(
                     org.maplibre.android.style.layers.PropertyFactory.textField(Expression.get("cluster_count")),
                     org.maplibre.android.style.layers.PropertyFactory.textSize(11f),
-                    org.maplibre.android.style.layers.PropertyFactory.textColor("#183A2D"),
-                    org.maplibre.android.style.layers.PropertyFactory.textHaloColor("#FFFCF3"),
+                    org.maplibre.android.style.layers.PropertyFactory.textColor("#324223"),
+                    org.maplibre.android.style.layers.PropertyFactory.textHaloColor("#F5F1E7"),
                     org.maplibre.android.style.layers.PropertyFactory.textHaloWidth(1f),
                     org.maplibre.android.style.layers.PropertyFactory.textAllowOverlap(true),
                 ),
@@ -1218,7 +1218,7 @@ private fun RouteLegendItem(color: Color, label: String) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.width(18.dp).height(3.dp).background(color))
         Spacer(Modifier.width(5.dp))
-        Text(label, style = MaterialTheme.typography.labelSmall, color = Color(0xFFB7C8B5))
+        Text(label, style = MaterialTheme.typography.labelSmall, color = Color(0xFFD8E0D5))
     }
 }
 

@@ -183,7 +183,7 @@ internal fun JournalRouteSketch(
                 center = Offset(start.x, start.y),
             )
             drawCircle(
-                color = Color(0xFF183A2D),
+                color = Color(0xFF324223),
                 radius = 3.dp.toPx(),
                 center = Offset(start.x, start.y),
             )

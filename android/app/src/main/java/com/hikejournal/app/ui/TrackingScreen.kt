@@ -196,7 +196,7 @@ internal fun HikeTrackingScreen(
                 .height(176.dp)
                 .background(
                     Brush.verticalGradient(
-                        listOf(Color(0xF2183A2D), Color(0xB8183A2D), Color.Transparent),
+                        listOf(Color(0xF2324223), Color(0xB8324223), Color.Transparent),
                     ),
                 ),
         )
@@ -214,7 +214,7 @@ internal fun HikeTrackingScreen(
         FilledIconButton(
             onClick = { followPosition = !followPosition },
             colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(
-                containerColor = if (followPosition) Trail else Color(0xEFFFFCF3),
+                containerColor = if (followPosition) Trail else Color(0xEFF5F1E7),
                 contentColor = if (followPosition) Paper else Moss,
             ),
             modifier = Modifier
@@ -347,8 +347,8 @@ private fun TrackingTopBar(
         IconButton(onClick = onBack) {
             Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Return to journal", tint = Paper)
         }
+        BrandMark(Modifier.size(width = 30.dp, height = 36.dp))
         Column(Modifier.weight(1f).padding(start = 2.dp)) {
-            Text("HikeJournal", style = MaterialTheme.typography.titleMedium, color = Color(0xFFD6E0D3))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     if (tracking.gpsStatus == TrackingGpsUiStatus.Strong) Icons.Rounded.GpsFixed else Icons.Rounded.GpsNotFixed,
@@ -384,7 +384,7 @@ private fun TrackingControls(
     Column(
         modifier
             .fillMaxWidth()
-            .background(Color(0xF7183A2D))
+            .background(Color(0xF7324223))
             .navigationBarsPadding()
             .padding(horizontal = 20.dp, vertical = 18.dp),
     ) {
@@ -460,7 +460,7 @@ private fun TrackingControls(
                         onClick = onRequestEnd,
                         modifier = Modifier.fillMaxWidth().padding(top = 9.dp).height(48.dp),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = Paper),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x99FFFCF3)),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x99F5F1E7)),
                         shape = RoundedCornerShape(5.dp),
                     ) {
                         Icon(Icons.Rounded.Stop, contentDescription = null, modifier = Modifier.size(19.dp))
@@ -491,7 +491,7 @@ private fun TrackingControls(
             Text(
                 "Pause before ending · ${tracking.pointCount} GPS point${if (tracking.pointCount == 1) "" else "s"}",
                 style = MaterialTheme.typography.labelSmall,
-                color = Color(0xFFB7C8B5),
+                color = Color(0xFFD8E0D5),
                 modifier = Modifier.fillMaxWidth().padding(top = 9.dp),
                 textAlign = TextAlign.Center,
             )
@@ -587,7 +587,7 @@ private fun TrackingMetric(value: String, label: String, modifier: Modifier = Mo
             color = Paper,
             maxLines = 1,
         )
-        Text(label, style = MaterialTheme.typography.labelSmall, color = Color(0xFFB7C8B5))
+        Text(label, style = MaterialTheme.typography.labelSmall, color = Color(0xFFD8E0D5))
     }
 }
 

@@ -137,7 +137,7 @@ internal fun RoutePlaybackDialog(
                     .fillMaxWidth()
                     .background(
                         Brush.verticalGradient(
-                            listOf(Color.Transparent, Color(0xE2183A2D), Color(0xF2183A2D)),
+                            listOf(Color.Transparent, Color(0xE2324223), Color(0xF2324223)),
                         ),
                     )
                     .padding(bottom = 56.dp)
@@ -190,7 +190,7 @@ internal fun RoutePlaybackDialog(
                                 progress >= 1f -> "Replay route"
                                 else -> "Play route"
                             },
-                            tint = Color(0xFF183A2D),
+                            tint = Color(0xFF324223),
                             modifier = Modifier.size(32.dp),
                         )
                     }
@@ -229,7 +229,7 @@ internal fun RoutePlaybackDialog(
                                         else -> "2×"
                                     },
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = if (selected) Color(0xFF183A2D) else Paper,
+                                    color = if (selected) Color(0xFF324223) else Paper,
                                 )
                             }
                         }

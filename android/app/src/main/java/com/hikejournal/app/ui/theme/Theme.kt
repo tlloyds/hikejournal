@@ -12,19 +12,19 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import com.hikejournal.app.R
 
-val Moss = Color(0xFF183A2D)
-val MossSoft = Color(0xFF315844)
-val Fern = Color(0xFF76916D)
+val Moss = Color(0xFF324223)
+val MossSoft = Color(0xFF465A32)
+val Fern = Color(0xFFAECE76)
 val Trail = Color(0xFFD17D42)
-val Parchment = Color(0xFFF4F0E5)
-val Paper = Color(0xFFFFFCF3)
-val Ink = Color(0xFF1D241F)
+val Parchment = Color(0xFFF5F1E7)
+val Paper = Color(0xFFF4ECEB)
+val Ink = Color(0xFF293520)
 // Secondary copy and labels must remain legible in bright outdoor conditions.
-val InkMuted = Color(0xFF526057)
-val TrailText = Color(0xFF9B4D27)
-val FernText = Color(0xFF4D6A50)
-val Line = Color(0xFFD8D3C7)
-val Lichen = Color(0xFFDCE5D6)
+val InkMuted = Color(0xFF56614F)
+val TrailText = Color(0xFF97512A)
+val FernText = Color(0xFF506A3D)
+val Line = Color(0xFFD8D4C6)
+val Lichen = Color(0xFFE2E8D4)
 
 private val DisplayFamily = FontFamily(
     Font(R.font.cormorant_garamond, weight = FontWeight.Normal),
