@@ -4,11 +4,12 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -62,10 +63,8 @@ fun TopNavigation(
         NavigationBar(
             modifier = Modifier
                 .weight(1f)
-                .clip(
-                    if (onAdd == null) RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp)
-                    else CircleShape,
-                )
+                .height(80.dp)
+                .then(if (onAdd == null) Modifier else Modifier.clip(CircleShape))
                 .background(Moss),
             containerColor = Moss,
             contentColor = Paper,
@@ -108,10 +107,17 @@ fun TopNavigation(
         }
         onAdd?.let { add ->
             FloatingActionButton(
+                modifier = Modifier.size(80.dp),
                 onClick = add,
                 containerColor = Trail,
                 contentColor = Paper,
                 shape = CircleShape,
+                elevation = FloatingActionButtonDefaults.elevation(
+                    defaultElevation = 0.dp,
+                    pressedElevation = 0.dp,
+                    focusedElevation = 0.dp,
+                    hoveredElevation = 0.dp,
+                ),
             ) { androidx.compose.material3.Icon(Icons.Rounded.Add, contentDescription = "Add hike or everyday sighting") }
         }
     }
