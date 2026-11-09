@@ -20,8 +20,9 @@
 - `apksigner verify --verbose --print-certs` passed with minimum SDKs **26**
   and **28**. The APK signing lineage contains the former Android Debug
   signer and permanent signer; both retain installed-data capability.
-- Android 15 / API 35 accepted and launched the signed APK. It reached the
-  safety acknowledgment and then the Google sign-in setup. The main navigation
+- Android 15 / API 35 accepted the signed in-place upgrade from build **190**
+  to **191**, reported version code **191**, and launched the app. It reached
+  the safety acknowledgment and then Google sign-in setup. The main navigation
   was not reached because emulator setup requires a Google account.
 - Android unit tests: **183 Debug passed**, **183 Release passed**.
 - `git diff --check`: **passed**.
