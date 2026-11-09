@@ -28,6 +28,9 @@
 - Public-page/API tests: **94 passed**, one existing Starlette/AnyIO
   deprecation warning.
 - `git diff --check`: **passed**.
+- Bluehost homepage upload package is ready. Live deployment is waiting for
+  authorization of the local SSH key or the File Manager fallback; publish the
+  GitHub release after verifying the public homepage.
 - AndroidRuntime error filter after upgrade and launch: **no entries**.
 
 ## Debug-log triage
