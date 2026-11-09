@@ -115,7 +115,6 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.FilledIconButton
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -1071,6 +1070,7 @@ private fun HikeJournalAppContent(viewModel: AppViewModel) {
             TopNavigation(
                 selected = destination,
                 onSelect = ::openTopDestination,
+                onAdd = if (destination == TopDestination.Archive) ({ createEntryOpen = true }) else null,
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
         }
@@ -1733,15 +1733,6 @@ private fun LibraryScreen(
 
     Scaffold(
         containerColor = Parchment,
-        floatingActionButton = {
-            FloatingActionButton(
-                onClick = onCreate,
-                containerColor = Trail,
-                contentColor = Paper,
-                shape = CircleShape,
-                modifier = Modifier.padding(bottom = 84.dp).navigationBarsPadding(),
-            ) { Icon(Icons.Rounded.Add, contentDescription = "Add hike or everyday sighting") }
-        },
     ) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
