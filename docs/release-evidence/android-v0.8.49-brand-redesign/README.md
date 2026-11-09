@@ -28,9 +28,12 @@
 - Public-page/API tests: **94 passed**, one existing Starlette/AnyIO
   deprecation warning.
 - `git diff --check`: **passed**.
-- Bluehost homepage upload package is ready. Live deployment is waiting for
-  authorization of the local SSH key or the File Manager fallback; publish the
-  GitHub release after verifying the public homepage.
+- Bluehost deployment completed over SSH to the HikeJournal site root.
+  The homepage plus `/privacy/`, `/support/`, and `/account-deletion/` were
+  verified live; deployed homepage and asset hashes matched the local source.
+  The temporary SSH key was removed, the uploaded staging ZIP was moved to
+  cPanel Trash, and pre-deployment files were saved to
+  `/home3/mftphilo/hikejournal-backups/HikeJournal-site-before-brand-redesign-2026-11-08.tar.gz`.
 - AndroidRuntime error filter after upgrade and launch: **no entries**.
 
 ## Debug-log triage
