@@ -86,6 +86,7 @@ import com.hikejournal.app.ui.theme.Moss
 import com.hikejournal.app.ui.theme.Paper
 import com.hikejournal.app.ui.theme.Parchment
 import com.hikejournal.app.ui.theme.Trail
+import com.hikejournal.app.ui.theme.TrailBadge
 import com.hikejournal.app.ui.theme.TrailText
 
 @Composable
@@ -472,7 +473,7 @@ private fun LocalMediaGrid(
                                 .padding(7.dp)
                                 .size(27.dp)
                                 .clip(MaterialTheme.shapes.extraLarge)
-                                .background(Trail),
+                                .background(TrailBadge),
                             contentAlignment = Alignment.Center,
                         ) {
                             Text(

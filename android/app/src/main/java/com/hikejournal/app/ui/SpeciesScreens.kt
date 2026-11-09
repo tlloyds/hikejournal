@@ -298,11 +298,16 @@ fun SpeciesIndexScreen(
     }.joinToString(" \u00b7 ")
     val encounterCount = typeScopedSpecies.sumOf { it.encounterCount }
     val headerCount = when (mode) {
-        SpeciesMode.Collection -> "${typeScopedSpecies.size} SPECIES · $encounterCount ENCOUNTERS"
+        SpeciesMode.Collection -> String.format(
+            Locale.US,
+            "%,d species · %,d encounters",
+            typeScopedSpecies.size,
+            encounterCount,
+        )
         SpeciesMode.Nearby -> nearbySpecies?.let {
-            "${it.progress.collectedCount} OF ${it.progress.totalCount} COLLECTED"
-        } ?: "SEASONAL FIELD LIST"
-        SpeciesMode.Quests -> "${visibleQuests.size} ${if (showArchivedQuests) "ARCHIVED" else "ACTIVE"} QUESTS"
+            "${it.progress.collectedCount} of ${it.progress.totalCount} collected"
+        } ?: "Seasonal field list"
+        SpeciesMode.Quests -> "${visibleQuests.size} ${if (showArchivedQuests) "archived" else "active"} quests"
     }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -320,7 +325,7 @@ fun SpeciesIndexScreen(
                     SpeciesMode.Nearby -> "Nearby field list"
                     SpeciesMode.Quests -> "Field quests"
                 },
-                detail = headerCount + if (offline) " · OFFLINE" else "",
+                detail = headerCount + if (offline) " · offline" else "",
                 actions = {
                     IconButton(
                         onClick = { if (mode == SpeciesMode.Collection) onRefresh() else onRefreshDiscovery() },
@@ -391,7 +396,7 @@ fun SpeciesIndexScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("SPECIES INDEX", style = MaterialTheme.typography.labelSmall, color = TrailText)
+                Text("SPECIES INDEX", style = MaterialTheme.typography.labelMedium, color = TrailText)
                 TextButton(onClick = { speciesSortOpen = true }) {
                     Text(speciesSort.label)
                     Spacer(Modifier.width(2.dp))
@@ -1086,7 +1091,15 @@ private fun SpeciesModeTabs(mode: SpeciesMode, onMode: (SpeciesMode) -> Unit) {
                 onClick = { onMode(item) },
                 modifier = Modifier.background(color, RoundedCornerShape(3.dp)),
             ) {
-                Text(item.label, color = if (item == mode) Paper else Ink)
+                Text(
+                    item.label.uppercase(Locale.US),
+                    style = MaterialTheme.typography.labelLarge.copy(
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 0.35.sp,
+                    ),
+                    color = if (item == mode) Paper else Ink,
+                )
             }
         }
     }
@@ -1741,22 +1754,23 @@ private fun SpeciesIndexRow(
                     )
                 }
                 Text(
-                    "${record.encounterCount} encounter${if (record.encounterCount == 1) "" else "s"} · ${record.hikeCount} outing${if (record.hikeCount == 1) "" else "s"}",
-                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
-                    color = Moss,
+                    "${record.encounterCount} ${if (record.encounterCount == 1) "ENCOUNTER" else "ENCOUNTERS"} · ${record.hikeCount} ${if (record.hikeCount == 1) "OUTING" else "OUTINGS"}",
+                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold, letterSpacing = 0.2.sp),
+                    color = TrailText,
                     modifier = Modifier.padding(top = 5.dp),
                 )
                 Text(
                     record.ecology.displayLabel,
-                    style = MaterialTheme.typography.labelLarge.copy(
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 0.35.sp,
-                    ),
+                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
                     color = ecologyStatusColor(record.ecology.label),
-                    modifier = Modifier.padding(top = 6.dp),
+                    modifier = Modifier.padding(top = 3.dp),
                 )
             }
-            Text(record.encounterCount.toString().padStart(2, '0'), style = MaterialTheme.typography.headlineSmall, color = FernText)
+            Text(
+                record.encounterCount.toString().padStart(2, '0'),
+                style = MaterialTheme.typography.titleLarge.copy(fontSize = 26.sp, fontWeight = FontWeight.Bold),
+                color = FernText,
+            )
         }
         HorizontalDivider(color = Line, modifier = Modifier.padding(start = 127.dp))
     }
@@ -1918,15 +1932,15 @@ private fun EncounterRow(encounter: Encounter, onOpenPhoto: (Photo) -> Unit) {
                 contentScale = ContentScale.Crop,
             )
             Column(Modifier.weight(1f).padding(start = 15.dp)) {
-                Text(formatSpeciesDate(encounter.observedOn).uppercase(Locale.US), style = MaterialTheme.typography.labelSmall, color = TrailText)
-                Text(encounter.hikeTitle, style = MaterialTheme.typography.titleMedium, color = Ink, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(formatSpeciesDate(encounter.observedOn), style = MaterialTheme.typography.labelMedium, color = TrailText)
+                Text(encounter.hikeTitle, style = MaterialTheme.typography.titleLarge, color = Ink, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 if (encounter.locationName.isNotBlank()) {
                     Text(encounter.locationName, style = MaterialTheme.typography.bodyMedium, color = InkMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 if (encounter.photo.caption.isNotBlank()) {
                     Text(encounter.photo.caption, style = MaterialTheme.typography.bodyMedium, color = InkMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                Text("View this species photo", style = MaterialTheme.typography.labelSmall, color = TrailText, modifier = Modifier.padding(top = 5.dp))
+                Text("View this species photo", style = MaterialTheme.typography.labelMedium, color = TrailText, modifier = Modifier.padding(top = 5.dp))
             }
         }
         HorizontalDivider(color = Line, modifier = Modifier.padding(start = 171.dp))

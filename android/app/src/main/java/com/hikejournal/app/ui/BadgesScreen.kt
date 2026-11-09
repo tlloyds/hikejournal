@@ -68,6 +68,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.hikejournal.app.AppState
 import com.hikejournal.app.data.BadgeCategory
 import com.hikejournal.app.data.BadgeFinish
@@ -180,16 +181,25 @@ private fun BadgesHeader(
         Row(Modifier.fillMaxWidth().padding(start = 6.dp, end = 6.dp, top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = Paper) }
             BrandMark(Modifier.size(width = 36.dp, height = 44.dp))
-            Text("Trail medals", style = MaterialTheme.typography.headlineMedium, color = Paper, modifier = Modifier.weight(1f).padding(start = 10.dp))
+            Text(
+                "Trail medals",
+                style = MaterialTheme.typography.titleLarge.copy(
+                    fontSize = 28.sp,
+                    lineHeight = 32.sp,
+                    fontWeight = FontWeight.Bold,
+                ),
+                color = Paper,
+                modifier = Modifier.weight(1f).padding(start = 10.dp),
+            )
             IconButton(onClick = onRefresh, enabled = !loading) {
                 if (loading) CircularProgressIndicator(Modifier.size(19.dp), color = Paper, strokeWidth = 2.dp)
                 else Icon(Icons.Rounded.Refresh, "Refresh medals", tint = Paper)
             }
         }
         Text(
-            "$earnedCount OF $totalCount EARNED · LIFETIME PROGRESS",
-            style = MaterialTheme.typography.labelSmall,
-            color = Fern,
+            "$earnedCount of $totalCount earned · Lifetime progress",
+            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+            color = Color(0xFFE4E9DF),
             modifier = Modifier.padding(start = 20.dp, top = 4.dp),
         )
         if (nextBadge != null) {
@@ -203,8 +213,16 @@ private fun BadgesHeader(
                     forcePreview = true,
                 )
                 Column(Modifier.weight(1f).padding(start = 16.dp)) {
-                    Text("NEXT MEDAL", style = MaterialTheme.typography.labelSmall, color = Color(0xFFD8E0D5))
-                    Text(nextBadge.definition.title, style = MaterialTheme.typography.headlineSmall, color = Paper)
+                    Text("Next medal", style = MaterialTheme.typography.labelMedium, color = Color(0xFFE4E9DF))
+                    Text(
+                        nextBadge.definition.title,
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontSize = 28.sp,
+                            lineHeight = 32.sp,
+                            fontWeight = FontWeight.Bold,
+                        ),
+                        color = Fern,
+                    )
                     Text(
                         badgeProgressLabel(nextBadge),
                         style = MaterialTheme.typography.bodyMedium,
@@ -234,7 +252,15 @@ private fun BadgesHeader(
 @Composable
 private fun BadgeSectionHeader(category: BadgeCategory) {
     Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 30.dp, bottom = 14.dp)) {
-        Text(category.label, style = MaterialTheme.typography.headlineMedium, color = Ink)
+        Text(
+            category.label,
+            style = MaterialTheme.typography.titleLarge.copy(
+                fontSize = 30.sp,
+                lineHeight = 35.sp,
+                fontWeight = FontWeight.Bold,
+            ),
+            color = Ink,
+        )
         Text(category.description, style = MaterialTheme.typography.bodyMedium, color = InkMuted)
     }
 }

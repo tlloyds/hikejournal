@@ -11,12 +11,16 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.Composable
 import androidx.compose.material3.MaterialTheme
@@ -24,6 +28,8 @@ import androidx.compose.material3.Text
 import androidx.compose.ui.text.style.TextOverflow
 import com.hikejournal.app.R
 import com.hikejournal.app.ui.theme.Moss
+import com.hikejournal.app.ui.theme.Paper
+import com.hikejournal.app.ui.theme.TrailBadge
 
 @Composable
 fun PatternedForestSurface(
@@ -66,7 +72,11 @@ fun BrandScreenHeader(
                 BrandMark(Modifier.size(width = 42.dp, height = 50.dp))
                 Text(
                     title,
-                    style = MaterialTheme.typography.headlineMedium,
+                    style = MaterialTheme.typography.titleLarge.copy(
+                        fontSize = 28.sp,
+                        lineHeight = 32.sp,
+                        fontWeight = FontWeight.Bold,
+                    ),
                     color = Color(0xFFF4ECEB),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -76,12 +86,33 @@ fun BrandScreenHeader(
             }
             Text(
                 detail,
-                style = MaterialTheme.typography.labelSmall,
-                color = Color(0xFFD8E0D5),
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color(0xFFE4E9DF),
                 modifier = Modifier.padding(start = 52.dp, top = 2.dp),
             )
         }
     }
+}
+
+@Composable
+fun TrailHighlightLabel(
+    text: String,
+    modifier: Modifier = Modifier,
+) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelLarge.copy(
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 0.35.sp,
+        ),
+        color = Paper,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = modifier
+            .clip(RoundedCornerShape(2.dp))
+            .background(TrailBadge)
+            .padding(horizontal = 10.dp, vertical = 4.dp),
+    )
 }
 
 @Composable

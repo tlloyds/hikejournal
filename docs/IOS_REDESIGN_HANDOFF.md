@@ -41,6 +41,14 @@ The designer did not provide font files or a separate font license; keep the
 current bundled families unless the designer supplies different approved
 fonts.
 
+The screen artboards also use a clear reading hierarchy: put dates and publish
+state in compact, bold white text on a dark orange tag; use the display face for
+titles placed over photos; keep location and photo counts in a quieter but
+legible sans-serif; and use bold sans-serif for species names and important
+counts. On Hikes, the bottom navigation is a floating capsule with a separate
+circular orange add action. Keep that shape and hierarchy as design cues while
+building native SwiftUI controls.
+
 ## iOS implementation notes
 
 - Update the shared values in

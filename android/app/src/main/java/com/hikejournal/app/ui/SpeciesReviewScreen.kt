@@ -63,8 +63,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.hikejournal.app.data.ReviewCandidate
 import com.hikejournal.app.data.ReviewItem
@@ -79,6 +81,7 @@ import com.hikejournal.app.ui.theme.Moss
 import com.hikejournal.app.ui.theme.Paper
 import com.hikejournal.app.ui.theme.Parchment
 import com.hikejournal.app.ui.theme.Trail
+import com.hikejournal.app.ui.theme.TrailBadge
 import java.util.Locale
 
 @Composable
@@ -141,13 +144,27 @@ fun SpeciesReviewScreen(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     BrandMark(Modifier.size(width = 42.dp, height = 50.dp))
                     Column(Modifier.weight(1f).padding(start = 10.dp)) {
-                        Text("Species review", style = MaterialTheme.typography.headlineMedium, color = Paper, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(
+                            "Species review",
+                            style = MaterialTheme.typography.titleLarge.copy(
+                                fontSize = 28.sp,
+                                lineHeight = 32.sp,
+                                fontWeight = FontWeight.Bold,
+                            ),
+                            color = Paper,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
                         val syncSuffix = when {
-                            unsyncedWaitingItems.any { it.photo.syncState == "needs_attention" } -> " · ${unsyncedWaitingItems.size} NEED SYNC"
-                            unsyncedWaitingItems.isNotEmpty() -> " · ${unsyncedWaitingItems.size} SYNCING"
+                            unsyncedWaitingItems.any { it.photo.syncState == "needs_attention" } -> " · ${unsyncedWaitingItems.size} need sync"
+                            unsyncedWaitingItems.isNotEmpty() -> " · syncing ${unsyncedWaitingItems.size}"
                             else -> ""
                         }
-                        Text("$pendingCount TO DECIDE · $waitingCount NEED ID$syncSuffix", style = MaterialTheme.typography.labelSmall, color = Color(0xFFD8E0D5))
+                        Text(
+                            "$pendingCount to decide · $waitingCount need ID$syncSuffix",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Color(0xFFE4E9DF),
+                        )
                     }
                     IconButton(onClick = onRefresh, enabled = !loading && decidingId == null) {
                         if (loading) CircularProgressIndicator(Modifier.size(20.dp), color = Paper, strokeWidth = 2.dp)
@@ -185,9 +202,9 @@ fun SpeciesReviewScreen(
         if (offline) {
             Text(
                 "OFFLINE COPY · DECISIONS PAUSE UNTIL CONNECTED",
-                style = MaterialTheme.typography.labelSmall,
+                style = MaterialTheme.typography.labelMedium,
                 color = Paper,
-                modifier = Modifier.fillMaxWidth().background(Trail).padding(horizontal = 20.dp, vertical = 8.dp),
+                modifier = Modifier.fillMaxWidth().background(TrailBadge).padding(horizontal = 20.dp, vertical = 8.dp),
             )
         }
 
@@ -556,7 +573,7 @@ private fun ReviewItemContent(
                     ),
                 )
                 Column(Modifier.align(Alignment.BottomStart).padding(20.dp)) {
-                    Text("$position OF $total", style = MaterialTheme.typography.labelSmall, color = Color(0xFFE6EDD9))
+                    Text("$position OF $total", style = MaterialTheme.typography.labelMedium, color = Paper)
                     Text(item.hikeTitle, style = MaterialTheme.typography.headlineMedium, color = Paper, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     val place = item.locationName.ifBlank { item.hikeDate }
                     if (place.isNotBlank()) Text(place, style = MaterialTheme.typography.bodyMedium, color = Color(0xFFE6EDD9), maxLines = 1)

@@ -1773,12 +1773,16 @@ private fun LibraryScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        if (showArchived) "CURRENT + ARCHIVED" else "CURRENT OUTINGS",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = TrailText,
+                        if (showArchived) "Current + archived" else "Current outings",
+                        style = MaterialTheme.typography.titleLarge,
+                        color = Moss,
                     )
                     TextButton(onClick = { showArchived = !showArchived }) {
-                        Text(if (showArchived) "Current" else "Archives")
+                        Text(
+                            if (showArchived) "Current" else "Archives",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = Ink,
+                        )
                         Icon(
                             if (showArchived) Icons.Rounded.KeyboardArrowUp else Icons.Rounded.KeyboardArrowDown,
                             contentDescription = if (showArchived) "Show current outings" else "Show archived outings",
@@ -1884,8 +1888,8 @@ private fun ActiveHikeRow(tracking: TrackingUiModel, onOpen: () -> Unit) {
         }
         Column(Modifier.weight(1f).padding(start = 13.dp)) {
             Text(
-                if (tracking.isPaused) "HIKE PAUSED" else "HIKE IN PROGRESS",
-                style = MaterialTheme.typography.labelSmall,
+                if (tracking.isPaused) "Hike paused" else "Hike in progress",
+                style = MaterialTheme.typography.labelMedium,
                 color = if (tracking.isPaused) TrailText else Moss,
             )
             Text(
@@ -1894,7 +1898,7 @@ private fun ActiveHikeRow(tracking: TrackingUiModel, onOpen: () -> Unit) {
                 color = Ink,
             )
         }
-        Text("OPEN", style = MaterialTheme.typography.labelSmall, color = TrailText)
+        Text("Open", style = MaterialTheme.typography.labelMedium, color = TrailText)
         Spacer(Modifier.width(5.dp))
         Icon(Icons.Rounded.ChevronRight, "Open active hike", tint = Fern)
     }
@@ -1918,7 +1922,7 @@ private fun EverydayRow(journal: Hike, opening: Boolean, onOpen: (String) -> Uni
             }
         }
         Column(Modifier.weight(1f).padding(start = 16.dp)) {
-            Text("VARIOUS DATES", style = MaterialTheme.typography.labelSmall, color = TrailText)
+            Text("Various dates", style = MaterialTheme.typography.labelMedium, color = TrailText)
             Text(
                 "Everyday Sightings",
                 style = MaterialTheme.typography.titleLarge,
@@ -1965,9 +1969,9 @@ private fun LibraryHeader(
             }
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 4.dp)) {
                 Text(
-                    "$hikeCount OUTINGS · ${String.format(Locale.US, "%.1f", totalMiles)} MI HIKED",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color(0xFFE1E9DD),
+                    "$hikeCount ${if (hikeCount == 1) "outing" else "outings"} · ${String.format(Locale.US, "%.1f", totalMiles)} mi hiked",
+                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+                    color = Color(0xFFE4E9DF),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -1975,7 +1979,7 @@ private fun LibraryHeader(
                     Spacer(Modifier.width(8.dp))
                     Icon(Icons.Rounded.CloudOff, null, tint = Trail, modifier = Modifier.size(15.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text("OFFLINE", style = MaterialTheme.typography.labelSmall, color = Color(0xFFF4ECEB))
+                    Text("Offline", style = MaterialTheme.typography.labelMedium, color = Paper)
                 }
             }
         }
@@ -2197,16 +2201,22 @@ private fun FeaturedHike(hike: Hike, opening: Boolean, onOpen: (String) -> Unit)
         )
         Column(Modifier.align(Alignment.BottomStart).padding(22.dp)) {
             if (hike.syncState != "synced") {
-                Text("SAVED ON PHONE", style = MaterialTheme.typography.labelSmall, color = TrailText)
+                Text(
+                    "Saved on phone",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Paper,
+                    modifier = Modifier
+                        .background(Moss.copy(alpha = 0.9f), RoundedCornerShape(2.dp))
+                        .padding(horizontal = 8.dp, vertical = 3.dp),
+                )
             }
-            Text(
-                formatDate(hike.hikeDate).uppercase(Locale.US),
-                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                color = Color(0xFFF1F3EE),
+            TrailHighlightLabel(
+                text = formatDate(hike.hikeDate).uppercase(Locale.US),
+                modifier = Modifier.padding(top = if (hike.syncState != "synced") 7.dp else 0.dp),
             )
             Text(
                 hike.title,
-                style = MaterialTheme.typography.headlineLarge,
+                style = MaterialTheme.typography.displayMedium,
                 color = Paper,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
@@ -2252,26 +2262,18 @@ private fun HikeRow(hike: Hike, opening: Boolean, onOpen: (String) -> Unit) {
             }
             Column(Modifier.weight(1f).padding(start = 16.dp)) {
                 if (hike.syncState != "synced") {
-                    Text("SAVED ON PHONE", style = MaterialTheme.typography.labelSmall, color = Moss)
+                    Text("Saved on phone", style = MaterialTheme.typography.labelMedium, color = TrailText)
                 }
-                Text(formatDate(hike.hikeDate).uppercase(Locale.US), style = MaterialTheme.typography.labelSmall, color = TrailText)
+                Text(formatDate(hike.hikeDate), style = MaterialTheme.typography.labelMedium, color = TrailText)
                 Text(hike.title, style = MaterialTheme.typography.titleLarge, color = Ink, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 HikeCardMetadata(hike = hike, color = InkMuted)
             }
-            AnimatedContent(targetState = opening, label = "hike-row-opening") { isOpening ->
-                if (isOpening) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(22.dp),
-                        color = Trail,
-                        strokeWidth = 2.dp,
-                    )
-                } else {
-                    Text(
-                        hike.photoCount.toString().padStart(2, '0'),
-                        style = MaterialTheme.typography.headlineSmall,
-                        color = Fern,
-                    )
-                }
+            if (opening) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(22.dp),
+                    color = Trail,
+                    strokeWidth = 2.dp,
+                )
             }
         }
         HorizontalDivider(color = Line, modifier = Modifier.padding(start = 124.dp))
@@ -2312,7 +2314,7 @@ private fun HikeComparisonPickerDialog(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Column(Modifier.weight(1f)) {
-                                Text(hike.hikeDate, style = MaterialTheme.typography.labelSmall, color = TrailText)
+                                Text(formatDate(hike.hikeDate), style = MaterialTheme.typography.labelMedium, color = TrailText)
                                 Text(hike.title, style = MaterialTheme.typography.titleMedium, color = Ink)
                                 Text(
                                     hike.primaryLocationName.ifBlank { hike.locationName },
@@ -2376,7 +2378,7 @@ private fun JournalScreen(
         item { JournalHero(hike, onBack, onEdit, onArchive, onDelete) }
         item {
             Column(Modifier.padding(horizontal = 20.dp, vertical = 24.dp)) {
-                Text(formatDate(hike.hikeDate).uppercase(Locale.US), style = MaterialTheme.typography.labelSmall, color = TrailText)
+                Text(formatDate(hike.hikeDate), style = MaterialTheme.typography.labelMedium, color = TrailText)
                 Text(hike.title, style = MaterialTheme.typography.displayMedium, color = Ink)
                 if (journalHikeMeta(hike).isNotBlank()) {
                     Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {

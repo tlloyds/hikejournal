@@ -75,8 +75,10 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.hikejournal.app.data.Hike
 import com.hikejournal.app.data.GROUPED_PUBLISH_MAX_PHOTOS
@@ -94,6 +96,7 @@ import com.hikejournal.app.ui.theme.Moss
 import com.hikejournal.app.ui.theme.Paper
 import com.hikejournal.app.ui.theme.Parchment
 import com.hikejournal.app.ui.theme.Trail
+import com.hikejournal.app.ui.theme.TrailBadge
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -172,11 +175,27 @@ fun PublishingScreen(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         BrandMark(Modifier.size(width = 42.dp, height = 50.dp))
                         Column(Modifier.weight(1f).padding(start = 10.dp)) {
-                            Text("Publish", style = MaterialTheme.typography.headlineMedium, color = Paper, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Text(
-                                "$readyCount READY · $attentionCount ATTENTION · $postedCount POSTED",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = Color(0xFFD8E0D5),
+                                "Publish",
+                                style = MaterialTheme.typography.titleLarge.copy(
+                                    fontSize = 28.sp,
+                                    lineHeight = 32.sp,
+                                    fontWeight = FontWeight.Bold,
+                                ),
+                                color = Paper,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                String.format(
+                                    Locale.US,
+                                    "%,d ready · %,d attention · %,d posted",
+                                    readyCount,
+                                    attentionCount,
+                                    postedCount,
+                                ),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = Color(0xFFE4E9DF),
                             )
                         }
                         IconButton(onClick = onRefresh, enabled = !loading && publishingId == null && !batchPublishing) {
@@ -222,9 +241,9 @@ fun PublishingScreen(
             if (offline) {
                 Text(
                     "OFFLINE COPY · PUBLISHING PAUSED",
-                    style = MaterialTheme.typography.labelSmall,
+                    style = MaterialTheme.typography.labelMedium,
                     color = Paper,
-                    modifier = Modifier.fillMaxWidth().background(Trail).padding(horizontal = 20.dp, vertical = 8.dp),
+                    modifier = Modifier.fillMaxWidth().background(TrailBadge).padding(horizontal = 20.dp, vertical = 8.dp),
                 )
             }
 
@@ -653,8 +672,10 @@ private fun PublishItemContent(
                     ),
                 )
                 Column(Modifier.align(Alignment.BottomStart).padding(20.dp)) {
-                    Text("${publishStateLabel(item.state)} · $position OF $total", style = MaterialTheme.typography.labelSmall, color = Color(0xFFE6EDD9))
-                    Text(item.commonName, style = MaterialTheme.typography.headlineLarge, color = Paper, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    TrailHighlightLabel(
+                        "${publishStateLabel(item.state)} · ${String.format(Locale.US, "%,d of %,d", position, total)}",
+                    )
+                    Text(item.commonName, style = MaterialTheme.typography.displayMedium, color = Paper, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     if (item.scientificName.isNotBlank()) {
                         Text(item.scientificName, style = MaterialTheme.typography.bodyLarge, color = Color(0xFFE6EDD9), fontStyle = FontStyle.Italic)
                     }
@@ -896,9 +917,9 @@ private fun PublishEmpty(
 }
 
 private fun publishStateLabel(state: String): String = when (state) {
-    "needs_attention" -> "NEEDS ATTENTION"
-    "posted" -> "POSTED"
-    else -> "READY TO POST"
+    "needs_attention" -> "Needs attention"
+    "posted" -> "Posted"
+    else -> "Ready to post"
 }
 
 private fun formatPublishDate(raw: String?): String {

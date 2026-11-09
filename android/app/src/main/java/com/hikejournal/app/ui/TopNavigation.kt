@@ -4,6 +4,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
@@ -61,7 +62,10 @@ fun TopNavigation(
         NavigationBar(
             modifier = Modifier
                 .weight(1f)
-                .clip(RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp))
+                .clip(
+                    if (onAdd == null) RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp)
+                    else CircleShape,
+                )
                 .background(Moss),
             containerColor = Moss,
             contentColor = Paper,
@@ -107,7 +111,7 @@ fun TopNavigation(
                 onClick = add,
                 containerColor = Trail,
                 contentColor = Paper,
-                shape = RoundedCornerShape(20.dp),
+                shape = CircleShape,
             ) { androidx.compose.material3.Icon(Icons.Rounded.Add, contentDescription = "Add hike or everyday sighting") }
         }
     }
