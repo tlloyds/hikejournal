@@ -12,6 +12,9 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -139,66 +142,34 @@ fun SpeciesReviewScreen(
     }
 
     Column(Modifier.fillMaxSize().background(Parchment)) {
-        PatternedForestSurface(Modifier.fillMaxWidth()) {
-            Column(Modifier.fillMaxWidth().statusBarsPadding().padding(start = 18.dp, end = 8.dp, top = 12.dp, bottom = 10.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    BrandMark(Modifier.size(width = 42.dp, height = 50.dp))
-                    Column(Modifier.weight(1f).padding(start = 10.dp)) {
-                        Text(
-                            "Species review",
-                            style = MaterialTheme.typography.titleLarge.copy(
-                                fontSize = 28.sp,
-                                lineHeight = 32.sp,
-                                fontWeight = FontWeight.Bold,
-                            ),
-                            color = Paper,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        val syncSuffix = when {
-                            unsyncedWaitingItems.any { it.photo.syncState == "needs_attention" } -> " · ${unsyncedWaitingItems.size} need sync"
-                            unsyncedWaitingItems.isNotEmpty() -> " · syncing ${unsyncedWaitingItems.size}"
-                            else -> ""
-                        }
-                        Text(
-                            "$pendingCount to decide · $waitingCount need ID$syncSuffix",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = Color(0xFFE4E9DF),
-                        )
-                    }
-                    IconButton(onClick = onRefresh, enabled = !loading && decidingId == null) {
-                        if (loading) CircularProgressIndicator(Modifier.size(20.dp), color = Paper, strokeWidth = 2.dp)
-                        else Icon(Icons.Rounded.Refresh, "Refresh review queue", tint = Paper)
-                    }
-                }
+        val syncSuffix = when {
+            unsyncedWaitingItems.any { it.photo.syncState == "needs_attention" } -> " · ${unsyncedWaitingItems.size} need sync"
+            unsyncedWaitingItems.isNotEmpty() -> " · syncing ${unsyncedWaitingItems.size}"
+            else -> ""
+        }
+        BrandScreenHeader(
+            title = "Species Review",
+            detail = "$pendingCount to decide · $waitingCount need ID$syncSuffix",
+            actions = {
                 TextButton(
                     onClick = {
-                        if (batchResumable) batchMode = true
-                        else if (inatConnected) batchMode = true else onConnectInat()
+                        if (batchResumable || inatConnected) batchMode = true else onConnectInat()
                     },
-                    enabled = if (batchResumable) {
-                        !loading
-                    } else {
-                        waitingItems.isNotEmpty() && unsyncedWaitingItems.isEmpty() && !loading && !offline
-                    },
+                    enabled = if (batchResumable) !loading else
+                        waitingItems.isNotEmpty() && unsyncedWaitingItems.isEmpty() && !loading && !offline,
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp),
                     colors = ButtonDefaults.textButtonColors(
-                        contentColor = Paper,
-                        disabledContentColor = Color(0xFFE6EDD9),
+                        contentColor = Paper, disabledContentColor = Paper.copy(alpha = 0.6f),
                     ),
-                    modifier = Modifier.align(Alignment.End),
                 ) {
-                    Text(
-                        when {
-                            loading -> "Loading"
-                            batchResumable -> "Resume batch"
-                            unsyncedWaitingItems.isNotEmpty() -> "Syncing"
-                            !inatConnected -> "Connect iNaturalist"
-                            else -> "Batch ID"
-                        },
-                    )
+                    Text(if (batchResumable) "Resume" else "Batch ID", style = MaterialTheme.typography.labelSmall)
                 }
-            }
-        }
+                IconButton(onClick = onRefresh, enabled = !loading && decidingId == null) {
+                    if (loading) CircularProgressIndicator(Modifier.size(20.dp), color = Paper, strokeWidth = 2.dp)
+                    else Icon(Icons.Rounded.Refresh, "Refresh review queue", tint = Paper)
+                }
+            },
+        )
         if (offline) {
             Text(
                 "OFFLINE COPY · DECISIONS PAUSE UNTIL CONNECTED",
@@ -558,7 +529,12 @@ private fun ReviewItemContent(
 ) {
     var selectedIndex by remember(item.id) { mutableIntStateOf(0) }
     val selected = item.candidates.getOrNull(selectedIndex)
-    LazyColumn(Modifier.fillMaxSize().padding(bottom = 84.dp)) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(
+            bottom = 72.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
+        ),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 20.dp),
+    ) {
         item {
             Box(Modifier.fillMaxWidth().height(390.dp).background(Moss)) {
                 AsyncImage(
@@ -583,22 +559,21 @@ private fun ReviewItemContent(
 
         item {
             Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 22.dp)) {
-                IdentificationSafetyReminder(Modifier.padding(bottom = 14.dp))
                 if (item.candidates.isEmpty()) {
                     val photoSynced = reviewPhotoIsSynced(item)
                     Text(
                         when (item.photo.syncState) {
                             "needs_attention" -> "Photo needs sync attention"
-                            else -> if (photoSynced) "Awaiting a suggestion" else "Waiting for photo sync"
+                            else -> if (photoSynced) "Not sure what you saw?" else "Waiting for photo sync"
                         },
-                        style = MaterialTheme.typography.headlineMedium,
+                        style = MaterialTheme.typography.titleLarge.copy(fontSize = 24.sp, lineHeight = 29.sp, fontWeight = FontWeight.Bold),
                         color = Ink,
                     )
                     Text(
                         when (item.photo.syncState) {
                             "needs_attention" -> "Resolve the sync notice, then HikeJournal will include this photo in Batch ID."
                             else -> if (photoSynced) {
-                                "Ask iNaturalist to analyze this photo using its computer-vision model. Location and date help narrow the result."
+                                "Let us help you identify the plants, animals and insects you encounter. We’ll use your photo and location to suggest a possible match."
                             } else {
                                 "This selected photo is in the review queue and will become available for identification as soon as its upload finishes."
                             }
@@ -612,32 +587,22 @@ private fun ReviewItemContent(
                         enabled = !offline && !identifying &&
                             (!inatConnected || (enabled && photoSynced)),
                         modifier = Modifier.fillMaxWidth().padding(top = 20.dp).height(52.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = com.hikejournal.app.ui.theme.Fern, contentColor = Moss),
                     ) {
                         if (identifying) CircularProgressIndicator(Modifier.size(19.dp), color = Paper, strokeWidth = 2.dp)
-                        else Icon(Icons.Rounded.Refresh, null)
-                        Spacer(Modifier.width(8.dp))
                         Text(
                             when {
                                 identifying -> "Asking iNaturalist…"
                                 !inatConnected -> "Connect iNaturalist"
                                 !photoSynced -> "Upload before ID"
-                                else -> "Get iNaturalist recommendation"
+                                else -> "Identify this sighting"
                             },
                         )
                     }
                     OutlinedButton(
-                        onClick = onNext,
-                        enabled = hasNext && !identifying,
-                        modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
-                    ) {
-                        Icon(Icons.Rounded.SkipNext, null, Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("Skip for now")
-                    }
-                    OutlinedButton(
                         onClick = { onRemoveFromReview(item) },
                         enabled = !identifying && !deciding,
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Trail),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = InkMuted),
                         modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
                     ) {
                         if (deciding) CircularProgressIndicator(Modifier.size(18.dp), color = Trail, strokeWidth = 2.dp)
@@ -645,6 +610,11 @@ private fun ReviewItemContent(
                         Spacer(Modifier.width(6.dp))
                         Text("Remove from review")
                     }
+                    TextButton(
+                        onClick = onNext,
+                        enabled = hasNext && !identifying,
+                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                    ) { Text("Skip for now", color = InkMuted) }
                     if (shouldShowInatConnectionAction(inatConnected)) {
                         TextButton(onClick = onConnectInat, enabled = !identifying, modifier = Modifier.fillMaxWidth().padding(top = 5.dp)) {
                             Text("Connect iNaturalist")
@@ -709,6 +679,7 @@ private fun ReviewItemContent(
                 }
             }
         }
+        item { IdentificationSafetyFooter() }
     }
 }
 

@@ -1,0 +1,6 @@
+<resources>
+    <style name="Theme.HikeJournal" parent="Base.Theme.HikeJournal">
+        <item name="android:navigationBarColor">#F5F1E7</item>
+        <item name="android:windowLightNavigationBar">true</item>
+    </style>
+</resources>

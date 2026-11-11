@@ -5,7 +5,7 @@
         android:height="64dp"
         android:gravity="center">
         <bitmap
-            android:src="@drawable/hj_logo_white_icon"
+            android:src="@drawable/hj_logo_color_icon"
             android:gravity="fill" />
     </item>
 </layer-list>

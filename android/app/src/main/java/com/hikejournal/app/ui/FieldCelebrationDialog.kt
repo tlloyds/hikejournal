@@ -5,19 +5,21 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -42,21 +44,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
-import com.hikejournal.app.data.CelebrationKind
 import com.hikejournal.app.data.FieldCelebration
 import com.hikejournal.app.ui.theme.Moss
-import com.hikejournal.app.ui.theme.MossSoft
 import com.hikejournal.app.ui.theme.Paper
 import com.hikejournal.app.ui.theme.Trail
 
@@ -72,12 +69,7 @@ internal fun FieldCelebrationDialog(
         animationSpec = tween(520),
         label = "celebration-image",
     )
-    val navigationBarPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-    // Dialogs opt out of decor fitting, so some Android versions report a zero
-    // navigation inset here even though the gesture area is still consuming space.
-    // Keep a conservative floor so the action is always fully tappable.
-    val actionBottomPadding = maxOf(navigationBarPadding, 32.dp) + 16.dp
-    val imageWeight = if (celebration.kind == CelebrationKind.Identification) 0.36f else 0.40f
+    val actionBottomPadding = 18.dp
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(
@@ -87,21 +79,20 @@ internal fun FieldCelebrationDialog(
             decorFitsSystemWindows = false,
         ),
     ) {
+        BoxWithConstraints(
+            Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(12.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+        val imageHeight = (maxHeight * 0.34f).coerceIn(160.dp, 290.dp)
         Column(
-            Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(MossSoft, Moss, Color(0xFF1D2A17)),
-                    )
-                )
-                .statusBarsPadding(),
+            Modifier.widthIn(max = 560.dp).fillMaxWidth().heightIn(max = maxHeight)
+                .clip(RoundedCornerShape(22.dp)).background(Moss),
         ) {
             CelebrationImagePlane(
                 urls = celebration.imageUrls,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(imageWeight)
+                    .height(imageHeight)
                     .alpha(imagePresence)
                     .scale(0.98f + imagePresence * 0.02f),
             )
@@ -109,14 +100,14 @@ internal fun FieldCelebrationDialog(
                 visible = revealed,
                 enter = fadeIn(tween(420, delayMillis = 100)) +
                     slideInVertically(tween(480, delayMillis = 100)) { it / 8 },
-                modifier = Modifier.weight(1f - imageWeight),
+                modifier = Modifier.weight(1f, fill = false),
             ) {
                 Column(
-                    Modifier.fillMaxHeight(),
+                    Modifier,
                 ) {
                     Column(
                         Modifier
-                            .weight(1f)
+                            .weight(1f, fill = false)
                             .verticalScroll(rememberScrollState())
                             .padding(horizontal = 24.dp)
                             .padding(top = 18.dp, bottom = 6.dp),
@@ -132,7 +123,7 @@ internal fun FieldCelebrationDialog(
                         }
                         Text(
                             celebration.title,
-                            style = MaterialTheme.typography.displayMedium,
+                            style = MaterialTheme.typography.headlineLarge,
                             color = Paper,
                             modifier = Modifier.padding(top = 6.dp),
                         )
@@ -213,6 +204,7 @@ internal fun FieldCelebrationDialog(
                 }
             }
         }
+        }
     }
 }
 
@@ -240,25 +232,10 @@ private fun CelebrationImagePlane(urls: List<String>, modifier: Modifier = Modif
                 )
             )
         } else {
-            Canvas(Modifier.fillMaxSize()) {
-                val line = Color(0xFF89A18F).copy(alpha = 0.24f)
-                repeat(7) { index ->
-                    val radius = size.minDimension * (0.12f + index * 0.08f)
-                    drawCircle(
-                        color = line,
-                        radius = radius,
-                        center = Offset(size.width * 0.5f, size.height * 0.52f),
-                        style = Stroke(width = 2f),
-                    )
-                }
+            PatternedForestSurface(Modifier.fillMaxSize()) {
+                BrandWordmark(Modifier.widthIn(max = 250.dp).fillMaxWidth().height(68.dp)
+                    .padding(horizontal = 24.dp).align(Alignment.Center))
             }
-            Text(
-                "HikeJournal",
-                style = MaterialTheme.typography.displayMedium,
-                color = Paper.copy(alpha = 0.88f),
-                textAlign = TextAlign.Center,
-                modifier = Modifier.align(Alignment.Center),
-            )
         }
     }
 }

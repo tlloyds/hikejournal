@@ -100,7 +100,6 @@ fun BadgesScreen(
     onRefresh: () -> Unit,
 ) {
     val badges = calculateTrailBadges(state.hikes, state.species, state.speciesQuests)
-    val earnedCount = badges.count { it.earned }
     val nextBadge = badges
         .filterNot { it.earned }
         .maxWithOrNull(compareBy<TrailBadge> { it.progress }.thenByDescending { -it.definition.target })
@@ -112,8 +111,6 @@ fun BadgesScreen(
     ) {
         item {
             BadgesHeader(
-                earnedCount = earnedCount,
-                totalCount = badges.size,
                 nextBadge = nextBadge,
                 loading = loading,
                 onBack = onBack,
@@ -169,8 +166,6 @@ fun BadgesScreen(
 
 @Composable
 private fun BadgesHeader(
-    earnedCount: Int,
-    totalCount: Int,
     nextBadge: TrailBadge?,
     loading: Boolean,
     onBack: () -> Unit,
@@ -182,7 +177,7 @@ private fun BadgesHeader(
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = Paper) }
             BrandMark(Modifier.size(width = 36.dp, height = 44.dp))
             Text(
-                "Trail medals",
+                "Trail Medals",
                 style = MaterialTheme.typography.titleLarge.copy(
                     fontSize = 28.sp,
                     lineHeight = 32.sp,
@@ -196,12 +191,6 @@ private fun BadgesHeader(
                 else Icon(Icons.Rounded.Refresh, "Refresh medals", tint = Paper)
             }
         }
-        Text(
-            "$earnedCount of $totalCount earned · Lifetime progress",
-            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
-            color = Color(0xFFE4E9DF),
-            modifier = Modifier.padding(start = 20.dp, top = 4.dp),
-        )
         if (nextBadge != null) {
             Row(
                 Modifier.fillMaxWidth().padding(start = 16.dp, end = 20.dp, top = 20.dp),
@@ -213,7 +202,7 @@ private fun BadgesHeader(
                     forcePreview = true,
                 )
                 Column(Modifier.weight(1f).padding(start = 16.dp)) {
-                    Text("Next medal", style = MaterialTheme.typography.labelMedium, color = Color(0xFFE4E9DF))
+                    Text("NEXT MEDAL", style = MaterialTheme.typography.labelLarge, color = Paper)
                     Text(
                         nextBadge.definition.title,
                         style = MaterialTheme.typography.titleLarge.copy(
@@ -225,15 +214,15 @@ private fun BadgesHeader(
                     )
                     Text(
                         badgeProgressLabel(nextBadge),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Color(0xFFD8E0D5),
+                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                        color = Color.White,
                         modifier = Modifier.padding(top = 2.dp),
                     )
                     LinearProgressIndicator(
                         progress = { nextBadge.progress },
-                        modifier = Modifier.fillMaxWidth().padding(top = 10.dp).height(3.dp),
-                        color = Trail,
-                        trackColor = Color(0xFF486357),
+                        modifier = Modifier.fillMaxWidth().padding(top = 10.dp).height(5.dp).clip(CircleShape),
+                        color = Fern,
+                        trackColor = Paper,
                     )
                 }
             }
@@ -441,7 +430,7 @@ private fun BadgeDetailSheet(
     )
     LaunchedEffect(badge.definition.id) { animateProgress = true }
 
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Paper) {
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Color.White) {
         Column(
             Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 24.dp).padding(bottom = 28.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -454,9 +443,9 @@ private fun BadgeDetailSheet(
                 modifier = Modifier.padding(top = 8.dp),
             )
             Text(
-                badge.definition.title,
-                style = MaterialTheme.typography.headlineLarge,
-                color = Ink,
+                badge.definition.title.uppercase(Locale.US),
+                style = MaterialTheme.typography.titleLarge.copy(fontSize = 27.sp, lineHeight = 32.sp, fontWeight = FontWeight.Bold),
+                color = Trail,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.padding(top = 2.dp),
             )
@@ -470,7 +459,7 @@ private fun BadgeDetailSheet(
             LinearProgressIndicator(
                 progress = { progress },
                 modifier = Modifier.fillMaxWidth().padding(top = 24.dp).height(5.dp).clip(CircleShape),
-                color = if (badge.earned) Trail else Moss,
+                color = Fern,
                 trackColor = Line,
             )
             Text(
@@ -486,10 +475,6 @@ private fun BadgeDetailSheet(
                     color = InkMuted,
                     modifier = Modifier.padding(top = 2.dp),
                 )
-            }
-            HorizontalDivider(color = Line, modifier = Modifier.padding(top = 24.dp))
-            TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth().padding(top = 6.dp)) {
-                Text("Close")
             }
         }
     }

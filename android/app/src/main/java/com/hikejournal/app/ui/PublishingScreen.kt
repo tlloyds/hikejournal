@@ -16,6 +16,9 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -96,6 +99,7 @@ import com.hikejournal.app.ui.theme.Moss
 import com.hikejournal.app.ui.theme.Paper
 import com.hikejournal.app.ui.theme.Parchment
 import com.hikejournal.app.ui.theme.Trail
+import com.hikejournal.app.ui.theme.TrailText
 import com.hikejournal.app.ui.theme.TrailBadge
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
@@ -170,67 +174,27 @@ fun PublishingScreen(
 
     Box(Modifier.fillMaxSize().background(Parchment)) {
         Column(Modifier.fillMaxSize()) {
-            PatternedForestSurface(Modifier.fillMaxWidth()) {
-                Column(Modifier.fillMaxWidth().statusBarsPadding().padding(start = 18.dp, end = 8.dp, top = 12.dp, bottom = 8.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        BrandMark(Modifier.size(width = 42.dp, height = 50.dp))
-                        Column(Modifier.weight(1f).padding(start = 10.dp)) {
-                            Text(
-                                "Publish",
-                                style = MaterialTheme.typography.titleLarge.copy(
-                                    fontSize = 28.sp,
-                                    lineHeight = 32.sp,
-                                    fontWeight = FontWeight.Bold,
-                                ),
-                                color = Paper,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            Text(
-                                String.format(
-                                    Locale.US,
-                                    "%,d ready · %,d attention · %,d posted",
-                                    readyCount,
-                                    attentionCount,
-                                    postedCount,
-                                ),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = Color(0xFFE4E9DF),
-                            )
-                        }
-                        IconButton(onClick = onRefresh, enabled = !loading && publishingId == null && !batchPublishing) {
-                            if (loading) CircularProgressIndicator(Modifier.size(20.dp), color = Paper, strokeWidth = 2.dp)
-                            else Icon(Icons.Rounded.Refresh, "Refresh publishing queue", tint = Paper)
-                        }
+            BrandScreenHeader(
+                title = "Publish",
+                detail = String.format(Locale.US, "%,d ready · %,d attention · %,d posted", readyCount, attentionCount, postedCount),
+                actions = {
+                    TextButton(
+                        onClick = { if (queue.connected) batchMode = true else onConnectInat() },
+                        enabled = readyCount > 0 && !offline && !batchPublishing && publishingId == null,
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp),
+                        colors = ButtonDefaults.textButtonColors(contentColor = Paper),
+                    ) { Text("Batch post", style = MaterialTheme.typography.labelSmall) }
+                    IconButton(onClick = onRefresh, enabled = !loading && publishingId == null && !batchPublishing) {
+                        if (loading) CircularProgressIndicator(Modifier.size(20.dp), color = Paper, strokeWidth = 2.dp)
+                        else Icon(Icons.Rounded.Refresh, "Refresh publishing queue", tint = Paper)
                     }
-                    Row(Modifier.fillMaxWidth().padding(top = 3.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                        TextButton(
-                            onClick = { if (queue.connected) batchMode = true else onConnectInat() },
-                            enabled = readyCount > 0 && !offline && !batchPublishing && publishingId == null,
-                            colors = ButtonDefaults.textButtonColors(contentColor = Paper),
-                        ) {
-                            Text(if (queue.connected) "Batch post" else "Connect iNaturalist")
-                        }
-                        Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                            PublishFilter.entries.forEach { option ->
-                                val count = when (option) {
-                                    PublishFilter.Ready -> readyCount
-                                    PublishFilter.Attention -> attentionCount
-                                    PublishFilter.Posted -> postedCount
-                                }
-                                TextButton(
-                                    onClick = { filter = option; index = 0 },
-                                    modifier = Modifier.then(
-                                        if (filter == option) Modifier.background(Fern, RoundedCornerShape(5.dp)) else Modifier,
-                                    ),
-                                ) {
-                                    Text("${option.label} · $count", color = if (filter == option) Moss else Color(0xFFD8E0D5))
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+                },
+            )
+            BrandSectionTabs(
+                labels = PublishFilter.entries.map { it.label },
+                selectedIndex = filter.ordinal,
+                onSelect = { filter = PublishFilter.entries[it]; index = 0 },
+            )
 
             HikeFilterControl(
                 hikes = hikes,
@@ -511,7 +475,7 @@ private fun PublishBatchPlanContent(
                         FilterChip(
                             selected = geoprivacy == option.first,
                             onClick = { geoprivacy = option.first },
-                            label = { Text(option.second, style = MaterialTheme.typography.labelSmall) },
+                            label = { Text(option.second, style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, letterSpacing = 0.sp), maxLines = 1) },
                             modifier = Modifier.weight(1f),
                             enabled = !submitting,
                         )
@@ -662,7 +626,12 @@ private fun PublishItemContent(
     var geoprivacy by remember(item.id) { mutableStateOf("open") }
     var captive by remember(item.id) { mutableStateOf(false) }
     val context = LocalContext.current
-    LazyColumn(Modifier.fillMaxSize().padding(bottom = 84.dp)) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(
+            bottom = 72.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
+        ),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 20.dp),
+    ) {
         item {
             Box(Modifier.fillMaxWidth().height(390.dp).background(Moss)) {
                 AsyncImage(item.photo.url, item.commonName, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
@@ -684,7 +653,7 @@ private fun PublishItemContent(
         }
         item {
             Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 22.dp)) {
-                Text(item.hikeTitle, style = MaterialTheme.typography.titleLarge, color = Ink)
+                Text(item.hikeTitle, style = MaterialTheme.typography.titleLarge, color = TrailText)
                 val contextLine = listOf(formatPublishDate(item.photo.takenAt ?: item.hikeDate), item.locationName)
                     .filter { it.isNotBlank() }
                     .joinToString(" · ")
@@ -703,14 +672,15 @@ private fun PublishItemContent(
                             } else {
                                 "Connect iNaturalist to publish this observation."
                             },
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = InkMuted,
+                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                            color = Ink,
                             modifier = Modifier.padding(top = 18.dp),
                         )
                         Button(
                             onClick = { if (connected) confirmOpen = true else onConnectInat() },
                             enabled = !offline && !publishing,
                             modifier = Modifier.fillMaxWidth().padding(top = 14.dp).height(52.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Fern, contentColor = Moss),
                         ) {
                             if (publishing) CircularProgressIndicator(Modifier.size(19.dp), color = Paper, strokeWidth = 2.dp)
                             else Icon(Icons.Rounded.CloudUpload, null)
@@ -718,7 +688,7 @@ private fun PublishItemContent(
                             Text(
                                 when {
                                     publishing -> "Publishing…"
-                                    connected -> "Post to iNaturalist"
+                                    connected -> "Publish now"
                                     else -> "Connect iNaturalist"
                                 },
                             )
@@ -763,7 +733,7 @@ private fun PublishItemContent(
                     }
                 }
 
-                OutlinedButton(
+                TextButton(
                     onClick = onNext,
                     enabled = hasNext && !publishing,
                     modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
@@ -774,6 +744,7 @@ private fun PublishItemContent(
                 }
             }
         }
+        item { IdentificationSafetyFooter() }
     }
 
     if (confirmOpen) {
@@ -819,7 +790,7 @@ private fun PublishItemContent(
                             FilterChip(
                                 selected = geoprivacy == option.first,
                                 onClick = { geoprivacy = option.first },
-                                label = { Text(option.second, style = MaterialTheme.typography.labelSmall) },
+                                label = { Text(option.second, style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, letterSpacing = 0.sp), maxLines = 1) },
                                 modifier = Modifier.weight(1f),
                             )
                         }

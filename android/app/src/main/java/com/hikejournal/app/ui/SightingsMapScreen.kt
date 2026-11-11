@@ -62,9 +62,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.hikejournal.app.BuildConfig
 import com.hikejournal.app.data.OfflineMapPack
@@ -180,6 +184,9 @@ fun SightingsMapScreen(
     onOpenPhoto: (Sighting) -> Unit,
 ) {
     var selected by remember { mutableStateOf<Sighting?>(null) }
+    LaunchedEffect(sightings) {
+        selected?.id?.let { id -> sightings.firstOrNull { it.id == id }?.let { selected = it } }
+    }
     var layerMode by remember { mutableStateOf(MapLayerMode.Satellite) }
     var viewport by remember { mutableStateOf<MapViewport?>(null) }
     var packsOpen by remember { mutableStateOf(false) }
@@ -211,29 +218,29 @@ fun SightingsMapScreen(
             showsPhotos = showsPhotos,
             showsRoutes = showsRoutes,
             initialBounds = initialBounds,
+            routeFitTopInset = 84.dp,
+            routeFitBottomInset = 88.dp,
             waitForInitialBounds = loading || initialBounds != null,
             modifier = Modifier.fillMaxSize(),
         )
 
         Column(
-            Modifier.fillMaxWidth().background(Moss.copy(alpha = 0.96f)).statusBarsPadding().padding(start = 12.dp, end = 8.dp, top = 10.dp, bottom = 12.dp),
+            Modifier.fillMaxWidth().background(Moss.copy(alpha = 0.96f)).statusBarsPadding().padding(start = 12.dp, end = 8.dp, top = 2.dp, bottom = 4.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                BrandMark(Modifier.size(width = 34.dp, height = 40.dp))
                 Column(Modifier.weight(1f)) {
-                    Text("Sightings map", style = MaterialTheme.typography.headlineSmall, color = Paper, maxLines = 1)
+                    Text("Sightings Map", style = MaterialTheme.typography.titleMedium, color = Paper, maxLines = 1)
                     Text(
-                        "$photoCount GEOTAGGED PHOTOS · ${routeSegments.size} ROUTE SEGMENTS",
+                        "$photoCount ${if (photoCount == 1) "photo" else "photos"} · ${routeSegments.size} routes",
                         style = MaterialTheme.typography.labelSmall,
                         color = Color(0xFFD8E0D5),
                     )
                 }
-                TextButton(onClick = {
+                IconButton(onClick = {
                     layerMode = if (layerMode == MapLayerMode.Trail) MapLayerMode.Satellite else MapLayerMode.Trail
                 }) {
-                    Icon(Icons.Rounded.Layers, null, tint = Paper, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(5.dp))
-                    Text(if (layerMode == MapLayerMode.Trail) "Satellite" else "Trail", color = Paper)
+                    Icon(Icons.Rounded.Layers,
+                        if (layerMode == MapLayerMode.Satellite) "Switch to trail map" else "Switch to satellite map", tint = Paper)
                 }
                 IconButton(onClick = { displayOpen = true }) {
                     Icon(Icons.Rounded.Visibility, "Map display", tint = Paper)
@@ -252,10 +259,10 @@ fun SightingsMapScreen(
             )
             if (layerMode == MapLayerMode.Satellite) {
                 Text(
-                    "IMAGERY © ESRI · MAXAR · EARTHSTAR · GIS COMMUNITY",
-                    style = MaterialTheme.typography.labelSmall,
+                    "Imagery © Esri, Maxar, Earthstar and contributors",
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, letterSpacing = 0.sp),
                     color = Color(0xFFD8E0D5),
-                    modifier = Modifier.padding(top = 3.dp),
+                    modifier = Modifier.padding(top = 2.dp),
                 )
             }
         }
@@ -476,6 +483,7 @@ private fun SightingInspector(
     onOpenHike: () -> Unit,
     onOpenPhoto: () -> Unit,
 ) {
+    var thumbnailFailed by remember(sighting.id, sighting.thumbnailUrl) { mutableStateOf(false) }
     Row(
         Modifier.fillMaxWidth().background(Paper, RoundedCornerShape(8.dp)).padding(10.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -488,10 +496,11 @@ private fun SightingInspector(
             contentAlignment = Alignment.Center,
         ) {
             AsyncImage(
-                sighting.thumbnailUrl.ifBlank { sighting.url },
+                if (thumbnailFailed) sighting.url else sighting.thumbnailUrl.ifBlank { sighting.url },
                 "Open ${sighting.speciesName.ifBlank { sighting.caption.ifBlank { "field photograph" } }}",
                 Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop,
+                onError = { thumbnailFailed = true },
             )
             if (openingPhoto) {
                 Box(Modifier.fillMaxSize().background(Color(0x99324223)))
@@ -601,10 +610,20 @@ internal fun HikeJournalMap(
         MapView(context, options).apply { onCreate(Bundle()) }
     }
 
-    DisposableEffect(mapView) {
-        mapView.onStart()
-        mapView.onResume()
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(mapView, lifecycle) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_START -> mapView.onStart()
+                Lifecycle.Event.ON_RESUME -> mapView.onResume()
+                Lifecycle.Event.ON_PAUSE -> mapView.onPause()
+                Lifecycle.Event.ON_STOP -> mapView.onStop()
+                else -> Unit
+            }
+        }
+        lifecycle.addObserver(observer)
         onDispose {
+            lifecycle.removeObserver(observer)
             mapView.onPause()
             mapView.onStop()
             mapView.onDestroy()

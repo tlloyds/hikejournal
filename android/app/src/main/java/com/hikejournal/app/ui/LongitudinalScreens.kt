@@ -1217,7 +1217,7 @@ private fun FieldPageHero(
             BrandWordmark(Modifier.width(168.dp).height(54.dp))
             Text(
                 kicker,
-                style = MaterialTheme.typography.labelMedium,
+                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
                 color = Color(0xFFF1C37A),
                 modifier = Modifier.padding(top = 14.dp),
             )

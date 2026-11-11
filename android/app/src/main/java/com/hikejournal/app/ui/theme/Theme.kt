@@ -28,17 +28,20 @@ val Line = Color(0xFFD8D4C6)
 val Lichen = Color(0xFFE2E8D4)
 
 private val DisplayFamily = FontFamily(
-    Font(R.font.cormorant_garamond, weight = FontWeight.Normal),
-    Font(R.font.cormorant_garamond, weight = FontWeight.SemiBold),
-    Font(R.font.cormorant_garamond, weight = FontWeight.Bold),
+    Font(R.font.cormorant_garamond_400, weight = FontWeight.Normal),
+    Font(R.font.cormorant_garamond_600, weight = FontWeight.SemiBold),
+    Font(R.font.cormorant_garamond_700, weight = FontWeight.Bold),
 )
 
-private val BodyFamily = FontFamily(
-    Font(R.font.source_sans_3, weight = FontWeight.Normal),
-    Font(R.font.source_sans_3, weight = FontWeight.Medium),
-    Font(R.font.source_sans_3, weight = FontWeight.SemiBold),
-    Font(R.font.source_sans_3, weight = FontWeight.Bold),
+// Quicksand is named in the supplied Illustrator file. Static instances preserve
+// its real weights instead of mapping every style to a variable font's light default.
+val BrandFamily = FontFamily(
+    Font(R.font.quicksand_400, weight = FontWeight.Normal),
+    Font(R.font.quicksand_500, weight = FontWeight.Medium),
+    Font(R.font.quicksand_600, weight = FontWeight.SemiBold),
+    Font(R.font.quicksand_700, weight = FontWeight.Bold),
 )
+private val BodyFamily = BrandFamily
 
 private val HikeTypography = Typography(
     displayLarge = TextStyle(fontFamily = DisplayFamily, fontWeight = FontWeight.SemiBold, fontSize = 56.sp, lineHeight = 60.sp),
@@ -65,6 +68,21 @@ private val HikeColors = lightColorScheme(
     onPrimaryContainer = Moss,
     secondary = Trail,
     onSecondary = Paper,
+    secondaryContainer = Lichen,
+    onSecondaryContainer = Moss,
+    tertiary = MossSoft,
+    onTertiary = Paper,
+    tertiaryContainer = Lichen,
+    onTertiaryContainer = Moss,
+    surfaceTint = Moss,
+    surfaceContainer = Paper,
+    surfaceContainerHigh = Parchment,
+    surfaceContainerHighest = Lichen,
+    surfaceContainerLow = Parchment,
+    surfaceContainerLowest = Color.White,
+    surfaceBright = Color.White,
+    surfaceDim = Color(0xFFE7E4DA),
+    outlineVariant = Line,
     background = Parchment,
     onBackground = Ink,
     surface = Paper,

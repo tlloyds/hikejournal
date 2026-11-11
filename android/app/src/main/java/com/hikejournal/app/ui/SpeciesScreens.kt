@@ -321,9 +321,9 @@ fun SpeciesIndexScreen(
         item {
             BrandScreenHeader(
                 title = when (mode) {
-                    SpeciesMode.Collection -> "Field guide"
-                    SpeciesMode.Nearby -> "Nearby field list"
-                    SpeciesMode.Quests -> "Field quests"
+                    SpeciesMode.Collection -> "Field Guide"
+                    SpeciesMode.Nearby -> "Nearby Field List"
+                    SpeciesMode.Quests -> "Field Quests"
                 },
                 detail = headerCount + if (offline) " · offline" else "",
                 actions = {
@@ -1081,28 +1081,11 @@ internal fun DiscoveryTaxonPreviewDialog(
 
 @Composable
 private fun SpeciesModeTabs(mode: SpeciesMode, onMode: (SpeciesMode) -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().background(Color(0xFFE3DEC9)).padding(horizontal = 12.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.SpaceEvenly,
-    ) {
-        SpeciesMode.entries.forEach { item ->
-            val color by animateColorAsState(if (item == mode) Moss else Color.Transparent, label = "species-mode")
-            TextButton(
-                onClick = { onMode(item) },
-                modifier = Modifier.background(color, RoundedCornerShape(3.dp)),
-            ) {
-                Text(
-                    item.label.uppercase(Locale.US),
-                    style = MaterialTheme.typography.labelLarge.copy(
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 0.35.sp,
-                    ),
-                    color = if (item == mode) Paper else Ink,
-                )
-            }
-        }
-    }
+    BrandSectionTabs(
+        labels = SpeciesMode.entries.map { it.label },
+        selectedIndex = mode.ordinal,
+        onSelect = { onMode(SpeciesMode.entries[it]) },
+    )
 }
 
 @Composable

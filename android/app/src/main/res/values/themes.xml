@@ -1,10 +1,10 @@
 <resources>
-    <style name="Theme.HikeJournal" parent="android:style/Theme.Material.Light.NoActionBar">
-        <item name="android:fontFamily">@font/source_sans_3</item>
+    <style name="Base.Theme.HikeJournal" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:fontFamily">@font/quicksand_400</item>
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:statusBarColor">#324223</item>
-        <item name="android:navigationBarColor">#F5F1E7</item>
-        <item name="android:windowLightNavigationBar">true</item>
+        <item name="android:navigationBarColor">#324223</item>
         <item name="android:windowActionModeOverlay">true</item>
     </style>
+    <style name="Theme.HikeJournal" parent="Base.Theme.HikeJournal" />
 </resources>

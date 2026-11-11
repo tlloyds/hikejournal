@@ -176,3 +176,14 @@ internal fun IdentificationSafetyReminder(modifier: Modifier = Modifier, color: 
         fontSize = 15.sp, lineHeight = 23.sp,
     ), color = color, modifier = modifier)
 }
+
+
+@Composable
+internal fun IdentificationSafetyFooter() {
+    Column(Modifier.fillMaxWidth().background(com.hikejournal.app.ui.theme.Parchment)
+        .padding(horizontal = 20.dp, vertical = 18.dp)) {
+        Text("IMPORTANT:", style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Bold, color = Moss)
+        IdentificationSafetyReminder(Modifier.padding(top = 4.dp))
+    }
+}

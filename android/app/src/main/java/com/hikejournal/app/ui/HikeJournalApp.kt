@@ -1690,7 +1690,7 @@ private fun SetupStep(number: String, title: String, detail: String) {
 }
 
 @Composable
-private fun LibraryScreen(
+internal fun LibraryScreen(
     state: AppState,
     tracking: TrackingUiModel?,
     onOpenHike: (String) -> Unit,
@@ -1957,8 +1957,7 @@ private fun LibraryHeader(
             Modifier.fillMaxWidth().statusBarsPadding().padding(start = 18.dp, end = 6.dp, top = 12.dp, bottom = 18.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                BrandWordmark(Modifier.width(180.dp).height(58.dp))
-                Spacer(Modifier.weight(1f))
+                BrandWordmark(Modifier.weight(1f).height(58.dp))
                 IconButton(onClick = onRefresh, enabled = !refreshing) {
                     if (refreshing) CircularProgressIndicator(Modifier.size(20.dp), color = Paper, strokeWidth = 2.dp)
                     else Icon(Icons.Rounded.Refresh, "Refresh", tint = Paper)
@@ -2159,12 +2158,11 @@ private fun SearchLine(query: String, onQueryChange: (String) -> Unit) {
         Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(Icons.Rounded.Search, null, tint = InkMuted, modifier = Modifier.size(21.dp))
         OutlinedTextField(
             value = query,
             onValueChange = onQueryChange,
-            modifier = Modifier.weight(1f).padding(start = 6.dp),
-            placeholder = { Text("Search places, trails, and notes") },
+            modifier = Modifier.fillMaxWidth(),
+            placeholder = { Text("Search places, trails and notes") },
             singleLine = true,
             shape = RoundedCornerShape(4.dp),
         )
