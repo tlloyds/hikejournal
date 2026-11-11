@@ -1,0 +1,93 @@
+{
+  "date": "2026-11-10",
+  "timezone": "America/New_York",
+  "scope": "Android",
+  "sourceCommit": "1663f7d76e39978ae20f82c0cf25f1e5c0095e96",
+  "versionName": "0.8.49",
+  "versionCode": 195,
+  "instrumentation": {
+    "tests": 7,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "cases": [
+      {
+        "class": "com.hikejournal.app.ui.BrandDesignReviewTest",
+        "name": "reviewActionsAndSafetyFooter"
+      },
+      {
+        "class": "com.hikejournal.app.ui.BrandDesignReviewTest",
+        "name": "publishTabsAndPublicConfirmation"
+      },
+      {
+        "class": "com.hikejournal.app.ui.BrandDesignReviewTest",
+        "name": "reviewTitleFitsCompactPhoneWidth"
+      },
+      {
+        "class": "com.hikejournal.app.ui.BrandDesignReviewTest",
+        "name": "fieldGuideAndTabs"
+      },
+      {
+        "class": "com.hikejournal.app.ui.BrandDesignReviewTest",
+        "name": "batchIdIsAvailableOnlyOnWaitingObservationsWithMultipleWaitingIds"
+      },
+      {
+        "class": "com.hikejournal.app.ui.BrandDesignReviewTest",
+        "name": "sightingsMapRendersImageryAndPhotoInspector"
+      },
+      {
+        "class": "com.hikejournal.app.ui.BrandDesignReviewTest",
+        "name": "hikesHeaderSearchAndNavigation"
+      }
+    ]
+  },
+  "unitTests": {
+    "debug": {
+      "tests": 183,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "release": {
+      "tests": 183,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "lintRelease": {
+    "errors": 0,
+    "warnings": 61,
+    "hints": 1
+  },
+  "artifacts": [
+    {
+      "file": "dist/HikeJournal-v0.8.49.apk",
+      "bytes": 64380206,
+      "sha256": "f8e3dc9be8540aca1568861daf7c2c1e26c8af2f7b4ea7959310f767918f3a47"
+    },
+    {
+      "file": "dist/HikeJournal-v0.8.49.aab",
+      "bytes": 31548868,
+      "sha256": "1113f2b6fd1ad3c4a24f4e40863c3cefd5ca59d4a479f24d3de3fc4b041af448"
+    }
+  ],
+  "upgrade": {
+    "fromBuild": 194,
+    "toBuild": 195,
+    "device": "Android 15 / API 35",
+    "appId": "10258",
+    "firstInstallTime": "2026-11-10 23:28:38",
+    "appIdAndFirstInstallTimePreserved": true,
+    "androidRuntimeErrorLines": 0
+  },
+  "signing": {
+    "apkVerifier": "PASS, no findings",
+    "strictAabVerification": "passed in personal-build promotion gates",
+    "permanentSignerSha256": "93:B9:88:87:E3:74:9C:DB:22:D6:3D:ED:7B:40:81:70:6D:D4:B3:8A:5A:0E:22:AA:86:AB:84:F0:24:35:5E:A1",
+    "verifiedSdkRanges": [
+      "26-27",
+      "28-36"
+    ]
+  }
+}
