@@ -47,6 +47,7 @@ import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -157,8 +158,10 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -1800,30 +1803,45 @@ internal fun LibraryScreen(
 }
 
 @Composable
-private fun LibraryActionStrip(onPlanPlaces: () -> Unit, onBadges: () -> Unit) {
-    Row(Modifier.fillMaxWidth().padding(bottom = 2.dp)) {
-        Box(
-            Modifier
-                .weight(1f)
-                .background(Fern)
-                .clickable(onClick = onPlanPlaces)
-                .heightIn(min = 58.dp)
-                .padding(horizontal = 13.dp, vertical = 10.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text("PLAN MY NEXT HIKE", style = MaterialTheme.typography.labelLarge, color = Moss)
+internal fun LibraryActionStrip(onPlanPlaces: () -> Unit, onBadges: () -> Unit) {
+    BoxWithConstraints(Modifier.fillMaxWidth().padding(bottom = 2.dp)) {
+        val planLabel = "PLAN MY NEXT HIKE"
+        val medalsLabel = "VIEW MY TRAIL MEDALS"
+        val baseStyle = MaterialTheme.typography.labelLarge
+        val textMeasurer = rememberTextMeasurer()
+        val textWidth = listOf(planLabel, medalsLabel).maxOf { label ->
+            textMeasurer.measure(label, style = baseStyle, maxLines = 1, softWrap = false).size.width
+        }.coerceAtLeast(1)
+        val availableWidth = with(LocalDensity.current) { ((maxWidth - 1.dp) / 2 - 16.dp).toPx() }
+        val labelScale = (availableWidth / textWidth).coerceIn(0.01f, 1f).let {
+            if (it < 1f) it * 0.98f else it
         }
-        Box(Modifier.width(1.dp).heightIn(min = 58.dp).background(Moss.copy(alpha = 0.2f)))
-        Box(
-            Modifier
-                .weight(1f)
-                .background(Lichen)
-                .clickable(onClick = onBadges)
-                .heightIn(min = 58.dp)
-                .padding(horizontal = 13.dp, vertical = 10.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text("VIEW MY TRAIL MEDALS", style = MaterialTheme.typography.labelLarge, color = Moss)
+        val labelStyle = baseStyle.copy(
+            fontSize = baseStyle.fontSize * labelScale,
+            lineHeight = baseStyle.lineHeight * labelScale,
+        )
+        Row(Modifier.fillMaxWidth()) {
+            Box(
+                Modifier.weight(1f).background(Fern).clickable(onClick = onPlanPlaces)
+                    .heightIn(min = 58.dp).padding(horizontal = 8.dp, vertical = 10.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    planLabel, style = labelStyle, color = Moss, maxLines = 1, softWrap = false,
+                    modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center,
+                )
+            }
+            Box(Modifier.width(1.dp).heightIn(min = 58.dp).background(Moss.copy(alpha = 0.2f)))
+            Box(
+                Modifier.weight(1f).background(Lichen).clickable(onClick = onBadges)
+                    .heightIn(min = 58.dp).padding(horizontal = 8.dp, vertical = 10.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    medalsLabel, style = labelStyle, color = Moss, maxLines = 1, softWrap = false,
+                    modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center,
+                )
+            }
         }
     }
     HorizontalDivider(color = Line)

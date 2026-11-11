@@ -25,6 +25,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.SemanticsActions
@@ -114,20 +118,107 @@ class BrandDesignReviewTest {
         capture("01-hikes")
     }
 
-    @Test fun fieldGuideAndTabs() {
-        rule.setContent { Frame(TopDestination.Species) {
-            SpeciesIndexScreen(listOf(species), listOf(hike), emptyList(), null, emptyList(), null, null, null, null,
+    @Composable private fun FieldGuide(
+        records: List<SpeciesRecord>,
+        preferences: SpeciesCollectionPreferences = SpeciesCollectionPreferences(),
+        onPreferences: (SpeciesCollectionPreferences) -> Unit = {},
+    ) {
+        Frame(TopDestination.Species) {
+            SpeciesIndexScreen(records, listOf(hike), emptyList(), null, emptyList(), null, null, null, null,
                 loading = false, discoveryLoading = false, savingQuest = false, offline = false, discoveryNotice = null,
                 questMapLoading = false, questMapNotice = null, onRefresh = {}, onRefreshDiscovery = {}, onOpenDiscovery = {},
                 onLoadNearby = { _, _, _, _, _, _, _ -> }, onSaveQuest = { _, _, _, _ -> }, onSaveQuestFocus = { _, _ -> },
                 onRenameQuest = { _, _ -> }, onArchiveQuest = {}, onDeleteQuest = {}, onOpenNearbyMap = { _, _ -> },
                 onOpenQuestMap = { _, _ -> }, onRefreshQuestMap = {}, onCloseQuestMap = {}, onInitialAreaConsumed = {},
-                collectionPreferences = SpeciesCollectionPreferences(), onCollectionPreferencesChange = {}, onOpenSpecies = { _, _, _ -> })
-        } }
+                collectionPreferences = preferences, onCollectionPreferencesChange = onPreferences, onOpenSpecies = { _, _, _ -> })
+        }
+    }
+
+    @Test fun fieldGuideAndTabs() {
+        rule.setContent { FieldGuide(listOf(species)) }
         assertHeadingFits("Field Guide")
+        rule.onNodeWithText("Jump to…").assertDoesNotExist()
+        rule.onNodeWithContentDescription("Species quick jump").assertDoesNotExist()
         capture("02-field-guide")
         rule.onNodeWithText("FIELD QUESTS").performClick()
         rule.onNodeWithText("Field Quests").assertIsDisplayed()
+    }
+
+    @Test fun fieldGuideJumpIsOnDemandAndFollowsSelectedSort() {
+        val records = (0 until 52).map { index ->
+            species.copy(
+                key = "field-$index",
+                commonName = "${'A' + index / 2} field species ${index.toString().padStart(3, '0')}",
+                scientificName = "${'Z' - index / 2} latin name ${index.toString().padStart(3, '0')}",
+                encounterCount = index + 1,
+            )
+        }
+        val preferences = mutableStateOf(SpeciesCollectionPreferences())
+        rule.setContent { FieldGuide(records, preferences.value) { preferences.value = it } }
+        rule.onNodeWithText("Jump to…").assertIsDisplayed()
+        rule.onNodeWithContentDescription("Species quick jump").assertDoesNotExist()
+        capture("22-field-guide-clean-index")
+        rule.onNodeWithText("Jump to…").performClick()
+        rule.onNodeWithText("Jump to species").assertIsDisplayed()
+        capture("23-field-guide-jump-sheet")
+        rule.onNodeWithContentDescription("Species jump choices").performScrollToIndex(25)
+        rule.onNodeWithContentDescription("Jump to Z").performClick()
+        rule.onNodeWithText("Jump to species").assertDoesNotExist()
+        rule.waitUntil(5_000) { rule.onNodeWithText("Z field species 050").isDisplayed() }
+        rule.onNodeWithContentDescription("Species quick jump").assertDoesNotExist()
+        capture("24-field-guide-after-jump")
+
+        rule.onNode(hasScrollToIndexAction()).performScrollToIndex(0)
+        rule.runOnIdle { preferences.value = preferences.value.copy(sort = SpeciesSort.ScientificName) }
+        rule.onNodeWithText("Jump to…").performClick()
+        rule.onNodeWithContentDescription("Species jump choices").performScrollToIndex(25)
+        rule.onNodeWithContentDescription("Jump to Z").performClick()
+        rule.waitUntil(5_000) { rule.onNodeWithText("A field species 000").isDisplayed() }
+        rule.onNodeWithText("Jump to species").assertDoesNotExist()
+
+        rule.onNode(hasScrollToIndexAction()).performScrollToIndex(0)
+        rule.runOnIdle { preferences.value = preferences.value.copy(sort = SpeciesSort.MostRecent) }
+        rule.onNodeWithText("Jump to…").performClick()
+        rule.onNodeWithContentDescription("Jump to item 52").performClick()
+        rule.waitUntil(5_000) { rule.onNodeWithText("Z field species 051").isDisplayed() }
+        rule.onNodeWithText("Jump to species").assertDoesNotExist()
+    }
+
+    @Test fun hikesShortcutLabelsStaySingleLineOnCompactWidths() {
+        val width = mutableStateOf(320.dp)
+        val fontScale = mutableStateOf(1f)
+        var plans = 0
+        var medals = 0
+        rule.setContent {
+            val density = LocalDensity.current
+            CompositionLocalProvider(LocalDensity provides Density(density.density, fontScale.value)) {
+                HikeJournalTheme {
+                    Box(Modifier.width(width.value).statusBarsPadding()) {
+                        LibraryActionStrip({ plans++ }, { medals++ })
+                    }
+                }
+            }
+        }
+        for (phoneWidth in listOf(320.dp, 360.dp, 393.dp)) {
+            for (scale in listOf(1f, 1.3f)) {
+                rule.runOnIdle { width.value = phoneWidth; fontScale.value = scale }
+                for (label in listOf("PLAN MY NEXT HIKE", "VIEW MY TRAIL MEDALS")) {
+                    rule.onNodeWithText(label).assertIsDisplayed()
+                        .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { action ->
+                            val results = mutableListOf<TextLayoutResult>()
+                            action(results)
+                            val layout = results.single()
+                            org.junit.Assert.assertEquals("Wrapped $label at $phoneWidth / $scale", 1, layout.lineCount)
+                            assertFalse("Clipped $label at $phoneWidth / $scale: size=${layout.size}, width=${layout.didOverflowWidth}, height=${layout.didOverflowHeight}, font=${layout.layoutInput.style.fontSize}, line=${layout.layoutInput.style.lineHeight}, paragraph=${layout.multiParagraph.width}, intrinsic=${layout.multiParagraph.maxIntrinsicWidth}", layout.hasVisualOverflow)
+                        }
+                }
+                if (phoneWidth == 320.dp) capture(if (scale == 1f) "20-hikes-shortcuts-320" else "21-hikes-shortcuts-large-type")
+            }
+        }
+        rule.onNodeWithText("PLAN MY NEXT HIKE").performClick()
+        rule.onNodeWithText("VIEW MY TRAIL MEDALS").performClick()
+        org.junit.Assert.assertEquals(1, plans)
+        org.junit.Assert.assertEquals(1, medals)
     }
 
     @Test fun reviewActionsAndSafetyFooter() {

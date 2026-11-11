@@ -19,17 +19,17 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -41,6 +41,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -65,6 +68,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -73,7 +77,6 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -86,9 +89,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
 import androidx.core.content.ContextCompat
 import androidx.compose.ui.text.font.FontStyle
@@ -187,6 +190,7 @@ fun SpeciesIndexScreen(
 ) {
     var mode by remember { mutableStateOf(SpeciesMode.Collection) }
     var speciesSortOpen by remember { mutableStateOf(false) }
+    var speciesJumpOpen by remember { mutableStateOf(false) }
     var filterOpen by remember { mutableStateOf(false) }
     var observationTypeFilterOpen by remember { mutableStateOf(false) }
     var areaSearch by remember { mutableStateOf("") }
@@ -290,6 +294,7 @@ fun SpeciesIndexScreen(
     val filtered = filterSpeciesBySearch(typeScopedSpecies, query)
         .let { items -> sortSpeciesRecords(items, speciesSort) }
     val jumpTargets = speciesJumpTargets(filtered, speciesSort)
+    val jumpTopInset = WindowInsets.statusBars.getTop(LocalDensity.current)
     val browseContext = buildList {
         hikes.firstOrNull { it.id == selectedHikeId }?.title?.let(::add)
         if (observationType != ObservationTypeFilter.All) add(observationType.label)
@@ -396,7 +401,17 @@ fun SpeciesIndexScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("SPECIES INDEX", style = MaterialTheme.typography.labelMedium, color = TrailText)
+                if (jumpTargets.size > 1) {
+                    TextButton(
+                        onClick = { speciesJumpOpen = true },
+                        contentPadding = PaddingValues(0.dp),
+                    ) {
+                        Text("Jump to…", style = MaterialTheme.typography.labelMedium, color = TrailText)
+                        Icon(Icons.Rounded.KeyboardArrowDown, null, Modifier.size(18.dp), tint = TrailText)
+                    }
+                } else {
+                    Text("SPECIES INDEX", style = MaterialTheme.typography.labelMedium, color = TrailText)
+                }
                 TextButton(onClick = { speciesSortOpen = true }) {
                     Text(speciesSort.label)
                     Spacer(Modifier.width(2.dp))
@@ -441,7 +456,7 @@ fun SpeciesIndexScreen(
             }
         } else {
             items(filtered, key = { it.key }) { record ->
-                SpeciesIndexRow(record, reserveJumpRail = jumpTargets.isNotEmpty()) { key ->
+                SpeciesIndexRow(record) { key ->
                     onOpenSpecies(key, filtered, browseContext)
                 }
             }
@@ -825,22 +840,20 @@ fun SpeciesIndexScreen(
         }
         }
         }
-        if (
-            mode == SpeciesMode.Collection && jumpTargets.isNotEmpty() &&
-            listState.firstVisibleItemIndex >= CollectionFirstSpeciesItem
-        ) {
-            SpeciesJumpRail(
-                modifier = Modifier.align(Alignment.BottomEnd)
-                    .fillMaxHeight(0.68f)
-                    .padding(bottom = 100.dp),
-                targets = jumpTargets,
-                currentSpeciesIndex = (listState.firstVisibleItemIndex - CollectionFirstSpeciesItem)
-                    .coerceIn(0, filtered.lastIndex),
-                onJump = { speciesIndex ->
-                    scope.launch { listState.scrollToItem(CollectionFirstSpeciesItem + speciesIndex) }
-                },
-            )
-        }
+    }
+
+    if (speciesJumpOpen && jumpTargets.size > 1) {
+        SpeciesJumpSheet(
+            targets = jumpTargets,
+            sort = speciesSort,
+            onJump = { speciesIndex ->
+                speciesJumpOpen = false
+                scope.launch {
+                    listState.scrollToItem(CollectionFirstSpeciesItem + speciesIndex, -jumpTopInset)
+                }
+            },
+            onDismiss = { speciesJumpOpen = false },
+        )
     }
 
     if (filterOpen) {
@@ -1628,71 +1641,42 @@ internal fun requestOneShotLocation(
 }
 
 @Composable
-private fun SpeciesJumpRail(
-    modifier: Modifier,
+private fun SpeciesJumpSheet(
     targets: List<SpeciesJumpTarget>,
-    currentSpeciesIndex: Int,
+    sort: SpeciesSort,
     onJump: (Int) -> Unit,
+    onDismiss: () -> Unit,
 ) {
-    var touchedIndex by remember(targets) { mutableIntStateOf(-1) }
-    val currentOnJump by rememberUpdatedState(onJump)
-    val selectedIndex = if (touchedIndex >= 0) touchedIndex else
-        targets.indexOfLast { it.speciesIndex <= currentSpeciesIndex }.coerceAtLeast(0)
-
-    Column(
-        modifier
-            .width(34.dp)
-            .clip(RoundedCornerShape(topStart = 12.dp, bottomStart = 12.dp))
-            .background(Moss)
-            .pointerInput(targets) {
-                awaitEachGesture {
-                    val down = awaitFirstDown()
-                    var lastJump = -1
-                    fun jumpAt(y: Float) {
-                        if (size.height <= 0) return
-                        val index = ((y / size.height) * targets.size).toInt()
-                            .coerceIn(0, targets.lastIndex)
-                        touchedIndex = index
-                        if (index != lastJump) {
-                            lastJump = index
-                            currentOnJump(targets[index].speciesIndex)
-                        }
-                    }
-                    jumpAt(down.position.y)
-                    do {
-                        val event = awaitPointerEvent()
-                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                        if (change.pressed) {
-                            jumpAt(change.position.y)
-                            change.consume()
-                        }
-                    } while (change.pressed)
-                    touchedIndex = -1
-                }
-            }
-            .semantics { contentDescription = "Species quick jump" },
-        verticalArrangement = Arrangement.SpaceEvenly,
+    val alphabetical = sort == SpeciesSort.Alphabetical || sort == SpeciesSort.ScientificName
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = Parchment,
     ) {
-        targets.forEachIndexed { index, target ->
-            Box(
-                Modifier.fillMaxWidth().weight(1f).semantics {
-                    contentDescription = "Jump to ${target.label}"
-                    onClick {
-                        onJump(target.speciesIndex)
-                        true
-                    }
-                },
-                contentAlignment = Alignment.Center,
+        Column(Modifier.fillMaxWidth().navigationBarsPadding()) {
+            Column(Modifier.padding(horizontal = 20.dp)) {
+                Text("Jump to species", style = MaterialTheme.typography.titleLarge, color = Ink)
+                Text(sort.label, style = MaterialTheme.typography.bodyMedium, color = InkMuted)
+            }
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(48.dp),
+                modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp)
+                    .semantics { contentDescription = "Species jump choices" },
+                contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 20.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text(
-                    target.label,
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        fontSize = 10.sp,
-                        lineHeight = 11.sp,
-                        fontWeight = if (index == selectedIndex) FontWeight.Bold else FontWeight.Medium,
-                    ),
-                    color = if (index == selectedIndex) Color(0xFFD4E7BA) else Paper,
-                )
+                gridItems(targets, key = { it.label }) { target ->
+                    TextButton(
+                        onClick = { onJump(target.speciesIndex) },
+                        modifier = Modifier.fillMaxWidth().height(48.dp).semantics {
+                            contentDescription = if (alphabetical) "Jump to ${target.label}" else "Jump to item ${target.label}"
+                        },
+                        contentPadding = PaddingValues(0.dp),
+                    ) {
+                        Text(target.label, style = MaterialTheme.typography.titleMedium, color = Moss)
+                    }
+                }
             }
         }
     }
@@ -1701,14 +1685,13 @@ private fun SpeciesJumpRail(
 @Composable
 private fun SpeciesIndexRow(
     record: SpeciesRecord,
-    reserveJumpRail: Boolean,
     onOpen: (String) -> Unit,
 ) {
     Column(Modifier.fillMaxWidth().clickable { onOpen(record.key) }) {
         Row(
             Modifier.fillMaxWidth().padding(
                 start = 20.dp,
-                end = if (reserveJumpRail) 48.dp else 20.dp,
+                end = 20.dp,
                 top = 13.dp,
                 bottom = 13.dp,
             ),
