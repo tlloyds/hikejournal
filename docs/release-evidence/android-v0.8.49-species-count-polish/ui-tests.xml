@@ -1,0 +1,10 @@
+<?xml version='1.0' encoding='UTF-8' ?>
+<testsuite name="com.hikejournal.app.ui.BrandDesignReviewTest" tests="2" failures="0" errors="0" skipped="0" time="49.457" timestamp="2026-11-11T13:34:42" hostname="localhost">
+  <properties>
+    <property name="device" value="HikeJournalPixel(AVD) - 15" />
+    <property name="flavor" value="" />
+    <property name="project" value=":app" />
+  </properties>
+  <testcase name="publishTabsAndPublicConfirmation" classname="com.hikejournal.app.ui.BrandDesignReviewTest" time="27.921" />
+  <testcase name="fieldGuideAndTabs" classname="com.hikejournal.app.ui.BrandDesignReviewTest" time="14.864" />
+</testsuite>
