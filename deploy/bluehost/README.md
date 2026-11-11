@@ -1,6 +1,31 @@
-# Deploying HikeJournal on Bluehost VPS
+# Deploying HikeJournal on Bluehost
 
-This app is a self-hosted Streamlit server. The practical Bluehost path is:
+## Current public website
+
+`hikejournal.wtsorlando.com` serves the static public site in
+`deploy/bluehost/site/` from Bluehost shared Apache hosting. Its verified
+cPanel document root is `/home3/mftphilo/public_html/website_4d9d652d`.
+This website deployment is independent of Android/iOS builds and the API.
+
+1. In the Bluehost portal, select **HikeJournal**, then **File Manager**.
+2. Back up the affected homepage/assets outside the document root, in
+   `/home3/mftphilo/hikejournal-backups/`.
+3. Upload the changed static files. A ZIP preserving the paths relative to
+   `site/` can be uploaded and extracted into the document root in cPanel.
+4. Fetch the live files over HTTPS and compare their hashes with local source.
+   Check desktop/mobile layouts and `/privacy/`, `/support/`, and
+   `/account-deletion/`.
+5. Move any temporary upload ZIP to cPanel Trash after extraction and verify
+   that its public URL is no longer available.
+6. Record deployment checks in the release evidence and use a Web-qualified
+   tag when `VERSION` is unchanged. Do not rebuild mobile artifacts for a
+   static website change.
+
+## Optional Streamlit server on a VPS
+
+The following legacy setup is for hosting the interactive Python/Streamlit
+application on a VPS; it is separate from the current static public website.
+The practical VPS path is:
 
 1. Use a Bluehost **VPS** plan, not normal shared hosting.
 2. SSH into the VPS.

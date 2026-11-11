@@ -20,6 +20,22 @@ Both image references resolve and load in the browser. Desktop preview and
 width. Desktop and full-page preview images are included. Legal/support URLs
 were fetched successfully before deployment and contain no logo images.
 
-Bluehost upload/live verification: pending sign-in. The previous temporary SSH
-key was removed during the earlier release, and the browser session has expired.
-No new access credentials have been created.
+## Live deployment
+
+- Runtime source commit: `b65f0a4`.
+- Deployed through the signed-in Bluehost portal and cPanel File Manager to
+  `/home3/mftphilo/public_html/website_4d9d652d`.
+- All four deployed files match the committed-source SHA-256 hashes;
+  `live-verification.json` records bytes, hashes, and successful legal/support
+  URL checks.
+- Live desktop and 390 CSS px phone layouts inspected. Both logo instances and
+  both updated app previews loaded. The phone document width equals its 390 px
+  viewport. Browser warning/error log: no entries.
+- `live-desktop.jpg`, `live-phone.jpg`, and `live-full-page.jpg` show the result.
+- The uploaded ZIP was moved to cPanel Trash. Its public URL returns HTTP 404.
+- Server backups, verified in cPanel, are outside the document root:
+  `/home3/mftphilo/hikejournal-backups/assets-before-logo-2026-11-10.zip`
+  (2.6 MB) and `index-before-logo-2026-11-10.html` (14.34 KB).
+- No new access credentials were created. The existing portal session was
+  renewed by the user; no permanent access was added.
+- Web-only tag: `web-v0.8.49-logo-correction`.
