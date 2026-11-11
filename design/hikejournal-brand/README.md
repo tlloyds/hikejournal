@@ -22,6 +22,8 @@ reads **Hike Journal**. Legacy exports remain for the existing Web assets.
   scanner. Author, copyright, and license records are preserved.
   The existing editorial Cormorant Garamond font also has real 400/600/700
   instances; assigning several weights to its light default does not work.
+  Both font licenses are retained in `fonts/` and bundled in Android's
+  `assets/licenses/` directory.
 - Navigation drawables preserve the supplied SVG path coordinates, colors,
   and fill rules as Android vectors. Do not trace or rescale raster icons.
 - The header texture comes from `icons/svg/HJ-Green-Pattern.svg`, cropped to
