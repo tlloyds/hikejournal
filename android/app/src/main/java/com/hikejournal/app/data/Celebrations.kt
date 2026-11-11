@@ -63,6 +63,12 @@ private fun lifeGroupLabel(iconicTaxonName: String): String = when (iconicTaxonN
     else -> "species"
 }
 
+private fun lifeGroupSubject(iconicTaxonName: String): String = when (val group = lifeGroupLabel(iconicTaxonName)) {
+    "fungi" -> "fungus"
+    "fish", "species" -> group
+    else -> group.removeSuffix("s")
+}
+
 fun buildReviewBatchCelebration(
     status: ReviewBatchStatus,
     existingSpecies: List<SpeciesRecord>,
@@ -136,7 +142,7 @@ fun buildConfirmedSpeciesCelebration(
             kind = CelebrationKind.Discovery,
             eyebrow = "NEW TO YOUR FIELD GUIDE",
             title = candidate.commonName.ifBlank { candidate.scientificName.ifBlank { "New species" } },
-            detail = "Your first confirmed $group record is now part of your living archive.",
+            detail = "You haven't previously logged this ${lifeGroupSubject(candidate.iconicTaxonName)}, this will be the first entry for this species in your field guide.",
             imageUrls = listOf(photo.url).filter(String::isNotBlank),
             highlights = listOf(
                 CelebrationHighlight(after.toString(), "species logged"),

@@ -74,7 +74,7 @@ android {
         applicationId = "com.hikejournal.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 198
+        versionCode = 199
         versionName = releaseVersion
 
         // Safe defaults ensure a newly added non-debug build type cannot inherit a LAN

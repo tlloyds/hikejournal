@@ -330,14 +330,19 @@ class BrandDesignReviewTest {
     }
 
     @Test fun compactDiscoveryCelebration() {
+        val celebration = buildConfirmedSpeciesCelebration(
+            ReviewCandidate(100, "Swamp smartweed", species.scientificName, 0.9, "Plantae"),
+            photo.copy(url = imageUrl), photo.takenAt, emptyList(),
+        )!!
+        var continued = false
         rule.setContent { HikeJournalTheme {
-            FieldCelebrationDialog(FieldCelebration("discovery", CelebrationKind.Discovery,
-                "NEW TO YOUR FIELD GUIDE", "Swamp smartweed", "Your first confirmed plant record is now part of your living archive.",
-                listOf(imageUrl), listOf(CelebrationHighlight("676", "species logged"), CelebrationHighlight("Plants", "life group")),
-                "BADGE PROGRESS", "676 species in your Field Guide"), {})
+            FieldCelebrationDialog(celebration) { continued = true }
         } }
+        rule.onNodeWithText(celebration.detail).assertIsDisplayed()
         rule.onNodeWithText("Continue").assertIsDisplayed()
         capture("11-discovery")
+        rule.onNodeWithText("Continue").performClick()
+        org.junit.Assert.assertTrue(continued)
     }
     @Test fun sightingsMapRendersImageryAndPhotoInspector() {
         val location = LatLng(28.65, -81.02)
