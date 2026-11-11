@@ -1,0 +1,14 @@
+HikeJournal APK artifact verification
+Mode: release
+Artifact: HikeJournal-v0.8.49.apk
+Canonical version: 0.8.49
+Package: com.hikejournal.app
+Version name: 0.8.49
+Version code: 199
+Application label: HikeJournal
+Target sdk: 36
+Signers: 1
+Signer sha-256: 93:B9:88:87:E3:74:9C:DB:22:D6:3D:ED:7B:40:81:70:6D:D4:B3:8A:5A:0E:22:AA:86:AB:84:F0:24:35:5E:A1
+Native abis: arm64-v8a, armeabi-v7a, x86, x86_64
+Findings: none
+Result: PASS

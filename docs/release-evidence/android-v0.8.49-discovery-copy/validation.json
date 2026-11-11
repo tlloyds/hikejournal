@@ -1,0 +1,70 @@
+{
+  "date": "2026-11-11",
+  "timezone": "America/New_York",
+  "scope": "Android",
+  "sourceCommit": "65ea9a950cf0503c60447c9b4f1bebc00dfe9ac2",
+  "versionName": "0.8.49",
+  "versionCode": 199,
+  "instrumentation": {
+    "tests": 1,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "cases": [
+      "compactDiscoveryCelebration"
+    ],
+    "productionCelebrationBuilderUsed": true,
+    "newCopyAndContinueVisible": true,
+    "continueCallbackVerified": true
+  },
+  "unitTests": {
+    "debug": {
+      "tests": 183,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "release": {
+      "tests": 183,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "lintRelease": {
+    "errors": 0,
+    "warnings": 59,
+    "hints": 1
+  },
+  "upgrade": {
+    "fromBuild": 198,
+    "toBuild": 199,
+    "device": "Android 15 / API 35",
+    "appId": "10274",
+    "firstInstallTime": "2026-11-11 16:05:26",
+    "appIdAndFirstInstallTimePreserved": true,
+    "androidRuntimeErrorLines": 0
+  },
+  "signing": {
+    "apkVerifier": "PASS, no findings",
+    "strictAabVerification": "passed in personal-build promotion gates",
+    "expectedPermanentSignerVerified": true,
+    "sdkRangesVerified": [
+      "26-27",
+      "28-36"
+    ],
+    "bothLineageSignersRetainInstalledData": true
+  },
+  "artifacts": [
+    {
+      "file": "dist/HikeJournal-v0.8.49.apk",
+      "bytes": 64421222,
+      "sha256": "c6a4b91bd16c4cd3581c9436ea9311ec72ef16783e9e0aee5e0743d6e3876b30"
+    },
+    {
+      "file": "dist/HikeJournal-v0.8.49.aab",
+      "bytes": 31591242,
+      "sha256": "affac8d920fa8407cf0a1ab28da94ab4b9f4577759208bcc7896cae4d8651684"
+    }
+  ]
+}
