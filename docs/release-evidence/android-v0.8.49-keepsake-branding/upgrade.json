@@ -1,0 +1,9 @@
+{
+  "fromBuild": 199,
+  "toBuild": 200,
+  "device": "Android 15 / API 35",
+  "appId": "10282",
+  "firstInstallTime": "2026-11-11 16:36:05",
+  "appIdAndFirstInstallTimePreserved": true,
+  "androidRuntimeErrorLines": 0
+}

@@ -1,0 +1,9 @@
+<?xml version='1.0' encoding='UTF-8' ?>
+<testsuite name="com.hikejournal.app.ui.HikeShareKeepsakePreviewTest" tests="1" failures="0" errors="0" skipped="0" time="3.47" timestamp="2026-11-11T21:22:02" hostname="localhost">
+  <properties>
+    <property name="device" value="HikeJournalPixel(AVD) - 15" />
+    <property name="flavor" value="" />
+    <property name="project" value=":app" />
+  </properties>
+  <testcase name="exportKeepsakePreview" classname="com.hikejournal.app.ui.HikeShareKeepsakePreviewTest" time="2.665" />
+</testsuite>

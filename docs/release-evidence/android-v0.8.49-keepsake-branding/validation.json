@@ -1,0 +1,91 @@
+{
+  "date": "2026-11-11",
+  "timezone": "America/New_York",
+  "scope": "Android",
+  "sourceCommit": "7d8cb7d08fc9110e243db69296bc597fdcf5136a",
+  "versionName": "0.8.49",
+  "versionCode": 200,
+  "previewRender": {
+    "tests": 1,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "cases": [
+      "exportKeepsakePreview"
+    ],
+    "productionExporterUsed": true,
+    "satelliteSnapshotUsed": true,
+    "sizes": [
+      [
+        1080,
+        1350
+      ],
+      [
+        540,
+        675
+      ]
+    ],
+    "longTitleVisuallyChecked": true,
+    "syntheticSampleRoute": true
+  },
+  "sharePreparation": {
+    "tests": 2,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "cases": [
+      "missingPhotosCannotOpenAnEmptyShareWithoutAKeepsake",
+      "exportsCorrectOrderAndPhotoLimitForEveryKeepsakeOption"
+    ]
+  },
+  "unitTests": {
+    "debug": {
+      "tests": 183,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "release": {
+      "tests": 183,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "lintRelease": {
+    "errors": 0,
+    "warnings": 59,
+    "hints": 1
+  },
+  "upgrade": {
+    "fromBuild": 199,
+    "toBuild": 200,
+    "device": "Android 15 / API 35",
+    "appId": "10282",
+    "firstInstallTime": "2026-11-11 16:36:05",
+    "appIdAndFirstInstallTimePreserved": true,
+    "androidRuntimeErrorLines": 0
+  },
+  "signing": {
+    "apkVerifier": "PASS, no findings",
+    "strictAabVerification": "passed in personal-build promotion gates",
+    "expectedPermanentSignerVerified": true,
+    "sdkRangesVerified": [
+      "26-27",
+      "28-36"
+    ],
+    "bothLineageSignersRetainInstalledData": true
+  },
+  "artifacts": [
+    {
+      "file": "dist/HikeJournal-v0.8.49.apk",
+      "bytes": 64421222,
+      "sha256": "1e9f524c791a6cc6c198bdd59831e5dd7ae6e055aeaa36bdaeed422b75ffe2a4"
+    },
+    {
+      "file": "dist/HikeJournal-v0.8.49.aab",
+      "bytes": 31591383,
+      "sha256": "aa56727d3bd81c97d56df27b984ff5c8a3536c6e564c1793d1a68171fd16e464"
+    }
+  ]
+}

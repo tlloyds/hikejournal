@@ -1,0 +1,10 @@
+<?xml version='1.0' encoding='UTF-8' ?>
+<testsuite name="com.hikejournal.app.ui.HikeSharePreparationTest" tests="2" failures="0" errors="0" skipped="0" time="0.961" timestamp="2026-11-11T21:35:54" hostname="localhost">
+  <properties>
+    <property name="device" value="HikeJournalPixel(AVD) - 15" />
+    <property name="flavor" value="" />
+    <property name="project" value=":app" />
+  </properties>
+  <testcase name="missingPhotosCannotOpenAnEmptyShareWithoutAKeepsake" classname="com.hikejournal.app.ui.HikeSharePreparationTest" time="0.026" />
+  <testcase name="exportsCorrectOrderAndPhotoLimitForEveryKeepsakeOption" classname="com.hikejournal.app.ui.HikeSharePreparationTest" time="0.162" />
+</testsuite>

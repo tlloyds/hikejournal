@@ -1,0 +1,4 @@
+appId=10282
+versionCode=200 minSdk=26 targetSdk=36
+versionName=0.8.49
+firstInstallTime=2026-11-11 16:36:05
