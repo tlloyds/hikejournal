@@ -1,0 +1,81 @@
+{
+  "date": "2026-11-11",
+  "timezone": "America/New_York",
+  "scope": "Android",
+  "sourceCommit": "df7656eef4b293882fd1b07876720c82ec64ea3e",
+  "versionName": "0.8.49",
+  "versionCode": 198,
+  "instrumentation": {
+    "tests": 3,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "cases": [
+      "fieldGuideAndTabs",
+      "speciesAndPlaceWordmarks",
+      "hikesHeaderSearchAndNavigation"
+    ],
+    "encounterFixtureCount": 3,
+    "reminderAfterFinalRecord": true,
+    "encounterPhotoCallbackVerified": true
+  },
+  "unitTests": {
+    "debug": {
+      "tests": 183,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "release": {
+      "tests": 183,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "lintRelease": {
+    "errors": 0,
+    "warnings": 59,
+    "hints": 1
+  },
+  "font": {
+    "weight": 350,
+    "family": "HikeJournal Rounded",
+    "includedInVerifiedApk": true,
+    "sha256": "a3a3e4a735798ece9f8bb6539c3dd28392e46fa26747b04ed00c217579de8e24"
+  },
+  "searchIconAudit": {
+    "remainingMaterialSearchIconReferences": 0
+  },
+  "upgrade": {
+    "fromBuild": 197,
+    "toBuild": 198,
+    "device": "Android 15 / API 35",
+    "appId": "10271",
+    "firstInstallTime": "2026-11-11 09:28:39",
+    "appIdAndFirstInstallTimePreserved": true,
+    "androidRuntimeErrorLines": 0
+  },
+  "signing": {
+    "apkVerifier": "PASS, no findings",
+    "strictAabVerification": "passed in personal-build promotion gates",
+    "expectedPermanentSignerVerified": true,
+    "sdkRangesVerified": [
+      "26-27",
+      "28-36"
+    ],
+    "bothLineageSignersRetainInstalledData": true
+  },
+  "artifacts": [
+    {
+      "file": "dist/HikeJournal-v0.8.49.apk",
+      "bytes": 64421222,
+      "sha256": "4e2bfdbca3128bd38ff5112f86231563ae3337261e605eb954984fee5223b4e3"
+    },
+    {
+      "file": "dist/HikeJournal-v0.8.49.aab",
+      "bytes": 31591419,
+      "sha256": "a492234f84d7271a78f29fac731a9b078f1a9b225a625da5ee7c151fdf9c3f0d"
+    }
+  ]
+}
