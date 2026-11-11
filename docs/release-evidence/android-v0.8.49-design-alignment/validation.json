@@ -1,0 +1,157 @@
+{
+  "date": "2026-11-10",
+  "timezone": "America/New_York",
+  "scope": "Android",
+  "versionName": "0.8.49",
+  "versionCode": 194,
+  "sourceCommit": "0e04c4174b9f1782b84ede48aa75b902f5de63a3",
+  "unitTests": {
+    "debug": {
+      "tests": 183,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "release": {
+      "tests": 183,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "instrumentation": {
+    "device": "HikeJournalPixel Android 15 API 35",
+    "totals": {
+      "tests": 22,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "tests": [
+      {
+        "class": "com.hikejournal.app.ui.BrandDesignReviewTest",
+        "name": "placeProfileWordmark"
+      },
+      {
+        "class": "com.hikejournal.app.ui.BrandDesignReviewTest",
+        "name": "reviewActionsAndSafetyFooter"
+      },
+      {
+        "class": "com.hikejournal.app.ui.BrandDesignReviewTest",
+        "name": "publishTabsAndPublicConfirmation"
+      },
+      {
+        "class": "com.hikejournal.app.ui.BrandDesignReviewTest",
+        "name": "compactDiscoveryCelebration"
+      },
+      {
+        "class": "com.hikejournal.app.ui.BrandDesignReviewTest",
+        "name": "reviewTitleFitsCompactPhoneWidth"
+      },
+      {
+        "class": "com.hikejournal.app.ui.BrandDesignReviewTest",
+        "name": "fieldGuideAndTabs"
+      },
+      {
+        "class": "com.hikejournal.app.ui.BrandDesignReviewTest",
+        "name": "trailMedalSheetHasNoCloseAction"
+      },
+      {
+        "class": "com.hikejournal.app.ui.BrandDesignReviewTest",
+        "name": "sightingsMapRendersImageryAndPhotoInspector"
+      },
+      {
+        "class": "com.hikejournal.app.ui.BrandDesignReviewTest",
+        "name": "speciesAndPlaceWordmarks"
+      },
+      {
+        "class": "com.hikejournal.app.ui.BrandDesignReviewTest",
+        "name": "hikesHeaderSearchAndNavigation"
+      },
+      {
+        "class": "com.hikejournal.app.ui.SightingsMapLoadingTest",
+        "name": "lateSummaryReplacesEarlierCachedRouteFit"
+      },
+      {
+        "class": "com.hikejournal.app.ui.SightingsMapLoadingTest",
+        "name": "lateSummaryFocusesMapAndRequestsPhotosWithoutAnyRouteOrPhotoChange"
+      },
+      {
+        "class": "com.hikejournal.app.ui.SightingsMapLoadingTest",
+        "name": "finishingSummaryWithoutBoundsFitsUnchangedCachedRoutes"
+      },
+      {
+        "class": "com.hikejournal.app.ui.FieldCelebrationDialogTest",
+        "name": "reviewActionIsFullyDisplayedWithoutScrolling"
+      },
+      {
+        "class": "com.hikejournal.app.ui.BrandDesignReviewTest",
+        "name": "firstRunGuideUsesBrandHeader"
+      },
+      {
+        "class": "com.hikejournal.app.ui.BrandDesignReviewTest",
+        "name": "safetyEntryUsesBrandHeaderAndVisibleAction"
+      },
+      {
+        "class": "com.hikejournal.app.ui.BrandDesignReviewTest",
+        "name": "stateSetupUsesBrandAndRequiresSelection"
+      },
+      {
+        "class": "com.hikejournal.app.ui.BrandDesignReviewTest",
+        "name": "googleSignInUsesBrandHeaderAndKeepsAction"
+      },
+      {
+        "class": "com.hikejournal.app.ui.GettingStartedScreenTest",
+        "name": "guideMovesFromOverviewToStartAction"
+      },
+      {
+        "class": "com.hikejournal.app.ui.IdentificationSafetyTest",
+        "name": "appContentRequiresExplicitAcknowledgmentAndPersistsAcrossInstances"
+      },
+      {
+        "class": "com.hikejournal.app.ui.IdentificationSafetyTest",
+        "name": "settingsCopyDoesNotRecordAcknowledgmentOrShowTheConsentControls"
+      },
+      {
+        "class": "com.hikejournal.app.ui.IdentificationSafetyTest",
+        "name": "materialNoticeUpdateRequiresAcknowledgmentAgain"
+      }
+    ]
+  },
+  "lintRelease": {
+    "errors": 0,
+    "warnings": 61,
+    "hints": 1
+  },
+  "artifacts": [
+    {
+      "file": "dist/HikeJournal-v0.8.49.apk",
+      "bytes": 64380206,
+      "sha256": "18f798ad35aad0469f570db6779e5e6377fd1f71256ee3c5248b13562c1a9415"
+    },
+    {
+      "file": "dist/HikeJournal-v0.8.49.aab",
+      "bytes": 31548356,
+      "sha256": "7b34eb8d643b2f7051276de8e2bb85a895483c053f2671261813368153464059"
+    }
+  ],
+  "signing": {
+    "permanentSignerSha256": "93:B9:88:87:E3:74:9C:DB:22:D6:3D:ED:7B:40:81:70:6D:D4:B3:8A:5A:0E:22:AA:86:AB:84:F0:24:35:5E:A1",
+    "apkVerifier": "PASS, no findings",
+    "strictAabVerification": "passed in build_android.command personal",
+    "lineageSdkRanges": [
+      "26-27",
+      "28-36"
+    ]
+  },
+  "upgrade": {
+    "fromBuild": 193,
+    "toBuild": 194,
+    "appId": "10253",
+    "firstInstallTime": "2026-11-10 23:01:46",
+    "appIdAndFirstInstallTimePreserved": true,
+    "savedSafetyAcknowledgmentPreserved": true,
+    "newBrandedSetupVisible": true,
+    "androidRuntimeErrorLines": 0
+  }
+}
