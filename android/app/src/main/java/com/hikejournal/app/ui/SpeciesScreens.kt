@@ -1712,7 +1712,7 @@ private fun SpeciesIndexRow(
                 top = 13.dp,
                 bottom = 13.dp,
             ),
-            verticalAlignment = Alignment.CenterVertically,
+            verticalAlignment = Alignment.Top,
         ) {
             Box(Modifier.size(92.dp).background(Moss)) {
                 AsyncImage(
@@ -1751,7 +1751,7 @@ private fun SpeciesIndexRow(
             }
             Text(
                 record.encounterCount.toString().padStart(2, '0'),
-                style = MaterialTheme.typography.titleLarge.copy(fontSize = 26.sp, fontWeight = FontWeight.Bold),
+                style = MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp, fontWeight = FontWeight.Bold),
                 color = FernText,
             )
         }

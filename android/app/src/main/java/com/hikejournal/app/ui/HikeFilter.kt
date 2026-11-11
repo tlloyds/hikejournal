@@ -37,6 +37,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.hikejournal.app.data.Hike
@@ -75,7 +76,7 @@ fun HikeFilterControl(
             Text("FILTER BY OUTING", style = MaterialTheme.typography.labelSmall, color = Trail)
             Text(
                 selectedHike?.title ?: "All hikes",
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Normal),
                 color = Ink,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -183,7 +184,7 @@ fun ObservationTypeFilterControl(
         Icon(Icons.Rounded.Tune, null, tint = Trail, modifier = Modifier.size(20.dp))
         Column(Modifier.weight(1f).padding(start = 12.dp)) {
             Text("OBSERVATION TYPE", style = MaterialTheme.typography.labelSmall, color = Trail)
-            Text(selectedType.label, style = MaterialTheme.typography.titleMedium, color = Ink)
+            Text(selectedType.label, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Normal), color = Ink)
         }
         Text(
             "$matchingCount species",
