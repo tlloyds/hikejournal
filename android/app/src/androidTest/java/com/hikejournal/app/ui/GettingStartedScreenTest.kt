@@ -29,7 +29,7 @@ class GettingStartedScreenTest {
         composeRule.onNodeWithText("Next").performClick()
         composeRule.onNodeWithText("Let the trail tell its story.").assertIsDisplayed()
 
-        repeat(3) {
+        repeat(2) {
             composeRule.onNodeWithText("Next").performClick()
         }
         composeRule.onNodeWithText("Start an outing").assertIsDisplayed()

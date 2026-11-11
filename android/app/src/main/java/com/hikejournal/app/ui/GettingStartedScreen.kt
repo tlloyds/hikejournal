@@ -53,6 +53,8 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.font.FontWeight
 import com.hikejournal.app.ui.theme.Fern
 import com.hikejournal.app.ui.theme.Ink
 import com.hikejournal.app.ui.theme.InkMuted
@@ -182,6 +184,8 @@ fun GettingStartedScreen(
                                 page += 1
                             }
                         },
+                        modifier = Modifier.weight(1f).padding(start = 12.dp).height(52.dp),
+                        colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = Fern, contentColor = Moss),
                     ) {
                         Text(if (page == GettingStartedPages.lastIndex) "Start an outing" else "Next")
                     }
@@ -196,33 +200,17 @@ private fun GettingStartedHero(
     onDismiss: () -> Unit,
     page: Int,
 ) {
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .height(290.dp),
-    ) {
-        GettingStartedLandscape(Modifier.fillMaxSize())
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .statusBarsPadding()
-                .padding(horizontal = 18.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            BrandWordmark(Modifier.width(180.dp).height(58.dp))
-            TextButton(onClick = onDismiss) {
-                Text("Skip", color = Paper)
+    PatternedForestSurface(Modifier.fillMaxWidth()) {
+        Column(Modifier.fillMaxWidth().statusBarsPadding()
+            .padding(start = 24.dp, end = 12.dp, top = 18.dp, bottom = 18.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                BrandWordmark(Modifier.weight(1f).height(64.dp))
+                TextButton(onClick = onDismiss) { Text("Skip", color = Paper) }
             }
+            Text("${page + 1} / ${GettingStartedPages.size}",
+                style = MaterialTheme.typography.labelMedium, color = Paper,
+                modifier = Modifier.padding(top = 10.dp))
         }
-        Text(
-            "${page + 1} / ${GettingStartedPages.size}",
-            style = MaterialTheme.typography.labelSmall,
-            color = Paper,
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .padding(22.dp),
-        )
     }
 }
 
@@ -251,7 +239,7 @@ private fun GettingStartedPageContent(page: GettingStartedPage) {
         }
         Text(
             page.title,
-            style = MaterialTheme.typography.displayMedium,
+            style = MaterialTheme.typography.titleLarge.copy(fontSize = 28.sp, lineHeight = 34.sp, fontWeight = FontWeight.Bold),
             color = Ink,
             modifier = Modifier.padding(top = 15.dp),
         )
@@ -282,59 +270,5 @@ private fun GettingStartedProgress(
                     .background(if (index <= page) Trail else Line),
             )
         }
-    }
-}
-
-@Composable
-private fun GettingStartedLandscape(modifier: Modifier = Modifier) {
-    Canvas(
-        modifier.background(
-            Brush.linearGradient(
-                listOf(Color(0xFF465A32), Moss),
-            ),
-        ),
-    ) {
-        val back = Path().apply {
-            moveTo(0f, size.height * .82f)
-            lineTo(size.width * .28f, size.height * .35f)
-            lineTo(size.width * .48f, size.height * .66f)
-            lineTo(size.width * .68f, size.height * .25f)
-            lineTo(size.width, size.height * .70f)
-            lineTo(size.width, size.height)
-            lineTo(0f, size.height)
-            close()
-        }
-        drawPath(back, Fern)
-
-        val middle = Path().apply {
-            moveTo(0f, size.height)
-            cubicTo(
-                size.width * .25f,
-                size.height * .72f,
-                size.width * .45f,
-                size.height * .88f,
-                size.width * .64f,
-                size.height * .62f,
-            )
-            cubicTo(
-                size.width * .78f,
-                size.height * .42f,
-                size.width * .87f,
-                size.height * .55f,
-                size.width,
-                size.height * .46f,
-            )
-        }
-        drawPath(middle, Trail, style = Stroke(width = size.width * .035f))
-        drawPath(
-            middle,
-            Color(0x66FFF8E7),
-            style = Stroke(width = size.width * .008f),
-        )
-        drawCircle(
-            Color(0x99F4F0E5),
-            radius = size.minDimension * .045f,
-            center = Offset(size.width * .80f, size.height * .18f),
-        )
     }
 }

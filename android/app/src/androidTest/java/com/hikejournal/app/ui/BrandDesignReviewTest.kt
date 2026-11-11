@@ -27,6 +27,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -255,6 +257,44 @@ class BrandDesignReviewTest {
             }
         } }
         assertHeadingFits("Species Review")
+    }
+
+    @Test fun googleSignInUsesBrandHeaderAndKeepsAction() {
+        var signInRequested = false
+        rule.setContent { HikeJournalTheme {
+            GoogleSetupGate(false, null, { signInRequested = true })
+        } }
+        assertHeadingFits("HikeJournal")
+        capture("15-google-sign-in")
+        rule.onAllNodesWithText("Sign in with Google")[1].assertIsDisplayed().performClick()
+        org.junit.Assert.assertTrue(signInRequested)
+    }
+
+    @Test fun stateSetupUsesBrandAndRequiresSelection() {
+        var chosenState: String? = null
+        rule.setContent { HikeJournalTheme { LocationLibrarySetupGate { chosenState = it } } }
+        assertHeadingFits("HikeJournal")
+        rule.onNodeWithText("Load places").assertIsNotEnabled()
+        rule.onNodeWithText("State").performClick()
+        rule.onNodeWithText("Florida").performScrollTo().performClick()
+        rule.onNodeWithText("Load places").assertIsEnabled()
+        capture("16-state-setup")
+        rule.onNodeWithText("Load places").performClick()
+        org.junit.Assert.assertEquals("FL", chosenState)
+    }
+
+    @Test fun firstRunGuideUsesBrandHeader() {
+        rule.setContent { HikeJournalTheme { GettingStartedScreen({}, {}) } }
+        assertHeadingFits("HikeJournal")
+        rule.onNodeWithText("Next").assertIsDisplayed()
+        capture("17-getting-started")
+    }
+
+    @Test fun safetyEntryUsesBrandHeaderAndVisibleAction() {
+        rule.setContent { HikeJournalTheme { IdentificationSafetyScreen(onAcknowledge = {}) } }
+        assertHeadingFits("HikeJournal")
+        rule.onNodeWithText("Acknowledge and continue").assertIsDisplayed()
+        capture("18-safety-entry")
     }
 
     private fun findMapView(view: View): MapView? {

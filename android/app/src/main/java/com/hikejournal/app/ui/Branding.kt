@@ -1,6 +1,9 @@
 package com.hikejournal.app.ui
 
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -177,6 +180,43 @@ internal fun BrandSectionTabs(
                     fontWeight = FontWeight.Bold, letterSpacing = 0.sp,
                 ), color = Moss, maxLines = 1)
             }
+        }
+    }
+}
+
+
+@Composable
+internal fun SetupBrandHeader() {
+    PatternedForestSurface(Modifier.fillMaxWidth()) {
+        BrandWordmark(Modifier.fillMaxWidth().statusBarsPadding()
+            .padding(horizontal = 24.dp, vertical = 18.dp).height(64.dp))
+    }
+}
+
+@Composable
+internal fun BrandedSetupScreen(
+    title: String,
+    description: String,
+    action: @Composable () -> Unit,
+    content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
+) {
+    androidx.compose.foundation.layout.Column(
+        Modifier.fillMaxSize().background(com.hikejournal.app.ui.theme.Parchment).navigationBarsPadding(),
+    ) {
+        SetupBrandHeader()
+        androidx.compose.foundation.layout.Column(
+            Modifier.weight(1f).fillMaxWidth().verticalScroll(androidx.compose.foundation.rememberScrollState())
+                .padding(horizontal = 24.dp, vertical = 26.dp),
+        ) {
+            Text(title, style = MaterialTheme.typography.titleLarge.copy(
+                fontSize = 28.sp, lineHeight = 34.sp, fontWeight = FontWeight.Bold,
+            ), color = Moss)
+            Text(description, style = MaterialTheme.typography.bodyLarge,
+                color = com.hikejournal.app.ui.theme.InkMuted, modifier = Modifier.padding(top = 10.dp, bottom = 26.dp))
+            content()
+        }
+        Box(Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(top = 8.dp, bottom = 18.dp)) {
+            action()
         }
     }
 }

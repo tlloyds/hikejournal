@@ -112,18 +112,15 @@ internal fun IdentificationSafetyScreen(
     Column(
         Modifier.fillMaxSize()
             .background(Brush.verticalGradient(listOf(SafetySurface, SafetySurfaceEnd)))
-            .statusBarsPadding().navigationBarsPadding(),
+            .navigationBarsPadding(),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
+        SetupBrandHeader()
         Column(
             Modifier.weight(1f).widthIn(max = 640.dp).fillMaxWidth()
                 .verticalScroll(rememberScrollState()).padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
-            Text("HikeJournal", style = MaterialTheme.typography.headlineLarge.copy(
-                fontFamily = SafetyDisplayFamily, fontWeight = FontWeight.SemiBold,
-                fontSize = 40.sp, lineHeight = 46.sp,
-            ), color = Moss)
             Text(IdentificationSafetyNotice.Title, style = MaterialTheme.typography.headlineMedium.copy(
                 fontFamily = SafetyDisplayFamily, fontWeight = FontWeight.SemiBold,
             ), color = SafetyInk, modifier = Modifier.semantics { heading() })

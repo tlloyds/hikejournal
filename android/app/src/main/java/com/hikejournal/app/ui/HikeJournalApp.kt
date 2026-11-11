@@ -1497,57 +1497,40 @@ private fun secureGoogleNonce(): String = ByteArray(32)
     .let { java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(it) }
 
 @Composable
-private fun GoogleSetupGate(
+internal fun GoogleSetupGate(
     loading: Boolean,
     error: String?,
     onSignIn: () -> Unit,
 ) {
-    Box(Modifier.fillMaxSize().background(Parchment)) {
-        MountainField(
-            Modifier
-                .fillMaxWidth()
-                .height(300.dp)
-                .align(Alignment.TopCenter),
-        )
-        Text(
-            "HIKEJOURNAL",
-            style = MaterialTheme.typography.displaySmall,
-            color = Paper,
-            modifier = Modifier.align(Alignment.TopStart).statusBarsPadding().padding(24.dp),
-        )
-        AlertDialog(
-            onDismissRequest = {},
-            title = { Text("Your field journal, ready to roam") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    Text(
-                        "A quick setup keeps your outings private and makes the field tools useful wherever you hike.",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = Ink,
-                    )
-                    SetupStep("1", "Sign in with Google", "Your journal syncs to your account across installs.")
-                    SetupStep("2", "Choose your state", "Load a focused trail library for where you hike. You can change it anytime.")
-                    SetupStep("3", "Allow things as you use them", "Location powers hike recording. Photos stay optional, and iNaturalist can be connected later.")
-                    error?.let {
-                        Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-                    }
+    BrandedSetupScreen(
+        title = "Your field journal, ready to roam",
+        description = "A quick setup keeps your outings private and makes the field tools useful wherever you hike.",
+        action = {
+            Button(
+                onClick = onSignIn,
+                enabled = !loading,
+                modifier = Modifier.fillMaxWidth().height(54.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Fern, contentColor = Moss),
+            ) {
+                if (loading) {
+                    CircularProgressIndicator(Modifier.size(18.dp), color = Moss, strokeWidth = 2.dp)
+                    Spacer(Modifier.width(8.dp))
                 }
-            },
-            confirmButton = {
-                Button(onClick = onSignIn, enabled = !loading) {
-                    if (loading) {
-                        CircularProgressIndicator(Modifier.size(18.dp), color = Paper, strokeWidth = 2.dp)
-                        Spacer(Modifier.width(8.dp))
-                    }
-                    Text(if (loading) "Connecting…" else "Sign in with Google")
-                }
-            },
-        )
+                Text(if (loading) "Connecting…" else "Sign in with Google")
+            }
+        },
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(22.dp)) {
+            SetupStep("1", "Sign in with Google", "Your journal syncs to your account across installs.")
+            SetupStep("2", "Choose your state", "Load a focused trail library for where you hike. You can change it anytime.")
+            SetupStep("3", "Allow things as you use them", "Location powers hike recording. Photos stay optional, and iNaturalist can be connected later.")
+            error?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error) }
+        }
     }
 }
 
 @Composable
-private fun LocationLibrarySetupGate(onSelectState: (String) -> Unit) {
+internal fun LocationLibrarySetupGate(onSelectState: (String) -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var selectedStateCode by rememberSaveable { mutableStateOf<String?>(null) }
@@ -1578,98 +1561,81 @@ private fun LocationLibrarySetupGate(onSelectState: (String) -> Unit) {
     }
     val selectedStateName = UnitedStates.firstOrNull { it.code == selectedStateCode }?.name.orEmpty()
 
-    Box(Modifier.fillMaxSize().background(Parchment)) {
-        MountainField(
-            Modifier.fillMaxWidth().height(300.dp).align(Alignment.TopCenter),
-        )
-        Text(
-            "HIKEJOURNAL",
-            style = MaterialTheme.typography.displaySmall,
-            color = Paper,
-            modifier = Modifier.align(Alignment.TopStart).statusBarsPadding().padding(24.dp),
-        )
-        AlertDialog(
-            onDismissRequest = {},
-            title = { Text("Bring the right trails") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(
-                        "Choose a state to download its place library. HikeJournal keeps this focused so search and GPS suggestions stay fast.",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = Ink,
-                    )
-                    ExposedDropdownMenuBox(
-                        expanded = stateMenuOpen,
-                        onExpandedChange = { stateMenuOpen = it },
-                    ) {
-                        OutlinedTextField(
-                            value = selectedStateName,
-                            onValueChange = {},
-                            modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable),
-                            label = { Text("State") },
-                            placeholder = { Text("Choose a state") },
-                            trailingIcon = {
-                                androidx.compose.material3.ExposedDropdownMenuDefaults.TrailingIcon(stateMenuOpen)
-                            },
-                            readOnly = true,
-                        )
-                        ExposedDropdownMenu(
-                            expanded = stateMenuOpen,
-                            onDismissRequest = { stateMenuOpen = false },
-                        ) {
-                            UnitedStates.forEach { state ->
-                                DropdownMenuItem(
-                                    text = { Text(state.name) },
-                                    onClick = {
-                                        selectedStateCode = state.code
-                                        stateMenuOpen = false
-                                        detectionError = null
-                                    },
-                                )
-                            }
-                        }
-                    }
-                    OutlinedButton(
-                        onClick = {
-                            if (
-                                context.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
-                                context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
-                            ) {
-                                detectState()
-                            } else {
-                                locationPermission.launch(arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION))
-                            }
-                        },
-                        enabled = !detecting,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        if (detecting) {
-                            CircularProgressIndicator(Modifier.size(17.dp), color = Moss, strokeWidth = 2.dp)
-                        } else {
-                            Icon(Icons.Rounded.LocationOn, contentDescription = null, modifier = Modifier.size(18.dp))
-                        }
-                        Spacer(Modifier.width(8.dp))
-                        Text(if (detecting) "Finding your state…" else "Use current location")
-                    }
-                    detectionError?.let {
-                        Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-                    }
-                    Text(
-                        "Only the state result is saved. Your coordinates are not sent to HikeJournal.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = InkMuted,
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = { selectedStateCode?.let(onSelectState) },
-                    enabled = selectedStateCode != null && !detecting,
+    BrandedSetupScreen(
+        title = "Bring the right trails",
+        description = "Choose a state to download its place library. HikeJournal keeps this focused so search and GPS suggestions stay fast.",
+        action = {
+            Button(
+                onClick = { selectedStateCode?.let(onSelectState) },
+                enabled = selectedStateCode != null && !detecting,
+                modifier = Modifier.fillMaxWidth().height(54.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Fern, contentColor = Moss),
+            ) { Text("Load places") }
+        },
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            ExposedDropdownMenuBox(
+                expanded = stateMenuOpen,
+                onExpandedChange = { stateMenuOpen = it },
+            ) {
+                OutlinedTextField(
+                    value = selectedStateName,
+                    onValueChange = {},
+                    modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable),
+                    label = { Text("State") },
+                    placeholder = { Text("Choose a state") },
+                    trailingIcon = {
+                        androidx.compose.material3.ExposedDropdownMenuDefaults.TrailingIcon(stateMenuOpen)
+                    },
+                    readOnly = true,
+                )
+                ExposedDropdownMenu(
+                    expanded = stateMenuOpen,
+                    onDismissRequest = { stateMenuOpen = false },
                 ) {
-                    Text("Load places")
+                    UnitedStates.forEach { state ->
+                        DropdownMenuItem(
+                            text = { Text(state.name) },
+                            onClick = {
+                                selectedStateCode = state.code
+                                stateMenuOpen = false
+                                detectionError = null
+                            },
+                        )
+                    }
                 }
-            },
-        )
+            }
+            OutlinedButton(
+                onClick = {
+                    if (
+                        context.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+                        context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                    ) {
+                        detectState()
+                    } else {
+                        locationPermission.launch(arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION))
+                    }
+                },
+                enabled = !detecting,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                if (detecting) {
+                    CircularProgressIndicator(Modifier.size(17.dp), color = Moss, strokeWidth = 2.dp)
+                } else {
+                    Icon(Icons.Rounded.LocationOn, contentDescription = null, modifier = Modifier.size(18.dp))
+                }
+                Spacer(Modifier.width(8.dp))
+                Text(if (detecting) "Finding your state…" else "Use current location")
+            }
+            detectionError?.let {
+                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+            }
+            Text(
+                "Only the state result is saved. Your coordinates are not sent to HikeJournal.",
+                style = MaterialTheme.typography.bodySmall,
+                color = InkMuted,
+            )
+        }
     }
 }
 
