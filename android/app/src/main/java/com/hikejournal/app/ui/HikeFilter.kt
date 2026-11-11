@@ -22,7 +22,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
-import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -128,7 +127,6 @@ fun HikeFilterSheet(
                     onValueChange = { query = it },
                     modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
                     placeholder = { Text("Search title, place, or date") },
-                    leadingIcon = { Icon(Icons.Rounded.Search, null) },
                     singleLine = true,
                 )
             }

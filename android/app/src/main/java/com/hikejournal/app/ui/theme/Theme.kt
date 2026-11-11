@@ -36,6 +36,7 @@ private val DisplayFamily = FontFamily(
 // Quicksand is named in the supplied Illustrator file. Static instances preserve
 // its real weights instead of mapping every style to a variable font's light default.
 val BrandFamily = FontFamily(
+    Font(R.font.quicksand_350, weight = FontWeight(350)),
     Font(R.font.quicksand_400, weight = FontWeight.Normal),
     Font(R.font.quicksand_500, weight = FontWeight.Medium),
     Font(R.font.quicksand_600, weight = FontWeight.SemiBold),

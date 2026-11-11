@@ -15,7 +15,7 @@ reads **Hike Journal**. Legacy exports remain for the existing Web assets.
 - The Illustrator metadata explicitly names **Quicksand-Light** and the
   Quicksand variable-font file. It does not identify every outlined or
   rasterized typeface in the screen references. Android uses real static
-  instances at weights 400, 500, 600, and 700, created from the Google Fonts
+  instances at weights 350, 400, 500, 600, and 700, created from the Google Fonts
   Quicksand variable font. Its license is in `fonts/Quicksand-OFL.txt`.
   The packaged derivative's primary family name is **HikeJournal Rounded**,
   respecting Quicksand's reserved font name; glyphs and metrics are unchanged.

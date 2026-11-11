@@ -116,6 +116,8 @@ class BrandDesignReviewTest {
         assertHeadingFits("HikeJournal")
         rule.onNodeWithContentDescription("Add hike or everyday sighting").assertIsDisplayed()
         capture("01-hikes")
+        rule.onNodeWithText("Hidden Pond").performScrollTo().assertIsDisplayed()
+        capture("27-hikes-list")
     }
 
     @Composable private fun FieldGuide(
@@ -296,11 +298,25 @@ class BrandDesignReviewTest {
     }
 
     @Test fun speciesAndPlaceWordmarks() {
+        val encounters = listOf("Bronson Pine Walk", "Hidden Pond Wetland Loop", "Chuluota to Bronson roads").mapIndexed { index, title ->
+            Encounter(photo.copy(id = "detail-photo-$index"), hike.id, title, hike.hikeDate, hike.locationName, hike.hikeDate)
+        }
+        val detailed = species.copy(encounterCount = encounters.size, hikeCount = encounters.size, encounters = encounters)
+        var openedPhoto: Photo? = null
         rule.setContent { HikeJournalTheme {
-            SpeciesDetailScreen(species, listOf(species), null, false, {}, {}, {})
+            SpeciesDetailScreen(detailed, listOf(detailed), null, false, {}, {}, { openedPhoto = it })
         } }
         assertHeadingFits("HikeJournal")
+        assertFalse("ID reminder should be below field records", rule.onNodeWithText(IdentificationSafetyNotice.Reminder).isDisplayed())
         capture("09-species-detail")
+        rule.onNode(hasScrollToIndexAction()).performScrollToIndex(encounters.size + 3)
+        rule.onNodeWithText(IdentificationSafetyNotice.Reminder).assertIsDisplayed()
+        val lastRecord = rule.onNodeWithText(encounters.last().hikeTitle).fetchSemanticsNode().boundsInRoot
+        val reminder = rule.onNodeWithText(IdentificationSafetyNotice.Reminder).fetchSemanticsNode().boundsInRoot
+        org.junit.Assert.assertTrue("ID reminder follows the final encounter", reminder.top > lastRecord.bottom)
+        capture("25-species-field-records")
+        rule.onNodeWithText(encounters.first().hikeTitle).performScrollTo().performClick()
+        org.junit.Assert.assertEquals(encounters.first().photo.id, openedPhoto?.id)
     }
 
     @Test fun placeProfileWordmark() {

@@ -100,7 +100,6 @@ import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PlayCircle
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.RemoveCircleOutline
-import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Unarchive
 import androidx.compose.material.icons.rounded.WorkspacePremium
@@ -1909,7 +1908,7 @@ private fun EverydayRow(journal: Hike, opening: Boolean, onOpen: (String) -> Uni
             Text("Various dates", style = MaterialTheme.typography.labelMedium, color = Trail)
             Text(
                 "Everyday Sightings",
-                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Normal),
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight(350)),
                 color = Ink,
             )
             Text(
@@ -2198,7 +2197,7 @@ private fun FeaturedHike(hike: Hike, opening: Boolean, onOpen: (String) -> Unit)
             )
             Text(
                 hike.title,
-                style = MaterialTheme.typography.displayMedium.copy(fontWeight = FontWeight.Normal),
+                style = MaterialTheme.typography.displaySmall.copy(fontWeight = FontWeight.Normal),
                 color = Paper,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
@@ -2247,7 +2246,7 @@ private fun HikeRow(hike: Hike, opening: Boolean, onOpen: (String) -> Unit) {
                     Text("Saved on phone", style = MaterialTheme.typography.labelMedium, color = TrailText)
                 }
                 Text(formatDate(hike.hikeDate), style = MaterialTheme.typography.labelMedium, color = Trail)
-                Text(hike.title, style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Normal), color = Ink, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(hike.title, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight(350)), color = Ink, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 HikeCardMetadata(hike = hike, color = InkMuted)
             }
             if (opening) {
@@ -3988,7 +3987,6 @@ private fun KnownSpeciesAssignmentDialog(
                     onValueChange = { query = it },
                     modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
                     label = { Text("Common or scientific name") },
-                    leadingIcon = { Icon(Icons.Rounded.Search, null) },
                     singleLine = true,
                 )
                 Text(
@@ -4190,7 +4188,6 @@ private fun PlaceBrowserDialog(
                     onValueChange = { query = it },
                     modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
                     label = { Text("Search saved places") },
-                    leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
                     singleLine = true,
                 )
                 when {
@@ -5096,7 +5093,6 @@ private fun RiverGaugeFinderDialog(
                         value = query,
                         onValueChange = { query = it },
                         modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
-                        leadingIcon = { Icon(Icons.Rounded.Search, null) },
                         label = { Text("Search saved places") },
                         singleLine = true,
                     )
