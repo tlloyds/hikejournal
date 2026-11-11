@@ -5,6 +5,7 @@ import android.content.ClipData
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.LinearGradient
 import android.graphics.Paint
@@ -1062,35 +1063,36 @@ internal fun renderHikeShareCard(
     val canvas = Canvas(bitmap)
     val sx = safeWidth / 1080f
     val sy = safeHeight / 1350f
-    val bodyFont = ResourcesCompat.getFont(context, R.font.source_sans_3) ?: Typeface.SANS_SERIF
-    val displayFont = ResourcesCompat.getFont(context, R.font.cormorant_garamond) ?: Typeface.SERIF
-    val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    val bodyFont = ResourcesCompat.getFont(context, R.font.quicksand_400) ?: Typeface.SANS_SERIF
+    val labelFont = ResourcesCompat.getFont(context, R.font.quicksand_500) ?: bodyFont
+    val metricFont = ResourcesCompat.getFont(context, R.font.quicksand_600) ?: labelFont
+    val brandFont = ResourcesCompat.getFont(context, R.font.quicksand_700) ?: Typeface.DEFAULT_BOLD
+    val displayFont = ResourcesCompat.getFont(context, R.font.cormorant_garamond_400) ?: Typeface.SERIF
+    val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
 
-    paint.shader = LinearGradient(
-        0f,
-        0f,
-        0f,
-        safeHeight.toFloat(),
-        intArrayOf(0xFF465A32.toInt(), 0xFF324223.toInt(), 0xFF1D2A17.toInt()),
-        floatArrayOf(0f, 0.58f, 1f),
-        Shader.TileMode.CLAMP,
-    )
-    canvas.drawRect(0f, 0f, safeWidth.toFloat(), safeHeight.toFloat(), paint)
-    paint.shader = null
+    drawKeepsakeBackground(context, canvas, paint, safeWidth, safeHeight)
 
-    drawTopographicTexture(canvas, paint, safeWidth.toFloat(), 790f * sy, sx, sy)
+    // Use the same supplied mark and Quicksand lettering as the Hikes header.
+    val mark = requireNotNull(BitmapFactory.decodeResource(context.resources, R.drawable.hj_logo_color_icon))
+    val markBounds = RectF(72f * sx, 42f * sy, 146f * sx, 130f * sy)
+    canvas.drawBitmap(mark, null, markBounds, paint)
+    mark.recycle()
+    paint.color = android.graphics.Color.WHITE
+    paint.typeface = brandFont
+    paint.textSize = 52f * sx
+    paint.letterSpacing = -0.02f
+    val brandBaseline = markBounds.centerY() - (paint.fontMetrics.ascent + paint.fontMetrics.descent) / 2f
+    canvas.drawText("HikeJournal", 160f * sx, brandBaseline, paint)
 
-    paint.color = 0xFFF1BE79.toInt()
-    paint.typeface = Typeface.create(bodyFont, Typeface.BOLD)
-    paint.textSize = 24f * sx
-    paint.letterSpacing = 0.12f
-    canvas.drawText("HIKEJOURNAL", 72f * sx, 76f * sy, paint)
+    paint.color = 0xFFB8C9BC.toInt()
+    paint.typeface = labelFont
+    paint.textSize = 22f * sx
+    paint.letterSpacing = 0.1f
+    paint.textAlign = Paint.Align.RIGHT
+    val labelBaseline = markBounds.centerY() - (paint.fontMetrics.ascent + paint.fontMetrics.descent) / 2f
+    canvas.drawText("TRAIL KEEPSAKE", safeWidth - 72f * sx, labelBaseline, paint)
+    paint.textAlign = Paint.Align.LEFT
     paint.letterSpacing = 0f
-
-    paint.color = 0xFFF5F1E7.toInt()
-    paint.typeface = Typeface.create(displayFont, Typeface.BOLD)
-    paint.textSize = 55f * sx
-    canvas.drawText("Trail keepsake", 72f * sx, 132f * sy, paint)
 
     val mapLeft = 56f * sx
     val mapTop = 170f * sy
@@ -1121,7 +1123,7 @@ internal fun renderHikeShareCard(
         canvas.drawRect(mapBounds, paint)
         paint.shader = null
         paint.color = 0xE6F5F1E7.toInt()
-        paint.typeface = Typeface.create(bodyFont, Typeface.BOLD)
+        paint.typeface = labelFont
         paint.textSize = 18f * sx
         paint.letterSpacing = 0.04f
         canvas.drawText(
@@ -1165,7 +1167,7 @@ internal fun renderHikeShareCard(
         canvas.drawCircle(mapLeft + end.x, mapTop + end.y, 15f * sx, paint)
     } else {
         paint.color = 0x99D6E0D3.toInt()
-        paint.typeface = Typeface.create(bodyFont, Typeface.BOLD)
+        paint.typeface = labelFont
         paint.textSize = 22f * sx
         paint.textAlign = Paint.Align.CENTER
         paint.letterSpacing = 0.1f
@@ -1178,16 +1180,17 @@ internal fun renderHikeShareCard(
     canvas.drawRect(72f * sx, 774f * sy, safeWidth - 72f * sx, 776f * sy, paint)
 
     val eyebrow = hike.locationName.takeIf(String::isNotBlank)?.uppercase(Locale.US) ?: "FIELD JOURNAL"
-    paint.color = 0xFFF1BE79.toInt()
-    paint.typeface = Typeface.create(bodyFont, Typeface.BOLD)
+    paint.color = 0xFFD17D42.toInt()
+    paint.typeface = labelFont
     paint.textSize = 23f * sx
-    paint.letterSpacing = 0.1f
-    canvas.drawText(eyebrow.take(52), 72f * sx, 835f * sy, paint)
+    paint.letterSpacing = 0.06f
+    val locationLine = textLines(eyebrow, paint, safeWidth - 144f * sx, maxLines = 1).first()
+    canvas.drawText(locationLine, 72f * sx, 835f * sy, paint)
     paint.letterSpacing = 0f
 
     paint.color = 0xFFF5F1E7.toInt()
-    paint.typeface = Typeface.create(displayFont, Typeface.BOLD)
-    paint.textSize = 72f * sx
+    paint.typeface = displayFont
+    paint.textSize = 64f * sx
     val titleLines = textLines(
         text = hike.title.ifBlank { "A day on the trail" },
         paint = paint,
@@ -1201,8 +1204,8 @@ internal fun renderHikeShareCard(
     val titleBottom = titleBaseline + (titleLines.size - 1).coerceAtLeast(0) * 70f * sy
 
     paint.color = 0xFFD6E0D3.toInt()
-    paint.typeface = Typeface.create(bodyFont, Typeface.NORMAL)
-    paint.textSize = 28f * sx
+    paint.typeface = bodyFont
+    paint.textSize = 30f * sx
     canvas.drawText(hikeShareDateTime(hike), 72f * sx, titleBottom + 58f * sy, paint)
 
     val metricsTop = 1128f * sy
@@ -1210,14 +1213,14 @@ internal fun renderHikeShareCard(
     canvas.drawRect(72f * sx, metricsTop - 34f * sy, safeWidth - 72f * sx, metricsTop - 32f * sy, paint)
 
     paint.color = 0xFFF5F1E7.toInt()
-    paint.typeface = Typeface.create(bodyFont, Typeface.BOLD)
-    paint.textSize = 66f * sx
+    paint.typeface = metricFont
+    paint.textSize = 60f * sx
     canvas.drawText(hikeShareDistance(hike), 72f * sx, metricsTop + 55f * sy, paint)
     canvas.drawText(hikeShareDuration(hike.durationSeconds), 590f * sx, metricsTop + 55f * sy, paint)
 
     paint.color = 0xFFB8C9BC.toInt()
-    paint.typeface = Typeface.create(bodyFont, Typeface.BOLD)
-    paint.textSize = 21f * sx
+    paint.typeface = labelFont
+    paint.textSize = 22f * sx
     paint.letterSpacing = 0.11f
     canvas.drawText("MILES", 72f * sx, metricsTop + 92f * sy, paint)
     canvas.drawText("ACTIVE TIME", 590f * sx, metricsTop + 92f * sy, paint)
@@ -1225,49 +1228,35 @@ internal fun renderHikeShareCard(
 
     drawSpark(canvas, 72f * sx, 1290f * sy, 13f * sx, paint)
     paint.color = 0xFFD6E0D3.toInt()
-    paint.typeface = Typeface.create(bodyFont, Typeface.NORMAL)
+    paint.typeface = bodyFont
     paint.textSize = 22f * sx
     canvas.drawText("Field notes from HikeJournal", 99f * sx, 1298f * sy, paint)
     return bitmap
 }
 
-private fun drawTopographicTexture(
+private fun drawKeepsakeBackground(
+    context: Context,
     canvas: Canvas,
     paint: Paint,
-    width: Float,
-    height: Float,
-    sx: Float,
-    sy: Float,
+    width: Int,
+    height: Int,
 ) {
-    paint.style = Paint.Style.STROKE
-    paint.strokeWidth = 2f * sx
-    repeat(8) { index ->
-        val inset = (index * 54f - 95f) * sx
-        paint.color = if (index % 2 == 0) 0x1FFFFFFF else 0x1676916D
-        canvas.drawOval(
-            RectF(
-                -140f * sx + inset,
-                120f * sy + inset * 0.32f,
-                width * 0.76f + inset,
-                height * 0.94f - inset * 0.18f,
-            ),
-            paint,
-        )
-    }
-    repeat(6) { index ->
-        val inset = index * 62f * sx
-        paint.color = 0x16FFFFFF
-        canvas.drawOval(
-            RectF(
-                width * 0.56f - inset * 0.18f,
-                -190f * sy + inset,
-                width * 1.18f + inset * 0.12f,
-                height * 0.54f + inset,
-            ),
-            paint,
-        )
-    }
-    paint.style = Paint.Style.FILL
+    val pattern = requireNotNull(BitmapFactory.decodeResource(context.resources, R.drawable.hj_pattern_green))
+    val scale = maxOf(width.toFloat() / pattern.width, height.toFloat() / pattern.height)
+    val patternWidth = pattern.width * scale
+    val patternHeight = pattern.height * scale
+    val left = (width - patternWidth) / 2f
+    val top = (height - patternHeight) / 2f
+    canvas.drawBitmap(pattern, null, RectF(left, top, left + patternWidth, top + patternHeight), paint)
+    pattern.recycle()
+    paint.shader = LinearGradient(
+        0f, 0f, 0f, height.toFloat(),
+        intArrayOf(0x00324223, 0x00324223, 0xDA1D2A17.toInt()),
+        floatArrayOf(0f, 0.45f, 1f),
+        Shader.TileMode.CLAMP,
+    )
+    canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), paint)
+    paint.shader = null
 }
 
 private fun drawSpark(canvas: Canvas, cx: Float, cy: Float, radius: Float, paint: Paint) {
