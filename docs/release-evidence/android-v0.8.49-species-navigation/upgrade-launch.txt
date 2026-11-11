@@ -1,0 +1,7 @@
+Starting: Intent { cmp=com.hikejournal.app/.MainActivity }
+Status: ok
+LaunchState: COLD
+Activity: com.hikejournal.app/.MainActivity
+TotalTime: 5967
+WaitTime: 6025
+Complete

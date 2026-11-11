@@ -1,0 +1,102 @@
+{
+  "date": "2026-11-11",
+  "timezone": "America/New_York",
+  "scope": "Android",
+  "sourceCommit": "5b3f9f8db9c362540df01ea063e2b73fb6b4a68d",
+  "versionName": "0.8.49",
+  "versionCode": 197,
+  "instrumentation": {
+    "tests": 4,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "cases": [
+      "fieldGuideJumpIsOnDemandAndFollowsSelectedSort",
+      "fieldGuideAndTabs",
+      "hikesShortcutLabelsStaySingleLineOnCompactWidths",
+      "hikesHeaderSearchAndNavigation"
+    ],
+    "responsiveShortcutChecks": [
+      {
+        "widthDp": 320,
+        "fontScale": 1.0,
+        "bothLabelsSingleLineWithoutOverflow": true
+      },
+      {
+        "widthDp": 320,
+        "fontScale": 1.3,
+        "bothLabelsSingleLineWithoutOverflow": true
+      },
+      {
+        "widthDp": 360,
+        "fontScale": 1.0,
+        "bothLabelsSingleLineWithoutOverflow": true
+      },
+      {
+        "widthDp": 360,
+        "fontScale": 1.3,
+        "bothLabelsSingleLineWithoutOverflow": true
+      },
+      {
+        "widthDp": 393,
+        "fontScale": 1.0,
+        "bothLabelsSingleLineWithoutOverflow": true
+      },
+      {
+        "widthDp": 393,
+        "fontScale": 1.3,
+        "bothLabelsSingleLineWithoutOverflow": true
+      }
+    ]
+  },
+  "unitTests": {
+    "debug": {
+      "tests": 183,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "release": {
+      "tests": 183,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "lintRelease": {
+    "errors": 0,
+    "warnings": 59,
+    "hints": 1
+  },
+  "upgrade": {
+    "fromBuild": 196,
+    "toBuild": 197,
+    "device": "Android 15 / API 35",
+    "appId": "10268",
+    "firstInstallTime": "2026-11-11 09:04:23",
+    "appIdAndFirstInstallTimePreserved": true,
+    "androidRuntimeErrorLines": 0
+  },
+  "signing": {
+    "apkVerifier": "PASS, no findings",
+    "strictAabVerification": "passed in personal-build promotion gates",
+    "expectedPermanentSignerVerified": true,
+    "sdkRangesVerified": [
+      "26-27",
+      "28-36"
+    ],
+    "bothLineageSignersRetainInstalledData": true
+  },
+  "artifacts": [
+    {
+      "file": "dist/HikeJournal-v0.8.49.apk",
+      "bytes": 64380206,
+      "sha256": "4493087e70cf2894046053c572e1dbe9854434123a3a54f0e19a2095d98ef309"
+    },
+    {
+      "file": "dist/HikeJournal-v0.8.49.aab",
+      "bytes": 31552229,
+      "sha256": "d981a47a87ae829da805aa98fbfccde831723759191eb004d9aaf427ba37d623"
+    }
+  ]
+}
