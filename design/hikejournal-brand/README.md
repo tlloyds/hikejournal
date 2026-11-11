@@ -12,7 +12,9 @@ reads **Hike Journal**. Legacy exports remain for the existing Web assets.
   outline, forest fill, and white interior bars. Do not tint it solid white.
 - The app wordmark is the same supplied mark beside **HikeJournal** on one
   line. The old stacked “Hiking Journal” raster is no longer bundled at runtime.
-- The Illustrator metadata identifies **Quicksand**. Android uses real static
+- The Illustrator metadata explicitly names **Quicksand-Light** and the
+  Quicksand variable-font file. It does not identify every outlined or
+  rasterized typeface in the screen references. Android uses real static
   instances at weights 400, 500, 600, and 700, created from the Google Fonts
   Quicksand variable font. Its license is in `fonts/Quicksand-OFL.txt`.
   The packaged derivative's primary family name is **HikeJournal Rounded**,
@@ -20,7 +22,8 @@ reads **Hike Journal**. Legacy exports remain for the existing Web assets.
   Optional vendor/designer URL name records (IDs 11/12) are removed from the
   packaged instances because their HTTP metadata triggers the release artifact
   scanner. Author, copyright, and license records are preserved.
-  The existing editorial Cormorant Garamond font also has real 400/600/700
+  The editorial Cormorant Garamond family was retained from the existing app,
+  not positively identified from the Illustrator metadata. It has real 400/600/700
   instances; assigning several weights to its light default does not work.
   Both font licenses are retained in `fonts/` and bundled in Android's
   `assets/licenses/` directory.

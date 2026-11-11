@@ -151,19 +151,6 @@ fun SpeciesReviewScreen(
             title = "Species Review",
             detail = "$pendingCount to decide · $waitingCount need ID$syncSuffix",
             actions = {
-                TextButton(
-                    onClick = {
-                        if (batchResumable || inatConnected) batchMode = true else onConnectInat()
-                    },
-                    enabled = if (batchResumable) !loading else
-                        waitingItems.isNotEmpty() && unsyncedWaitingItems.isEmpty() && !loading && !offline,
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp),
-                    colors = ButtonDefaults.textButtonColors(
-                        contentColor = Paper, disabledContentColor = Paper.copy(alpha = 0.6f),
-                    ),
-                ) {
-                    Text(if (batchResumable) "Resume" else "Batch ID", style = MaterialTheme.typography.labelSmall)
-                }
                 IconButton(onClick = onRefresh, enabled = !loading && decidingId == null) {
                     if (loading) CircularProgressIndicator(Modifier.size(20.dp), color = Paper, strokeWidth = 2.dp)
                     else Icon(Icons.Rounded.Refresh, "Refresh review queue", tint = Paper)
@@ -238,6 +225,10 @@ fun SpeciesReviewScreen(
                         hasNext = targetPosition < queue.size,
                         deciding = decidingId == targetItem.id,
                         identifying = identifyingId == targetItem.id,
+                        showBatchId = waitingItems.size > 1,
+                        batchIdEnabled = unsyncedWaitingItems.isEmpty() && !loading && !offline &&
+                            decidingId == null && identifyingId == null,
+                        onBatchId = { if (inatConnected) batchMode = true else onConnectInat() },
                         inatConnected = inatConnected,
                         offline = offline,
                         enabled = reviewPhotoIsSynced(targetItem) && !offline && decidingId == null && identifyingId == null,
@@ -518,6 +509,9 @@ private fun ReviewItemContent(
     hasNext: Boolean,
     deciding: Boolean,
     identifying: Boolean,
+    showBatchId: Boolean,
+    batchIdEnabled: Boolean,
+    onBatchId: () -> Unit,
     inatConnected: Boolean,
     offline: Boolean,
     enabled: Boolean,
@@ -598,6 +592,13 @@ private fun ReviewItemContent(
                                 else -> "Identify this sighting"
                             },
                         )
+                    }
+                    if (showBatchId) {
+                        OutlinedButton(
+                            onClick = onBatchId,
+                            enabled = batchIdEnabled,
+                            modifier = Modifier.fillMaxWidth().padding(top = 10.dp).height(52.dp),
+                        ) { Text("Batch ID") }
                     }
                     OutlinedButton(
                         onClick = { onRemoveFromReview(item) },

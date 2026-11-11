@@ -1740,13 +1740,13 @@ internal fun LibraryScreen(
                 ) {
                     Text(
                         if (showArchived) "Current + archived" else "Current outings",
-                        style = MaterialTheme.typography.titleLarge,
+                        style = MaterialTheme.typography.bodyMedium,
                         color = Moss,
                     )
                     TextButton(onClick = { showArchived = !showArchived }) {
                         Text(
                             if (showArchived) "Current" else "Archives",
-                            style = MaterialTheme.typography.titleMedium,
+                            style = MaterialTheme.typography.bodyMedium,
                             color = Ink,
                         )
                         Icon(
@@ -1888,10 +1888,10 @@ private fun EverydayRow(journal: Hike, opening: Boolean, onOpen: (String) -> Uni
             }
         }
         Column(Modifier.weight(1f).padding(start = 16.dp)) {
-            Text("Various dates", style = MaterialTheme.typography.labelMedium, color = TrailText)
+            Text("Various dates", style = MaterialTheme.typography.labelMedium, color = Trail)
             Text(
                 "Everyday Sightings",
-                style = MaterialTheme.typography.titleLarge,
+                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Normal),
                 color = Ink,
             )
             Text(
@@ -2180,7 +2180,7 @@ private fun FeaturedHike(hike: Hike, opening: Boolean, onOpen: (String) -> Unit)
             )
             Text(
                 hike.title,
-                style = MaterialTheme.typography.displayMedium,
+                style = MaterialTheme.typography.displayMedium.copy(fontWeight = FontWeight.Normal),
                 color = Paper,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
@@ -2228,8 +2228,8 @@ private fun HikeRow(hike: Hike, opening: Boolean, onOpen: (String) -> Unit) {
                 if (hike.syncState != "synced") {
                     Text("Saved on phone", style = MaterialTheme.typography.labelMedium, color = TrailText)
                 }
-                Text(formatDate(hike.hikeDate), style = MaterialTheme.typography.labelMedium, color = TrailText)
-                Text(hike.title, style = MaterialTheme.typography.titleLarge, color = Ink, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(formatDate(hike.hikeDate), style = MaterialTheme.typography.labelMedium, color = Trail)
+                Text(hike.title, style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Normal), color = Ink, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 HikeCardMetadata(hike = hike, color = InkMuted)
             }
             if (opening) {
@@ -2278,8 +2278,8 @@ private fun HikeComparisonPickerDialog(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Column(Modifier.weight(1f)) {
-                                Text(formatDate(hike.hikeDate), style = MaterialTheme.typography.labelMedium, color = TrailText)
-                                Text(hike.title, style = MaterialTheme.typography.titleMedium, color = Ink)
+                                Text(formatDate(hike.hikeDate), style = MaterialTheme.typography.labelMedium, color = Trail)
+                                Text(hike.title, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Normal), color = Ink)
                                 Text(
                                     hike.primaryLocationName.ifBlank { hike.locationName },
                                     style = MaterialTheme.typography.bodySmall,
@@ -2342,8 +2342,8 @@ private fun JournalScreen(
         item { JournalHero(hike, onBack, onEdit, onArchive, onDelete) }
         item {
             Column(Modifier.padding(horizontal = 20.dp, vertical = 24.dp)) {
-                Text(formatDate(hike.hikeDate), style = MaterialTheme.typography.labelMedium, color = TrailText)
-                Text(hike.title, style = MaterialTheme.typography.displayMedium, color = Ink)
+                Text(formatDate(hike.hikeDate), style = MaterialTheme.typography.labelMedium, color = Trail)
+                Text(hike.title, style = MaterialTheme.typography.displayMedium.copy(fontWeight = FontWeight.Normal), color = Ink)
                 if (journalHikeMeta(hike).isNotBlank()) {
                     Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(

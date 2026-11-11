@@ -653,7 +653,7 @@ private fun PublishItemContent(
         }
         item {
             Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 22.dp)) {
-                Text(item.hikeTitle, style = MaterialTheme.typography.titleLarge, color = TrailText)
+                Text(item.hikeTitle, style = MaterialTheme.typography.titleLarge, color = Trail)
                 val contextLine = listOf(formatPublishDate(item.photo.takenAt ?: item.hikeDate), item.locationName)
                     .filter { it.isNotBlank() }
                     .joinToString(" · ")

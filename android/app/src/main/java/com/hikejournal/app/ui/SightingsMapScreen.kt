@@ -515,7 +515,7 @@ private fun SightingInspector(
                 maxLines = 2,
             )
             Text(sighting.hikeTitle, style = MaterialTheme.typography.bodyMedium, color = InkMuted, maxLines = 1)
-            Text(formatMapDate(sighting.takenAt ?: sighting.hikeDate), style = MaterialTheme.typography.labelMedium, color = TrailText)
+            Text(formatMapDate(sighting.takenAt ?: sighting.hikeDate), style = MaterialTheme.typography.labelMedium, color = Trail)
             if (sighting.hikeId != null) {
                 Button(
                     onClick = onOpenHike,

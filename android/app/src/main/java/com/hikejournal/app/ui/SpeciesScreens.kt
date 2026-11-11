@@ -1726,11 +1726,11 @@ private fun SpeciesIndexRow(
                 )
             }
             Column(Modifier.weight(1f).padding(start = 15.dp)) {
-                Text(record.commonName, style = MaterialTheme.typography.titleLarge, color = Ink, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(record.commonName, style = MaterialTheme.typography.titleMedium, color = Ink, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 if (record.scientificName.isNotBlank()) {
                     Text(
                         record.scientificName,
-                        style = MaterialTheme.typography.bodyMedium.copy(fontStyle = FontStyle.Italic),
+                        style = MaterialTheme.typography.bodySmall.copy(fontStyle = FontStyle.Italic),
                         color = InkMuted,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -1738,8 +1738,8 @@ private fun SpeciesIndexRow(
                 }
                 Text(
                     "${record.encounterCount} ${if (record.encounterCount == 1) "ENCOUNTER" else "ENCOUNTERS"} · ${record.hikeCount} ${if (record.hikeCount == 1) "OUTING" else "OUTINGS"}",
-                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold, letterSpacing = 0.2.sp),
-                    color = TrailText,
+                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium, letterSpacing = 0.2.sp),
+                    color = Trail,
                     modifier = Modifier.padding(top = 5.dp),
                 )
                 Text(

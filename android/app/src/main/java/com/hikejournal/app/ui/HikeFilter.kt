@@ -72,7 +72,7 @@ fun HikeFilterControl(
     ) {
         Icon(Icons.Rounded.Tune, null, tint = Trail, modifier = Modifier.size(20.dp))
         Column(Modifier.weight(1f).padding(start = 12.dp)) {
-            Text("FILTER BY OUTING", style = MaterialTheme.typography.labelSmall, color = TrailText)
+            Text("FILTER BY OUTING", style = MaterialTheme.typography.labelSmall, color = Trail)
             Text(
                 selectedHike?.title ?: "All hikes",
                 style = MaterialTheme.typography.titleMedium,
@@ -182,7 +182,7 @@ fun ObservationTypeFilterControl(
     ) {
         Icon(Icons.Rounded.Tune, null, tint = Trail, modifier = Modifier.size(20.dp))
         Column(Modifier.weight(1f).padding(start = 12.dp)) {
-            Text("OBSERVATION TYPE", style = MaterialTheme.typography.labelSmall, color = TrailText)
+            Text("OBSERVATION TYPE", style = MaterialTheme.typography.labelSmall, color = Trail)
             Text(selectedType.label, style = MaterialTheme.typography.titleMedium, color = Ink)
         }
         Text(

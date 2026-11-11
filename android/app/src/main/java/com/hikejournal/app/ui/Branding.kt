@@ -111,7 +111,7 @@ fun TrailHighlightLabel(
             fontWeight = FontWeight.Bold,
             letterSpacing = 0.35.sp,
         ),
-        color = Moss,
+        color = Color.White,
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
         modifier = modifier

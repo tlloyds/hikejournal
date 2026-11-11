@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.width
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -135,7 +136,7 @@ class BrandDesignReviewTest {
                 {}, { _, _, _ -> }, {}, {}, {}, {}, {}, {})
         } }
         assertHeadingFits("Species Review")
-        rule.onNodeWithText("Batch ID").assertIsDisplayed()
+        rule.onNodeWithText("Batch ID").assertDoesNotExist()
         capture("03-review-header")
         rule.onNodeWithText("Identify this sighting").performScrollTo().assertIsDisplayed()
         rule.onNodeWithText("Skip for now").performScrollTo()
@@ -143,6 +144,33 @@ class BrandDesignReviewTest {
         rule.onNode(hasScrollToIndexAction()).performScrollToIndex(2)
         rule.onNodeWithText(IdentificationSafetyNotice.Reminder).assertIsDisplayed()
         capture("14-review-footer")
+    }
+
+    @Test fun batchIdIsAvailableOnlyOnWaitingObservationsWithMultipleWaitingIds() {
+        val queue = mutableStateOf(listOf(review))
+        val offline = mutableStateOf(false)
+        val second = review.copy(id = "second-waiting", photo = photo.copy(id = "second-photo"))
+        val third = review.copy(id = "third-waiting", photo = photo.copy(id = "third-photo"))
+        rule.setContent { Frame(TopDestination.Review) {
+            SpeciesReviewScreen(queue.value, false, null, null, false, null, true, offline.value,
+                {}, { _, _, _ -> }, {}, {}, {}, {}, {}, {})
+        } }
+        rule.onNodeWithText("Batch ID").assertDoesNotExist()
+        // Suggested observations do not offer batch identification, even while
+        // two other observations are waiting for their first suggestion.
+        rule.runOnIdle {
+            queue.value = listOf(review.copy(candidates = listOf(
+                ReviewCandidate(1, "Swamp smartweed", "Persicaria hydropiperoides", 0.9),
+            )), second, third)
+        }
+        rule.onNodeWithText("Batch ID").assertDoesNotExist()
+        rule.runOnIdle { queue.value = listOf(review, second); offline.value = true }
+        rule.onNodeWithText("Batch ID").performScrollTo().assertIsNotEnabled()
+        rule.runOnIdle { offline.value = false }
+        rule.onNodeWithText("Batch ID").performScrollTo().assertIsEnabled()
+        capture("19-review-batch-id")
+        rule.onNodeWithText("Batch ID").performClick()
+        rule.onNodeWithText("Plan batch IDs").assertIsDisplayed()
     }
 
     @Test fun publishTabsAndPublicConfirmation() {
@@ -251,7 +279,6 @@ class BrandDesignReviewTest {
         rule.setContent { HikeJournalTheme {
             Box(Modifier.width(320.dp)) {
                 BrandScreenHeader("Species Review", "1 to decide · 1 need ID", actions = {
-                    androidx.compose.material3.TextButton(onClick = {}) { androidx.compose.material3.Text("Batch ID") }
                     androidx.compose.material3.IconButton(onClick = {}) { androidx.compose.material3.Text("R") }
                 })
             }
