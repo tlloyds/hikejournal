@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.hikejournal.app.ui.SpeciesShareTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-11-12T14:22:40.660Z" hostname="MacBook-Pro-4.local" time="0.001">
+  <properties/>
+  <testcase name="keepsake uses first selected photo and falls back to encounter then cover" classname="com.hikejournal.app.ui.SpeciesShareTest" time="0.001"/>
+  <testcase name="selected photos retain tap order and cannot include another species photo" classname="com.hikejournal.app.ui.SpeciesShareTest" time="0.0"/>
+  <testcase name="species photos include encounters across outings without duplicates or videos" classname="com.hikejournal.app.ui.SpeciesShareTest" time="0.0"/>
+  <testcase name="keepsakes reserve one carousel slot and photos only allows twenty" classname="com.hikejournal.app.ui.SpeciesShareTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

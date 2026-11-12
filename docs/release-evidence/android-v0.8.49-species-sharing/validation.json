@@ -1,0 +1,64 @@
+{
+  "scope": "Android only",
+  "date": "2026-11-12",
+  "versionName": "0.8.49",
+  "versionCode": 201,
+  "unitDebug": {
+    "tests": 187,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "unitRelease": {
+    "tests": 187,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "share-instrumentation-tests.xml": {
+    "tests": 10,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "final-gallery-ui-tests.xml": {
+    "tests": 3,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "lint": {
+    "Warning": 60,
+    "Hint": 1
+  },
+  "artifacts": {
+    "HikeJournal-v0.8.49.apk": {
+      "bytes": 64437606,
+      "sha256": "383c1f252a63dce6573e24ef1526a6b945d435f3eb0de2dbfbcb33eb665fd0d3"
+    },
+    "HikeJournal-v0.8.49.aab": {
+      "bytes": 31630725,
+      "sha256": "7219d67ab69c8f5a52583b9bcd36ddc5cfcc7f16e38b35c72416c00a5c43e8a5"
+    }
+  },
+  "upgrade": {
+    "passed": true,
+    "before": {
+      "build": 200,
+      "version": "0.8.49",
+      "appId": "10283",
+      "firstInstallTime": "2026-11-12 09:28:44"
+    },
+    "after": {
+      "build": 201,
+      "version": "0.8.49",
+      "appId": "10283",
+      "firstInstallTime": "2026-11-12 09:28:44"
+    },
+    "firstInstallTimePreserved": true,
+    "appIdPreserved": true,
+    "launch": "Starting: Intent { cmp=com.hikejournal.app/.MainActivity }\nStatus: ok\nLaunchState: COLD\nActivity: com.hikejournal.app/.MainActivity\nTotalTime: 5659\nWaitTime: 6396\nComplete",
+    "androidRuntimeErrors": []
+  },
+  "signing": "PASS: release verifier, strict AAB signature, expected permanent signer, SDK 26-27 and 28-36 APK signatures, installed-data signing lineage"
+}

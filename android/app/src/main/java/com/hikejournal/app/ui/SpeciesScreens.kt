@@ -53,6 +53,7 @@ import androidx.compose.material.icons.rounded.CloudOff
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.IosShare
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.AlertDialog
@@ -1751,6 +1752,8 @@ fun SpeciesDetailScreen(
     onOpenPhoto: (Photo) -> Unit,
 ) {
     val currentIndex = allSpecies.indexOfFirst { it.key == species.key }
+    var sharing by remember(species.key) { mutableStateOf(false) }
+    if (sharing) SpeciesShareDialog(species = species, onDismiss = { sharing = false })
     var horizontalDragDistance by remember(species.key) { mutableFloatStateOf(0f) }
     LazyColumn(
         Modifier.fillMaxSize().background(Parchment).pointerInput(species.key, currentIndex) {
@@ -1768,7 +1771,7 @@ fun SpeciesDetailScreen(
         },
         contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 54.dp),
     ) {
-        item { SpeciesHero(species, onBack) }
+        item { SpeciesHero(species, onBack, onShare = { sharing = true }, shareEnabled = !loading) }
         item {
             Column(Modifier.padding(horizontal = 20.dp, vertical = 20.dp)) {
                 Text(
@@ -1864,7 +1867,7 @@ private fun ecologyStatusColor(label: String): Color = when (label) {
 }
 
 @Composable
-private fun SpeciesHero(species: SpeciesRecord, onBack: () -> Unit) {
+private fun SpeciesHero(species: SpeciesRecord, onBack: () -> Unit, onShare: () -> Unit, shareEnabled: Boolean) {
     Box(Modifier.fillMaxWidth().height(390.dp).background(Moss)) {
         AsyncImage(species.coverUrl, species.commonName, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         Box(
@@ -1878,6 +1881,14 @@ private fun SpeciesHero(species: SpeciesRecord, onBack: () -> Unit) {
             colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(containerColor = Color(0x99172820)),
         ) {
             Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = Paper)
+        }
+        FilledIconButton(
+            onClick = onShare,
+            enabled = shareEnabled,
+            modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(10.dp),
+            colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(containerColor = Color(0x99172820)),
+        ) {
+            Icon(Icons.Rounded.IosShare, "Share species", tint = Paper)
         }
         Column(Modifier.align(Alignment.BottomStart).padding(20.dp)) {
             BrandWordmark(Modifier.width(160.dp).height(52.dp))

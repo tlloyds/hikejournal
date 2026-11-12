@@ -1,0 +1,18 @@
+<?xml version='1.0' encoding='utf-8'?>
+<testsuite name="com.hikejournal.app.ui.SpeciesSharePreparationTest" tests="10" failures="0" errors="0" skipped="0" time="128.462" timestamp="2026-11-12T14:25:08" hostname="localhost">
+  <properties>
+    <property name="device" value="HikeJournalPixel(AVD) - 15" />
+    <property name="flavor" value="" />
+    <property name="project" value=":app" />
+  </properties>
+  <testcase name="partialFailuresKeepOrderAndIndependentSharesKeepTheirAttachments" classname="com.hikejournal.app.ui.SpeciesSharePreparationTest" time="0.137" />
+  <testcase name="emptyPhotoOnlySharesFailAndKeepsakeOnlySharesWork" classname="com.hikejournal.app.ui.SpeciesSharePreparationTest" time="0.547" />
+  <testcase name="rendersPhotoInStandardSmallAndLongNameKeepsakes" classname="com.hikejournal.app.ui.SpeciesSharePreparationTest" time="3.047" />
+  <testcase name="exportsSelectionOrderLimitsCaptionAndReadableKeepsakesForEveryMode" classname="com.hikejournal.app.ui.SpeciesSharePreparationTest" time="0.349" />
+  <testcase name="speciesDetailOpensSharePickerAndCloseReturnsToSameSpecies" classname="com.hikejournal.app.ui.SpeciesShareDialogTest" time="32.333" />
+  <testcase name="speciesWithoutEncounterPhotosCanShareOnlyAKeepsake" classname="com.hikejournal.app.ui.SpeciesShareDialogTest" time="17.84" />
+  <testcase name="noKeepsakeRequiresPhotosAndSwitchingBackTrimsToNineteen" classname="com.hikejournal.app.ui.SpeciesShareDialogTest" time="33.282" />
+  <testcase name="missingPhotosCannotOpenAnEmptyShareWithoutAKeepsake" classname="com.hikejournal.app.ui.HikeSharePreparationTest" time="0.244" />
+  <testcase name="exportsCorrectOrderAndPhotoLimitForEveryKeepsakeOption" classname="com.hikejournal.app.ui.HikeSharePreparationTest" time="3.819" />
+  <testcase name="changingKeepsakeUpdatesLimitTrimsSelectionAndPreventsEmptyShare" classname="com.hikejournal.app.ui.HikeShareDialogTest" time="28.126" />
+</testsuite>

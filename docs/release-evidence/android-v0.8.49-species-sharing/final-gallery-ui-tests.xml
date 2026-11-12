@@ -1,0 +1,11 @@
+<?xml version='1.0' encoding='utf-8'?>
+<testsuite name="com.hikejournal.app.ui.SpeciesShareDialogTest" tests="3" failures="0" errors="0" skipped="0" time="84.032" timestamp="2026-11-12T14:27:37" hostname="localhost">
+  <properties>
+    <property name="device" value="HikeJournalPixel(AVD) - 15" />
+    <property name="flavor" value="" />
+    <property name="project" value=":app" />
+  </properties>
+  <testcase name="speciesDetailOpensSharePickerAndCloseReturnsToSameSpecies" classname="com.hikejournal.app.ui.SpeciesShareDialogTest" time="32.336" />
+  <testcase name="speciesWithoutEncounterPhotosCanShareOnlyAKeepsake" classname="com.hikejournal.app.ui.SpeciesShareDialogTest" time="14.542" />
+  <testcase name="noKeepsakeRequiresPhotosAndSwitchingBackTrimsToNineteen" classname="com.hikejournal.app.ui.SpeciesShareDialogTest" time="31.827" />
+</testsuite>

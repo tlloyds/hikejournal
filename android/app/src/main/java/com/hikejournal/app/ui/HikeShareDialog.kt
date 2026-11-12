@@ -88,6 +88,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -149,7 +151,7 @@ internal enum class HikeShareKeepsake(val label: String, val orderDescription: S
 
 internal data class ShareRoutePoint(val x: Float, val y: Float)
 
-internal data class PreparedHikeShare(
+internal data class PreparedImageShare(
     val uris: ArrayList<Uri>,
     val caption: String,
     val omittedPhotoCount: Int,
@@ -219,7 +221,7 @@ internal fun HikeShareDialog(
             runCatching { prepareHikeShare(context, hike, selectedPhotos, satelliteMap, shareKeepsake) }
                 .onSuccess { prepared ->
                     preparing = false
-                    launchHikeShare(context, prepared)
+                    launchPreparedImageShare(context, prepared)
                     if (prepared.omittedPhotoCount > 0) {
                         Toast.makeText(
                             context,
@@ -616,7 +618,7 @@ internal fun MultiHikeShareDialog(
                 prepareMultiHikeShare(context, shareHikes, sharePhotos, shareMaps, keepsake)
             }.onSuccess { prepared ->
                 preparing = false
-                launchHikeShare(context, prepared)
+                launchPreparedImageShare(context, prepared)
                 if (prepared.omittedPhotoCount > 0) {
                     Toast.makeText(
                         context,
@@ -930,11 +932,12 @@ private fun HorizontalShareDivider() {
 }
 
 @Composable
-private fun SharePhotoTile(
+internal fun SharePhotoTile(
     photo: Photo,
     selectionIndex: Int?,
     enabled: Boolean,
     onClick: () -> Unit,
+    label: String = photo.caption.ifBlank { "Hike photo" },
 ) {
     Box(
         Modifier
@@ -942,6 +945,7 @@ private fun SharePhotoTile(
             .aspectRatio(0.82f)
             .clip(RoundedCornerShape(6.dp))
             .clickable(enabled = enabled, onClick = onClick)
+            .semantics { selected = selectionIndex != null }
             .alpha(if (enabled || selectionIndex != null) 1f else 0.42f)
             .border(
                 width = if (selectionIndex != null) 4.dp else 1.dp,
@@ -951,7 +955,7 @@ private fun SharePhotoTile(
     ) {
         AsyncImage(
             model = photo.url,
-            contentDescription = photo.caption.ifBlank { "Hike photo" },
+            contentDescription = label,
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize().background(MossSoft),
         )
@@ -1234,7 +1238,7 @@ internal fun renderHikeShareCard(
     return bitmap
 }
 
-private fun drawKeepsakeBackground(
+internal fun drawKeepsakeBackground(
     context: Context,
     canvas: Canvas,
     paint: Paint,
@@ -1276,7 +1280,7 @@ private fun drawSpark(canvas: Canvas, cx: Float, cy: Float, radius: Float, paint
     canvas.drawPath(path, paint)
 }
 
-private fun textLines(text: String, paint: Paint, maxWidth: Float, maxLines: Int): List<String> {
+internal fun textLines(text: String, paint: Paint, maxWidth: Float, maxLines: Int): List<String> {
     val words = text.trim().split(Regex("\\s+")).filter(String::isNotBlank)
     if (words.isEmpty()) return listOf("")
     val lines = mutableListOf<String>()
@@ -1308,7 +1312,7 @@ internal suspend fun prepareHikeShare(
     photos: List<Photo>,
     satelliteMap: Bitmap?,
     keepsake: HikeShareKeepsake,
-): PreparedHikeShare {
+): PreparedImageShare {
     val resolvedSatelliteMap = if (keepsake.includesKeepsake) {
         satelliteMap ?: captureSatelliteRouteMap(context, hike.routeSegments)
     } else null
@@ -1344,7 +1348,7 @@ internal suspend fun prepareHikeShare(
         }
         val uris = ArrayList(keepsake.orderedItems(cardUri, photoUris))
         check(uris.isNotEmpty()) { "No selected photos were available. Check your connection and try again." }
-        PreparedHikeShare(
+        PreparedImageShare(
             uris = uris,
             caption = buildString {
                 append(hike.title.ifBlank { "A day on the trail" })
@@ -1368,7 +1372,7 @@ internal suspend fun prepareMultiHikeShare(
     photos: List<Photo>,
     satelliteMaps: Map<String, Bitmap?>,
     keepsake: HikeShareKeepsake,
-): PreparedHikeShare {
+): PreparedImageShare {
     val selectedHikes = hikes.distinctBy(Hike::id)
     require(selectedHikes.size >= 2) { "Choose at least two hikes to share together." }
     val maximumPhotos = (MAX_SOCIAL_CAROUSEL_ITEMS - if (keepsake.includesKeepsake) selectedHikes.size else 0)
@@ -1422,7 +1426,7 @@ internal suspend fun prepareMultiHikeShare(
             HikeShareKeepsake.NONE -> photoUris
         }
         check(orderedUris.isNotEmpty()) { "No selected photos were available. Check your connection and try again." }
-        PreparedHikeShare(
+        PreparedImageShare(
             uris = ArrayList(orderedUris),
             caption = buildString {
                 append("HikeJournal · ")
@@ -1446,7 +1450,7 @@ internal suspend fun prepareMultiHikeShare(
     }
 }
 
-private fun cacheSharedPhoto(
+internal fun cacheSharedPhoto(
     context: Context,
     photo: Photo,
     directory: File,
@@ -1513,9 +1517,11 @@ internal fun launchSinglePhotoShare(context: Context, photo: Photo, uri: Uri) {
     context.startActivity(chooser)
 }
 
-private fun launchHikeShare(
+internal fun launchPreparedImageShare(
     context: Context,
-    prepared: PreparedHikeShare,
+    prepared: PreparedImageShare,
+    chooserTitle: String = "Share your HikeJournal outing",
+    clipLabel: String = "HikeJournal outing",
 ) {
     val shareIntent = Intent(
         if (prepared.uris.size == 1) Intent.ACTION_SEND else Intent.ACTION_SEND_MULTIPLE,
@@ -1528,12 +1534,12 @@ private fun launchHikeShare(
         }
         putExtra(Intent.EXTRA_TEXT, prepared.caption)
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        clipData = ClipData.newUri(context.contentResolver, "HikeJournal outing", prepared.uris.first()).apply {
+        clipData = ClipData.newUri(context.contentResolver, clipLabel, prepared.uris.first()).apply {
             prepared.uris.drop(1).forEach { addItem(ClipData.Item(it)) }
         }
         if (context !is Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     }
-    val chooser = Intent.createChooser(shareIntent, "Share your HikeJournal outing")
+    val chooser = Intent.createChooser(shareIntent, chooserTitle)
     if (context !is Activity) chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     context.startActivity(chooser)
 }

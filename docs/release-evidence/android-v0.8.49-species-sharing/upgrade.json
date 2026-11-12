@@ -1,0 +1,19 @@
+{
+  "passed": true,
+  "before": {
+    "build": 200,
+    "version": "0.8.49",
+    "appId": "10283",
+    "firstInstallTime": "2026-11-12 09:28:44"
+  },
+  "after": {
+    "build": 201,
+    "version": "0.8.49",
+    "appId": "10283",
+    "firstInstallTime": "2026-11-12 09:28:44"
+  },
+  "firstInstallTimePreserved": true,
+  "appIdPreserved": true,
+  "launch": "Starting: Intent { cmp=com.hikejournal.app/.MainActivity }\nStatus: ok\nLaunchState: COLD\nActivity: com.hikejournal.app/.MainActivity\nTotalTime: 5659\nWaitTime: 6396\nComplete",
+  "androidRuntimeErrors": []
+}
