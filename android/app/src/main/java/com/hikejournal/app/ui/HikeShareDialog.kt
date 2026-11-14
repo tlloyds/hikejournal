@@ -197,7 +197,6 @@ internal fun HikeShareDialog(
         hike.distanceMiles,
         hike.durationSeconds,
         hike.routeStartedAt,
-        hike.locationName,
         hike.routeSegments,
         satelliteMap,
     ) {
@@ -1183,13 +1182,11 @@ internal fun renderHikeShareCard(
     paint.color = 0x33FFFFFF
     canvas.drawRect(72f * sx, 774f * sy, safeWidth - 72f * sx, 776f * sy, paint)
 
-    val eyebrow = hike.locationName.takeIf(String::isNotBlank)?.uppercase(Locale.US) ?: "FIELD JOURNAL"
     paint.color = 0xFFD17D42.toInt()
     paint.typeface = labelFont
     paint.textSize = 23f * sx
     paint.letterSpacing = 0.06f
-    val locationLine = textLines(eyebrow, paint, safeWidth - 144f * sx, maxLines = 1).first()
-    canvas.drawText(locationLine, 72f * sx, 835f * sy, paint)
+    canvas.drawText("FIELD JOURNAL", 72f * sx, 835f * sy, paint)
     paint.letterSpacing = 0f
 
     paint.color = 0xFFF5F1E7.toInt()

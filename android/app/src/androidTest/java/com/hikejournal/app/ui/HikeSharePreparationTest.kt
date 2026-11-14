@@ -1,5 +1,6 @@
 package com.hikejournal.app.ui
 
+import android.graphics.BitmapFactory
 import androidx.test.platform.app.InstrumentationRegistry
 import com.hikejournal.app.data.Hike
 import com.hikejournal.app.data.Photo
@@ -32,6 +33,20 @@ class HikeSharePreparationTest {
             assertEquals(photos.take(if (mode.includesKeepsake) 19 else 20).map(Photo::id), contents)
             assertEquals(0, prepared.omittedPhotoCount)
         }
+    }
+
+    @Test
+    fun combinedKeepsakesUseTheSameHeadingWithOrWithoutALocation() = runBlocking {
+        val first = hike().copy(id = "combined-share-with-location")
+        val second = first.copy(id = "combined-share-without-location", locationName = "")
+        val prepared = prepareMultiHikeShare(context, listOf(first, second), emptyList(),
+            satelliteMaps = emptyMap(), keepsake = HikeShareKeepsake.FIRST)
+
+        assertEquals(2, prepared.uris.distinct().size)
+        val cards = prepared.uris.map { uri ->
+            context.contentResolver.openInputStream(uri)!!.use { BitmapFactory.decodeStream(it)!! }
+        }
+        assertTrue("Keepsakes should use the same heading regardless of location", cards[0].sameAs(cards[1]))
     }
 
     @Test
