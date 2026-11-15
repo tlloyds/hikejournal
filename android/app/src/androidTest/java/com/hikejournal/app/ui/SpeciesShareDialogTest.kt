@@ -67,7 +67,8 @@ class SpeciesShareDialogTest {
         rule.onNodeWithText("Share 20 images").assertIsEnabled()
         rule.onNodeWithText("Clear").performClick()
         rule.onNodeWithText("Share 1 image").assertIsEnabled()
-        rule.onNodeWithText("No keepsake").performScrollTo().performClick()
+        rule.onNode(hasScrollToIndexAction()).performScrollToNode(hasText("No keepsake"))
+        rule.onNodeWithText("No keepsake").performClick()
         rule.onNodeWithText("Share 0 images").assertIsNotEnabled()
     }
 

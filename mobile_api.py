@@ -136,6 +136,7 @@ from hike_journal.services.discovery import SpeciesDiscoveryService
 from hike_journal.services.outdoor_conditions import OutdoorConditionsService
 from hike_journal.services.storage import StorageService
 from hike_journal.services.supabase_transport import build_supabase_client
+from hike_journal.services.edibility import EdibilityReference, load_edibility_reference
 from hike_journal.services.taxonomy import ensure_observation_taxonomy
 from hike_journal.services.weather import (
     OpenMeteoWeatherProvider,
@@ -1496,8 +1497,9 @@ def _standalone_hike_payload(svc: Services, *, include_details: bool = False) ->
         cover_photo=cover_photo,
     )
     if include_details:
+        reference = _edibility_reference(svc, observations)
         payload["photos"] = [
-            _photo_payload(photo, observations_by_photo.get(str(photo.get("id")), []))
+            _photo_payload(photo, observations_by_photo.get(str(photo.get("id")), []), reference=reference)
             for photo in photos
         ]
         payload["route_segments"] = []
@@ -1653,7 +1655,16 @@ def _normalize_client_uuid(value: str | None, *, field_name: str) -> str | None:
         raise HTTPException(status_code=400, detail=f"{field_name} must be a UUID.") from exc
 
 
-def _photo_payload(photo: dict[str, Any], species: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+def _edibility_reference(svc: Services, observations: list[dict[str, Any]]) -> EdibilityReference:
+    return load_edibility_reference(svc.repository, observations, enabled=settings.edibility_enabled)
+
+
+def _photo_payload(
+    photo: dict[str, Any],
+    species: list[dict[str, Any]] | None = None,
+    *,
+    reference: EdibilityReference | None = None,
+) -> dict[str, Any]:
     return {
         "id": str(photo.get("id") or ""),
         "hike_id": str(photo.get("hike_id") or "") or None,
@@ -1691,6 +1702,7 @@ def _photo_payload(photo: dict[str, Any], species: list[dict[str, Any]] | None =
                 "status": observation.get("status"),
                 "is_primary": bool(observation.get("is_primary")),
                 "taxon_id": observation.get("taxon_id"),
+                "edibility": reference.for_observation(observation) if reference else None,
                 "wikipedia_url": str(
                     (observation.get("raw_response_json") or {})
                     .get("taxon_enrichment", {})
@@ -1879,15 +1891,17 @@ def _visible_species_data(
         for key, value in scoped_cache.items()
         if current_time - value[0] < 90
     }
-    if species_page_projection:
-        shared_cache = scoped_cache.get(_species_data_cache_key(context))
-        if shared_cache:
+    read_current_identity = species_page_projection and settings.edibility_enabled
+    if not read_current_identity:
+        if species_page_projection:
+            shared_cache = scoped_cache.get(_species_data_cache_key(context))
+            if shared_cache:
+                _species_data_cache = scoped_cache
+                return shared_cache[1]
+        cached = scoped_cache.get(cache_key)
+        if cached:
             _species_data_cache = scoped_cache
-            return shared_cache[1]
-    cached = scoped_cache.get(cache_key)
-    if cached:
-        _species_data_cache = scoped_cache
-        return cached[1]
+            return cached[1]
     hikes = hikes if hikes is not None else _visible_hikes(svc.repository)
     hikes_by_id = {str(hike["id"]): hike for hike in hikes}
     visible_hike_ids = set(hikes_by_id)
@@ -1945,6 +1959,9 @@ def _visible_species_data(
         if str(observation.get("photo_id") or "") in photos_by_id
     ]
     result = (observations, photos_by_id, hikes_by_id)
+    if read_current_identity:
+        # A different worker can reassign a taxon without invalidating this worker's cache.
+        return result
     if cache_key not in scoped_cache and len(scoped_cache) >= 256:
         oldest_key = min(scoped_cache, key=lambda key: scoped_cache[key][0])
         scoped_cache.pop(oldest_key, None)
@@ -2026,6 +2043,8 @@ def _build_species_payloads(
     observations: list[dict[str, Any]],
     photos_by_id: dict[str, dict[str, Any]],
     hikes_by_id: dict[str, dict[str, Any]],
+    *,
+    reference: EdibilityReference | None = None,
 ) -> list[dict[str, Any]]:
     groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for observation in observations:
@@ -2107,6 +2126,11 @@ def _build_species_payloads(
                 lead,
             )
         )
+        edibility = reference.for_observation(lead) if reference else None
+        if edibility and any(reference.for_observation(item) is not edibility for item in ordered):
+            # Existing grouping can combine infraspecies. Suppress group-level
+            # evidence unless every observation resolves to the exact profile.
+            edibility = None
         payloads.append(
             {
                 "key": key,
@@ -2116,6 +2140,9 @@ def _build_species_payloads(
                 "rank": str(lead.get("rank") or ""),
                 "iconic_taxon_name": iconic_taxon_name,
                 "ecology": ecology,
+                "edibility": edibility,
+                "edibility_reference_enabled": bool(reference and reference.release_id),
+                "edibility_dataset_version": reference.release_id if reference else None,
                 "wikipedia_url": str(enrichment_lead.get("wikipedia_url") or ""),
                 "wikipedia_summary": str(enrichment_lead.get("wikipedia_summary") or ""),
                 "encounter_count": len(encounter_photo_ids),
@@ -3820,7 +3847,9 @@ def list_species() -> list[dict[str, Any]]:
     observations, photos_by_id, hikes_by_id = _visible_species_data(
         svc, species_page_projection=True
     )
-    return _build_species_payloads(observations, photos_by_id, hikes_by_id)
+    return _build_species_payloads(
+        observations, photos_by_id, hikes_by_id, reference=_edibility_reference(svc, observations),
+    )
 
 
 @app.get("/v1/discovery/areas", dependencies=[Depends(require_mobile_key)])
@@ -5297,7 +5326,8 @@ def get_species_detail(key: str) -> dict[str, Any]:
         svc.repository,
         [observation for observation in observations if _species_key(observation) == key],
     )
-    summaries = _build_species_payloads(matching, photos_by_id, hikes_by_id)
+    reference = _edibility_reference(svc, matching)
+    summaries = _build_species_payloads(matching, photos_by_id, hikes_by_id, reference=reference)
     if not summaries:
         raise HTTPException(status_code=404, detail="Species not found.")
     summary_enrichment = {
@@ -5331,6 +5361,7 @@ def get_species_detail(key: str) -> dict[str, Any]:
                         }
                         for observation in photo_observations
                     ],
+                    reference=reference,
                 ),
                 "hike_id": str((hike or {}).get("id") or "") or None,
                 "hike_title": str((hike or {}).get("title") or "Everyday sighting"),
@@ -5608,8 +5639,9 @@ def get_hike(
             confirmed_species.add(_species_key(observation))
     payload = _hike_payload(hike, photos=photos, species_count=len(confirmed_species))
     if include_photos:
+        reference = _edibility_reference(svc, observations)
         payload["photos"] = [
-            _photo_payload(photo, observations_by_photo.get(str(photo.get("id")), []))
+            _photo_payload(photo, observations_by_photo.get(str(photo.get("id")), []), reference=reference)
             for photo in photos
         ]
     if include_route:
@@ -5676,13 +5708,15 @@ def get_hike_photos(
     for observation in page_observations:
         if observation.get("photo_id"):
             observations_by_photo[str(observation["photo_id"])].append(observation)
+    reference = _edibility_reference(svc, page_observations)
     next_offset = offset + len(page)
     return {
         "photos": [
-            _photo_payload(photo, observations_by_photo.get(str(photo.get("id")), []))
+            _photo_payload(photo, observations_by_photo.get(str(photo.get("id")), []), reference=reference)
             for photo in page
         ],
         "next_offset": next_offset if len(page) == limit else None,
+        "edibility_dataset_version": reference.release_id,
     }
 
 
@@ -6137,6 +6171,10 @@ def _matches_known_species(observation: dict[str, Any], species: KnownSpeciesInp
 @app.put("/v1/photos/{photo_id}/species", dependencies=[Depends(require_mobile_key)])
 def assign_known_species_to_photo(photo_id: str, payload: KnownSpeciesInput) -> dict[str, Any]:
     svc, photo = _get_visible_photo(photo_id)
+
+    def assigned_photo(observations: list[dict[str, Any]]) -> dict[str, Any]:
+        return _photo_payload(photo, observations, reference=_edibility_reference(svc, observations))
+
     if payload.action == "set" and str(photo.get("content_type") or "").lower().startswith("video/"):
         raise HTTPException(status_code=409, detail="Videos cannot be assigned a species.")
     if payload.action == "set" and payload.taxon_id is None and not payload.common_name.strip() and not payload.scientific_name.strip():
@@ -6150,11 +6188,11 @@ def assign_known_species_to_photo(photo_id: str, payload: KnownSpeciesInput) -> 
             existing = [observation for observation in existing if observation.get("id") != primary.get("id")]
         svc.repository.update_photo_processing_status(photo_id, "ready")
         _invalidate_species_data_cache()
-        return _photo_payload(photo, existing)
+        return assigned_photo(existing)
 
     if primary is not None and primary.get("status") == "confirmed" and _matches_known_species(primary, payload):
         svc.repository.update_photo_processing_status(photo_id, "ready")
-        return _photo_payload(photo, existing)
+        return assigned_photo(existing)
 
     confirmed_observations, _, _ = _visible_species_data(svc)
     known_species = next(
@@ -6163,7 +6201,7 @@ def assign_known_species_to_photo(photo_id: str, payload: KnownSpeciesInput) -> 
     )
     if primary is not None and known_species is not None and _matches_known_species(primary, payload):
         svc.repository.update_photo_processing_status(photo_id, "ready")
-        return _photo_payload(photo, existing)
+        return assigned_photo(existing)
 
     if primary is not None:
         is_known_species = known_species is not None
@@ -6200,7 +6238,7 @@ def assign_known_species_to_photo(photo_id: str, payload: KnownSpeciesInput) -> 
         svc.repository.update_photo_processing_status(photo_id, "ready")
         _invalidate_species_data_cache()
         refreshed = svc.repository.list_observations_for_photo_ids([photo_id])
-        return _photo_payload(photo, refreshed or [updated])
+        return assigned_photo(refreshed or [updated])
 
     is_known_species = known_species is not None
     source_observation_id = str(known_species.get("id") or "") if known_species else ""
@@ -6242,7 +6280,7 @@ def assign_known_species_to_photo(photo_id: str, payload: KnownSpeciesInput) -> 
     svc.repository.update_photo_processing_status(photo_id, "ready")
     _invalidate_species_data_cache()
     refreshed = svc.repository.list_observations_by_ids([str(created["id"])])
-    return _photo_payload(photo, refreshed or [created])
+    return assigned_photo(refreshed or [created])
 
 
 @app.put("/v1/photos/{photo_id}/review", dependencies=[Depends(require_mobile_key)])

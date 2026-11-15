@@ -243,6 +243,7 @@ def test_photo_payload_includes_stored_species_wikipedia_info():
             "status": "confirmed",
             "is_primary": True,
             "taxon_id": 47126,
+            "edibility": None,
             "wikipedia_url": "https://en.wikipedia.org/wiki/Eastern_gray_squirrel",
             "wikipedia_summary": "The eastern gray squirrel is a tree squirrel.",
         }

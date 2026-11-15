@@ -285,6 +285,51 @@ class InatClient:
                 ))
         return None
 
+    def find_active_scientific_taxon_ids(self, scientific_name: str) -> set[int] | None:
+        """Find all active exact scientific matches, or None for an incomplete search."""
+        response = self._request(
+            "get", f"{self.base_url}/taxa", headers=self._headers(auth=False),
+            params={"q": scientific_name, "is_active": "true", "per_page": 100},
+            timeout=30,
+        )
+        if response.status_code >= 400:
+            raise InatRequestError(f"iNaturalist scientific search returned {response.status_code}")
+        payload = response.json()
+        results = payload.get("results") or []
+        total = _coerce_int(payload.get("total_results"))
+        if total is None or total != len(results):
+            return None
+        return {
+            identity_id for taxon in results if isinstance(taxon, dict)
+            and taxon.get("is_active") is True
+            and _normalize_name(taxon.get("name")) == _normalize_name(scientific_name)
+            and (identity_id := _coerce_int(taxon.get("id"))) is not None
+        }
+
+    def fetch_taxon_reference_identity(self, taxon_id: int) -> dict[str, Any] | None:
+        """Fetch a single taxon and its lineage for offline reference matching."""
+        response = self._request(
+            "get", f"{self.base_url}/taxa/{taxon_id}", headers=self._headers(auth=False), timeout=30,
+        )
+        if response.status_code == 404:
+            return None
+        if response.status_code >= 400:
+            raise InatRequestError(f"iNaturalist reference taxon lookup returned {response.status_code}")
+        results = response.json().get("results") or []
+        if not results:
+            return None
+        if len(results) != 1 or not isinstance(results[0], dict) or _coerce_int(results[0].get("id")) != taxon_id:
+            raise InatRequestError("iNaturalist reference lookup did not resolve the requested taxon")
+        taxon = results[0]
+        return {
+            **extract_taxon_enrichment(taxon),
+            "family": next((
+                _coerce_text(ancestor.get("name")) for ancestor in taxon.get("ancestors") or []
+                if isinstance(ancestor, dict) and ancestor.get("rank") == "family"
+            ), None),
+            "authority": _coerce_text(taxon.get("name_authority")),
+        }
+
     def _with_plant_ecology_fallback(self, enrichment: dict[str, Any]) -> dict[str, Any]:
         if not settings.usda_plants_enabled:
             return enrichment

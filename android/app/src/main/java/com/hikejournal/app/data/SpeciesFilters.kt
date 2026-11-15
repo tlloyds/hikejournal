@@ -77,3 +77,16 @@ fun filterSpeciesByObservationType(
 ): List<SpeciesRecord> =
     if (filter == ObservationTypeFilter.All) species
     else species.filter { it.matchesObservationType(filter) }
+
+internal fun filterSpeciesByFoodUse(
+    species: List<SpeciesRecord>,
+    documentedOnly: Boolean,
+    currentDatasetVersion: String? = null,
+): List<SpeciesRecord> {
+    if (!documentedOnly) return species
+    return species.filter {
+        val reference = it.currentEdibility()
+        reference?.hasDocumentedFoodUse == true &&
+            (currentDatasetVersion == null || reference.datasetVersion == currentDatasetVersion)
+    }
+}

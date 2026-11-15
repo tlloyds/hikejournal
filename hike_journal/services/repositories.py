@@ -73,7 +73,7 @@ MOBILE_MAP_PHOTO_COLUMNS_WITH_THUMBNAIL = (
 )
 
 MOBILE_DETAIL_OBSERVATION_COLUMNS = (
-    "id,photo_id,hike_id,owner_subject,owner_email,taxon_id,species_taxon_id,iconic_taxon_name,"
+    "id,photo_id,hike_id,owner_subject,owner_email,taxon_id,species_taxon_id,rank,iconic_taxon_name,"
     "common_name,scientific_name,status,is_primary,observed_on,occurrence_precision,"
     "identification_confidence,identification_provenance,"
     "wikipedia_url:raw_response_json->taxon_enrichment->>wikipedia_url,"
@@ -2342,6 +2342,28 @@ class HikeJournalRepository:
             ),
             page_size=page_size,
         )
+
+    def read_edibility_profiles(
+        self, taxon_ids: list[int]
+    ) -> tuple[str | None, dict[str, dict[str, Any]]]:
+        release_id = None
+        profiles: dict[str, dict[str, Any]] = {}
+        for chunk in self._chunks(taxon_ids, size=200) if taxon_ids else [[]]:
+            result = self.client.rpc(
+                "current_edibility_reference", {"p_taxon_ids": chunk},
+            ).execute().data
+            if not result or (release_id is not None and release_id != result["release_id"]):
+                # A release change during this read must not mix two datasets.
+                return None, {}
+            release_id = result["release_id"]
+            source = result["source"]
+            if not all(source.get(key) for key in ("title", "url", "version", "license", "attribution")):
+                return None, {}
+            for key, profile in result["profiles"].items():
+                profiles[key] = {
+                    **profile, "taxon_id": int(key), "dataset_version": release_id, "sources": [source],
+                }
+        return release_id, profiles
 
     def upsert_taxon_ecology_status(self, enrichment: dict[str, Any]) -> dict[str, Any] | None:
         """Persist the latest place-aware status without making it user-owned."""

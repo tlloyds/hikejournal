@@ -1,0 +1,17 @@
+{
+  "source_key": "wcfp",
+  "version": "2",
+  "doi": "10.6084/m9.figshare.31441615.v2",
+  "title": "World Checklist of Food Plants 2026 (WCFP): Data",
+  "attribution": "Mauricio Diazgranados, Maraeva Gianella, Laura Kor, Benedetta Gori, Colin Khoury, Sarah L. Gora, Hannes Dempewolf, Alex C. McAlvay, Stefano Diulgheroff, Rossano Schifanella and Tiziana Ulian (2026)",
+  "publisher": "Royal Botanic Gardens, Kew (data) / Figshare (deposit)",
+  "license": "CC BY 4.0",
+  "license_url": "https://creativecommons.org/licenses/by/4.0/",
+  "archive_sha256": "0455d7523e65ec00a0e08546533f3976663455b7bc1f20c32c4a998ac174665f",
+  "modifications": "HikeJournal extracted human-food evidence for vascular plants, verified rank against the accompanying WCVP snapshot (Govaerts et al., 2021, doi:10.1038/s41597-021-00997-6), and matched accepted identities to iNaturalist.",
+  "metadata_url": "https://api.figshare.com/v2/articles/31441615/versions/2",
+  "archive_url": "https://ndownloader.figshare.com/files/67533435",
+  "archive_md5": "9e6b49bc6767702f750fae7be24c6620",
+  "workbook": "WCFP.xlsx",
+  "taxonomy": "Code/input/wcvp_names.csv"
+}

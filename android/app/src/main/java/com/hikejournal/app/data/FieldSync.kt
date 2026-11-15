@@ -760,6 +760,7 @@ class FieldOperationQueue(private val context: Context) {
     }
 
     suspend fun queueDeletePhoto(photoId: String, hikeId: String?) {
+        FoodUsePreferences(context).invalidatePhotoIdentity(photoId)
         val pendingUpload = dao.find(OperationKind.UploadPhoto, photoId)
         if (pendingUpload != null && pendingUpload.state != "syncing") {
             pendingUpload.localFilePath?.let { path ->
@@ -894,6 +895,7 @@ class FieldOperationQueue(private val context: Context) {
         commonName: String,
         scientificName: String,
     ) {
+        FoodUsePreferences(context).invalidatePhotoIdentity(photoId)
         coalesce(OperationKind.AssignKnownSpecies, photoId)
         coalesce(OperationKind.QueueSpeciesReview, photoId)
         enqueue(
@@ -909,6 +911,7 @@ class FieldOperationQueue(private val context: Context) {
     }
 
     suspend fun queueReview(item: ReviewItem, action: String, candidate: ReviewCandidate?) {
+        FoodUsePreferences(context).invalidatePhotoIdentity(item.photo.id)
         coalesce(OperationKind.ReviewDecision, item.id)
         val payload = JSONObject()
             .put("action", action)
@@ -1813,6 +1816,12 @@ class FieldSyncEngine(private val context: Context) {
                     }
                     if (operation.kind == OperationKind.CreateFieldMark) {
                         fieldMarks.updateSyncState(operation.entityId, "synced", System.currentTimeMillis())
+                    }
+                    if (operation.kind in setOf(
+                            OperationKind.AssignKnownSpecies, OperationKind.ReviewDecision, OperationKind.DeletePhoto,
+                        )
+                    ) {
+                        FoodUsePreferences(context).invalidatePhotoIdentity(operation.entityId)
                     }
                     if (operation.kind == OperationKind.UploadRoute) {
                         invalidateRouteCaches(context)

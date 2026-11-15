@@ -196,6 +196,8 @@ import com.hikejournal.app.data.GettingStartedPreferences
 import com.hikejournal.app.data.IdentificationSafetyPreferences
 import com.hikejournal.app.data.LocalMediaAccess
 import com.hikejournal.app.data.MapDisplayPreferences
+import com.hikejournal.app.data.FoodUsePreferences
+import com.hikejournal.app.data.isVideo
 import com.hikejournal.app.data.MediaLocationSummary
 import com.hikejournal.app.data.NationalScenicTrailOverlays
 import com.hikejournal.app.data.NearbyRiverGauge
@@ -396,6 +398,8 @@ private fun HikeJournalAppContent(viewModel: AppViewModel) {
         return
     }
     val mapDisplayPreferences = remember(context) { MapDisplayPreferences(context) }
+    val foodUsePreferences = remember(context) { FoodUsePreferences(context) }
+    var showFoodUseOnPhotos by remember { mutableStateOf(foodUsePreferences.showPhotoIndicators) }
     var destination by rememberSaveable { mutableStateOf(TopDestination.Archive) }
     var editingHike by remember { mutableStateOf<Hike?>(null) }
     var trackedHikeLocationSuggestion by remember { mutableStateOf<HikeLocationSuggestion?>(null) }
@@ -1299,6 +1303,7 @@ private fun HikeJournalAppContent(viewModel: AppViewModel) {
             offline = state.isOffline,
             resolvingSpeciesInfo = state.resolvingSpeciesInfoPhotoId == photo.id,
             savingForRecommendation = state.prioritizingPhotoId == photo.id,
+            showFoodUseOnPhotos = showFoodUseOnPhotos,
             onDismiss = {
                 if (openingPhotoMapId == photo.id) {
                     openingPhotoMapId = null
@@ -1411,6 +1416,11 @@ private fun HikeJournalAppContent(viewModel: AppViewModel) {
 
     if (settingsOpen) {
         SettingsDialog(
+            showFoodUseOnPhotos = showFoodUseOnPhotos,
+            onShowFoodUseOnPhotos = {
+                foodUsePreferences.showPhotoIndicators = it
+                showFoodUseOnPhotos = it
+            },
             authRequired = state.authRequired,
             authAccount = state.authAccount,
             currentUrl = viewModel.serverUrl,
@@ -3433,6 +3443,7 @@ private fun PhotoViewer(
     offline: Boolean,
     resolvingSpeciesInfo: Boolean,
     savingForRecommendation: Boolean,
+    showFoodUseOnPhotos: Boolean,
     onDismiss: () -> Unit,
     onPrevious: (() -> Unit)?,
     onNext: (() -> Unit)?,
@@ -3552,6 +3563,9 @@ private fun PhotoViewer(
                 }
                 identifiedSpecies?.let { species ->
                     Text(species.commonName.ifBlank { species.scientificName }, style = MaterialTheme.typography.titleMedium, color = Color(0xFFBFD2B9))
+                }
+                PhotoFoodUseReferences(photo, showFoodUseOnPhotos && !assigningSpecies)
+                if (identifiedSpecies != null) {
                     OutlinedButton(
                         onClick = onAssignSpecies ?: {},
                         enabled = onAssignSpecies != null && !assigningSpecies,
@@ -4142,10 +4156,6 @@ private fun PhotoSettingRow(
     }
 }
 
-private val Photo.isVideo: Boolean
-    get() = contentType.startsWith("video/", ignoreCase = true) ||
-        url.substringBefore('?').substringAfterLast('.', "").lowercase() in setOf("mp4", "mov", "m4v", "3gp", "webm")
-
 @Composable
 private fun VideoPlayer(url: String, contentDescription: String) {
     val context = LocalContext.current
@@ -4242,6 +4252,8 @@ private fun PlaceBrowserDialog(
 
 @Composable
 private fun SettingsDialog(
+    showFoodUseOnPhotos: Boolean,
+    onShowFoodUseOnPhotos: (Boolean) -> Unit,
     authRequired: Boolean,
     authAccount: AuthAccount?,
     currentUrl: String,
@@ -4486,6 +4498,19 @@ private fun SettingsDialog(
                 HorizontalDivider(Modifier.padding(top = 12.dp))
                 TextButton(onClick = { safetyNoticeOpen = true }) {
                     Text(IdentificationSafetyNotice.Title)
+                }
+                HorizontalDivider()
+                Row(
+                    Modifier.fillMaxWidth().toggleable(
+                        value = showFoodUseOnPhotos,
+                        role = Role.Switch,
+                        onValueChange = onShowFoodUseOnPhotos,
+                    ).padding(vertical = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("Show food-use indicators on photos", Modifier.weight(1f), color = Ink)
+                    Switch(checked = showFoodUseOnPhotos, onCheckedChange = null)
                 }
                 HorizontalDivider()
                 Text("Places", style = MaterialTheme.typography.titleMedium, color = Ink, modifier = Modifier.padding(top = 16.dp))

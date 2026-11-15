@@ -60,6 +60,7 @@ class HikeJournalRepository(context: Context) {
     private val fieldQueue = FieldOperationQueue(appContext)
     private val trackingRepository = TrackingRepository.get(appContext)
     private val cacheDirectory = File(context.filesDir, "journal-cache").apply { mkdirs() }
+    private val foodUsePreferences = FoodUsePreferences(context)
     private val cacheLoadLocks = ConcurrentHashMap<String, Mutex>()
     private val recentlyLoadedHikes = ConcurrentHashMap<String, Long>()
     private val recentlyLoadedSpeciesIndexes = ConcurrentHashMap<String, Long>()
@@ -439,6 +440,17 @@ class HikeJournalRepository(context: Context) {
                 val routePayload = coroutineScope {
                     val routeRequest = async { JSONObject(api.getHikeRouteJson(hikeId)) }
 
+                    suspend fun fetchPhotoPage(offset: Int): JSONObject {
+                        val startedAt = System.currentTimeMillis()
+                        return JSONObject(api.getHikePhotosJson(hikeId, offset)).also { page ->
+                            foodUsePreferences.recordDatasetVersion(page.edibilityDatasetVersion(), startedAt)
+                            val items = page.optJSONArray("photos") ?: return@also
+                            for (index in 0 until items.length()) {
+                                items.optJSONObject(index)?.put(EdibilityReadStartedAt, startedAt)
+                            }
+                        }
+                    }
+
                     suspend fun appendPage(page: JSONObject): Int {
                         val pagePhotos = page.optJSONArray("photos") ?: JSONArray()
                         for (index in 0 until pagePhotos.length()) photos.put(pagePhotos.getJSONObject(index))
@@ -450,19 +462,17 @@ class HikeJournalRepository(context: Context) {
 
                     val expectedOffsets = expectedPhotoPageOffsets(expectedPhotoCount)
                     var offset = if (expectedOffsets.isEmpty()) {
-                        appendPage(JSONObject(api.getHikePhotosJson(hikeId, 0)))
+                        appendPage(fetchPhotoPage(0))
                     } else {
                         val pageRequests = expectedOffsets.map { pageOffset ->
-                            pageOffset to async {
-                                JSONObject(api.getHikePhotosJson(hikeId, pageOffset))
-                            }
+                            pageOffset to async { fetchPhotoPage(pageOffset) }
                         }
                         var nextOffset = -1
                         pageRequests.forEach { (_, request) -> nextOffset = appendPage(request.await()) }
                         nextOffset
                     }
                     while (offset >= 0 && offset !in expectedOffsets) {
-                        offset = appendPage(JSONObject(api.getHikePhotosJson(hikeId, offset)))
+                        offset = appendPage(fetchPhotoPage(offset))
                     }
                     routeRequest.await()
                 }
@@ -588,7 +598,14 @@ class HikeJournalRepository(context: Context) {
         }
         val result = loadWithCache(
             cacheFile = speciesIndexCacheFile(),
-            fetch = api::getSpeciesJson,
+            fetch = {
+                val startedAt = System.currentTimeMillis()
+                api.getSpeciesJson().also { json ->
+                    JSONArray(json).optJSONObject(0)?.let { row ->
+                        foodUsePreferences.recordDatasetVersion(row.edibilityDatasetVersion(), startedAt)
+                    }
+                }
+            },
             parse = ::parseSpeciesList,
         )
         if (!result.fromCache) {
@@ -617,7 +634,16 @@ class HikeJournalRepository(context: Context) {
         }
         val result = loadWithCache(
             cacheFile = cacheFile,
-            fetch = { api.getSpeciesDetailJson(key) },
+            fetch = {
+                val startedAt = System.currentTimeMillis()
+                val detail = JSONObject(api.getSpeciesDetailJson(key))
+                foodUsePreferences.recordDatasetVersion(detail.edibilityDatasetVersion(), startedAt)
+                val encounters = detail.optJSONArray("encounters")
+                for (index in 0 until (encounters?.length() ?: 0)) {
+                    encounters?.optJSONObject(index)?.optJSONObject("photo")?.put(EdibilityReadStartedAt, startedAt)
+                }
+                detail.toString()
+            },
             parse = ::parseSpecies,
         )
         if (!result.fromCache) {

@@ -149,7 +149,12 @@ data class Photo(
     val syncState: String = "synced",
     val species: List<SpeciesLabel>,
     val thumbnailUrl: String = "",
+    val edibilityReadStartedAt: Long = 0,
 )
+
+internal val Photo.isVideo: Boolean
+    get() = contentType.startsWith("video/", ignoreCase = true) ||
+        url.substringBefore('?').substringAfterLast('.', "").lowercase() in setOf("mp4", "mov", "m4v", "3gp", "webm")
 
 data class MediaLocationSummary(
     val totalCount: Int,
@@ -174,6 +179,7 @@ data class SpeciesLabel(
     val phenophases: List<String> = emptyList(),
     val identificationHistory: List<IdentificationEvent> = emptyList(),
     val iconicTaxonName: String = "",
+    val edibility: EdibilityReference? = null,
 )
 
 data class IdentificationEvent(
@@ -280,6 +286,9 @@ data class SpeciesRecord(
     val seasonalHistory: SeasonalHistory = SeasonalHistory(),
     val coverThumbnailUrl: String = "",
     val ecology: EcologyStatus = EcologyStatus(),
+    val edibility: EdibilityReference? = null,
+    val edibilityReferenceEnabled: Boolean = false,
+    val edibilityDatasetVersion: String? = null,
 )
 
 data class PlaceVisit(
@@ -1162,6 +1171,7 @@ private fun parsePhoto(json: JSONObject): Photo {
         contentType = json.optString("content_type", "image/jpeg"),
         processingStatus = json.optString("processing_status", "ready"),
         syncState = json.optString("sync_state", "synced"),
+        edibilityReadStartedAt = json.optLong(EdibilityReadStartedAt),
         species = List(speciesJson.length()) { index ->
             val item = speciesJson.getJSONObject(index)
             val phenophases = item.optJSONArray("phenophases") ?: JSONArray()
@@ -1197,6 +1207,7 @@ private fun parsePhoto(json: JSONObject): Photo {
                     )
                 },
                 iconicTaxonName = item.optString("iconic_taxon_name"),
+                edibility = parseEdibility(item.optJSONObject("edibility")),
             )
         },
     )
@@ -1231,6 +1242,9 @@ private fun parseSpecies(json: JSONObject): SpeciesRecord {
         coverUrl = json.optString("cover_url"),
         coverThumbnailUrl = json.optString("cover_thumbnail_url"),
         ecology = parseEcology(json.optJSONObject("ecology")),
+        edibility = parseEdibility(json.optJSONObject("edibility")),
+        edibilityReferenceEnabled = json.optBoolean("edibility_reference_enabled"),
+        edibilityDatasetVersion = json.edibilityDatasetVersion(),
         encounters = List(encountersJson.length()) { index ->
             val encounter = encountersJson.getJSONObject(index)
             Encounter(

@@ -253,6 +253,7 @@ class Settings:
     # iNaturalist establishment means are place-specific. HikeJournal's
     # current field-guide region is Florida; deployments covering another
     # region should override both values together.
+    edibility_enabled: bool = os.getenv("EDIBILITY_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
     inat_ecology_place_id: int = int(os.getenv("INAT_ECOLOGY_PLACE_ID", "21").strip() or "21")
     inat_ecology_region: str = os.getenv("INAT_ECOLOGY_REGION", "US-FL").strip() or "US-FL"
     usda_plants_enabled: bool = os.getenv("USDA_PLANTS_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}

@@ -64,6 +64,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -119,6 +120,9 @@ import com.hikejournal.app.data.ObservationTypeFilter
 import com.hikejournal.app.data.Photo
 import com.hikejournal.app.data.QuestSightingsMap
 import com.hikejournal.app.data.SpeciesRecord
+import com.hikejournal.app.data.currentEdibility
+import com.hikejournal.app.data.filterSpeciesByFoodUse
+import com.hikejournal.app.data.showsEdibilityReference
 import com.hikejournal.app.data.SpeciesJumpTarget
 import com.hikejournal.app.data.SpeciesSort
 import com.hikejournal.app.data.filterDiscoveryAreas
@@ -201,6 +205,10 @@ fun SpeciesIndexScreen(
     var speciesJumpOpen by remember { mutableStateOf(false) }
     var filterOpen by remember { mutableStateOf(false) }
     var observationTypeFilterOpen by remember { mutableStateOf(false) }
+    var filterFoodUse by rememberSaveable { mutableStateOf(false) }
+    val edibilityDataset = rememberEdibilityDatasetVersion()
+    val foodReferenceEnabled = species.any { it.showsEdibilityReference(edibilityDataset) }
+    val documentedFoodUsesOnly = foodReferenceEnabled && filterFoodUse
     var areaSearch by remember { mutableStateOf("") }
     var selectedAreaId by remember { mutableStateOf<String?>(null) }
     var targetDate by remember { mutableStateOf(LocalDate.now().toString()) }
@@ -300,7 +308,11 @@ fun SpeciesIndexScreen(
             }
         }
     }
-    val typeScopedSpecies = filterSpeciesByObservationType(scopedSpecies, observationType)
+    val typeScopedSpecies = filterSpeciesByFoodUse(
+        filterSpeciesByObservationType(scopedSpecies, observationType),
+        documentedFoodUsesOnly,
+        edibilityDataset,
+    )
     val filtered = filterSpeciesBySearch(typeScopedSpecies, query)
         .let { items -> sortSpeciesRecords(items, speciesSort) }
     val jumpTargets = speciesJumpTargets(filtered, speciesSort)
@@ -308,6 +320,7 @@ fun SpeciesIndexScreen(
     val browseContext = buildList {
         hikes.firstOrNull { it.id == selectedHikeId }?.title?.let(::add)
         if (observationType != ObservationTypeFilter.All) add(observationType.label)
+        if (documentedFoodUsesOnly) add("Documented food uses")
         if (query.isNotBlank()) add("\u201c$query\u201d")
         add(speciesSort.label)
     }.joinToString(" \u00b7 ")
@@ -403,6 +416,16 @@ fun SpeciesIndexScreen(
                 onClick = { observationTypeFilterOpen = true },
             )
         }
+        if (foodReferenceEnabled) {
+            item {
+                FilterChip(
+                    selected = documentedFoodUsesOnly,
+                    onClick = { filterFoodUse = !filterFoodUse },
+                    label = { Text("Documented food uses") },
+                    modifier = Modifier.padding(horizontal = 20.dp),
+                )
+            }
+        }
         item {
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 15.dp),
@@ -469,6 +492,7 @@ fun SpeciesIndexScreen(
                 Column(Modifier.fillMaxWidth().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
                         when {
+                            documentedFoodUsesOnly -> "No matching food-use records"
                             query.isNotBlank() -> "No species match"
                             observationType != ObservationTypeFilter.All -> "No ${observationType.label.lowercase()} yet"
                             else -> "No confirmed species"
@@ -478,6 +502,7 @@ fun SpeciesIndexScreen(
                     )
                     Text(
                         when {
+                            documentedFoodUsesOnly -> "Clear the food-use filter to see other species."
                             query.isNotBlank() -> "Try a common name, scientific name, or Wikipedia description."
                             observationType != ObservationTypeFilter.All -> "Choose another observation type to widen the field guide."
                             selectedHikeId != null -> "This outing has no confirmed encounters yet."
@@ -493,6 +518,7 @@ fun SpeciesIndexScreen(
                 val selected = record.key in selectedKeys
                 SpeciesIndexRow(
                     record = record,
+                    showReferenceWarnings = record.showsEdibilityReference(edibilityDataset),
                     selectedForComparison = selected.takeIf { selecting },
                     comparisonSelectionEnabled = selectedKeys.size < 2 || selected,
                     onClick = {
@@ -1746,6 +1772,7 @@ private fun SpeciesJumpSheet(
 @Composable
 private fun SpeciesIndexRow(
     record: SpeciesRecord,
+    showReferenceWarnings: Boolean,
     selectedForComparison: Boolean?,
     comparisonSelectionEnabled: Boolean,
     onClick: () -> Unit,
@@ -1804,6 +1831,11 @@ private fun SpeciesIndexRow(
                     color = ecologyStatusColor(record.ecology.label),
                     modifier = Modifier.padding(top = 3.dp),
                 )
+                if (showReferenceWarnings) {
+                    record.currentEdibility()?.indicator?.takeIf { it.warning }?.let {
+                        FoodUseIndicatorLabel(it, ecologyStatusColor("non_native"))
+                    }
+                }
             }
             if (selectedForComparison == null) {
                 Text(
@@ -1838,6 +1870,7 @@ fun SpeciesDetailScreen(
     var sharing by remember(species.key) { mutableStateOf(false) }
     if (sharing) SpeciesShareDialog(species = species, onDismiss = { sharing = false })
     var horizontalDragDistance by remember(species.key) { mutableFloatStateOf(0f) }
+    val edibilityDataset = rememberEdibilityDatasetVersion()
     LazyColumn(
         Modifier.fillMaxSize().background(Parchment).pointerInput(species.key, currentIndex) {
             detectHorizontalDragGestures(
@@ -1896,6 +1929,11 @@ fun SpeciesDetailScreen(
                         modifier = Modifier.padding(top = 20.dp),
                     )
                 }
+            }
+        }
+        if (species.showsEdibilityReference(edibilityDataset)) {
+            item {
+                EdibilitySection(species.currentEdibility(), Modifier.padding(horizontal = 20.dp, vertical = 16.dp))
             }
         }
         if (species.seasonalHistory.observationCount > 0) {
