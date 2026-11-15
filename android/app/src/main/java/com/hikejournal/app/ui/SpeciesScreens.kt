@@ -13,8 +13,10 @@ import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Build
 import android.os.Bundle
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
@@ -33,6 +35,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -44,6 +48,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items as gridItems
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -58,6 +63,7 @@ import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -90,7 +96,9 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.core.content.ContextCompat
@@ -210,6 +218,8 @@ fun SpeciesIndexScreen(
     var renamingQuest by remember { mutableStateOf<FieldQuest?>(null) }
     var questNameDraft by remember { mutableStateOf("") }
     var nearbyResultLimit by remember { mutableIntStateOf(StandardNearbyLimit) }
+    var comparisonKeys by rememberSaveable { mutableStateOf<List<String>?>(null) }
+    var comparisonOpen by rememberSaveable { mutableStateOf(false) }
     val query = collectionPreferences.query
     val speciesSort = collectionPreferences.sort
     val selectedHikeId = collectionPreferences.selectedHikeId
@@ -316,12 +326,28 @@ fun SpeciesIndexScreen(
     }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
+    val focusManager = LocalFocusManager.current
+    val selecting = mode == SpeciesMode.Collection && comparisonKeys != null
+    val comparisonSpecies = comparisonKeys.orEmpty().mapNotNull { key -> species.firstOrNull { it.key == key } }
+    val selectedKeys = comparisonSpecies.map(SpeciesRecord::key)
+    val keyboardOpen = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+    fun cancelComparison() {
+        comparisonKeys = null
+        comparisonOpen = false
+    }
+    BackHandler(enabled = selecting, onBack = ::cancelComparison)
+    if (selecting && comparisonOpen && comparisonSpecies.size == 2) {
+        SpeciesComparisonDialog(comparisonSpecies[0], comparisonSpecies[1]) { comparisonOpen = false }
+    }
+    LaunchedEffect(comparisonSpecies.size) {
+        if (comparisonSpecies.size < 2) comparisonOpen = false
+    }
 
-    Box(Modifier.fillMaxSize().background(Parchment)) {
+    Column(Modifier.fillMaxSize().background(Parchment).then(if (selecting) Modifier.imePadding() else Modifier)) {
         LazyColumn(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.weight(1f).fillMaxWidth(),
             state = listState,
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 104.dp),
+            contentPadding = PaddingValues(bottom = if (selecting) 12.dp else 104.dp),
         ) {
         item {
             BrandScreenHeader(
@@ -380,6 +406,7 @@ fun SpeciesIndexScreen(
         item {
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 15.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 OutlinedTextField(
@@ -387,11 +414,19 @@ fun SpeciesIndexScreen(
                     onValueChange = {
                         onCollectionPreferencesChange(collectionPreferences.copy(query = it))
                     },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.weight(1f),
                     placeholder = { Text("Search name or description") },
                     singleLine = true,
                     shape = RoundedCornerShape(4.dp),
                 )
+                if (!selecting && species.size >= 2) {
+                    TextButton(onClick = {
+                        focusManager.clearFocus()
+                        comparisonKeys = emptyList()
+                    }) {
+                        Text("Compare", color = Moss)
+                    }
+                }
             }
         }
         item {
@@ -455,9 +490,23 @@ fun SpeciesIndexScreen(
             }
         } else {
             items(filtered, key = { it.key }) { record ->
-                SpeciesIndexRow(record) { key ->
-                    onOpenSpecies(key, filtered, browseContext)
-                }
+                val selected = record.key in selectedKeys
+                SpeciesIndexRow(
+                    record = record,
+                    selectedForComparison = selected.takeIf { selecting },
+                    comparisonSelectionEnabled = selectedKeys.size < 2 || selected,
+                    onClick = {
+                        if (selecting) {
+                            comparisonKeys = if (selected) {
+                                selectedKeys - record.key
+                            } else {
+                                (selectedKeys + record.key).take(2)
+                            }
+                        } else {
+                            onOpenSpecies(record.key, filtered, browseContext)
+                        }
+                    },
+                )
             }
             item(key = "collection-back-to-top") {
                 FieldBackToTop {
@@ -838,6 +887,19 @@ fun SpeciesIndexScreen(
             }
         }
         }
+        }
+        AnimatedVisibility(visible = selecting) {
+            SpeciesComparisonControls(
+                selected = comparisonSpecies,
+                onRemove = { comparisonKeys = selectedKeys - it },
+                onCancel = ::cancelComparison,
+                onCompare = {
+                    focusManager.clearFocus()
+                    comparisonOpen = true
+                },
+                modifier = Modifier.navigationBarsPadding()
+                    .padding(bottom = if (keyboardOpen) 0.dp else FixedTopNavigationHeight),
+            )
         }
     }
 
@@ -1684,9 +1746,21 @@ private fun SpeciesJumpSheet(
 @Composable
 private fun SpeciesIndexRow(
     record: SpeciesRecord,
-    onOpen: (String) -> Unit,
+    selectedForComparison: Boolean?,
+    comparisonSelectionEnabled: Boolean,
+    onClick: () -> Unit,
 ) {
-    Column(Modifier.fillMaxWidth().clickable { onOpen(record.key) }) {
+    val selectionModifier = if (selectedForComparison == null) {
+        Modifier.clickable(onClick = onClick)
+    } else {
+        Modifier.toggleable(
+            value = selectedForComparison,
+            enabled = comparisonSelectionEnabled,
+            role = Role.Checkbox,
+            onValueChange = { onClick() },
+        )
+    }
+    Column(Modifier.fillMaxWidth().then(selectionModifier)) {
         Row(
             Modifier.fillMaxWidth().padding(
                 start = 20.dp,
@@ -1731,11 +1805,20 @@ private fun SpeciesIndexRow(
                     modifier = Modifier.padding(top = 3.dp),
                 )
             }
-            Text(
-                record.encounterCount.toString().padStart(2, '0'),
-                style = MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp, fontWeight = FontWeight.Bold),
-                color = FernText,
-            )
+            if (selectedForComparison == null) {
+                Text(
+                    record.encounterCount.toString().padStart(2, '0'),
+                    style = MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp, fontWeight = FontWeight.Bold),
+                    color = FernText,
+                )
+            } else {
+                Checkbox(
+                    checked = selectedForComparison,
+                    onCheckedChange = null,
+                    enabled = comparisonSelectionEnabled,
+                    modifier = Modifier.align(Alignment.CenterVertically).padding(start = 8.dp),
+                )
+            }
         }
         HorizontalDivider(color = Line, modifier = Modifier.padding(start = 127.dp))
     }

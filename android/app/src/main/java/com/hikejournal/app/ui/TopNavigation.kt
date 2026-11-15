@@ -39,6 +39,8 @@ import com.hikejournal.app.ui.theme.Trail
 
 enum class TopDestination { Archive, Species, Review, Publish, Map }
 
+internal val FixedTopNavigationHeight = 72.dp
+
 @Composable
 fun TopNavigation(
     selected: TopDestination,
@@ -52,6 +54,7 @@ fun TopNavigation(
         TopDestination.entries.filterNot { it == TopDestination.Publish }
     }
     val floating = onAdd != null
+    val barHeight = if (floating) 64.dp else FixedTopNavigationHeight
     Row(
         modifier.fillMaxWidth().then(if (floating) Modifier else Modifier.background(Moss)).navigationBarsPadding()
             .padding(horizontal = if (floating) 16.dp else 0.dp, vertical = if (floating) 8.dp else 0.dp),
@@ -59,7 +62,7 @@ fun TopNavigation(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Row(
-            Modifier.weight(1f).height(if (floating) 64.dp else 72.dp)
+            Modifier.weight(1f).height(barHeight)
                 .then(if (floating) Modifier.clip(CircleShape) else Modifier)
                 .background(Moss).selectableGroup().padding(horizontal = if (floating) 8.dp else 4.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -76,7 +79,7 @@ fun TopNavigation(
                 val label = if (destination == TopDestination.Archive) "Hikes" else destination.name
                 val labelColor by animateColorAsState(if (active) Fern else Paper, label = "navigation-selection")
                 Column(
-                    Modifier.weight(1f).height(if (floating) 64.dp else 72.dp)
+                    Modifier.weight(1f).height(barHeight)
                         .selectable(selected = active, role = Role.Tab, onClick = { onSelect(destination) }),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center,

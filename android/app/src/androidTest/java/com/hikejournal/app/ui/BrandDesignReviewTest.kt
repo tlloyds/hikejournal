@@ -13,8 +13,14 @@ import android.graphics.Bitmap
 import android.content.ContentValues
 import android.os.Environment
 import android.provider.MediaStore
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
+import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasScrollToIndexAction
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.isDialog
+import androidx.compose.ui.test.isToggleable
 import androidx.compose.ui.test.performScrollToIndex
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.isDisplayed
 import androidx.lifecycle.Lifecycle
@@ -48,7 +54,9 @@ import com.hikejournal.app.data.*
 import com.hikejournal.app.ui.theme.HikeJournalTheme
 import com.hikejournal.app.ui.theme.Parchment
 import java.io.File
+import kotlin.math.abs
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 
@@ -144,6 +152,58 @@ class BrandDesignReviewTest {
         capture("02-field-guide")
         rule.onNodeWithText("FIELD QUESTS").performClick()
         rule.onNodeWithText("Field Quests").assertIsDisplayed()
+    }
+
+    @Test fun fieldGuideComparesTwoSpeciesAcrossSearchesAndReturnsToSelection() {
+        val white = species.copy(
+            key = "white-wood-aster", commonName = "White wood aster", scientificName = "Eurybia divaricata",
+        )
+        val blue = species.copy(
+            key = "blue-wood-aster", commonName = "Blue wood aster", scientificName = "Symphyotrichum cordifolium",
+        )
+        val newEngland = species.copy(
+            key = "new-england-aster", commonName = "New England aster", scientificName = "Symphyotrichum novae-angliae",
+            coverUrl = "",
+        )
+        val preferences = mutableStateOf(SpeciesCollectionPreferences(query = "white wood"))
+        rule.setContent { FieldGuide(listOf(white, blue, newEngland), preferences.value) { preferences.value = it } }
+
+        fun reveal(record: SpeciesRecord) = (isToggleable() and hasText(record.commonName)).let { row ->
+            rule.onNode(hasScrollToIndexAction()).performScrollToNode(row)
+            rule.onNode(row).assertIsDisplayed()
+        }
+
+        rule.onNodeWithText("Compare").performClick()
+        rule.onNodeWithText("Compare species").assertIsNotEnabled()
+        reveal(white).performClick()
+        rule.onNodeWithText("Compare species").assertIsNotEnabled()
+        rule.runOnIdle { preferences.value = preferences.value.copy(query = "Symphyotrichum") }
+        reveal(blue).performClick()
+        reveal(newEngland).assertIsNotEnabled()
+        rule.onNodeWithText("Compare species").assertIsDisplayed().assertIsEnabled().performClick()
+
+        val firstPhoto = rule.onNodeWithContentDescription("Cover photo of ${white.commonName}").assertIsDisplayed()
+        val secondPhoto = rule.onNodeWithContentDescription("Cover photo of ${blue.commonName}").assertIsDisplayed()
+        val left = firstPhoto.getUnclippedBoundsInRoot()
+        val right = secondPhoto.getUnclippedBoundsInRoot()
+        assertTrue(left.right < right.left)
+        val widthDifference = (left.right - left.left) - (right.right - right.left)
+        assertTrue(left.top == right.top && abs(widthDifference.value) < 1f)
+        val inComparison = hasAnyAncestor(isDialog())
+        rule.onNode(inComparison and hasText(white.scientificName)).assertIsDisplayed()
+        rule.onNode(inComparison and hasText(blue.scientificName)).assertIsDisplayed()
+        capture("species-compare")
+
+        rule.onNodeWithContentDescription("Back to species selection").performClick()
+        rule.onNodeWithContentDescription("Remove ${white.commonName}").assertIsDisplayed().performClick()
+        rule.onNodeWithText("Compare species").assertIsNotEnabled()
+        reveal(newEngland).performClick()
+        rule.onNodeWithText("Compare species").performClick()
+        rule.onNodeWithText("Photo unavailable").assertIsDisplayed()
+        rule.onNode(inComparison and hasText(newEngland.scientificName)).assertIsDisplayed()
+        rule.onNodeWithContentDescription("Back to species selection").performClick()
+        rule.onNodeWithText("Cancel").performClick()
+        rule.onNodeWithText("Compare species").assertDoesNotExist()
     }
 
     @Test fun fieldGuideJumpIsOnDemandAndFollowsSelectedSort() {
