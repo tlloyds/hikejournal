@@ -79,6 +79,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -101,6 +102,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.core.content.ContextCompat
 import androidx.compose.ui.text.font.FontStyle
@@ -518,7 +520,7 @@ fun SpeciesIndexScreen(
                 val selected = record.key in selectedKeys
                 SpeciesIndexRow(
                     record = record,
-                    showReferenceWarnings = record.showsEdibilityReference(edibilityDataset),
+                    showFoodUse = record.showsEdibilityReference(edibilityDataset),
                     selectedForComparison = selected.takeIf { selecting },
                     comparisonSelectionEnabled = selectedKeys.size < 2 || selected,
                     onClick = {
@@ -1772,7 +1774,7 @@ private fun SpeciesJumpSheet(
 @Composable
 private fun SpeciesIndexRow(
     record: SpeciesRecord,
-    showReferenceWarnings: Boolean,
+    showFoodUse: Boolean,
     selectedForComparison: Boolean?,
     comparisonSelectionEnabled: Boolean,
     onClick: () -> Unit,
@@ -1831,9 +1833,9 @@ private fun SpeciesIndexRow(
                     color = ecologyStatusColor(record.ecology.label),
                     modifier = Modifier.padding(top = 3.dp),
                 )
-                if (showReferenceWarnings) {
-                    record.currentEdibility()?.indicator?.takeIf { it.warning }?.let {
-                        FoodUseIndicatorLabel(it, ecologyStatusColor("non_native"))
+                if (showFoodUse) {
+                    record.currentEdibility()?.indicator?.let {
+                        FoodUseIndicatorLabel(it, it.fieldGuideColor(), label = it.fieldGuideLabel)
                     }
                 }
             }
@@ -1871,6 +1873,7 @@ fun SpeciesDetailScreen(
     if (sharing) SpeciesShareDialog(species = species, onDismiss = { sharing = false })
     var horizontalDragDistance by remember(species.key) { mutableFloatStateOf(0f) }
     val edibilityDataset = rememberEdibilityDatasetVersion()
+    val listState = key(species.key) { rememberLazyListState() }
     LazyColumn(
         Modifier.fillMaxSize().background(Parchment).pointerInput(species.key, currentIndex) {
             detectHorizontalDragGestures(
@@ -1885,17 +1888,25 @@ fun SpeciesDetailScreen(
                 onDragCancel = { horizontalDragDistance = 0f },
             )
         },
+        state = listState,
         contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 54.dp),
     ) {
         item { SpeciesHero(species, onBack, onShare = { sharing = true }, shareEnabled = !loading) }
         item {
             Column(Modifier.padding(horizontal = 20.dp, vertical = 20.dp)) {
                 Text(
-                    browseContext?.let { "FIELD GUIDE \u00b7 $it" } ?: "PERSONAL FIELD GUIDE",
+                    browseContext?.let { "FIELD GUIDE · $it" } ?: "FIELD GUIDE",
                     style = MaterialTheme.typography.labelSmall,
                     color = TrailText,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
-                Text(species.commonName, style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Normal), color = Ink)
+                Text(
+                    species.commonName,
+                    style = MaterialTheme.typography.headlineLarge,
+                    color = Ink,
+                    modifier = Modifier.padding(top = 3.dp).semantics { heading() },
+                )
                 if (species.scientificName.isNotBlank()) {
                     Text(
                         species.scientificName,
@@ -1913,27 +1924,33 @@ fun SpeciesDetailScreen(
                     color = ecologyStatusColor(species.ecology.label),
                     modifier = Modifier.padding(top = 9.dp),
                 )
-                Text(
-                    "${species.encounterCount} encounter${if (species.encounterCount == 1) "" else "s"} across ${species.hikeCount} outing${if (species.hikeCount == 1) "" else "s"}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Moss,
-                    modifier = Modifier.padding(top = 14.dp),
-                )
-                if (species.wikipediaSummary.isNotBlank()) {
-                    Text(species.wikipediaSummary, style = MaterialTheme.typography.bodyMedium, color = Ink, modifier = Modifier.padding(top = 20.dp))
-                } else {
-                    Text(
-                        "Your confirmed photographs, arranged from the most recent encounter backward.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = InkMuted,
-                        modifier = Modifier.padding(top = 20.dp),
+            }
+        }
+        if (species.showsEdibilityReference(edibilityDataset)) {
+            item(key = "food-use-${species.key}") {
+                Column(Modifier.padding(horizontal = 20.dp)) {
+                    HorizontalDivider(color = Line)
+                    EdibilitySection(
+                        species.currentEdibility(),
+                        Modifier.padding(top = 16.dp),
                     )
                 }
             }
         }
-        if (species.showsEdibilityReference(edibilityDataset)) {
-            item {
-                EdibilitySection(species.currentEdibility(), Modifier.padding(horizontal = 20.dp, vertical = 16.dp))
+        if (species.wikipediaSummary.isNotBlank()) {
+            item(key = "species-about") {
+                Column(
+                    Modifier.padding(horizontal = 20.dp, vertical = 20.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text(
+                        "About this species",
+                        style = MaterialTheme.typography.titleLarge,
+                        color = Ink,
+                        modifier = Modifier.semantics { heading() },
+                    )
+                    Text(species.wikipediaSummary, style = MaterialTheme.typography.bodyMedium, color = Ink)
+                }
             }
         }
         if (species.seasonalHistory.observationCount > 0) {
@@ -1964,8 +1981,19 @@ fun SpeciesDetailScreen(
                 verticalAlignment = Alignment.Bottom,
             ) {
                 Column {
-                    Text("ENCOUNTER HISTORY", style = MaterialTheme.typography.labelSmall, color = TrailText)
-                    Text("Field records", style = MaterialTheme.typography.headlineSmall.copy(fontSize = 22.sp, lineHeight = 27.sp, fontWeight = FontWeight.Normal), color = Ink)
+                    Text(
+                        "Field records",
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = Ink,
+                        modifier = Modifier.semantics { heading() },
+                    )
+                    Text(
+                        "${species.encounterCount} encounter${if (species.encounterCount == 1) "" else "s"} " +
+                            "across ${species.hikeCount} outing${if (species.hikeCount == 1) "" else "s"}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = InkMuted,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
                 }
                 if (loading) CircularProgressIndicator(Modifier.size(20.dp), color = Moss, strokeWidth = 2.dp)
             }
@@ -1989,8 +2017,13 @@ private fun ecologyStatusColor(label: String): Color = when (label) {
 
 @Composable
 private fun SpeciesHero(species: SpeciesRecord, onBack: () -> Unit, onShare: () -> Unit, shareEnabled: Boolean) {
-    Box(Modifier.fillMaxWidth().height(390.dp).background(Moss)) {
-        AsyncImage(species.coverUrl, species.commonName, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+    Box(Modifier.fillMaxWidth().height(280.dp).background(Moss)) {
+        AsyncImage(
+            species.coverUrl.ifBlank { species.coverThumbnailUrl },
+            "Field photo of ${species.commonName}",
+            Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop,
+        )
         Box(
             Modifier.fillMaxSize().background(
                 Brush.verticalGradient(listOf(Color(0x88000000), Color.Transparent, Color(0x99101B15))),
@@ -2011,10 +2044,10 @@ private fun SpeciesHero(species: SpeciesRecord, onBack: () -> Unit, onShare: () 
         ) {
             Icon(Icons.Rounded.IosShare, "Share species", tint = Paper)
         }
-        Column(Modifier.align(Alignment.BottomStart).padding(20.dp)) {
-            BrandWordmark(Modifier.width(160.dp).height(52.dp))
-            Text(species.commonName, style = MaterialTheme.typography.headlineSmall.copy(fontSize = 28.sp, lineHeight = 32.sp, fontWeight = FontWeight.Normal), color = Paper, maxLines = 2, overflow = TextOverflow.Ellipsis)
-        }
+        BrandWordmark(
+            Modifier.align(Alignment.BottomStart).padding(horizontal = 20.dp, vertical = 12.dp)
+                .width(160.dp).height(52.dp),
+        )
     }
 }
 

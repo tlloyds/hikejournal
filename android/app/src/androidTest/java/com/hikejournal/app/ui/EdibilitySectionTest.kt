@@ -1,10 +1,13 @@
 package com.hikejournal.app.ui
 
 import android.graphics.Bitmap
+import android.os.SystemClock
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
@@ -12,19 +15,27 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.UriHandler
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
+import androidx.compose.ui.test.hasScrollToIndexAction
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.unit.Density
 import androidx.test.platform.app.InstrumentationRegistry
+import com.hikejournal.app.data.EcologyStatus
 import com.hikejournal.app.data.EdibilityReference
 import com.hikejournal.app.data.FoodUsePreferences
 import com.hikejournal.app.data.FoodUseSource
 import com.hikejournal.app.data.FoodUseStatus
 import com.hikejournal.app.data.Photo
 import com.hikejournal.app.data.SpeciesLabel
+import com.hikejournal.app.data.SpeciesRecord
 import com.hikejournal.app.data.ToxicityStatus
 import com.hikejournal.app.ui.theme.HikeJournalTheme
 import java.io.File
@@ -78,24 +89,103 @@ class EdibilitySectionTest {
                 CompositionLocalProvider(LocalUriHandler provides object : UriHandler {
                     override fun openUri(uri: String) { opened = uri }
                 }) {
-                    EdibilitySection(reference)
+                    Column(Modifier.verticalScroll(rememberScrollState())) {
+                        EdibilitySection(reference)
+                    }
                 }
             }
         }
         compose.onNodeWithText(EdibilitySectionTitle).assertIsDisplayed()
+        compose.onNodeWithText("Edible use documented").assertIsDisplayed()
         compose.onNodeWithText("Educational species reference only.", substring = true).assertIsDisplayed()
-        compose.onNodeWithText("The record does not establish specific parts", substring = true).assertIsDisplayed()
+        compose.onNodeWithText("Available sources don’t specify parts or preparation.").assertIsDisplayed()
         compose.onNodeWithText("Toxicity not assessed by available sources").assertIsDisplayed()
-        compose.onNodeWithText("Fixture checklist · Version 2").performClick()
+        compose.onNodeWithText("Fixture checklist · Version 2").assertDoesNotExist()
+        compose.onNodeWithText("Sources & attribution").performClick()
+        compose.onNodeWithText("Fixture checklist · Version 2").performScrollTo().performClick()
         assertEquals("https://example.test/food", opened)
-        compose.onNodeWithText("Example Author · Example Publisher").assertIsDisplayed()
+        compose.onNodeWithText("Example Author · Example Publisher").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Sources & attribution").performScrollTo().performClick()
+        compose.onNodeWithText("Fixture checklist · Version 2").assertDoesNotExist()
     }
 
     @Test
     fun noReferenceUsesNeutralCopy() {
         compose.setContent { HikeJournalTheme { EdibilitySection(null) } }
         compose.onNodeWithText("No reference data available").assertIsDisplayed()
-        compose.onNodeWithText("Documented human food use").assertDoesNotExist()
+        compose.onNodeWithText("Edible use documented").assertDoesNotExist()
+    }
+
+    @Test
+    fun airPotatoWarningPrecedesFoodUseAndSpeciesOverview() {
+        val airPotato = reference.copy(
+            scientificName = "Dioscorea bulbifera",
+            toxicity = ToxicityStatus.DocumentedConcern,
+            toxicityNotes = "The checklist also records a poison use. That category does not specify the " +
+                "hazardous part, exposure, or circumstances.",
+        )
+        showSpecies(
+            "Air potato", airPotato, "non_native",
+            "A climbing vine that forms aerial bulbils.",
+        )
+
+        val warning = compose.onNodeWithText("Toxicity concern").assertIsDisplayed()
+        val foodUse = compose.onNodeWithText("Human food use is also documented.").assertIsDisplayed()
+        assertTrue(warning.getUnclippedBoundsInRoot().top < foodUse.getUnclippedBoundsInRoot().top)
+        compose.onNodeWithText("The checklist also records a poison use.", substring = true).assertIsDisplayed()
+        compose.onNodeWithText("Edible use documented").assertDoesNotExist()
+        compose.onAllNodesWithText("Air potato").assertCountEquals(1)
+        captureEvidence("air-potato-field-guide.png")
+        compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText("About this species"))
+        compose.onNodeWithText("About this species").assertIsDisplayed()
+        compose.onNodeWithText("Fixture checklist · Version 2").assertDoesNotExist()
+    }
+
+    @Test
+    fun beautyberryShowsFoodUseAndEvidenceLimitsBeforeNaturalHistory() {
+        val beautyberry = reference.copy(scientificName = "Callicarpa americana")
+        showSpecies(
+            "American beautyberry", beautyberry, "native",
+            "A native shrub with dense clusters of purple fruit.",
+        )
+
+        compose.onNodeWithText("Edible use documented").assertIsDisplayed()
+        compose.onNodeWithText("Available sources don’t specify parts or preparation.").assertIsDisplayed()
+        compose.onNodeWithText("Toxicity not assessed by available sources").assertIsDisplayed()
+        compose.onNodeWithText("Toxicity concern").assertDoesNotExist()
+        compose.onAllNodesWithText("American beautyberry").assertCountEquals(1)
+        captureEvidence("beautyberry-field-guide.png")
+        compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText("Field records"))
+        compose.onNodeWithText("Field records").assertIsDisplayed()
+        compose.onNodeWithText("1 encounter across 1 outing").assertIsDisplayed()
+    }
+
+    private fun showSpecies(name: String, report: EdibilityReference, ecology: String, overview: String) {
+        val species = SpeciesRecord(
+            key = "taxon:${report.taxonId}",
+            taxonId = report.taxonId,
+            commonName = name,
+            scientificName = report.scientificName,
+            rank = report.rank,
+            iconicTaxonName = "Plantae",
+            wikipediaUrl = "",
+            wikipediaSummary = overview,
+            encounterCount = 1,
+            hikeCount = 1,
+            hikeIds = emptyList(),
+            hikeEncounterCounts = emptyMap(),
+            hikeCoverUrls = emptyMap(),
+            hikeLatestSeen = emptyMap(),
+            latestSeen = null,
+            coverUrl = InstrumentationRegistry.getArguments().getString("edibilityCoverFixture").orEmpty(),
+            ecology = EcologyStatus(label = ecology),
+            edibility = report,
+            edibilityReferenceEnabled = true,
+            edibilityDatasetVersion = report.datasetVersion,
+        )
+        compose.setContent {
+            HikeJournalTheme { SpeciesDetailScreen(species, listOf(species), "Plants", false, {}, {}, {}) }
+        }
     }
 
     @Test
@@ -172,13 +262,14 @@ class EdibilitySectionTest {
         }
     }
 
-    private fun captureEvidence() {
+    private fun captureEvidence(name: String = "edibility-reference.png") {
         if (InstrumentationRegistry.getArguments().getString("edibilityScreenshot") != "true") return
         compose.waitForIdle()
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         instrumentation.waitForIdleSync()
+        SystemClock.sleep(350)
         val screenshot = instrumentation.uiAutomation.takeScreenshot()
-        File(context.filesDir, "edibility-reference.png").outputStream().use {
+        File(context.filesDir, name).outputStream().use {
             screenshot.compress(Bitmap.CompressFormat.PNG, 100, it)
         }
         screenshot.recycle()
