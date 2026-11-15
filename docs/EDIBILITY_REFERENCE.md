@@ -38,6 +38,12 @@ Automatic iNaturalist matching requires an active vascular plant, exact scientif
 
 Verified positive examples from that sample include `Vaccinium corymbosum` (WCFP record 5374), `Callicarpa americana` (7585), `Quercus virginiana` (8066), and `Phytolacca americana` (7890, poison-use warning). The sample covers selected paths and does not estimate journal-wide match coverage. The latency is local SQL plus local result handling. A managed Supabase round trip and full endpoint latency remain to be measured.
 
+## Production rollout
+
+On November 15, 2026, Cloud Build deployed the code from `v0.9.0` to Cloud Run. The additive migration was applied in Supabase and WCFP v2 was imported as an inactive release. The rollout audited the confirmed journal taxa before activating the dataset. The production import verified all 26,377 source rows. Exact matches preserve source attribution and independent poison-use warnings. Unresolved and ambiguous matches have no profile.
+
+Cloud Run revision `hikejournal-git-00279-kdv` serves the API with `EDIBILITY_ENABLED=true`. The readiness endpoint returned HTTP 200 with all four dependencies healthy. Production reference reads and mobile payload serialization were checked with documented use, a warning, and an unconfirmed observation. Android build 204 already contains the UI. [Readiness endpoint](https://hikejournal-git-1048881557935.us-east1.run.app/health/ready)
+
 ## Development and staging workflow
 
 Use a disposable local or explicitly selected staging database and a service-role credential for that database. The write commands require an explicit URL and read only `EDIBILITY_IMPORT_SERVICE_KEY` for database authentication. Keep `EDIBILITY_ENABLED=false` during data setup. This document records the procedure for a future staging environment.
@@ -107,5 +113,5 @@ No food or taxonomy provider is called from the food-use request path or directl
 - `uv run --with-requirements requirements.txt --with openpyxl==3.1.5 pytest -q` passed 586 tests with one Starlette dependency deprecation warning.
 - From `android/`, `./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:connectedDebugAndroidTest` passed 191 JVM tests and 44 Android 15 emulator tests. Debug lint reported zero errors, 61 warnings and two hints. The debug APK built with an isolated application ID so the existing emulator installation could stay in place. An existing share test was corrected to scroll through the lazy list before looking up an off-screen control.
 - The migration was applied twice in local PGlite. Local checks covered incomplete and staged release activation, duplicate import, stale assessments and attempts to omit a prior manual review, rollback, withdrawal, exact joins, and service-role restrictions. The local full data load used the validated normalized archive and did not connect to Supabase.
-- A hosted staging run, journal-wide match audit, and a physical-device smoke test are pending. Measure managed PostgreSQL and end-to-end endpoint latency with representative journal data. Review high-risk records independently and confirm store disclosures and terms before production activation. The existing acknowledgment and foraging warning continue to apply to the educational reference.
+- The production import and confirmed-taxon audit passed, including direct checks of the source records behind each poison-use warning. A physical-device test with an authenticated account, representative endpoint latency measurement, and a recurring revalidation job remain open. Profiles expire 30 days after validation. The existing acknowledgment and foraging warning continue to apply to the educational reference.
 - iOS and web UI parity, additional datasets, fungi, and medically oriented material are outside this implementation. Onboard each additional dataset with its own reviewed license, mappings, evidence semantics, version, and tests.
