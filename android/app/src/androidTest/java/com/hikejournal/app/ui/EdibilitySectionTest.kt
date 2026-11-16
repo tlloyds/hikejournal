@@ -34,6 +34,8 @@ import com.hikejournal.app.data.FoodUsePreferences
 import com.hikejournal.app.data.FoodUseSource
 import com.hikejournal.app.data.FoodUseStatus
 import com.hikejournal.app.data.Photo
+import com.hikejournal.app.data.PlantPartEvidence
+import com.hikejournal.app.data.PlantPartEvidenceKind
 import com.hikejournal.app.data.SpeciesLabel
 import com.hikejournal.app.data.SpeciesRecord
 import com.hikejournal.app.data.ToxicityStatus
@@ -114,6 +116,44 @@ class EdibilitySectionTest {
         compose.setContent { HikeJournalTheme { EdibilitySection(null) } }
         compose.onNodeWithText("No reference data available").assertIsDisplayed()
         compose.onNodeWithText("Edible use documented").assertDoesNotExist()
+    }
+
+    @Test
+    fun plantPartsLeadWithHazardsAndLinkToTheirOwnEvidence() {
+        val first = reference.sources.single()
+        val second = first.copy(title = "Flower source", publisher = "Flower publisher", url = "https://example.test/flowers")
+        val scoped = reference.copy(
+            toxicity = ToxicityStatus.DocumentedConcern,
+            sources = listOf(first, second),
+            partEvidence = listOf(
+                PlantPartEvidence("Flowers", PlantPartEvidenceKind.Edible, "Documented in preserves.", second),
+                PlantPartEvidence("Leaves", PlantPartEvidenceKind.Toxic, "Toxic when swallowed.", first),
+            ),
+        )
+        var opened = ""
+        compose.setContent {
+            HikeJournalTheme {
+                CompositionLocalProvider(LocalUriHandler provides object : UriHandler {
+                    override fun openUri(uri: String) { opened = uri }
+                }) {
+                    Column(Modifier.verticalScroll(rememberScrollState())) { EdibilitySection(scoped) }
+                }
+            }
+        }
+        val hazard = compose.onNodeWithText("Leaves · Toxic").assertIsDisplayed()
+        val edible = compose.onNodeWithText("Flowers · Edible").assertIsDisplayed()
+        assertTrue(hazard.getUnclippedBoundsInRoot().top < edible.getUnclippedBoundsInRoot().top)
+        compose.onNodeWithText("Human food use is also documented.").assertDoesNotExist()
+        compose.onNodeWithText("Flower publisher").performClick()
+        assertEquals(second.url, opened)
+        captureEvidence("part-evidence.png")
+    }
+
+    @Test
+    fun genusOnlyIdentificationExplainsMissingEvidence() {
+        compose.setContent { HikeJournalTheme { EdibilitySection(null, taxonRank = "genus") } }
+        compose.onNodeWithText("Species identification needed").assertIsDisplayed()
+        compose.onNodeWithText("This entry identifies a group. Food use and toxicity can vary by species.").assertIsDisplayed()
     }
 
     @Test

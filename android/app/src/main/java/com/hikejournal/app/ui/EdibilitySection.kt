@@ -9,6 +9,7 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -52,6 +53,8 @@ import com.hikejournal.app.data.FoodUseIndicator
 import com.hikejournal.app.data.FoodUsePreferences
 import com.hikejournal.app.data.FoodUseStatus
 import com.hikejournal.app.data.Photo
+import com.hikejournal.app.data.PlantPartEvidence
+import com.hikejournal.app.data.PlantPartEvidenceKind
 import com.hikejournal.app.data.ToxicityStatus
 import com.hikejournal.app.data.foodUseTags
 import com.hikejournal.app.ui.theme.Ink
@@ -87,6 +90,8 @@ internal fun EdibilitySection(
     reference: EdibilityReference?,
     modifier: Modifier = Modifier,
     showTitle: Boolean = true,
+    taxonRank: String? = null,
+    referencesByTaxon: List<EdibilityReference> = emptyList(),
 ) {
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (showTitle) {
@@ -97,6 +102,38 @@ internal fun EdibilitySection(
                 modifier = Modifier.semantics { heading() },
             )
         }
+        when {
+            referencesByTaxon.isNotEmpty() -> {
+                ReferenceText("This entry groups multiple identifications. Each reference applies to the taxon named below.")
+                referencesByTaxon.forEach { scoped ->
+                    Text(
+                        scoped.scientificName,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = Ink,
+                        modifier = Modifier.padding(top = 8.dp).semantics { heading() },
+                    )
+                    EdibilityEvidence(scoped, taxonRank)
+                    FoodUseSources(scoped)
+                }
+            }
+            else -> EdibilityEvidence(reference, taxonRank)
+        }
+        Text(
+            Disclaimer,
+            style = MaterialTheme.typography.bodySmall,
+            color = InkMuted,
+            modifier = Modifier.padding(top = 2.dp),
+        )
+        if (reference != null && reference.sources.isNotEmpty()) {
+            FoodUseSources(reference)
+        }
+    }
+}
+
+@Composable
+private fun EdibilityEvidence(reference: EdibilityReference?, taxonRank: String?) {
+    val scoped = reference?.partEvidence.orEmpty()
+    if (scoped.isEmpty()) {
         val indicator = reference?.indicator
         val color = indicator?.fieldGuideColor() ?: Ink
         Row(
@@ -107,14 +144,25 @@ internal fun EdibilitySection(
                 Icon(it.symbol, contentDescription = null, modifier = Modifier.size(22.dp), tint = color)
             }
             Text(
-                indicator?.fieldGuideLabel ?: "No reference data available",
+                when {
+                    reference?.checklistPoisonUse == true -> "Poison use recorded"
+                    indicator != null -> indicator.fieldGuideLabel
+                    taxonRank in AboveSpeciesRanks -> "Species identification needed"
+                    else -> "No reference data available"
+                },
                 style = MaterialTheme.typography.titleLarge,
                 color = color,
                 modifier = Modifier.semantics { heading() },
             )
         }
 
-        if (reference != null) {
+        if (reference == null) {
+            ReferenceText(if (taxonRank in AboveSpeciesRanks) {
+                "This entry identifies a group. Food use and toxicity can vary by species."
+            } else {
+                "Food use and toxicity are unverified for this identification."
+            })
+        } else {
             if (reference.toxicity == ToxicityStatus.DocumentedConcern) {
                 reference.toxicityNotes?.let { ReferenceText(it) }
                 val secondaryStatus = when (reference.foodUse) {
@@ -144,15 +192,66 @@ internal fun EdibilitySection(
                 ReferenceText("Toxicity not assessed by available sources")
             }
         }
+    } else if (reference != null) {
+        scoped.sortedBy { it.kind.displayOrder }.forEach { PartEvidenceRow(it) }
+        if (reference.checklistPoisonUse && scoped.none { it.kind == PlantPartEvidenceKind.Toxic }) {
+            ReferenceText("The checklist also records a poison use without specifying the part or exposure.")
+        }
+        if (reference.evidenceConflict || reference.foodUse == FoodUseStatus.Disputed) {
+            ReferenceText("Sources also disagree about food use.")
+        } else if (reference.hasDocumentedFoodUse && scoped.none { it.kind.isFood }) {
+            ReferenceText("The food-plant checklist records a use without identifying an edible part or conditions.")
+        }
+        if (reference.toxicity == ToxicityStatus.Unknown) {
+            ReferenceText("Toxicity not assessed by available sources")
+        }
+    }
+}
 
-        Text(
-            Disclaimer,
-            style = MaterialTheme.typography.bodySmall,
-            color = InkMuted,
-            modifier = Modifier.padding(top = 2.dp),
-        )
-        if (reference != null && reference.sources.isNotEmpty()) {
-            FoodUseSources(reference)
+private val AboveSpeciesRanks = setOf(
+    "genus", "subgenus", "section", "subsection", "complex", "tribe", "subfamily",
+    "family", "superfamily", "order", "class", "phylum", "kingdom",
+)
+
+private val PlantPartEvidenceKind.isFood: Boolean
+    get() = this == PlantPartEvidenceKind.Edible || this == PlantPartEvidenceKind.Conditional
+
+private val PlantPartEvidenceKind.displayOrder: Int
+    get() = when (this) {
+        PlantPartEvidenceKind.Toxic -> 0
+        PlantPartEvidenceKind.Caution -> 1
+        PlantPartEvidenceKind.Conditional -> 2
+        PlantPartEvidenceKind.Edible -> 3
+    }
+
+@Composable
+private fun PartEvidenceRow(evidence: PlantPartEvidence) {
+    val uriHandler = LocalUriHandler.current
+    val (status, color) = when (evidence.kind) {
+        PlantPartEvidenceKind.Edible -> "Edible" to Moss
+        PlantPartEvidenceKind.Conditional -> "Conditional food use" to TrailText
+        PlantPartEvidenceKind.Toxic -> "Toxic" to MaterialTheme.colorScheme.error
+        PlantPartEvidenceKind.Caution -> "Caution" to TrailText
+    }
+    Column(Modifier.fillMaxWidth()) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                if (evidence.kind == PlantPartEvidenceKind.Edible) Icons.AutoMirrored.Rounded.MenuBook
+                else Icons.Rounded.WarningAmber,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
+                tint = color,
+            )
+            Text(
+                "${evidence.part} · $status",
+                style = MaterialTheme.typography.titleMedium,
+                color = color,
+                modifier = Modifier.semantics { heading() },
+            )
+        }
+        evidence.note?.let { ReferenceText(it) }
+        TextButton(onClick = { uriHandler.openUri(evidence.source.url) }, contentPadding = PaddingValues(0.dp)) {
+            Text(evidence.source.publisher.ifBlank { evidence.source.title }, style = MaterialTheme.typography.labelMedium)
         }
     }
 }
@@ -196,9 +295,10 @@ private fun FoodUseSources(reference: EdibilityReference) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             reference.sources.forEach { source ->
                 TextButton(onClick = { uriHandler.openUri(source.url) }) {
-                    Text("${source.title} · Version ${source.version}", color = Moss)
+                    val version = if (source.version.all(Char::isDigit)) "Version ${source.version}" else source.version
+                    Text("${source.title} · $version", color = Moss)
                 }
-                ReferenceText(listOf(source.attribution, source.publisher).filter(String::isNotBlank).joinToString(" · "))
+                ReferenceText(listOf(source.attribution, source.publisher).filter(String::isNotBlank).distinct().joinToString(" · "))
                 if (source.licenseUrl != null) {
                     TextButton(onClick = { uriHandler.openUri(source.licenseUrl) }) {
                         Text(source.license, color = Moss)

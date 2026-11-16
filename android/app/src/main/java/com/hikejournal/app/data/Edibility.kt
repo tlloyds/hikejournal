@@ -10,6 +10,15 @@ import java.time.Instant
 enum class FoodUseStatus { Documented, Conditional, Disputed, Unknown }
 enum class ToxicityStatus { DocumentedConcern, Unknown }
 
+enum class PlantPartEvidenceKind { Edible, Conditional, Toxic, Caution }
+
+data class PlantPartEvidence(
+    val part: String,
+    val kind: PlantPartEvidenceKind,
+    val note: String?,
+    val source: FoodUseSource,
+)
+
 enum class FoodUseIndicator(val label: String, val warning: Boolean) {
     FoodUses("Food uses", false),
     Conditional("Conditional food use", true),
@@ -43,6 +52,8 @@ data class EdibilityReference(
     val sources: List<FoodUseSource>,
     val expiresAt: Instant,
     val reviewed: Boolean,
+    val partEvidence: List<PlantPartEvidence> = emptyList(),
+    val checklistPoisonUse: Boolean = false,
 ) {
     val indicator: FoodUseIndicator?
         get() = when {
@@ -99,6 +110,25 @@ internal fun parseEdibility(json: JSONObject?): EdibilityReference? {
         else -> FoodUseStatus.Unknown
     }
     val parts = json.optJSONArray("documented_parts")
+    val sourcesByUrl = sources.associateBy(FoodUseSource::url)
+    val evidence = json.optJSONArray("part_evidence")
+    val partEvidence = if (evidence == null) emptyList() else
+        (0 until evidence.length()).mapNotNull { index ->
+            val item = evidence.optJSONObject(index) ?: return@mapNotNull null
+            val kind = when (item.optString("kind")) {
+                "edible" -> PlantPartEvidenceKind.Edible
+                "conditional" -> PlantPartEvidenceKind.Conditional
+                "toxic" -> PlantPartEvidenceKind.Toxic
+                "caution" -> PlantPartEvidenceKind.Caution
+                else -> return@mapNotNull null
+            }
+            PlantPartEvidence(
+                part = item.nonblank("part") ?: return@mapNotNull null,
+                kind = kind,
+                note = item.nonblank("note"),
+                source = sourcesByUrl[item.httpsUrl("source_url")] ?: return@mapNotNull null,
+            )
+        }
     return EdibilityReference(
         taxonId = taxonId,
         scientificName = name,
@@ -120,6 +150,8 @@ internal fun parseEdibility(json: JSONObject?): EdibilityReference? {
         sources = sources,
         expiresAt = expiresAt,
         reviewed = review == "reviewed",
+        partEvidence = partEvidence,
+        checklistPoisonUse = json.optBoolean("checklist_poison_use"),
     )
 }
 
@@ -132,6 +164,9 @@ private fun JSONObject.httpsUrl(key: String): String? = nonblank(key)?.takeIf { 
 
 internal fun SpeciesRecord.currentEdibility(now: Instant = Instant.now()): EdibilityReference? =
     edibility?.currentFor(taxonId, scientificName, rank, now)
+
+internal fun SpeciesRecord.currentEdibilityByTaxon(now: Instant = Instant.now()): List<EdibilityReference> =
+    edibilityByTaxon.filter { now.isBefore(it.expiresAt) && it.datasetVersion == edibilityDatasetVersion }
 
 internal fun SpeciesRecord.showsEdibilityReference(currentDatasetVersion: String?): Boolean =
     edibilityReferenceEnabled && (currentDatasetVersion == null || edibilityDatasetVersion == currentDatasetVersion)

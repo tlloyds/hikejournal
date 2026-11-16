@@ -211,6 +211,7 @@ def test_api_for_observation_uses_exact_tag_and_suppresses_mixed_species_groups(
     assert [tag["edibility"] for tag in tags] == [profile, None, None, None]
     summary = mobile_api._build_species_payloads(species[:2], photos, {}, reference=reference)[0]
     assert summary["edibility"] is None and summary["edibility_reference_enabled"]
+    assert summary["edibility_by_taxon"] == [profile]
     assert summary["ecology"]["label"] == "unknown"
     assert mobile_api._build_species_payloads(species[:1], photos, {}, reference=reference)[0]["edibility"] == profile
 
@@ -229,13 +230,59 @@ def test_reference_batches_distinct_ids_and_fails_closed_for_disable_withdrawal_
         {"status": "confirmed", "taxon_id": 42, "owner_subject": "two"},
         {"status": "pending", "taxon_id": 43},
     ]
-    assert load_edibility_reference(repository, observations, enabled=True).profiles == {"42": profile}
+    reference = load_edibility_reference(repository, observations, enabled=True)
+    assert reference.profiles == {
+        "42": {**profile, "dataset_version": reference.release_id, "checklist_poison_use": False},
+    }
     assert calls == [[42]]
     assert load_edibility_reference(repository, observations, enabled=False).release_id is None
     assert calls == [[42]]
     repository.read_edibility_profiles = lambda ids: (None, {})
     assert load_edibility_reference(repository, observations, enabled=True).profiles == {}
     assert load_edibility_reference(object(), observations, enabled=True).release_id is None
+
+
+def test_reviewed_part_evidence_can_fill_a_missing_checklist_entry_without_inheriting():
+    blueberry = {
+        "taxon_id": 52739, "scientific_name": "Vaccinium fuscatum", "rank": "species",
+        "iconic_taxon_name": "Plantae", "status": "confirmed",
+    }
+    genus = {**blueberry, "taxon_id": 48353, "scientific_name": "Vaccinium", "rank": "genus"}
+    repository = SimpleNamespace(read_edibility_profiles=lambda ids: (None, {}))
+    reference = load_edibility_reference(repository, [blueberry, genus], enabled=True)
+    profile = reference.for_observation(blueberry)
+    assert profile["food_use_status"] == "documented"
+    assert profile["toxicity_status"] == "unknown"
+    assert profile["dataset_version"] == reference.release_id
+    assert reference.for_observation(genus) is None
+    assert reference.for_observation({**blueberry, "rank": "genus"}) is None
+    assert reference.for_observation({**blueberry, "scientific_name": "Vaccinium corymbosum"}) is None
+    assert reference.for_observation({**blueberry, "status": "pending"}) is None
+    claim, = profile["part_evidence"]
+    assert (claim["part"], claim["kind"]) == ("Berries", "edible")
+    assert claim["source_url"] == profile["sources"][0]["url"]
+
+
+def test_parts_keep_plant_hazards_and_conditional_food_use_distinct():
+    elderberry = {
+        "taxon_id": 84300, "scientific_name": "Sambucus canadensis", "rank": "species",
+        "iconic_taxon_name": "Plantae", "status": "confirmed",
+    }
+    baseline = {
+        **elderberry, "food_use_status": "documented", "toxicity_status": "documented_concern",
+        "review_status": "source_matched", "sources": [{"url": "https://example.test/checklist"}],
+    }
+    repository = SimpleNamespace(read_edibility_profiles=lambda ids: ("checklist", {"84300": baseline}))
+    reference = load_edibility_reference(repository, [elderberry], enabled=True)
+    profile = reference.for_observation(elderberry)
+    assert profile["food_use_status"] == "conditional"
+    assert profile["toxicity_status"] == "documented_concern"
+    assert profile["has_documented_food_use"] and profile["checklist_poison_use"]
+    assert not profile["evidence_conflict"]
+    assert {(item["part"], item["kind"]) for item in profile["part_evidence"]} == {
+        ("Leaves and stems", "toxic"), ("Berries", "conditional"), ("Flowers", "conditional"),
+    }
+    assert profile["sources"][-1] == baseline["sources"][0]
 
 
 def test_repository_does_not_combine_versions_during_a_bulk_read():
@@ -350,10 +397,16 @@ def test_species_responses_clear_reference_data_when_disabled(monkeypatch):
         [taxon], {"photo-1": {"id": "photo-1"}}, {},
     ))
     monkeypatch.setattr(mobile_api, "settings", replace(mobile_api.settings, edibility_enabled=True))
-    assert mobile_api.list_species()[0]["edibility"] == stored
+    listed = mobile_api.list_species()[0]
+    current = {
+        **stored,
+        "dataset_version": listed["edibility_dataset_version"],
+        "checklist_poison_use": False,
+    }
+    assert listed["edibility"] == current
     detail = mobile_api.get_species_detail("taxon:42")
-    assert detail["edibility"] == stored
-    assert detail["encounters"][0]["photo"]["species"][0]["edibility"] == stored
+    assert detail["edibility"] == current
+    assert detail["encounters"][0]["photo"]["species"][0]["edibility"] == current
     assert lookups == [[42], [42]]
     monkeypatch.setattr(mobile_api, "settings", replace(mobile_api.settings, edibility_enabled=False))
     detail = mobile_api.get_species_detail("taxon:42")

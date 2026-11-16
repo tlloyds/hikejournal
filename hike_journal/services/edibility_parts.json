@@ -1,0 +1,608 @@
+{
+  "sources": {
+    "air_potato_florida": {
+      "title": "Five Facts: Air potatoes in Florida",
+      "url": "https://www.floridamuseum.ufl.edu/discover/story/five-facts-air-potatoes-in-florida/",
+      "publisher": "Florida Museum of Natural History",
+      "attribution": "Florida Museum of Natural History",
+      "version": "Reviewed 2026-11-15",
+      "license": "Original factual summary",
+      "license_url": null
+    },
+    "air_potato_kew": {
+      "title": "Dioscorea bulbifera",
+      "url": "https://powo.science.kew.org/taxon/urn:lsid:ipni.org:names:323908-2/general-information",
+      "publisher": "Kew Science",
+      "attribution": "Kew Science",
+      "version": "Reviewed 2026-11-15",
+      "license": "Original factual summary",
+      "license_url": null
+    },
+    "apios_americana": {
+      "title": "Apios americana",
+      "url": "https://plants.ces.ncsu.edu/plants/apios-americana/",
+      "publisher": "NC State Extension",
+      "attribution": "NC State Extension",
+      "version": "Reviewed 2026-11-15",
+      "license": "Original factual summary",
+      "license_url": null
+    },
+    "baccharis_halimifolia": {
+      "title": "Baccharis halimifolia",
+      "url": "https://plants.ces.ncsu.edu/plants/baccharis-halimifolia/",
+      "publisher": "NC State Extension",
+      "attribution": "NC State Extension",
+      "version": "Reviewed 2026-11-15",
+      "license": "Original factual summary",
+      "license_url": null
+    },
+    "bitter_melon_uf": {
+      "title": "Bitter Melon: An Asian Vegetable Expanding in Florida",
+      "url": "https://ask.ifas.ufl.edu/publication/hs1271",
+      "publisher": "UF/IFAS Extension",
+      "attribution": "UF/IFAS Extension",
+      "version": "Reviewed 2026-11-15",
+      "license": "Original factual summary",
+      "license_url": null
+    },
+    "carya_glabra": {
+      "title": "Carya glabra",
+      "url": "https://plants.ces.ncsu.edu/plants/carya-glabra/",
+      "publisher": "NC State Extension",
+      "attribution": "NC State Extension",
+      "version": "Reviewed 2026-11-15",
+      "license": "Original factual summary",
+      "license_url": null
+    },
+    "crotalaria_spectabilis": {
+      "title": "Crotalaria spectabilis",
+      "url": "https://plants.ces.ncsu.edu/plants/crotalaria-spectabilis/",
+      "publisher": "NC State Extension",
+      "attribution": "NC State Extension",
+      "version": "Reviewed 2026-11-15",
+      "license": "Original factual summary",
+      "license_url": null
+    },
+    "deerberry": {
+      "title": "Native Plants for Wildlife Habitat and Conservation Landscaping",
+      "url": "https://www.fws.gov/carp/sites/default/files/documents/native-plants-for-wildlife-habitat-and-conservation-landscaping-in-the-chesapeake-bay-watershed.pdf",
+      "publisher": "U.S. Fish & Wildlife Service",
+      "attribution": "U.S. Fish & Wildlife Service",
+      "version": "Reviewed 2026-11-15",
+      "license": "U.S. government work",
+      "license_url": null
+    },
+    "elderberry": {
+      "title": "Sambucus canadensis",
+      "url": "https://plants.ces.ncsu.edu/plants/sambucus-canadensis/",
+      "publisher": "NC State Extension",
+      "attribution": "NC State Extension",
+      "version": "Reviewed 2026-11-15",
+      "license": "Original factual summary",
+      "license_url": null
+    },
+    "elderberry_osu": {
+      "title": "Play it safe when preserving elderberries",
+      "url": "https://extension.oregonstate.edu/catalog/pub/em9446",
+      "publisher": "Oregon State University Extension",
+      "attribution": "Oregon State University Extension",
+      "version": "Reviewed 2026-11-15",
+      "license": "Original factual summary",
+      "license_url": null
+    },
+    "ficus_carica": {
+      "title": "Ficus carica",
+      "url": "https://plants.ces.ncsu.edu/plants/ficus-carica/",
+      "publisher": "NC State Extension",
+      "attribution": "NC State Extension",
+      "version": "Reviewed 2026-11-15",
+      "license": "Original factual summary",
+      "license_url": null
+    },
+    "ilex_cassine": {
+      "title": "Ilex cassine",
+      "url": "https://plants.ces.ncsu.edu/plants/ilex-cassine/",
+      "publisher": "NC State Extension",
+      "attribution": "NC State Extension",
+      "version": "Reviewed 2026-11-15",
+      "license": "Original factual summary",
+      "license_url": null
+    },
+    "ilex_glabra": {
+      "title": "Ilex glabra",
+      "url": "https://plants.ces.ncsu.edu/plants/ilex-glabra/",
+      "publisher": "NC State Extension",
+      "attribution": "NC State Extension",
+      "version": "Reviewed 2026-11-15",
+      "license": "Original factual summary",
+      "license_url": null
+    },
+    "ilex_opaca": {
+      "title": "Ilex opaca",
+      "url": "https://plants.ces.ncsu.edu/plants/ilex-opaca/",
+      "publisher": "NC State Extension",
+      "attribution": "NC State Extension",
+      "version": "Reviewed 2026-11-15",
+      "license": "Original factual summary",
+      "license_url": null
+    },
+    "lantana_camara": {
+      "title": "Lantana camara",
+      "url": "https://plants.ces.ncsu.edu/plants/lantana-camara/",
+      "publisher": "NC State Extension",
+      "attribution": "NC State Extension",
+      "version": "Reviewed 2026-11-15",
+      "license": "Original factual summary",
+      "license_url": null
+    },
+    "lantana_fla": {
+      "title": "Plants",
+      "url": "https://floridapoisoncontrol.org/poisoning-in-florida/plants/",
+      "publisher": "Florida’s Poison Control Centers",
+      "attribution": "Florida’s Poison Control Centers",
+      "version": "Reviewed 2026-11-15",
+      "license": "Original factual summary",
+      "license_url": null
+    },
+    "lobelia_cardinalis": {
+      "title": "Lobelia cardinalis",
+      "url": "https://plants.ces.ncsu.edu/plants/lobelia-cardinalis/",
+      "publisher": "NC State Extension",
+      "attribution": "NC State Extension",
+      "version": "Reviewed 2026-11-15",
+      "license": "Original factual summary",
+      "license_url": null
+    },
+    "momordica_charantia": {
+      "title": "Momordica charantia",
+      "url": "https://plants.ces.ncsu.edu/plants/momordica-charantia/",
+      "publisher": "NC State Extension",
+      "attribution": "NC State Extension",
+      "version": "Reviewed 2026-11-15",
+      "license": "Original factual summary",
+      "license_url": null
+    },
+    "peppertree_sap": {
+      "title": "Invasive Plants: Root Them Out, Quickly",
+      "url": "https://blogs.ifas.ufl.edu/miamidadeco/2025/07/14/invasive-plants-they-affect-fruit-trees-too/",
+      "publisher": "UF/IFAS Extension Miami-Dade County",
+      "attribution": "UF/IFAS Extension Miami-Dade County",
+      "version": "Reviewed 2026-11-15",
+      "license": "Original factual summary",
+      "license_url": null
+    },
+    "pigeonberry": {
+      "title": "Plants of Louisiana: Rivina humilis",
+      "url": "https://warcapps.usgs.gov/PlantID/Species/Details/1563",
+      "publisher": "U.S. Geological Survey",
+      "attribution": "U.S. Geological Survey",
+      "version": "Reviewed 2026-11-15",
+      "license": "U.S. government work",
+      "license_url": null
+    },
+    "pokeweed": {
+      "title": "Pokeberries: A grape look-alike",
+      "url": "https://www.poison.org/articles/pokeberries-and-grapes-look-alike",
+      "publisher": "National Capital Poison Center",
+      "attribution": "Rose Ann Gould Soloway",
+      "version": "Reviewed 2026-11-15",
+      "license": "Original factual summary",
+      "license_url": null
+    },
+    "rubus_trivialis": {
+      "title": "Rubus trivialis",
+      "url": "https://plants.ces.ncsu.edu/plants/rubus-trivialis/",
+      "publisher": "NC State Extension",
+      "attribution": "NC State Extension",
+      "version": "Reviewed 2026-11-15",
+      "license": "Original factual summary",
+      "license_url": null
+    },
+    "sand_blackberry": {
+      "title": "Rubus cuneifolius",
+      "url": "https://plants.ces.ncsu.edu/plants/rubus-cuneifolius/",
+      "publisher": "NC State Extension",
+      "attribution": "NC State Extension",
+      "version": "Reviewed 2026-11-15",
+      "license": "Original factual summary",
+      "license_url": null
+    },
+    "smilax_bona_nox": {
+      "title": "Smilax bona-nox",
+      "url": "https://plants.ces.ncsu.edu/plants/smilax-bona-nox/",
+      "publisher": "NC State Extension",
+      "attribution": "NC State Extension",
+      "version": "Reviewed 2026-11-15",
+      "license": "Original factual summary",
+      "license_url": null
+    },
+    "smilax_glauca": {
+      "title": "Smilax glauca",
+      "url": "https://plants.ces.ncsu.edu/plants/smilax-glauca/",
+      "publisher": "NC State Extension",
+      "attribution": "NC State Extension",
+      "version": "Reviewed 2026-11-15",
+      "license": "Original factual summary",
+      "license_url": null
+    },
+    "solanum_americanum": {
+      "title": "Solanum americanum",
+      "url": "https://plants.ces.ncsu.edu/plants/solanum-americanum/",
+      "publisher": "NC State Extension",
+      "attribution": "NC State Extension",
+      "version": "Reviewed 2026-11-15",
+      "license": "Original factual summary",
+      "license_url": null
+    },
+    "sumac": {
+      "title": "Rhus copallinum, winged sumac",
+      "url": "https://research.fs.usda.gov/feis/species-reviews/rhucop",
+      "publisher": "USDA Forest Service",
+      "attribution": "USDA Forest Service",
+      "version": "Reviewed 2026-11-15",
+      "license": "U.S. government work",
+      "license_url": null
+    },
+    "swfwmd": {
+      "title": "Field Identification Guide to WAP Plants",
+      "url": "https://www.swfwmd.state.fl.us/sites/default/files/medias/documents/Field%20Identification%20Guide%20to%20WAP%20Plants%202008%203rd%20Ed.pdf#page=64",
+      "publisher": "Southwest Florida Water Management District",
+      "attribution": "Southwest Florida Water Management District",
+      "version": "3rd edition",
+      "license": "Original factual summary",
+      "license_url": null
+    },
+    "taro": {
+      "title": "Elephant Ears (Colocasia, Alocasia, and Xanthosoma)",
+      "url": "https://hort.extension.wisc.edu/articles/elephant-ears-colocasia-alocasia-and-xanthosoma/",
+      "publisher": "University of Wisconsin–Madison Extension",
+      "attribution": "University of Wisconsin–Madison Extension",
+      "version": "Reviewed 2026-11-15",
+      "license": "Original factual summary",
+      "license_url": null
+    },
+    "taro_corms": {
+      "title": "Oxalate Content of Cormels of Japanese Taro and the Effect of Cooking",
+      "url": "https://doi.org/10.1016/j.jfca.2005.12.012",
+      "publisher": "Journal of Food Composition and Analysis",
+      "attribution": "D. J. Catherwood, G. P. Savage, S. M. Mason, J. J. C. Scheffer and J. A. Douglas",
+      "version": "2007 study",
+      "license": "Original factual summary",
+      "license_url": null
+    },
+    "typha_latifolia": {
+      "title": "Typha latifolia",
+      "url": "https://plants.ces.ncsu.edu/plants/typha-latifolia/",
+      "publisher": "NC State Extension",
+      "attribution": "NC State Extension",
+      "version": "Reviewed 2026-11-15",
+      "license": "Original factual summary",
+      "license_url": null
+    },
+    "uf_native": {
+      "title": "Florida’s Edible Native Plants",
+      "url": "https://gardeningsolutions.ifas.ufl.edu/plants/edibles/floridas-edible-native-plants/",
+      "publisher": "UF/IFAS Extension",
+      "attribution": "UF/IFAS Extension",
+      "version": "Reviewed 2026-11-15",
+      "license": "Original factual summary",
+      "license_url": null
+    },
+    "vaccinium_fuscatum": {
+      "title": "Vaccinium fuscatum",
+      "url": "https://plants.ces.ncsu.edu/plants/vaccinium-fuscatum/",
+      "publisher": "NC State Extension",
+      "attribution": "NC State Extension",
+      "version": "Reviewed 2026-11-15",
+      "license": "Original factual summary",
+      "license_url": null
+    },
+    "water_hemlock": {
+      "title": "Water Hemlock Poisoning — Maine, 1992",
+      "url": "https://www.cdc.gov/MMWR/preview/mmwrhtml/00026056.htm",
+      "publisher": "CDC",
+      "attribution": "CDC",
+      "version": "1994 case report",
+      "license": "U.S. government work",
+      "license_url": null
+    },
+    "yucca_filamentosa": {
+      "title": "Yucca filamentosa",
+      "url": "https://plants.ces.ncsu.edu/plants/yucca-filamentosa/",
+      "publisher": "NC State Extension",
+      "attribution": "NC State Extension",
+      "version": "Reviewed 2026-11-15",
+      "license": "Original factual summary",
+      "license_url": null
+    }
+  },
+  "taxa": {
+    "48038": {
+      "scientific_name": "Lobelia cardinalis",
+      "rank": "species",
+      "claims": [
+        {"part": "Flowers, fruits, leaves, roots, sap, seeds and stems", "kind": "toxic", "source": "lobelia_cardinalis", "note": "The reported hazard is from swallowing plant material."}
+      ]
+    },
+    "48599": {
+      "scientific_name": "Phytolacca americana",
+      "rank": "species",
+      "claims": [
+        {"part": "Entire plant", "kind": "toxic", "source": "pokeweed", "note": "Eating the berries can cause illness. Severe poisonings have followed root ingestion."},
+        {"part": "Young leaves", "kind": "conditional", "source": "pokeweed", "note": "A traditional cooked green with a documented poisoning risk."}
+      ]
+    },
+    "48685": {
+      "scientific_name": "Typha latifolia",
+      "rank": "species",
+      "claims": [
+        {"part": "Young shoots", "kind": "edible", "source": "typha_latifolia"},
+        {"part": "Rhizomes", "kind": "edible", "source": "typha_latifolia"},
+        {"part": "Pollen", "kind": "edible", "source": "typha_latifolia", "note": "The pollen has been used in flour."}
+      ]
+    },
+    "49013": {
+      "scientific_name": "Quercus virginiana",
+      "rank": "species",
+      "claims": [
+        {"part": "Acorns", "kind": "conditional", "source": "uf_native", "note": "Acorns have documented food use after processing. Raw acorns contain tannins."}
+      ]
+    },
+    "49193": {
+      "scientific_name": "Callicarpa americana",
+      "rank": "species",
+      "claims": [
+        {"part": "Fruit", "kind": "edible", "source": "uf_native", "note": "The berries have documented use in preserves."}
+      ]
+    },
+    "50333": {
+      "scientific_name": "Lantana camara",
+      "rank": "species",
+      "claims": [
+        {"part": "Unripe berries", "kind": "toxic", "source": "lantana_fla", "note": "Swallowing unripe berries can cause poisoning."},
+        {"part": "Leaves", "kind": "caution", "source": "lantana_camara", "note": "Contact can irritate sensitive skin."}
+      ]
+    },
+    "51453": {
+      "scientific_name": "Passiflora incarnata",
+      "rank": "species",
+      "claims": [
+        {"part": "Fruit", "kind": "edible", "source": "uf_native", "note": "Maypop fruit has documented food use."}
+      ]
+    },
+    "52599": {
+      "scientific_name": "Pontederia cordata",
+      "rank": "species",
+      "claims": [
+        {"part": "Young leaves", "kind": "edible", "source": "uf_native"},
+        {"part": "Seeds", "kind": "edible", "source": "uf_native"}
+      ]
+    },
+    "52739": {
+      "scientific_name": "Vaccinium fuscatum",
+      "rank": "species",
+      "claims": [
+        {"part": "Berries", "kind": "edible", "source": "vaccinium_fuscatum"}
+      ]
+    },
+    "54789": {
+      "scientific_name": "Carya glabra",
+      "rank": "species",
+      "claims": [
+        {"part": "Nut kernels", "kind": "edible", "source": "carya_glabra", "note": "The kernels can taste bitter."}
+      ]
+    },
+    "59035": {
+      "scientific_name": "Solanum americanum",
+      "rank": "species",
+      "claims": [
+        {"part": "Entire plant", "kind": "caution", "source": "solanum_americanum", "note": "NC State Extension flags potential toxicity if swallowed, including leaves and berries."}
+      ]
+    },
+    "60125": {
+      "scientific_name": "Cicuta maculata",
+      "rank": "species",
+      "claims": [
+        {"part": "Entire plant", "kind": "toxic", "source": "water_hemlock", "note": "The roots contain the highest concentration of toxin. Human deaths from root ingestion are documented."}
+      ]
+    },
+    "60218": {
+      "scientific_name": "Ficus carica",
+      "rank": "species",
+      "claims": [
+        {"part": "Ripe figs", "kind": "edible", "source": "ficus_carica"},
+        {"part": "Sap", "kind": "caution", "source": "ficus_carica", "note": "Sap contact can irritate skin."}
+      ]
+    },
+    "60749": {
+      "scientific_name": "Ilex opaca",
+      "rank": "species",
+      "claims": [
+        {"part": "Fruit", "kind": "toxic", "source": "ilex_opaca", "note": "The berries can cause illness if swallowed."}
+      ]
+    },
+    "61369": {
+      "scientific_name": "Momordica charantia",
+      "rank": "species",
+      "claims": [
+        {"part": "Ripe fruit and seeds", "kind": "toxic", "source": "momordica_charantia", "note": "NC State Extension reports poisoning effects from eating ripe fruit or seeds."},
+        {"part": "Unripe fruit", "kind": "edible", "source": "bitter_melon_uf", "note": "Green fruit is documented as a vegetable crop."}
+      ]
+    },
+    "67792": {
+      "scientific_name": "Vaccinium stamineum",
+      "rank": "species",
+      "claims": [
+        {"part": "Berries", "kind": "edible", "source": "deerberry", "note": "The fruit is usually tart."}
+      ]
+    },
+    "69714": {
+      "scientific_name": "Rubus trivialis",
+      "rank": "species",
+      "claims": [
+        {"part": "Fruit", "kind": "edible", "source": "rubus_trivialis"}
+      ]
+    },
+    "81605": {
+      "scientific_name": "Yucca filamentosa",
+      "rank": "species",
+      "claims": [
+        {"part": "Flowers", "kind": "edible", "source": "yucca_filamentosa"}
+      ]
+    },
+    "81831": {
+      "scientific_name": "Smilax glauca",
+      "rank": "species",
+      "claims": [
+        {"part": "Young shoots and leaves", "kind": "edible", "source": "smilax_glauca"},
+        {"part": "Roots", "kind": "conditional", "source": "smilax_glauca", "note": "The roots have documented use after processing."}
+      ]
+    },
+    "82529": {
+      "scientific_name": "Vitis rotundifolia",
+      "rank": "species",
+      "claims": [
+        {"part": "Grapes", "kind": "edible", "source": "uf_native"}
+      ]
+    },
+    "83102": {
+      "scientific_name": "Serenoa repens",
+      "rank": "species",
+      "claims": [
+        {"part": "Fruit", "kind": "edible", "source": "uf_native"}
+      ]
+    },
+    "83435": {
+      "scientific_name": "Diospyros virginiana",
+      "rank": "species",
+      "claims": [
+        {"part": "Ripe fruit flesh", "kind": "edible", "source": "uf_native", "note": "Unripe fruit is astringent."}
+      ]
+    },
+    "84300": {
+      "scientific_name": "Sambucus canadensis",
+      "rank": "species",
+      "claims": [
+        {"part": "Leaves and stems", "kind": "toxic", "source": "elderberry_osu", "note": "These contain higher levels of cyanide-releasing compounds than the parts used in food."},
+        {"part": "Berries", "kind": "conditional", "source": "elderberry", "note": "Ripe, cooked berries have documented food use. Raw berries can cause illness."},
+        {"part": "Flowers", "kind": "conditional", "source": "elderberry_osu", "note": "Flowers are used in processed foods and drinks. The stems are a separate toxicity concern."}
+      ]
+    },
+    "84537": {
+      "scientific_name": "Dioscorea bulbifera",
+      "rank": "species",
+      "claims": [
+        {"part": "Aerial bulbils and underground tubers", "kind": "toxic", "source": "air_potato_florida", "note": "Both can contain toxins in Florida air potatoes."},
+        {"part": "Aerial bulbils", "kind": "conditional", "source": "air_potato_kew", "note": "Kew records food use for some varieties. Toxic varieties are also documented."}
+      ]
+    },
+    "84813": {
+      "scientific_name": "Baccharis halimifolia",
+      "rank": "species",
+      "claims": [
+        {"part": "Seeds", "kind": "toxic", "source": "baccharis_halimifolia", "note": "NC State Extension identifies the seeds of female plants as poisonous."}
+      ]
+    },
+    "119817": {
+      "scientific_name": "Apios americana",
+      "rank": "species",
+      "claims": [
+        {"part": "Mature tubers", "kind": "conditional", "source": "apios_americana", "note": "The documented use is for cooked tubers."}
+      ]
+    },
+    "122835": {
+      "scientific_name": "Colocasia esculenta",
+      "rank": "species",
+      "claims": [
+        {"part": "Corms", "kind": "conditional", "source": "taro_corms", "note": "Cooked taro corms are a food crop. Raw corms contain irritating oxalates."},
+        {"part": "Leaves", "kind": "conditional", "source": "taro", "note": "Cooked taro leaves have food use. Raw tissue contains irritating oxalate crystals."}
+      ]
+    },
+    "123481": {
+      "scientific_name": "Sabal palmetto",
+      "rank": "species",
+      "claims": [
+        {"part": "Growing bud", "kind": "edible", "source": "uf_native", "note": "This is the palm heart. Removing it kills the palm."}
+      ]
+    },
+    "125677": {
+      "scientific_name": "Smilax bona-nox",
+      "rank": "species",
+      "claims": [
+        {"part": "Young shoots", "kind": "edible", "source": "smilax_bona_nox"},
+        {"part": "Roots", "kind": "conditional", "source": "smilax_bona_nox", "note": "Cooked roots have documented processing as food."}
+      ]
+    },
+    "126142": {
+      "scientific_name": "Vaccinium darrowii",
+      "rank": "species",
+      "claims": [
+        {"part": "Berries", "kind": "edible", "source": "swfwmd"}
+      ]
+    },
+    "126483": {
+      "scientific_name": "Stachys floridana",
+      "rank": "species",
+      "claims": [
+        {"part": "Tubers", "kind": "edible", "source": "uf_native"}
+      ]
+    },
+    "126698": {
+      "scientific_name": "Rhus copallinum",
+      "rank": "species",
+      "claims": [
+        {"part": "Fruit", "kind": "edible", "source": "sumac", "note": "The fruit has documented use as a flavoring in drinks."}
+      ]
+    },
+    "128854": {
+      "scientific_name": "Rubus cuneifolius",
+      "rank": "species",
+      "claims": [
+        {"part": "Fruit", "kind": "edible", "source": "sand_blackberry"}
+      ]
+    },
+    "129347": {
+      "scientific_name": "Ilex glabra",
+      "rank": "species",
+      "claims": [
+        {"part": "Fruit", "kind": "toxic", "source": "ilex_glabra", "note": "The berries can cause illness if swallowed."},
+        {"part": "Leaves", "kind": "conditional", "source": "ilex_glabra", "note": "Prepared leaves have traditional use in a tea-like drink."}
+      ]
+    },
+    "130872": {
+      "scientific_name": "Schinus terebinthifolia",
+      "rank": "species",
+      "claims": [
+        {"part": "Sap", "kind": "caution", "source": "peppertree_sap", "note": "Skin contact with the sap can cause a rash."}
+      ]
+    },
+    "133291": {
+      "scientific_name": "Rivina humilis",
+      "rank": "species",
+      "claims": [
+        {"part": "Fruit and leaves", "kind": "toxic", "source": "pigeonberry", "note": "Both are toxic if swallowed."}
+      ]
+    },
+    "161150": {
+      "scientific_name": "Crotalaria spectabilis",
+      "rank": "species",
+      "claims": [
+        {"part": "Entire plant", "kind": "toxic", "source": "crotalaria_spectabilis", "note": "The plant contains poisonous pyrrolizidine alkaloids, with the seeds a particular concern."}
+      ]
+    },
+    "164035": {
+      "scientific_name": "Ilex cassine",
+      "rank": "species",
+      "claims": [
+        {"part": "Fruit", "kind": "toxic", "source": "ilex_cassine", "note": "The berries can cause illness if swallowed."}
+      ]
+    },
+    "170106": {
+      "scientific_name": "Vaccinium myrsinites",
+      "rank": "species",
+      "claims": [
+        {"part": "Berries", "kind": "edible", "source": "swfwmd"}
+      ]
+    }
+  }
+}

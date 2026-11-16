@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import logging
+import hashlib
+import json
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any, Iterable
 
 from hike_journal.services.taxonomy import normalize_taxon_name
@@ -11,6 +15,10 @@ from hike_journal.services.taxonomy import normalize_taxon_name
 logger = logging.getLogger(__name__)
 PUBLISHABLE_RANKS = frozenset({"species", "subspecies", "variety", "form"})
 INAT_VASCULAR_PLANTS = 211194
+_PART_REFERENCE_PATH = Path(__file__).with_name("edibility_parts.json")
+_PART_REFERENCE_BYTES = _PART_REFERENCE_PATH.read_bytes()
+_PART_REFERENCE = json.loads(_PART_REFERENCE_BYTES)
+_PART_REFERENCE_REVISION = hashlib.sha256(_PART_REFERENCE_BYTES).hexdigest()[:16]
 
 
 def taxon_id(value: Any) -> int | None:
@@ -167,8 +175,72 @@ def load_edibility_reference(
     })
     try:
         release_id, profiles = repository.read_edibility_profiles(ids)
-        return EdibilityReference(release_id, profiles)
     except Exception as error:
         # A missing migration or reference outage must not break journal reads.
         logger.warning("Food-use reference unavailable (%s)", type(error).__name__)
         return EdibilityReference()
+    revision = f"{release_id or 'independent'}+parts-{_PART_REFERENCE_REVISION}"
+    profiles = {
+        key: {
+            **profile,
+            "dataset_version": revision,
+            # The current WCFP release has a poison-use category. It does not
+            # establish the part, route of exposure, or circumstances.
+            "checklist_poison_use": profile.get("toxicity_status") == "documented_concern",
+        }
+        for key, profile in profiles.items()
+    }
+    now = datetime.now(UTC)
+    for identity_id in ids:
+        key = str(identity_id)
+        entry = _PART_REFERENCE["taxa"].get(key)
+        if not entry:
+            continue
+        baseline = profiles.get(key)
+        if baseline and (
+            normalize_taxon_name(baseline["scientific_name"]) != normalize_taxon_name(entry["scientific_name"])
+            or baseline["rank"] != entry["rank"]
+        ):
+            profiles.pop(key)
+            continue
+        profiles[key] = _with_part_evidence(identity_id, entry, baseline, revision, now)
+    return EdibilityReference(revision, profiles)
+
+
+def _with_part_evidence(
+    identity_id: int, entry: dict[str, Any], baseline: dict[str, Any] | None, revision: str, now: datetime
+) -> dict[str, Any]:
+    profile = baseline or {}
+    source_keys = dict.fromkeys(claim["source"] for claim in entry["claims"])
+    sources = {key: _PART_REFERENCE["sources"][key] for key in source_keys}
+    claims = [
+        {**claim, "source_url": sources[claim["source"]]["url"]}
+        for claim in entry["claims"]
+    ]
+    kinds = {claim["kind"] for claim in claims}
+    food_status = profile.get("food_use_status", "unknown")
+    if food_status != "disputed":
+        if "edible" in kinds:
+            food_status = "documented"
+        elif "conditional" in kinds:
+            food_status = "conditional"
+    has_part_hazard = bool(kinds & {"toxic", "caution"})
+    parts = {
+        claim["part"] for claim in claims if claim["kind"] in {"edible", "conditional"}
+    }
+    return {
+        **profile,
+        "taxon_id": identity_id,
+        "scientific_name": entry["scientific_name"],
+        "rank": entry["rank"],
+        "dataset_version": revision,
+        "food_use_status": food_status,
+        "has_documented_food_use": bool(parts) or profile.get("has_documented_food_use", False),
+        "toxicity_status": "documented_concern" if has_part_hazard else profile.get("toxicity_status", "unknown"),
+        "evidence_conflict": profile.get("evidence_conflict", False),
+        "documented_parts": sorted(parts | set(profile.get("documented_parts") or [])),
+        "part_evidence": claims,
+        "sources": [*sources.values(), *profile.get("sources", [])],
+        "review_status": profile.get("review_status", "reviewed"),
+        "expires_at": profile.get("expires_at") or (now + timedelta(hours=24)).isoformat(),
+    }

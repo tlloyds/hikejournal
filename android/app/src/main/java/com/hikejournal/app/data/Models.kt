@@ -289,6 +289,7 @@ data class SpeciesRecord(
     val edibility: EdibilityReference? = null,
     val edibilityReferenceEnabled: Boolean = false,
     val edibilityDatasetVersion: String? = null,
+    val edibilityByTaxon: List<EdibilityReference> = emptyList(),
 )
 
 data class PlaceVisit(
@@ -1245,6 +1246,9 @@ private fun parseSpecies(json: JSONObject): SpeciesRecord {
         edibility = parseEdibility(json.optJSONObject("edibility")),
         edibilityReferenceEnabled = json.optBoolean("edibility_reference_enabled"),
         edibilityDatasetVersion = json.edibilityDatasetVersion(),
+        edibilityByTaxon = json.optJSONArray("edibility_by_taxon")?.let { array ->
+            (0 until array.length()).mapNotNull { parseEdibility(array.optJSONObject(it)) }
+        }.orEmpty(),
         encounters = List(encountersJson.length()) { index ->
             val encounter = encountersJson.getJSONObject(index)
             Encounter(

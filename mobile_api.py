@@ -2126,11 +2126,18 @@ def _build_species_payloads(
                 lead,
             )
         )
-        edibility = reference.for_observation(lead) if reference else None
-        if edibility and any(reference.for_observation(item) is not edibility for item in ordered):
-            # Existing grouping can combine infraspecies. Suppress group-level
-            # evidence unless every observation resolves to the exact profile.
-            edibility = None
+        edibility = None
+        edibility_by_taxon = []
+        if reference:
+            exact_profiles = [reference.for_observation(item) for item in ordered]
+            if all(profile is exact_profiles[0] for profile in exact_profiles):
+                edibility = exact_profiles[0]
+            else:
+                # The guide can group species and varieties. Keep each
+                # matched reference attached to its own identification.
+                edibility_by_taxon = list({
+                    profile["taxon_id"]: profile for profile in exact_profiles if profile
+                }.values())
         payloads.append(
             {
                 "key": key,
@@ -2141,6 +2148,7 @@ def _build_species_payloads(
                 "iconic_taxon_name": iconic_taxon_name,
                 "ecology": ecology,
                 "edibility": edibility,
+                "edibility_by_taxon": edibility_by_taxon,
                 "edibility_reference_enabled": bool(reference and reference.release_id),
                 "edibility_dataset_version": reference.release_id if reference else None,
                 "wikipedia_url": str(enrichment_lead.get("wikipedia_url") or ""),

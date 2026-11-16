@@ -76,6 +76,21 @@ class EdibilityTest {
     }
 
     @Test
+    fun `part evidence requires a parsed citation and does not collapse edible and toxic parts`() {
+        val payload = referenceJson().put("part_evidence", JSONArray("""
+            [
+              {"part":"Leaves","kind":"toxic","source_url":"https://example.test/checklist"},
+              {"part":"Flowers","kind":"edible","source_url":"https://example.test/checklist"},
+              {"part":"Fruit","kind":"edible","source_url":"https://example.test/unlisted"}
+            ]
+        """.trimIndent()))
+        val reference = checkNotNull(parseEdibility(payload))
+        assertEquals(listOf("Leaves", "Flowers"), reference.partEvidence.map { it.part })
+        assertEquals(listOf(PlantPartEvidenceKind.Toxic, PlantPartEvidenceKind.Edible), reference.partEvidence.map { it.kind })
+        assertEquals(reference.sources.single(), reference.partEvidence.first().source)
+    }
+
+    @Test
     fun `only exact current confirmed visible tags receive indicators`() {
         val good = tagJson().put("observation_id", "confirmed")
         val pending = tagJson().put("status", "pending")

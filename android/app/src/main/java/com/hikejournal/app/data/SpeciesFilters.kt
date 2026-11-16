@@ -84,9 +84,11 @@ internal fun filterSpeciesByFoodUse(
     currentDatasetVersion: String? = null,
 ): List<SpeciesRecord> {
     if (!documentedOnly) return species
-    return species.filter {
-        val reference = it.currentEdibility()
-        reference?.hasDocumentedFoodUse == true &&
-            (currentDatasetVersion == null || reference.datasetVersion == currentDatasetVersion)
+    return species.filter { record ->
+        val references = listOfNotNull(record.currentEdibility()) + record.currentEdibilityByTaxon()
+        references.any { reference ->
+            reference.hasDocumentedFoodUse &&
+                (currentDatasetVersion == null || reference.datasetVersion == currentDatasetVersion)
+        }
     }
 }

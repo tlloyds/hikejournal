@@ -125,6 +125,7 @@ import com.hikejournal.app.data.SpeciesRecord
 import com.hikejournal.app.data.currentEdibility
 import com.hikejournal.app.data.filterSpeciesByFoodUse
 import com.hikejournal.app.data.showsEdibilityReference
+import com.hikejournal.app.data.currentEdibilityByTaxon
 import com.hikejournal.app.data.SpeciesJumpTarget
 import com.hikejournal.app.data.SpeciesSort
 import com.hikejournal.app.data.filterDiscoveryAreas
@@ -1933,6 +1934,8 @@ fun SpeciesDetailScreen(
                     EdibilitySection(
                         species.currentEdibility(),
                         Modifier.padding(top = 16.dp),
+                        taxonRank = species.rank.lowercase(),
+                        referencesByTaxon = species.currentEdibilityByTaxon(),
                     )
                 }
             }
