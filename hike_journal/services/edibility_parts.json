@@ -36,6 +36,15 @@
       "license": "Original factual summary",
       "license_url": null
     },
+    "beautyberry_nc": {
+      "title": "Callicarpa americana",
+      "url": "https://plants.ces.ncsu.edu/plants/callicarpa-americana/",
+      "publisher": "NC State Extension",
+      "attribution": "NC State Extension",
+      "version": "Reviewed 2026-11-16",
+      "license": "Original factual summary",
+      "license_url": null
+    },
     "bitter_melon_uf": {
       "title": "Bitter Melon: An Asian Vegetable Expanding in Florida",
       "url": "https://ask.ifas.ufl.edu/publication/hs1271",
@@ -51,6 +60,15 @@
       "publisher": "NC State Extension",
       "attribution": "NC State Extension",
       "version": "Reviewed 2026-11-15",
+      "license": "Original factual summary",
+      "license_url": null
+    },
+    "coral_bean_nc": {
+      "title": "Erythrina herbacea",
+      "url": "https://plants.ces.ncsu.edu/plants/erythrina-herbacea/",
+      "publisher": "NC State Extension",
+      "attribution": "NC State Extension",
+      "version": "Reviewed 2026-11-16",
       "license": "Original factual summary",
       "license_url": null
     },
@@ -71,6 +89,16 @@
       "version": "Reviewed 2026-11-15",
       "license": "U.S. government work",
       "license_url": null
+    },
+    "duke": {
+      "title": "Dr. Duke’s Phytochemical and Ethnobotanical Databases",
+      "url": "https://doi.org/10.15482/USDA.ADC/1239279",
+      "publisher": "USDA Agricultural Research Service",
+      "attribution": "James A. Duke",
+      "version": "2023 archive",
+      "license": "CC0 1.0",
+      "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "modifications": "HikeJournal selected cited ethnobotanical records and summarized the historical uses."
     },
     "elderberry": {
       "title": "Sambucus canadensis",
@@ -99,6 +127,15 @@
       "license": "Original factual summary",
       "license_url": null
     },
+    "fringed_bell_tree": {
+      "title": "Elaeocarpus hainanensis",
+      "url": "https://plants.ces.ncsu.edu/plants/elaeocarpus-hainanensis/",
+      "publisher": "NC State Extension",
+      "attribution": "NC State Extension",
+      "version": "Reviewed 2026-11-16",
+      "license": "Original factual summary",
+      "license_url": null
+    },
     "ilex_cassine": {
       "title": "Ilex cassine",
       "url": "https://plants.ces.ncsu.edu/plants/ilex-cassine/",
@@ -123,6 +160,15 @@
       "publisher": "NC State Extension",
       "attribution": "NC State Extension",
       "version": "Reviewed 2026-11-15",
+      "license": "Original factual summary",
+      "license_url": null
+    },
+    "jessamine_nc": {
+      "title": "Gelsemium sempervirens",
+      "url": "https://plants.ces.ncsu.edu/plants/gelsemium-sempervirens/",
+      "publisher": "NC State Extension",
+      "attribution": "NC State Extension",
+      "version": "Reviewed 2026-11-16",
       "license": "Original factual summary",
       "license_url": null
     },
@@ -160,6 +206,15 @@
       "attribution": "NC State Extension",
       "version": "Reviewed 2026-11-15",
       "license": "Original factual summary",
+      "license_url": null
+    },
+    "nccih_passionflower": {
+      "title": "Passionflower",
+      "url": "https://www.nccih.nih.gov/health/passionflower",
+      "publisher": "NIH National Center for Complementary and Integrative Health",
+      "attribution": "NIH National Center for Complementary and Integrative Health",
+      "version": "Reviewed 2026-11-16",
+      "license": "U.S. government work",
       "license_url": null
     },
     "peppertree_sap": {
@@ -207,6 +262,15 @@
       "license": "Original factual summary",
       "license_url": null
     },
+    "sicily_survey": {
+      "title": "A survey of wild plant species for food use in Sicily",
+      "url": "https://doi.org/10.1186/s13002-015-0074-7",
+      "publisher": "Journal of Ethnobiology and Ethnomedicine",
+      "attribution": "Mario Licata, Teresa Tuttolomondo, Claudio Leto, Giuseppe Virga, Giuseppe Bonsangue, Ilenia Cammalleri, Maria Cristina Gennaro and Salvatore La Bella",
+      "version": "2016 survey",
+      "license": "CC BY 4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/"
+    },
     "smilax_bona_nox": {
       "title": "Smilax bona-nox",
       "url": "https://plants.ces.ncsu.edu/plants/smilax-bona-nox/",
@@ -241,6 +305,15 @@
       "attribution": "USDA Forest Service",
       "version": "Reviewed 2026-11-15",
       "license": "U.S. government work",
+      "license_url": null
+    },
+    "sweetgum_nc": {
+      "title": "Liquidambar styraciflua",
+      "url": "https://plants.ces.ncsu.edu/plants/liquidambar-styraciflua/",
+      "publisher": "NC State Extension",
+      "attribution": "NC State Extension",
+      "version": "Reviewed 2026-11-16",
+      "license": "Original factual summary",
       "license_url": null
     },
     "swfwmd": {
@@ -306,6 +379,15 @@
       "license": "U.S. government work",
       "license_url": null
     },
+    "wax_myrtle": {
+      "title": "Morella cerifera",
+      "url": "https://research.fs.usda.gov/feis/species-reviews/morcer",
+      "publisher": "USDA Forest Service",
+      "attribution": "Timothy R. Van Deelen",
+      "version": "1991 species review",
+      "license": "U.S. government work",
+      "license_url": null
+    },
     "yucca_filamentosa": {
       "title": "Yucca filamentosa",
       "url": "https://plants.ces.ncsu.edu/plants/yucca-filamentosa/",
@@ -353,6 +435,17 @@
       "rank": "species",
       "claims": [
         {"part": "Fruit", "kind": "edible", "source": "uf_native", "note": "The berries have documented use in preserves."}
+      ],
+      "traditional_uses": [
+        {"note": "Farmers once put crushed leaves under horse and mule harnesses to repel mosquitoes.", "source": "beautyberry_nc"},
+        {"note": "NC State Extension records traditional Indigenous medicinal uses of the roots, leaves, and branches, including for joint pain.", "source": "beautyberry_nc"}
+      ]
+    },
+    "49658": {
+      "scientific_name": "Liquidambar styraciflua",
+      "rank": "species",
+      "traditional_uses": [
+        {"note": "Sweetgum resin has been used in chewing gum, incense, and folk medicine.", "source": "sweetgum_nc"}
       ]
     },
     "50333": {
@@ -368,6 +461,9 @@
       "rank": "species",
       "claims": [
         {"part": "Fruit", "kind": "edible", "source": "uf_native", "note": "Maypop fruit has documented food use."}
+      ],
+      "traditional_uses": [
+        {"note": "Passionflower was used as a sedative in European folk medicine.", "source": "nccih_passionflower"}
       ]
     },
     "52599": {
@@ -392,6 +488,13 @@
         {"part": "Nut kernels", "kind": "edible", "source": "carya_glabra", "note": "The kernels can taste bitter."}
       ]
     },
+    "57481": {
+      "scientific_name": "Calystegia sepium",
+      "rank": "species",
+      "claims": [
+        {"part": "Leaves", "kind": "conditional", "source": "sicily_survey", "note": "A study in Sicily recorded the use of cooked leaves as a vegetable."}
+      ]
+    },
     "59035": {
       "scientific_name": "Solanum americanum",
       "rank": "species",
@@ -404,6 +507,13 @@
       "rank": "species",
       "claims": [
         {"part": "Entire plant", "kind": "toxic", "source": "water_hemlock", "note": "The roots contain the highest concentration of toxin. Human deaths from root ingestion are documented."}
+      ]
+    },
+    "60146": {
+      "scientific_name": "Pluchea odorata",
+      "rank": "species",
+      "traditional_uses": [
+        {"note": "Mexican ethnobotanical records describe a historical use for fever.", "source": "duke", "record_key": "25135", "underlying_reference": "Maximino Martínez, Las Plantas Medicinales de México"}
       ]
     },
     "60218": {
@@ -443,6 +553,13 @@
         {"part": "Fruit", "kind": "edible", "source": "rubus_trivialis"}
       ]
     },
+    "76907": {
+      "scientific_name": "Erigeron canadensis",
+      "rank": "species",
+      "traditional_uses": [
+        {"note": "U.S. ethnobotanical records describe a historical use for sore throats.", "source": "duke", "record_key": "77332", "underlying_reference": "Arnold and Connie Krochmal, A Guide to the Medicinal Plants of the United States (1973)"}
+      ]
+    },
     "81605": {
       "scientific_name": "Yucca filamentosa",
       "rank": "species",
@@ -465,6 +582,13 @@
         {"part": "Grapes", "kind": "edible", "source": "uf_native"}
       ]
     },
+    "83070": {
+      "scientific_name": "Gelsemium sempervirens",
+      "rank": "species",
+      "claims": [
+        {"part": "Entire plant", "kind": "toxic", "source": "jessamine_nc", "note": "Swallowing any part of this vine can cause serious poisoning."}
+      ]
+    },
     "83102": {
       "scientific_name": "Serenoa repens",
       "rank": "species",
@@ -477,6 +601,9 @@
       "rank": "species",
       "claims": [
         {"part": "Ripe fruit flesh", "kind": "edible", "source": "uf_native", "note": "Unripe fruit is astringent."}
+      ],
+      "traditional_uses": [
+        {"note": "U.S. ethnobotanical records describe a historical use for sore throats.", "source": "duke", "record_key": "45392", "underlying_reference": "Arnold and Connie Krochmal, A Guide to the Medicinal Plants of the United States (1973)"}
       ]
     },
     "84300": {
@@ -486,6 +613,9 @@
         {"part": "Leaves and stems", "kind": "toxic", "source": "elderberry_osu", "note": "These contain higher levels of cyanide-releasing compounds than the parts used in food."},
         {"part": "Berries", "kind": "conditional", "source": "elderberry", "note": "Ripe, cooked berries have documented food use. Raw berries can cause illness."},
         {"part": "Flowers", "kind": "conditional", "source": "elderberry_osu", "note": "Flowers are used in processed foods and drinks. The stems are a separate toxicity concern."}
+      ],
+      "traditional_uses": [
+        {"note": "U.S. ethnobotanical records describe a historical use for headaches.", "source": "duke", "record_key": "999", "underlying_reference": "Arnold and Connie Krochmal, A Guide to the Medicinal Plants of the United States (1973)"}
       ]
     },
     "84537": {
@@ -503,11 +633,25 @@
         {"part": "Seeds", "kind": "toxic", "source": "baccharis_halimifolia", "note": "NC State Extension identifies the seeds of female plants as poisonous."}
       ]
     },
+    "118776": {
+      "scientific_name": "Monarda punctata",
+      "rank": "species",
+      "traditional_uses": [
+        {"note": "U.S. ethnobotanical records describe a traditional medicinal use for nausea.", "source": "duke", "record_key": "34501", "underlying_reference": "J. C. Th. Uphof, Dictionary of Economic Plants, 2nd ed. (1968)"}
+      ]
+    },
     "119817": {
       "scientific_name": "Apios americana",
       "rank": "species",
       "claims": [
         {"part": "Mature tubers", "kind": "conditional", "source": "apios_americana", "note": "The documented use is for cooked tubers."}
+      ]
+    },
+    "119956": {
+      "scientific_name": "Morella cerifera",
+      "rank": "species",
+      "traditional_uses": [
+        {"note": "Wax from the berries was used to make bayberry candles.", "source": "wax_myrtle"}
       ]
     },
     "122835": {
@@ -552,6 +696,13 @@
       "rank": "species",
       "claims": [
         {"part": "Fruit", "kind": "edible", "source": "sumac", "note": "The fruit has documented use as a flavoring in drinks."}
+      ]
+    },
+    "128717": {
+      "scientific_name": "Erythrina herbacea",
+      "rank": "species",
+      "claims": [
+        {"part": "Seeds", "kind": "toxic", "source": "coral_bean_nc", "note": "The seeds contain poisonous alkaloids."}
       ]
     },
     "128854": {
@@ -602,6 +753,13 @@
       "rank": "species",
       "claims": [
         {"part": "Berries", "kind": "edible", "source": "swfwmd"}
+      ]
+    },
+    "359512": {
+      "scientific_name": "Elaeocarpus hainanensis",
+      "rank": "species",
+      "claims": [
+        {"part": "Fruit", "kind": "not_edible", "source": "fringed_bell_tree"}
       ]
     }
   }

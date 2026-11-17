@@ -367,15 +367,14 @@ class BrandDesignReviewTest {
             SpeciesDetailScreen(detailed, listOf(detailed), null, false, {}, {}, { openedPhoto = it })
         } }
         assertHeadingFits("HikeJournal")
-        assertFalse("ID reminder should be below field records", rule.onNodeWithText(IdentificationSafetyNotice.Reminder).isDisplayed())
+        rule.onNodeWithText(IdentificationSafetyNotice.Reminder).assertDoesNotExist()
         capture("09-species-detail")
-        rule.onNode(hasScrollToIndexAction()).performScrollToIndex(encounters.size + 3)
-        rule.onNodeWithText(IdentificationSafetyNotice.Reminder).assertIsDisplayed()
-        val lastRecord = rule.onNodeWithText(encounters.last().hikeTitle).fetchSemanticsNode().boundsInRoot
-        val reminder = rule.onNodeWithText(IdentificationSafetyNotice.Reminder).fetchSemanticsNode().boundsInRoot
-        org.junit.Assert.assertTrue("ID reminder follows the final encounter", reminder.top > lastRecord.bottom)
+        rule.onNode(hasScrollToIndexAction()).performScrollToNode(hasText(encounters.last().hikeTitle))
+        rule.onNodeWithText(encounters.last().hikeTitle).assertIsDisplayed()
+        rule.onNodeWithText(IdentificationSafetyNotice.Reminder).assertDoesNotExist()
         capture("25-species-field-records")
-        rule.onNodeWithText(encounters.first().hikeTitle).performScrollTo().performClick()
+        rule.onNode(hasScrollToIndexAction()).performScrollToNode(hasText(encounters.first().hikeTitle))
+        rule.onNodeWithText(encounters.first().hikeTitle).performClick()
         org.junit.Assert.assertEquals(encounters.first().photo.id, openedPhoto?.id)
     }
 

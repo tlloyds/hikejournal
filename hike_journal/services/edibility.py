@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import logging
 import hashlib
 import json
+import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -126,8 +126,9 @@ def derive_profile(
         "food_use_status": food,
         "has_documented_food_use": documented,
         "toxicity_status": (
-            "documented_concern" if types & {"toxicity_concern", "poison_use"} else "unknown"
+            "documented_concern" if "toxicity_concern" in types else "unknown"
         ),
+        "checklist_poison_use": "poison_use" in types,
         "evidence_conflict": documented and disputed,
         "documented_parts": sorted({part for row in evidence for part in row.get("parts") or []}),
         "food_use_notes": _combine_notes(evidence, "food_use_notes"),
@@ -174,22 +175,24 @@ def load_edibility_reference(
         and (identity_id := taxon_id(row.get("taxon_id"))) is not None
     })
     try:
-        release_id, profiles = repository.read_edibility_profiles(ids)
+        release_id, stored_profiles = repository.read_edibility_profiles(ids)
     except Exception as error:
         # A missing migration or reference outage must not break journal reads.
         logger.warning("Food-use reference unavailable (%s)", type(error).__name__)
         return EdibilityReference()
     revision = f"{release_id or 'independent'}+parts-{_PART_REFERENCE_REVISION}"
-    profiles = {
-        key: {
-            **profile,
-            "dataset_version": revision,
-            # The current WCFP release has a poison-use category. It does not
-            # establish the part, route of exposure, or circumstances.
-            "checklist_poison_use": profile.get("toxicity_status") == "documented_concern",
-        }
-        for key, profile in profiles.items()
-    }
+    profiles = {}
+    for key, profile in stored_profiles.items():
+        # Older WCFP assessments encoded its broad poison-use category as a
+        # toxicity concern. Preserve the historical flag on those stored rows.
+        old_checklist_flag = (
+            "checklist_poison_use" not in profile and profile.get("toxicity_status") == "documented_concern"
+        )
+        current_profile = {**profile, "dataset_version": revision}
+        current_profile["checklist_poison_use"] = profile.get("checklist_poison_use", old_checklist_flag)
+        if old_checklist_flag:
+            current_profile["toxicity_status"] = "unknown"
+        profiles[key] = current_profile
     now = datetime.now(UTC)
     for identity_id in ids:
         key = str(identity_id)
@@ -203,19 +206,21 @@ def load_edibility_reference(
         ):
             profiles.pop(key)
             continue
-        profiles[key] = _with_part_evidence(identity_id, entry, baseline, revision, now)
+        profiles[key] = _with_reviewed_evidence(identity_id, entry, baseline, revision, now)
     return EdibilityReference(revision, profiles)
 
 
-def _with_part_evidence(
+def _with_reviewed_evidence(
     identity_id: int, entry: dict[str, Any], baseline: dict[str, Any] | None, revision: str, now: datetime
 ) -> dict[str, Any]:
     profile = baseline or {}
-    source_keys = dict.fromkeys(claim["source"] for claim in entry["claims"])
+    part_claims = entry.get("claims", [])
+    traditional_uses = entry.get("traditional_uses", [])
+    source_keys = dict.fromkeys(claim["source"] for claim in (*part_claims, *traditional_uses))
     sources = {key: _PART_REFERENCE["sources"][key] for key in source_keys}
     claims = [
         {**claim, "source_url": sources[claim["source"]]["url"]}
-        for claim in entry["claims"]
+        for claim in part_claims
     ]
     kinds = {claim["kind"] for claim in claims}
     food_status = profile.get("food_use_status", "unknown")
@@ -240,6 +245,10 @@ def _with_part_evidence(
         "evidence_conflict": profile.get("evidence_conflict", False),
         "documented_parts": sorted(parts | set(profile.get("documented_parts") or [])),
         "part_evidence": claims,
+        "traditional_uses": [
+            {**use, "source_url": sources[use["source"]]["url"]}
+            for use in traditional_uses
+        ],
         "sources": [*sources.values(), *profile.get("sources", [])],
         "review_status": profile.get("review_status", "reviewed"),
         "expires_at": profile.get("expires_at") or (now + timedelta(hours=24)).isoformat(),

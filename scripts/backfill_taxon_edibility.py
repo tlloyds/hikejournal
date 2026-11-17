@@ -85,6 +85,7 @@ def assess_batch(
             counts["matched"] += 1
             counts["conflicting_evidence"] += int(profile["evidence_conflict"])
             counts["toxicity_concerns"] += int(profile["toxicity_status"] == "documented_concern")
+            counts["poison_use_reported"] += int(profile["checklist_poison_use"])
         elif not eligible_identity(identity) or (rows and all(row["rank"] not in PUBLISHABLE_RANKS for row in rows)):
             counts["unsupported_or_inactive"] += 1
         elif not rows:
@@ -225,7 +226,7 @@ def main() -> int:
         print(f"Batch halted ({type(error).__name__}). Resume after the reported cursor.", file=sys.stderr)
     report_fields = (
         "assessed", "matched", "unsupported_or_inactive", "unresolved_identity",
-        "missing_source_evidence", "ambiguous_or_rejected", "conflicting_evidence",
+        "missing_source_evidence", "ambiguous_or_rejected", "conflicting_evidence", "poison_use_reported",
         "toxicity_concerns", "errors",
     )
     report = {key: counts[key] for key in report_fields} | dict(counts)

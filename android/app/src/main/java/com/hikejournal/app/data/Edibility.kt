@@ -10,7 +10,7 @@ import java.time.Instant
 enum class FoodUseStatus { Documented, Conditional, Disputed, Unknown }
 enum class ToxicityStatus { DocumentedConcern, Unknown }
 
-enum class PlantPartEvidenceKind { Edible, Conditional, Toxic, Caution }
+enum class PlantPartEvidenceKind { Edible, Conditional, NotEdible, Toxic, Caution }
 
 data class PlantPartEvidence(
     val part: String,
@@ -19,11 +19,17 @@ data class PlantPartEvidence(
     val source: FoodUseSource,
 )
 
+data class TraditionalUse(val note: String, val source: FoodUseSource, val citation: String? = null)
+
 enum class FoodUseIndicator(val label: String, val warning: Boolean) {
-    FoodUses("Food uses", false),
-    Conditional("Conditional food use", true),
-    Toxicity("Toxicity concerns", true),
-    Conflict("Conflicting evidence", true),
+    Edible("Edible parts", false),
+    FoodUses("Used as food", false),
+    Conditional("Edible with conditions", true),
+    NotEdible("Not edible", true),
+    Toxicity("Toxic", true),
+    ToxicParts("Toxic parts", true),
+    Caution("Caution", true),
+    Conflict("Sources disagree", true),
 }
 
 data class FoodUseSource(
@@ -54,14 +60,44 @@ data class EdibilityReference(
     val reviewed: Boolean,
     val partEvidence: List<PlantPartEvidence> = emptyList(),
     val checklistPoisonUse: Boolean = false,
+    val traditionalUses: List<TraditionalUse> = emptyList(),
 ) {
     val indicator: FoodUseIndicator?
         get() = when {
-            toxicity == ToxicityStatus.DocumentedConcern -> FoodUseIndicator.Toxicity
+            partEvidence.any { it.kind == PlantPartEvidenceKind.Toxic } ->
+                if (partEvidence.any { it.kind == PlantPartEvidenceKind.Toxic && it.part == "Entire plant" }) {
+                    FoodUseIndicator.Toxicity
+                } else {
+                    FoodUseIndicator.ToxicParts
+                }
+            partEvidence.any { it.kind == PlantPartEvidenceKind.Caution } -> FoodUseIndicator.Caution
+            toxicity == ToxicityStatus.DocumentedConcern && !checklistPoisonUse -> FoodUseIndicator.Caution
             evidenceConflict || foodUse == FoodUseStatus.Disputed -> FoodUseIndicator.Conflict
+            partEvidence.any { it.kind == PlantPartEvidenceKind.Edible } -> FoodUseIndicator.Edible
+            partEvidence.any { it.kind == PlantPartEvidenceKind.Conditional } -> FoodUseIndicator.Conditional
+            partEvidence.any { it.kind == PlantPartEvidenceKind.NotEdible } -> FoodUseIndicator.NotEdible
             foodUse == FoodUseStatus.Conditional -> FoodUseIndicator.Conditional
-            foodUse == FoodUseStatus.Documented -> FoodUseIndicator.FoodUses
+            hasDocumentedFoodUse -> FoodUseIndicator.FoodUses
             else -> null
+        }
+
+    val indicatorLabel: String?
+        get() {
+            val status = indicator ?: return null
+            val kind = when (status) {
+                FoodUseIndicator.Edible -> PlantPartEvidenceKind.Edible
+                FoodUseIndicator.Conditional -> PlantPartEvidenceKind.Conditional
+                FoodUseIndicator.NotEdible -> PlantPartEvidenceKind.NotEdible
+                FoodUseIndicator.ToxicParts -> PlantPartEvidenceKind.Toxic
+                else -> return status.label
+            }
+            val part = partEvidence.filter { it.kind == kind }.singleOrNull()?.part ?: return status.label
+            val label = when (status) {
+                FoodUseIndicator.Edible -> "Edible"
+                FoodUseIndicator.ToxicParts -> "Toxic"
+                else -> status.label
+            }
+            return "$part · $label"
         }
 
     fun currentFor(
@@ -118,6 +154,7 @@ internal fun parseEdibility(json: JSONObject?): EdibilityReference? {
             val kind = when (item.optString("kind")) {
                 "edible" -> PlantPartEvidenceKind.Edible
                 "conditional" -> PlantPartEvidenceKind.Conditional
+                "not_edible" -> PlantPartEvidenceKind.NotEdible
                 "toxic" -> PlantPartEvidenceKind.Toxic
                 "caution" -> PlantPartEvidenceKind.Caution
                 else -> return@mapNotNull null
@@ -129,6 +166,16 @@ internal fun parseEdibility(json: JSONObject?): EdibilityReference? {
                 source = sourcesByUrl[item.httpsUrl("source_url")] ?: return@mapNotNull null,
             )
         }
+    val traditionalUses = json.optJSONArray("traditional_uses")?.let { uses ->
+        (0 until uses.length()).mapNotNull { index ->
+            val use = uses.optJSONObject(index) ?: return@mapNotNull null
+            TraditionalUse(
+                note = use.nonblank("note") ?: return@mapNotNull null,
+                source = sourcesByUrl[use.httpsUrl("source_url")] ?: return@mapNotNull null,
+                citation = use.nonblank("underlying_reference"),
+            )
+        }
+    }.orEmpty()
     return EdibilityReference(
         taxonId = taxonId,
         scientificName = name,
@@ -151,7 +198,11 @@ internal fun parseEdibility(json: JSONObject?): EdibilityReference? {
         expiresAt = expiresAt,
         reviewed = review == "reviewed",
         partEvidence = partEvidence,
-        checklistPoisonUse = json.optBoolean("checklist_poison_use"),
+        checklistPoisonUse = json.optBoolean(
+            "checklist_poison_use",
+            json.nonblank("toxicity_notes")?.startsWith("The checklist also records a poison use.") == true,
+        ),
+        traditionalUses = traditionalUses,
     )
 }
 
@@ -170,6 +221,11 @@ internal fun SpeciesRecord.currentEdibilityByTaxon(now: Instant = Instant.now())
 
 internal fun SpeciesRecord.showsEdibilityReference(currentDatasetVersion: String?): Boolean =
     edibilityReferenceEnabled && (currentDatasetVersion == null || edibilityDatasetVersion == currentDatasetVersion)
+
+internal fun SpeciesRecord.hasExpiredEdibility(now: Instant = Instant.now()): Boolean =
+    (listOfNotNull(edibility) + edibilityByTaxon).any {
+        it.datasetVersion == edibilityDatasetVersion && !now.isBefore(it.expiresAt)
+    }
 
 internal fun SpeciesLabel.currentEdibility(now: Instant = Instant.now()): EdibilityReference? =
     if (status == "confirmed" && !observationId.isNullOrBlank() &&

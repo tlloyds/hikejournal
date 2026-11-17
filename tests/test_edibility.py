@@ -163,6 +163,20 @@ def test_profile_keeps_conflict_toxicity_and_food_use_independent():
     assert profile["documented_parts"] == ["fixture part"]
 
 
+def test_checklist_poison_use_does_not_establish_toxicity_even_in_older_profiles():
+    target = identity()
+    row = source_row(evidence_types=["food_documented", "poison_use"])
+    profile = derive_profile(target, [row], [assess_evidence(row, target, {42})])
+    assert profile["checklist_poison_use"]
+    assert profile["toxicity_status"] == "unknown"
+    legacy = {key: value for key, value in profile.items() if key != "checklist_poison_use"}
+    legacy["toxicity_status"] = "documented_concern"
+    repository = SimpleNamespace(read_edibility_profiles=lambda ids: ("legacy", {"42": legacy}))
+    reference = load_edibility_reference(repository, [{**target, "status": "confirmed"}], enabled=True)
+    assert reference.profiles["42"]["checklist_poison_use"]
+    assert reference.profiles["42"]["toxicity_status"] == "unknown"
+
+
 def test_backfill_checks_unique_names_and_uses_cached_negatives():
     lookups = []
     inat = SimpleNamespace(
@@ -283,6 +297,23 @@ def test_parts_keep_plant_hazards_and_conditional_food_use_distinct():
         ("Leaves and stems", "toxic"), ("Berries", "conditional"), ("Flowers", "conditional"),
     }
     assert profile["sources"][-1] == baseline["sources"][0]
+
+
+def test_traditional_use_can_stand_alone_without_a_food_or_toxicity_classification():
+    wax_myrtle = {
+        "taxon_id": 119956, "scientific_name": "Morella cerifera", "rank": "species",
+        "iconic_taxon_name": "Plantae", "status": "confirmed",
+    }
+    repository = SimpleNamespace(read_edibility_profiles=lambda ids: (None, {}))
+    reference = load_edibility_reference(repository, [wax_myrtle], enabled=True)
+    profile = reference.for_observation(wax_myrtle)
+    assert profile["food_use_status"] == profile["toxicity_status"] == "unknown"
+    assert not profile["has_documented_food_use"]
+    assert profile["part_evidence"] == []
+    use, = profile["traditional_uses"]
+    assert "candles" in use["note"]
+    assert use["source_url"] == profile["sources"][0]["url"]
+    assert reference.for_observation({**wax_myrtle, "rank": "variety"}) is None
 
 
 def test_repository_does_not_combine_versions_during_a_bulk_read():

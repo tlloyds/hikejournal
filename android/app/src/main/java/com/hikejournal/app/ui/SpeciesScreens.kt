@@ -126,6 +126,7 @@ import com.hikejournal.app.data.currentEdibility
 import com.hikejournal.app.data.filterSpeciesByFoodUse
 import com.hikejournal.app.data.showsEdibilityReference
 import com.hikejournal.app.data.currentEdibilityByTaxon
+import com.hikejournal.app.data.hasExpiredEdibility
 import com.hikejournal.app.data.SpeciesJumpTarget
 import com.hikejournal.app.data.SpeciesSort
 import com.hikejournal.app.data.filterDiscoveryAreas
@@ -1835,8 +1836,9 @@ private fun SpeciesIndexRow(
                     modifier = Modifier.padding(top = 3.dp),
                 )
                 if (showFoodUse) {
-                    record.currentEdibility()?.indicator?.let {
-                        FoodUseIndicatorLabel(it, it.fieldGuideColor(), label = it.fieldGuideLabel)
+                    val reference = record.currentEdibility()
+                    reference?.indicator?.let {
+                        FoodUseIndicatorLabel(it, it.fieldGuideColor(), label = reference.indicatorLabel ?: it.label)
                     }
                 }
             }
@@ -1927,7 +1929,11 @@ fun SpeciesDetailScreen(
                 )
             }
         }
-        if (species.showsEdibilityReference(edibilityDataset)) {
+        if (species.showsEdibilityReference(edibilityDataset) && (
+                species.iconicTaxonName.equals("Plantae", ignoreCase = true) ||
+                    species.edibility != null || species.edibilityByTaxon.isNotEmpty()
+            )
+        ) {
             item(key = "food-use-${species.key}") {
                 Column(Modifier.padding(horizontal = 20.dp)) {
                     HorizontalDivider(color = Line)
@@ -1936,6 +1942,7 @@ fun SpeciesDetailScreen(
                         Modifier.padding(top = 16.dp),
                         taxonRank = species.rank.lowercase(),
                         referencesByTaxon = species.currentEdibilityByTaxon(),
+                        expired = species.hasExpiredEdibility(),
                     )
                 }
             }
@@ -2003,10 +2010,6 @@ fun SpeciesDetailScreen(
         }
         items(species.encounters, key = { it.photo.id }) { encounter ->
             EncounterRow(encounter, onOpenPhoto)
-        }
-        item(key = "species-identification-reminder") {
-            HorizontalDivider(color = Line)
-            IdentificationSafetyReminder(Modifier.padding(horizontal = 20.dp, vertical = 18.dp))
         }
     }
 }

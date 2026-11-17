@@ -88,6 +88,43 @@ class EdibilityTest {
         assertEquals(listOf("Leaves", "Flowers"), reference.partEvidence.map { it.part })
         assertEquals(listOf(PlantPartEvidenceKind.Toxic, PlantPartEvidenceKind.Edible), reference.partEvidence.map { it.kind })
         assertEquals(reference.sources.single(), reference.partEvidence.first().source)
+        assertEquals("Leaves · Toxic", reference.indicatorLabel)
+        assertEquals("Flowers · Edible", reference.copy(partEvidence = reference.partEvidence.drop(1)).indicatorLabel)
+    }
+
+    @Test
+    fun `checklist poison use describes history without creating a toxicity badge`() {
+        val profile = checkNotNull(parseEdibility(referenceJson()
+            .put("toxicity_status", "documented_concern")
+            .put("checklist_poison_use", true)))
+        assertEquals("Used as food", profile.indicatorLabel)
+        assertNull(profile.copy(foodUse = FoodUseStatus.Unknown, hasDocumentedFoodUse = false).indicator)
+    }
+
+    @Test
+    fun `traditional uses require citations and cannot imply edibility`() {
+        val payload = referenceJson().put("food_use_status", "unknown").put("traditional_uses", JSONArray("""
+            [
+              {"note":"Historically used in folk medicine.","source_url":"https://example.test/checklist",
+               "underlying_reference":"Historical study (1968)"},
+              {"note":"Missing source.","source_url":"https://example.test/unlisted"}
+            ]
+        """.trimIndent()))
+        val profile = checkNotNull(parseEdibility(payload))
+        assertEquals("Historically used in folk medicine.", profile.traditionalUses.single().note)
+        assertEquals("Historical study (1968)", profile.traditionalUses.single().citation)
+        assertNull(profile.indicator)
+        assertFalse(profile.hasDocumentedFoodUse)
+    }
+
+    @Test
+    fun `not edible is reserved for a cited finding and names the part`() {
+        val payload = referenceJson().put("food_use_status", "unknown")
+        assertNull(parseEdibility(payload)?.indicatorLabel)
+        payload.put("part_evidence", JSONArray("""
+            [{"part":"Fruit","kind":"not_edible","source_url":"https://example.test/checklist"}]
+        """.trimIndent()))
+        assertEquals("Fruit · Not edible", parseEdibility(payload)?.indicatorLabel)
     }
 
     @Test
@@ -116,7 +153,7 @@ class EdibilityTest {
             .put("has_documented_food_use", true)
             .put("evidence_conflict", true)
             .put("toxicity_status", "documented_concern")))
-        assertEquals(FoodUseIndicator.Toxicity, warning.indicator)
+        assertEquals(FoodUseIndicator.Caution, warning.indicator)
         val conflict = warning.copy(toxicity = ToxicityStatus.Unknown)
         assertEquals(FoodUseIndicator.Conflict, conflict.indicator)
         assertTrue(conflict.hasDocumentedFoodUse)

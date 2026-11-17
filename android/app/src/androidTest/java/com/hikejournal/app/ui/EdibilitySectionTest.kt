@@ -39,6 +39,7 @@ import com.hikejournal.app.data.PlantPartEvidenceKind
 import com.hikejournal.app.data.SpeciesLabel
 import com.hikejournal.app.data.SpeciesRecord
 import com.hikejournal.app.data.ToxicityStatus
+import com.hikejournal.app.data.TraditionalUse
 import com.hikejournal.app.ui.theme.HikeJournalTheme
 import java.io.File
 import java.time.Instant
@@ -92,30 +93,42 @@ class EdibilitySectionTest {
                     override fun openUri(uri: String) { opened = uri }
                 }) {
                     Column(Modifier.verticalScroll(rememberScrollState())) {
-                        EdibilitySection(reference)
+                        EdibilitySection(reference.copy(
+                            toxicity = ToxicityStatus.DocumentedConcern,
+                            checklistPoisonUse = true,
+                        ))
                     }
                 }
             }
         }
         compose.onNodeWithText(EdibilitySectionTitle).assertIsDisplayed()
-        compose.onNodeWithText("Edible use documented").assertIsDisplayed()
-        compose.onNodeWithText("Educational species reference only.", substring = true).assertIsDisplayed()
-        compose.onNodeWithText("Available sources don’t specify parts or preparation.").assertIsDisplayed()
-        compose.onNodeWithText("Toxicity not assessed by available sources").assertIsDisplayed()
+        compose.onNodeWithText("Used as food").assertIsDisplayed()
+        compose.onNodeWithText("Educational species reference only.", substring = true).assertDoesNotExist()
+        compose.onNodeWithText("People have used this species as food. The source doesn’t say which parts or how.").assertIsDisplayed()
+        compose.onNodeWithText("Toxicity reported").assertDoesNotExist()
+        compose.onNodeWithText("The checklist records a use as a poison.", substring = true).assertDoesNotExist()
         compose.onNodeWithText("Fixture checklist · Version 2").assertDoesNotExist()
-        compose.onNodeWithText("Sources & attribution").performClick()
+        compose.onNodeWithText("Sources & notes").performClick()
+        compose.onNodeWithText("The checklist records a use as a poison.", substring = true).performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Fixture checklist · Version 2").performScrollTo().performClick()
         assertEquals("https://example.test/food", opened)
         compose.onNodeWithText("Example Author · Example Publisher").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("Sources & attribution").performScrollTo().performClick()
+        compose.onNodeWithText("Sources & notes").performScrollTo().performClick()
         compose.onNodeWithText("Fixture checklist · Version 2").assertDoesNotExist()
     }
 
     @Test
     fun noReferenceUsesNeutralCopy() {
         compose.setContent { HikeJournalTheme { EdibilitySection(null) } }
-        compose.onNodeWithText("No reference data available").assertIsDisplayed()
-        compose.onNodeWithText("Edible use documented").assertDoesNotExist()
+        compose.onNodeWithText("Edibility unknown").assertIsDisplayed()
+        compose.onNodeWithText("Used as food").assertDoesNotExist()
+    }
+
+    @Test
+    fun expiredReferenceAsksForARefresh() {
+        compose.setContent { HikeJournalTheme { EdibilitySection(null, expired = true) } }
+        compose.onNodeWithText("Reference needs a refresh").assertIsDisplayed()
+        compose.onNodeWithText("Edibility unknown").assertDoesNotExist()
     }
 
     @Test
@@ -152,8 +165,8 @@ class EdibilitySectionTest {
     @Test
     fun genusOnlyIdentificationExplainsMissingEvidence() {
         compose.setContent { HikeJournalTheme { EdibilitySection(null, taxonRank = "genus") } }
-        compose.onNodeWithText("Species identification needed").assertIsDisplayed()
-        compose.onNodeWithText("This entry identifies a group. Food use and toxicity can vary by species.").assertIsDisplayed()
+        compose.onNodeWithText("Species ID needed").assertIsDisplayed()
+        compose.onNodeWithText("This sighting names a group. Food use can vary from one species to another.").assertIsDisplayed()
     }
 
     @Test
@@ -161,19 +174,19 @@ class EdibilitySectionTest {
         val airPotato = reference.copy(
             scientificName = "Dioscorea bulbifera",
             toxicity = ToxicityStatus.DocumentedConcern,
-            toxicityNotes = "The checklist also records a poison use. That category does not specify the " +
-                "hazardous part, exposure, or circumstances.",
+            partEvidence = listOf(
+                PlantPartEvidence("Aerial bulbils", PlantPartEvidenceKind.Toxic, "Florida plants can contain toxins.", reference.sources.single()),
+            ),
         )
         showSpecies(
             "Air potato", airPotato, "non_native",
             "A climbing vine that forms aerial bulbils.",
         )
 
-        val warning = compose.onNodeWithText("Toxicity concern").assertIsDisplayed()
-        val foodUse = compose.onNodeWithText("Human food use is also documented.").assertIsDisplayed()
+        val warning = compose.onNodeWithText("Aerial bulbils · Toxic").assertIsDisplayed()
+        val foodUse = compose.onNodeWithText("A checklist mentions food use, but gives no edible part or conditions.").assertIsDisplayed()
         assertTrue(warning.getUnclippedBoundsInRoot().top < foodUse.getUnclippedBoundsInRoot().top)
-        compose.onNodeWithText("The checklist also records a poison use.", substring = true).assertIsDisplayed()
-        compose.onNodeWithText("Edible use documented").assertDoesNotExist()
+        compose.onNodeWithText("Used as food").assertDoesNotExist()
         compose.onAllNodesWithText("Air potato").assertCountEquals(1)
         captureEvidence("air-potato-field-guide.png")
         compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText("About this species"))
@@ -183,16 +196,21 @@ class EdibilitySectionTest {
 
     @Test
     fun beautyberryShowsFoodUseAndEvidenceLimitsBeforeNaturalHistory() {
-        val beautyberry = reference.copy(scientificName = "Callicarpa americana")
+        val source = reference.sources.single()
+        val beautyberry = reference.copy(
+            scientificName = "Callicarpa americana",
+            partEvidence = listOf(PlantPartEvidence("Berries", PlantPartEvidenceKind.Edible, null, source)),
+            traditionalUses = listOf(TraditionalUse("The leaves have a history of use as an insect repellent.", source)),
+        )
         showSpecies(
             "American beautyberry", beautyberry, "native",
             "A native shrub with dense clusters of purple fruit.",
         )
 
-        compose.onNodeWithText("Edible use documented").assertIsDisplayed()
-        compose.onNodeWithText("Available sources don’t specify parts or preparation.").assertIsDisplayed()
-        compose.onNodeWithText("Toxicity not assessed by available sources").assertIsDisplayed()
-        compose.onNodeWithText("Toxicity concern").assertDoesNotExist()
+        compose.onNodeWithText("Berries · Edible").assertIsDisplayed()
+        compose.onNodeWithText("Traditional uses").assertIsDisplayed()
+        compose.onNodeWithText("The leaves have a history of use as an insect repellent.").assertIsDisplayed()
+        compose.onNodeWithText("Toxicity reported").assertDoesNotExist()
         compose.onAllNodesWithText("American beautyberry").assertCountEquals(1)
         captureEvidence("beautyberry-field-guide.png")
         compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText("Field records"))
@@ -268,16 +286,16 @@ class EdibilitySectionTest {
                 }
             }
         }
-        compose.onNodeWithText("Fixture plant · Food uses").assertDoesNotExist()
+        compose.onNodeWithText("Fixture plant · Used as food").assertDoesNotExist()
         compose.runOnIdle { enabled.value = true }
-        compose.onNodeWithText("Fixture plant · Food uses").assertIsDisplayed()
-        compose.onNodeWithText("Fixture hazard · Toxicity concerns").assertIsDisplayed().performClick()
+        compose.onNodeWithText("Fixture plant · Used as food").assertIsDisplayed()
+        compose.onNodeWithText("Fixture hazard · Caution").assertIsDisplayed().performClick()
         compose.onNodeWithText("Example hazard").assertIsDisplayed()
         captureEvidence()
         compose.onNodeWithText("Synthetic warning").performScrollTo().assertIsDisplayed()
         compose.runOnIdle { FoodUsePreferences(context).invalidatePhotoIdentity(photo.id) }
         compose.onNodeWithText(EdibilitySectionTitle).assertDoesNotExist()
-        compose.onNodeWithText("Fixture plant · Food uses").assertDoesNotExist()
+        compose.onNodeWithText("Fixture plant · Used as food").assertDoesNotExist()
     }
 
     @Test

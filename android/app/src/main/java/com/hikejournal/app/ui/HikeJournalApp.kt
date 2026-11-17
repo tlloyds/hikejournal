@@ -3555,12 +3555,6 @@ private fun PhotoViewer(
                         .padding(horizontal = 16.dp)
                         .padding(top = 16.dp, bottom = 32.dp),
                 ) {
-                if (!photo.isVideo) {
-                    IdentificationSafetyReminder(
-                        modifier = Modifier.padding(bottom = 12.dp),
-                        color = Paper,
-                    )
-                }
                 identifiedSpecies?.let { species ->
                     Text(species.commonName.ifBlank { species.scientificName }, style = MaterialTheme.typography.titleMedium, color = Color(0xFFBFD2B9))
                 }
