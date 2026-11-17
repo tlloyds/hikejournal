@@ -10,6 +10,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -23,6 +24,8 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyItemScope
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Close
@@ -37,7 +40,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -50,10 +55,12 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -61,6 +68,7 @@ import androidx.compose.ui.window.DialogProperties
 import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
 import com.hikejournal.app.data.SpeciesRecord
+import com.hikejournal.app.data.isVideo
 import com.hikejournal.app.ui.theme.Ink
 import com.hikejournal.app.ui.theme.InkMuted
 import com.hikejournal.app.ui.theme.Line
@@ -68,6 +76,7 @@ import com.hikejournal.app.ui.theme.Moss
 import com.hikejournal.app.ui.theme.Paper
 import com.hikejournal.app.ui.theme.Parchment
 import com.hikejournal.app.ui.theme.TrailText
+import kotlinx.coroutines.CancellationException
 
 @Composable
 internal fun SpeciesComparisonControls(
@@ -125,12 +134,15 @@ internal fun SpeciesComparisonDialog(
     first: SpeciesRecord,
     second: SpeciesRecord,
     edibilityDataset: String?,
+    loadSpecies: suspend (String, Boolean) -> SpeciesRecord,
     onBack: () -> Unit,
 ) {
     Dialog(
         onDismissRequest = onBack,
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
     ) {
+        val firstGallery = rememberComparisonGallery(first, loadSpecies)
+        val secondGallery = rememberComparisonGallery(second, loadSpecies)
         Column(Modifier.fillMaxSize().background(Parchment).navigationBarsPadding()) {
             PatternedForestSurface(Modifier.fillMaxWidth()) {
                 Row(
@@ -151,8 +163,8 @@ internal fun SpeciesComparisonDialog(
             ) {
                 item(key = "photos") {
                     ComparisonPair(Modifier.padding(top = 16.dp)) { left, right ->
-                        ComparisonPhoto(first, left)
-                        ComparisonPhoto(second, right)
+                        ComparisonPhotoGallery(first, firstGallery, left)
+                        ComparisonPhotoGallery(second, secondGallery, right)
                     }
                 }
                 if (pinNames) stickyHeader(key = "species") { names() }
@@ -221,22 +233,99 @@ private fun ComparisonPair(
     }
 }
 
-@Composable
-private fun ComparisonPhoto(record: SpeciesRecord, modifier: Modifier) {
-    var useThumbnail by remember(record.coverUrl, record.coverThumbnailUrl) {
-        mutableStateOf(record.coverUrl.isBlank())
+private data class ComparisonImage(val url: String, val thumbnailUrl: String)
+
+private data class ComparisonGallery(
+    val photos: List<ComparisonImage>,
+    val loading: Boolean = false,
+    val retry: (() -> Unit)? = null,
+)
+
+private fun SpeciesRecord.comparisonImages(): List<ComparisonImage> {
+    if (encounters.isEmpty()) {
+        return listOfNotNull(ComparisonImage(coverUrl, coverThumbnailUrl).takeIf {
+            it.url.isNotBlank() || it.thumbnailUrl.isNotBlank()
+        })
     }
-    val url = if (useThumbnail) record.coverThumbnailUrl else record.coverUrl
+    return encounters.map { it.photo }
+        .filter { !it.isVideo && (it.url.isNotBlank() || it.thumbnailUrl.isNotBlank()) }
+        .distinctBy { it.id }
+        .map { ComparisonImage(it.url, it.thumbnailUrl) }
+}
+
+@Composable
+private fun rememberComparisonGallery(
+    record: SpeciesRecord,
+    loadSpecies: suspend (String, Boolean) -> SpeciesRecord,
+): ComparisonGallery {
+    val preview = remember(record) { record.comparisonImages() }
+    var attempt by remember(record.key) { mutableIntStateOf(0) }
+    val gallery by produceState(ComparisonGallery(preview, loading = true), record.key, attempt) {
+        value = ComparisonGallery(preview, loading = true)
+        try {
+            val detail = loadSpecies(record.key, attempt > 0)
+            value = ComparisonGallery(detail.comparisonImages())
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            value = ComparisonGallery(preview, retry = { attempt++ })
+        }
+    }
+    return gallery
+}
+
+@Composable
+private fun ComparisonPhotoGallery(record: SpeciesRecord, gallery: ComparisonGallery, modifier: Modifier) {
+    val photos = gallery.photos
+    val pager = rememberPagerState { photos.size }
+    val photoNumber = (pager.currentPage + 1).coerceAtMost(photos.size)
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        val frame = Modifier.fillMaxWidth().aspectRatio(4f / 3f)
+        if (photos.isEmpty()) {
+            ComparisonPhoto(null, record.commonName, frame)
+        } else {
+            HorizontalPager(
+                state = pager,
+                modifier = frame.semantics {
+                    contentDescription = "Photos of ${record.commonName}"
+                    stateDescription = "Photo $photoNumber of ${photos.size}"
+                },
+                userScrollEnabled = photos.size > 1,
+            ) { index ->
+                ComparisonPhoto(photos[index], record.commonName, Modifier.fillMaxSize())
+            }
+        }
+        val retry = gallery.retry
+        when {
+            retry != null -> {
+                TextButton(onClick = retry, modifier = Modifier.semantics {
+                    contentDescription = "Retry photos of ${record.commonName}"
+                }) { Text("Retry photos", style = MaterialTheme.typography.labelSmall) }
+            }
+            gallery.loading -> {
+                Text("Loading photos…", Modifier.padding(top = 6.dp), style = MaterialTheme.typography.labelSmall, color = InkMuted)
+            }
+            photos.size > 1 -> {
+                Text("$photoNumber / ${photos.size}", Modifier.padding(top = 6.dp), style = MaterialTheme.typography.labelSmall, color = InkMuted)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ComparisonPhoto(photo: ComparisonImage?, speciesName: String, modifier: Modifier) {
+    var useThumbnail by remember(photo) { mutableStateOf(photo?.url.isNullOrBlank()) }
+    val url = if (useThumbnail) photo?.thumbnailUrl else photo?.url
     SubcomposeAsyncImage(
         model = ImageRequest.Builder(LocalContext.current)
-            .data(url.ifBlank { null })
+            .data(url?.takeIf { it.isNotBlank() })
             .crossfade(true)
             .build(),
-        contentDescription = "Field photo of ${record.commonName}",
-        modifier = modifier.aspectRatio(4f / 3f).background(MaterialTheme.colorScheme.surfaceVariant),
+        contentDescription = "Field photo of $speciesName",
+        modifier = modifier.background(MaterialTheme.colorScheme.surfaceVariant),
         contentScale = ContentScale.Fit,
         onError = {
-            if (record.coverThumbnailUrl.isNotBlank() && record.coverThumbnailUrl != url) {
+            if (photo != null && photo.thumbnailUrl.isNotBlank() && photo.thumbnailUrl != url) {
                 useThumbnail = true
             }
         },
@@ -257,9 +346,11 @@ private fun ComparisonPhoto(record: SpeciesRecord, modifier: Modifier) {
 private fun ComparisonFacts(label: String, content: @Composable (Modifier, Modifier) -> Unit) {
     Text(
         label,
-        Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 5.dp).semantics { heading() },
+        Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 5.dp)
+            .semantics { heading() },
         style = MaterialTheme.typography.labelMedium,
         color = TrailText,
+        textAlign = TextAlign.Center,
     )
     ComparisonPair(Modifier.padding(bottom = 12.dp), content)
     HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = Line)
@@ -274,16 +365,21 @@ private fun ComparisonValue(value: String, modifier: Modifier = Modifier, color:
 private fun ComparisonDescriptions(first: SpeciesRecord, second: SpeciesRecord) {
     var expanded by rememberSaveable(first.key, second.key) { mutableStateOf(false) }
     val rotation by animateFloatAsState(if (expanded) 180f else 0f, label = "Description disclosure")
-    Row(
+    Box(
         Modifier.fillMaxWidth()
             .clickable(role = Role.Button) { expanded = !expanded }
             .semantics { stateDescription = if (expanded) "Expanded" else "Collapsed" }
             .heightIn(min = 48.dp).padding(horizontal = 16.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        contentAlignment = Alignment.Center,
     ) {
-        Text("Wikipedia descriptions", Modifier.weight(1f), style = MaterialTheme.typography.labelLarge, color = Moss)
-        Icon(Icons.Rounded.ExpandMore, null, Modifier.rotate(rotation), tint = Moss)
+        Text(
+            "Wikipedia descriptions",
+            Modifier.fillMaxWidth().padding(horizontal = 32.dp),
+            style = MaterialTheme.typography.labelLarge,
+            color = Moss,
+            textAlign = TextAlign.Center,
+        )
+        Icon(Icons.Rounded.ExpandMore, null, Modifier.align(Alignment.CenterEnd).rotate(rotation), tint = Moss)
     }
     AnimatedVisibility(
         expanded,

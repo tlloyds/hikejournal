@@ -12,9 +12,13 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.UriHandler
+import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
@@ -28,6 +32,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.unit.Density
 import androidx.test.platform.app.InstrumentationRegistry
 import com.hikejournal.app.data.EcologyStatus
@@ -49,6 +54,7 @@ import java.util.UUID
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import kotlin.math.abs
 import org.junit.Rule
 import org.junit.Test
 
@@ -243,7 +249,10 @@ class EdibilitySectionTest {
         var returned = false
         compose.setContent {
             HikeJournalTheme {
-                SpeciesComparisonDialog(first, second, reference.datasetVersion) { returned = true }
+                SpeciesComparisonDialog(
+                    first, second, reference.datasetVersion,
+                    loadSpecies = { key, _ -> if (key == first.key) first else second },
+                ) { returned = true }
             }
         }
 
@@ -251,6 +260,13 @@ class EdibilitySectionTest {
         val secondStatus = compose.onNodeWithText("Invasive here").assertIsDisplayed().getUnclippedBoundsInRoot()
         assertEquals(firstStatus.top, secondStatus.top)
         assertTrue(firstStatus.right < secondStatus.left)
+        for (heading in listOf("Local status", "Edibility & safety", "Journal encounters", "Wikipedia descriptions")) {
+            val layouts = mutableListOf<TextLayoutResult>()
+            compose.onNodeWithText(heading).performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+            val layout = layouts.single()
+            val center = (layout.getLineLeft(0) + layout.getLineRight(0)) / 2f
+            assertTrue("Heading should be centered: $heading", abs(center - layout.size.width / 2f) < 2f)
+        }
         val fruit = compose.onNodeWithText("Berries · Edible").assertIsDisplayed().getUnclippedBoundsInRoot()
         val hazard = compose.onNodeWithText("Aerial bulbils · Toxic").assertIsDisplayed().getUnclippedBoundsInRoot()
         val scopedName = compose.onNodeWithText(exact.scientificName).assertIsDisplayed().getUnclippedBoundsInRoot()
@@ -259,7 +275,9 @@ class EdibilitySectionTest {
         compose.onNodeWithText("First plant description.", substring = true).assertDoesNotExist()
         captureEvidence("species-comparison.png")
 
-        val list = compose.onNode(hasScrollToIndexAction())
+        val list = compose.onNode(
+            hasScrollToIndexAction() and SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange),
+        )
         list.performScrollToNode(hasText("Wikipedia descriptions"))
         compose.onNodeWithText("Wikipedia descriptions").performClick()
         list.performScrollToIndex(5)

@@ -1503,6 +1503,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    internal suspend fun loadSpeciesForComparison(key: String, forceRefresh: Boolean): SpeciesRecord =
+        repository.loadSpeciesDetail(key, forceRefresh = forceRefresh).value
+
     fun closeSpecies() {
         speciesDetailJob?.cancel()
         _state.update {

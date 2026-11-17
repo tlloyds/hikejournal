@@ -948,6 +948,7 @@ private fun HikeJournalAppContent(viewModel: AppViewModel) {
                     onInitialAreaConsumed = { speciesEntryAreaName = null },
                     collectionPreferences = speciesCollectionPreferences,
                     onCollectionPreferencesChange = { speciesCollectionPreferences = it },
+                    loadSpeciesForComparison = viewModel::loadSpeciesForComparison,
                     onOpenSpecies = { key, filteredSpecies, context ->
                         speciesBrowseContext = SpeciesBrowseContext(filteredSpecies, context)
                         viewModel.openSpecies(key)

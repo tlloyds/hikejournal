@@ -209,6 +209,7 @@ fun SpeciesIndexScreen(
     onInitialAreaConsumed: () -> Unit,
     collectionPreferences: SpeciesCollectionPreferences,
     onCollectionPreferencesChange: (SpeciesCollectionPreferences) -> Unit,
+    loadSpeciesForComparison: suspend (String, Boolean) -> SpeciesRecord,
     onOpenSpecies: (String, List<SpeciesRecord>, String) -> Unit,
 ) {
     var mode by remember { mutableStateOf(SpeciesMode.Collection) }
@@ -361,7 +362,13 @@ fun SpeciesIndexScreen(
     }
     BackHandler(enabled = selecting, onBack = ::cancelComparison)
     if (selecting && comparisonOpen && comparisonSpecies.size == 2) {
-        SpeciesComparisonDialog(comparisonSpecies[0], comparisonSpecies[1], edibilityDataset) { comparisonOpen = false }
+        SpeciesComparisonDialog(
+            first = comparisonSpecies[0],
+            second = comparisonSpecies[1],
+            edibilityDataset = edibilityDataset,
+            loadSpecies = loadSpeciesForComparison,
+            onBack = { comparisonOpen = false },
+        )
     }
     LaunchedEffect(comparisonSpecies.size) {
         if (comparisonSpecies.size < 2) comparisonOpen = false

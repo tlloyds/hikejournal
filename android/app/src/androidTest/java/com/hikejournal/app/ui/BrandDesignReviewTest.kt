@@ -39,6 +39,9 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsDisplayed
@@ -48,6 +51,9 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeLeft
+import androidx.compose.ui.test.swipeRight
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.test.platform.app.InstrumentationRegistry
 import com.hikejournal.app.AppState
@@ -57,6 +63,7 @@ import com.hikejournal.app.ui.theme.Parchment
 import java.io.File
 import java.time.Instant
 import kotlin.math.abs
+import kotlinx.coroutines.CompletableDeferred
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -133,6 +140,7 @@ class BrandDesignReviewTest {
     @Composable private fun FieldGuide(
         records: List<SpeciesRecord>,
         preferences: SpeciesCollectionPreferences = SpeciesCollectionPreferences(),
+        loadSpecies: suspend (String, Boolean) -> SpeciesRecord = { key, _ -> records.first { it.key == key } },
         onPreferences: (SpeciesCollectionPreferences) -> Unit = {},
     ) {
         Frame(TopDestination.Species) {
@@ -142,7 +150,8 @@ class BrandDesignReviewTest {
                 onLoadNearby = { _, _, _, _, _, _, _ -> }, onSaveQuest = { _, _, _, _ -> }, onSaveQuestFocus = { _, _ -> },
                 onRenameQuest = { _, _ -> }, onArchiveQuest = {}, onDeleteQuest = {}, onOpenNearbyMap = { _, _ -> },
                 onOpenQuestMap = { _, _ -> }, onRefreshQuestMap = {}, onCloseQuestMap = {}, onInitialAreaConsumed = {},
-                collectionPreferences = preferences, onCollectionPreferencesChange = onPreferences, onOpenSpecies = { _, _, _ -> })
+                collectionPreferences = preferences, onCollectionPreferencesChange = onPreferences,
+                loadSpeciesForComparison = loadSpecies, onOpenSpecies = { _, _, _ -> })
         }
     }
 
@@ -242,6 +251,53 @@ class BrandDesignReviewTest {
         rule.onNodeWithContentDescription("Back to species selection").performClick()
         rule.onNodeWithText("Cancel").performClick()
         rule.onNodeWithText("Compare species").assertDoesNotExist()
+    }
+
+    @Test fun speciesComparisonSwipesEachGalleryAndCanRetryOneSide() {
+        val first = species.copy(key = "first", commonName = "First species")
+        val second = species.copy(key = "second", commonName = "Second species")
+        fun encounters(count: Int): List<Encounter> = List(count) { index ->
+            Encounter(photo.copy(id = "still-$index", url = imageUrl), hike.id, hike.title, hike.hikeDate, "", null)
+        }
+        val left = encounters(3)
+        val clip = left.first().copy(photo = photo.copy(id = "clip", contentType = "video/mp4", url = "fixture.mp4"))
+        val rightResponse = CompletableDeferred<Unit>()
+        rule.setContent {
+            FieldGuide(listOf(first, second), loadSpecies = { key, forceRefresh ->
+                if (key == first.key) {
+                    first.copy(encounters = listOf(clip) + left + left.first())
+                } else {
+                    rightResponse.await()
+                    check(forceRefresh) { "Fixture photo request failed" }
+                    second.copy(encounters = encounters(2))
+                }
+            })
+        }
+
+        rule.onNodeWithText("Compare").performClick()
+        listOf(first, second).forEach { record ->
+            val row = isToggleable() and hasText(record.commonName)
+            rule.onNode(hasScrollToIndexAction()).performScrollToNode(row)
+            rule.onNode(row).performClick()
+        }
+        rule.onNodeWithText("Compare species").performClick()
+        val firstGallery = rule.onNodeWithContentDescription("Photos of ${first.commonName}")
+        val secondGallery = rule.onNodeWithContentDescription("Photos of ${second.commonName}")
+        fun position(number: Int, total: Int) = SemanticsMatcher.expectValue(
+            SemanticsProperties.StateDescription, "Photo $number of $total",
+        )
+        firstGallery.assert(position(1, 3))
+        secondGallery.assert(position(1, 1))
+        firstGallery.performTouchInput { swipeLeft() }.assert(position(2, 3))
+        secondGallery.assert(position(1, 1))
+
+        rightResponse.complete(Unit)
+        rule.onNodeWithContentDescription("Retry photos of ${second.commonName}").performClick()
+        secondGallery.assert(position(1, 2))
+        secondGallery.performTouchInput { swipeLeft() }.assert(position(2, 2))
+        firstGallery.assert(position(2, 3))
+        firstGallery.performTouchInput { swipeRight() }.assert(position(1, 3))
+        secondGallery.assert(position(2, 2))
     }
 
     @Test fun fieldGuideJumpIsOnDemandAndFollowsSelectedSort() {
