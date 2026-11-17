@@ -46,6 +46,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.hikejournal.app.data.EdibilityReference
@@ -56,8 +57,13 @@ import com.hikejournal.app.data.FoodUseStatus
 import com.hikejournal.app.data.Photo
 import com.hikejournal.app.data.PlantPartEvidence
 import com.hikejournal.app.data.PlantPartEvidenceKind
+import com.hikejournal.app.data.SpeciesRecord
 import com.hikejournal.app.data.ToxicityStatus
+import com.hikejournal.app.data.currentEdibility
+import com.hikejournal.app.data.currentEdibilityByTaxon
 import com.hikejournal.app.data.foodUseTags
+import com.hikejournal.app.data.hasExpiredEdibility
+import com.hikejournal.app.data.showsEdibilityReference
 import com.hikejournal.app.ui.theme.Ink
 import com.hikejournal.app.ui.theme.InkMuted
 import com.hikejournal.app.ui.theme.Line
@@ -71,7 +77,8 @@ internal const val EdibilitySectionTitle = "Edibility & uses"
 @Composable
 internal fun FoodUseIndicator.fieldGuideColor(): Color = when (this) {
     FoodUseIndicator.Toxicity, FoodUseIndicator.ToxicParts, FoodUseIndicator.NotEdible -> MaterialTheme.colorScheme.error
-    FoodUseIndicator.Edible, FoodUseIndicator.FoodUses -> Moss
+    FoodUseIndicator.Edible -> Moss
+    FoodUseIndicator.FoodUses -> InkMuted
     else -> TrailText
 }
 
@@ -128,43 +135,60 @@ internal fun EdibilitySection(
     }
 }
 
+internal fun SpeciesRecord.hasPlantReferenceSection(datasetVersion: String?): Boolean =
+    showsEdibilityReference(datasetVersion) && (
+        iconicTaxonName.equals("Plantae", ignoreCase = true) ||
+            edibility != null || edibilityByTaxon.isNotEmpty()
+    )
+
+internal val EdibilityReference.foodUseDisputed: Boolean
+    get() = evidenceConflict || foodUse == FoodUseStatus.Disputed
+
+private val EdibilityReference.hasUnscopedHazard: Boolean
+    get() = toxicity == ToxicityStatus.DocumentedConcern && !checklistPoisonUse &&
+        partEvidence.none { it.kind == PlantPartEvidenceKind.Toxic || it.kind == PlantPartEvidenceKind.Caution }
+
+private val EdibilityReference.generalFoodUseLabel: String?
+    get() = when {
+        foodUseDisputed -> "Sources disagree about food use"
+        !hasDocumentedFoodUse || partEvidence.any { it.kind.isFood } -> null
+        foodUse == FoodUseStatus.Conditional -> "Conditional food use reported"
+        else -> "Food use reported"
+    }
+
 @Composable
 private fun EdibilityEvidence(reference: EdibilityReference) {
-    val scoped = reference.partEvidence
-    val hasScopedHazard = scoped.any { it.kind == PlantPartEvidenceKind.Toxic || it.kind == PlantPartEvidenceKind.Caution }
-    val hasUnscopedHazard = reference.toxicity == ToxicityStatus.DocumentedConcern && !reference.checklistPoisonUse
-    scoped.sortedBy { it.kind.displayOrder }.forEach { PartEvidenceRow(it) }
-    if (hasUnscopedHazard && !hasScopedHazard) {
-        EvidenceHeading("Toxicity reported", TrailText)
-        reference.toxicityNotes?.let { ReferenceText(it) }
+    val (food, safety) = reference.partEvidence.partition { it.kind.isFood }
+    if (safety.isNotEmpty() || reference.hasUnscopedHazard) {
+        EvidenceGroupLabel("Safety")
+        if (reference.hasUnscopedHazard) {
+            EvidenceHeading("Toxicity reported", TrailText)
+            reference.toxicityNotes?.let { ReferenceText(it) }
+        }
+        safety.sortedBy { it.kind.displayOrder }.forEach { PartEvidenceRow(it) }
     }
-    when {
-        reference.evidenceConflict || reference.foodUse == FoodUseStatus.Disputed ->
-            ReferenceText("Sources disagree about food use.")
-        reference.hasDocumentedFoodUse && scoped.none { it.kind.isFood } -> {
-            if (reference.documentedParts.isEmpty() && (scoped.isNotEmpty() || hasUnscopedHazard)) {
-                ReferenceText("A checklist mentions food use, but gives no edible part or conditions.")
-            } else {
-                EvidenceHeading(
-                    if (reference.foodUse == FoodUseStatus.Conditional) "Edible with conditions" else "Used as food",
-                    Moss,
-                )
+    val generalFoodUse = reference.generalFoodUseLabel
+    if (food.isNotEmpty() || generalFoodUse != null) {
+        EvidenceGroupLabel("Food use")
+        generalFoodUse?.let {
+            EvidenceHeading(it, if (reference.foodUseDisputed) TrailText else Ink)
+            if (!reference.foodUseDisputed) {
                 ReferenceText(if (reference.documentedParts.isEmpty()) {
-                    "People have used this species as food. The source doesn’t say which parts or how."
+                    "The source doesn’t specify which parts are used or under what conditions."
                 } else {
-                    "Parts used as food · ${reference.documentedParts.joinToString()}"
+                    "Parts reported as food · ${reference.documentedParts.joinToString()}"
                 })
             }
             reference.foodUseNotes?.let { ReferenceText(it) }
         }
-        scoped.isEmpty() && reference.indicator == null -> {
-            EvidenceHeading("Edibility unknown")
-            ReferenceText(if (reference.crossReferences.isNotEmpty()) {
-                "Sources & notes has reference records for this species."
-            } else {
-                "We don’t have a food-use record for this species yet."
-            })
-        }
+        food.sortedBy { it.kind.displayOrder }.forEach { PartEvidenceRow(it, reference.foodUseDisputed) }
+    } else if (safety.isEmpty() && !reference.hasUnscopedHazard) {
+        EvidenceHeading("Edibility unknown")
+        ReferenceText(if (reference.crossReferences.isNotEmpty()) {
+            "Sources & notes has reference records for this species."
+        } else {
+            "We don’t have a food-use record for this species yet."
+        })
     }
     if (reference.traditionalUses.isNotEmpty()) {
         HorizontalDivider(color = Line)
@@ -175,6 +199,56 @@ private fun EdibilityEvidence(reference: EdibilityReference) {
                 EvidenceSourceLink(use.source)
             }
         }
+    }
+}
+
+@Composable
+private fun EvidenceGroupLabel(label: String) {
+    Text(label, style = MaterialTheme.typography.labelLarge, color = Ink,
+        modifier = Modifier.semantics { heading() })
+}
+
+@Composable
+internal fun ComparisonEdibility(species: SpeciesRecord, datasetVersion: String?, modifier: Modifier) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        val eligible = species.hasPlantReferenceSection(datasetVersion)
+        val scoped = if (eligible) species.currentEdibilityByTaxon() else emptyList()
+        val reference = if (eligible) species.currentEdibility() else null
+        when {
+            scoped.isNotEmpty() -> scoped.forEach { entry ->
+                Text(
+                    entry.scientificName,
+                    style = MaterialTheme.typography.bodySmall.copy(fontStyle = FontStyle.Italic),
+                    color = Ink,
+                )
+                ComparisonPlantEvidence(entry)
+            }
+            reference != null -> ComparisonPlantEvidence(reference)
+            eligible && species.hasExpiredEdibility() -> ReferenceText("Reference needs a refresh")
+            eligible && species.rank.lowercase() in AboveSpeciesRanks -> ReferenceText("Species ID needed")
+            eligible -> ReferenceText("Edibility unknown")
+            else -> ReferenceText("No plant-use reference")
+        }
+    }
+}
+
+@Composable
+private fun ComparisonPlantEvidence(reference: EdibilityReference) {
+    if (reference.hasUnscopedHazard) ReferenceText("Toxicity reported", TrailText)
+    val (food, safety) = reference.partEvidence.distinctBy { it.part to it.kind }.partition { it.kind.isFood }
+    safety.sortedBy { it.kind.displayOrder }.forEach { claim ->
+        ReferenceText(claim.displayLabel(), claim.kind.evidenceColor())
+    }
+    reference.generalFoodUseLabel?.let { label ->
+        val parts = reference.documentedParts.joinToString()
+        ReferenceText(if (parts.isBlank() || reference.foodUseDisputed) label else "$label · $parts",
+            if (reference.foodUseDisputed) TrailText else InkMuted)
+    }
+    food.sortedBy { it.kind.displayOrder }.forEach { claim ->
+        ReferenceText(claim.displayLabel(reference.foodUseDisputed), claim.kind.evidenceColor(reference.foodUseDisputed))
+    }
+    if (reference.generalFoodUseLabel == null && reference.partEvidence.isEmpty() && !reference.hasUnscopedHazard) {
+        ReferenceText("Edibility unknown")
     }
 }
 
@@ -201,15 +275,27 @@ private val PlantPartEvidenceKind.displayOrder: Int
         PlantPartEvidenceKind.Edible -> 4
     }
 
-@Composable
-private fun PartEvidenceRow(evidence: PlantPartEvidence) {
-    val (status, color) = when (evidence.kind) {
-        PlantPartEvidenceKind.Edible -> "Edible" to Moss
-        PlantPartEvidenceKind.Conditional -> "Edible with conditions" to TrailText
-        PlantPartEvidenceKind.NotEdible -> "Not edible" to MaterialTheme.colorScheme.error
-        PlantPartEvidenceKind.Toxic -> "Toxic" to MaterialTheme.colorScheme.error
-        PlantPartEvidenceKind.Caution -> "Caution" to TrailText
+private fun PlantPartEvidence.displayLabel(disputed: Boolean = false): String {
+    val status = when (kind) {
+        PlantPartEvidenceKind.Edible -> if (disputed) "Reported edible" else "Edible"
+        PlantPartEvidenceKind.Conditional -> if (disputed) "Conditional use reported" else "Edible with conditions"
+        PlantPartEvidenceKind.NotEdible -> "Not edible"
+        PlantPartEvidenceKind.Toxic -> "Toxic"
+        PlantPartEvidenceKind.Caution -> "Caution"
     }
+    return "$part · $status"
+}
+
+@Composable
+private fun PlantPartEvidenceKind.evidenceColor(disputed: Boolean = false): Color = when (this) {
+    PlantPartEvidenceKind.Edible -> if (disputed) TrailText else Moss
+    PlantPartEvidenceKind.NotEdible, PlantPartEvidenceKind.Toxic -> MaterialTheme.colorScheme.error
+    PlantPartEvidenceKind.Conditional, PlantPartEvidenceKind.Caution -> TrailText
+}
+
+@Composable
+private fun PartEvidenceRow(evidence: PlantPartEvidence, disputed: Boolean = false) {
+    val color = evidence.kind.evidenceColor(disputed)
     Column(Modifier.fillMaxWidth()) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(
@@ -220,7 +306,7 @@ private fun PartEvidenceRow(evidence: PlantPartEvidence) {
                 tint = color,
             )
             Text(
-                "${evidence.part} · $status",
+                evidence.displayLabel(disputed),
                 style = MaterialTheme.typography.titleMedium,
                 color = color,
                 modifier = Modifier.semantics { heading() },
@@ -326,8 +412,8 @@ internal fun FoodUseIndicatorLabel(
 }
 
 @Composable
-private fun ReferenceText(value: String) {
-    Text(value, style = MaterialTheme.typography.bodyMedium, color = InkMuted)
+private fun ReferenceText(value: String, color: Color = InkMuted) {
+    Text(value, style = MaterialTheme.typography.bodyMedium, color = color)
 }
 
 @Composable

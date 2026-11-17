@@ -361,7 +361,7 @@ fun SpeciesIndexScreen(
     }
     BackHandler(enabled = selecting, onBack = ::cancelComparison)
     if (selecting && comparisonOpen && comparisonSpecies.size == 2) {
-        SpeciesComparisonDialog(comparisonSpecies[0], comparisonSpecies[1]) { comparisonOpen = false }
+        SpeciesComparisonDialog(comparisonSpecies[0], comparisonSpecies[1], edibilityDataset) { comparisonOpen = false }
     }
     LaunchedEffect(comparisonSpecies.size) {
         if (comparisonSpecies.size < 2) comparisonOpen = false
@@ -1891,7 +1891,7 @@ private fun SpeciesIndexRow(
 
 @Composable
 private fun SpeciesIndexFoodLabels(references: List<EdibilityReference>) {
-    val foodStatuses = references.mapNotNull { it.fieldGuideFoodStatus }
+    val foodStatuses = references.filterNot { it.foodUseDisputed }.mapNotNull { it.fieldGuideFoodStatus }
     val food = listOf(FoodUseIndicator.Edible, FoodUseIndicator.Conditional, FoodUseIndicator.FoodUses)
         .firstOrNull { it in foodStatuses }
     val cautions = references.mapNotNull { reference ->
@@ -1906,11 +1906,16 @@ private fun SpeciesIndexFoodLabels(references: List<EdibilityReference>) {
         verticalArrangement = Arrangement.spacedBy(3.dp),
     ) {
         food?.let {
-            FoodUseIndicatorLabel(it, Moss, label = if (it == FoodUseIndicator.Edible) "Edible" else it.label)
+            val label = when (it) {
+                FoodUseIndicator.Edible -> "Edible parts"
+                FoodUseIndicator.FoodUses -> "Food use reported"
+                else -> it.label
+            }
+            FoodUseIndicatorLabel(it, it.fieldGuideColor(), label = label)
         }
         caution?.let {
             val label = if (references.size > 1 && food != null && it == FoodUseIndicator.Toxicity) {
-                "Toxic parts"
+                "Toxicity reported"
             } else {
                 it.label
             }
@@ -1996,11 +2001,7 @@ fun SpeciesDetailScreen(
                 )
             }
         }
-        if (species.showsEdibilityReference(edibilityDataset) && (
-                species.iconicTaxonName.equals("Plantae", ignoreCase = true) ||
-                    species.edibility != null || species.edibilityByTaxon.isNotEmpty()
-            )
-        ) {
+        if (species.hasPlantReferenceSection(edibilityDataset)) {
             item(key = "food-use-${species.key}") {
                 Column(Modifier.padding(horizontal = 20.dp)) {
                     HorizontalDivider(color = Line)
@@ -2098,7 +2099,7 @@ fun SpeciesDetailScreen(
     }
 }
 
-private fun ecologyStatusColor(label: String): Color = when (label) {
+internal fun ecologyStatusColor(label: String): Color = when (label) {
     "invasive" -> Color(0xFF8A2F27)
     "non_native" -> Color(0xFF8A4F16)
     "native" -> Color(0xFF2F6B45)

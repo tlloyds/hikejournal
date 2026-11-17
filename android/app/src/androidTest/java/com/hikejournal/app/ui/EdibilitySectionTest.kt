@@ -22,9 +22,11 @@ import androidx.compose.ui.test.hasScrollToIndexAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.unit.Density
 import androidx.test.platform.app.InstrumentationRegistry
@@ -102,9 +104,9 @@ class EdibilitySectionTest {
             }
         }
         compose.onNodeWithText(EdibilitySectionTitle).assertIsDisplayed()
-        compose.onNodeWithText("Used as food").assertIsDisplayed()
+        compose.onNodeWithText("Food use reported").assertIsDisplayed()
         compose.onNodeWithText("Educational species reference only.", substring = true).assertDoesNotExist()
-        compose.onNodeWithText("People have used this species as food. The source doesn’t say which parts or how.").assertIsDisplayed()
+        compose.onNodeWithText("The source doesn’t specify which parts are used or under what conditions.").assertIsDisplayed()
         compose.onNodeWithText("Toxicity reported").assertDoesNotExist()
         compose.onNodeWithText("The checklist records a use as a poison.", substring = true).assertDoesNotExist()
         compose.onNodeWithText("Fixture checklist · Version 2").assertDoesNotExist()
@@ -121,7 +123,7 @@ class EdibilitySectionTest {
     fun noReferenceUsesNeutralCopy() {
         compose.setContent { HikeJournalTheme { EdibilitySection(null) } }
         compose.onNodeWithText("Edibility unknown").assertIsDisplayed()
-        compose.onNodeWithText("Used as food").assertDoesNotExist()
+        compose.onNodeWithText("Food use reported").assertDoesNotExist()
     }
 
     @Test
@@ -184,7 +186,7 @@ class EdibilitySectionTest {
         )
 
         val warning = compose.onNodeWithText("Aerial bulbils · Toxic").assertIsDisplayed()
-        val foodUse = compose.onNodeWithText("A checklist mentions food use, but gives no edible part or conditions.").assertIsDisplayed()
+        val foodUse = compose.onNodeWithText("Food use reported").assertIsDisplayed()
         assertTrue(warning.getUnclippedBoundsInRoot().top < foodUse.getUnclippedBoundsInRoot().top)
         compose.onNodeWithText("Used as food").assertDoesNotExist()
         compose.onAllNodesWithText("Air potato").assertCountEquals(1)
@@ -218,8 +220,70 @@ class EdibilitySectionTest {
         compose.onNodeWithText("1 encounter across 1 outing").assertIsDisplayed()
     }
 
-    private fun showSpecies(name: String, report: EdibilityReference, ecology: String, overview: String) {
-        val species = SpeciesRecord(
+    @Test
+    fun comparisonKeepsColumnsAlignedAndNamesVisibleWhenReading() {
+        val first = speciesRecord(
+            "American beautyberry",
+            reference.copy(scientificName = "Callicarpa americana", partEvidence = listOf(
+                PlantPartEvidence("Berries", PlantPartEvidenceKind.Edible, null, reference.sources.single()),
+            )),
+            "native",
+            "First plant description. ".repeat(70).trim(),
+        )
+        val exact = reference.copy(taxonId = 43, scientificName = "Dioscorea bulbifera", partEvidence = listOf(
+            PlantPartEvidence("Aerial bulbils", PlantPartEvidenceKind.Toxic, null, reference.sources.single()),
+        ))
+        val second = speciesRecord("Air potato", exact, "invasive", "").copy(
+            edibility = null,
+            edibilityByTaxon = listOf(exact),
+            scientificName = "Dioscorea",
+            coverUrl = InstrumentationRegistry.getArguments().getString("comparisonSecondCoverFixture").orEmpty(),
+            encounterCount = 2,
+        )
+        var returned = false
+        compose.setContent {
+            HikeJournalTheme {
+                SpeciesComparisonDialog(first, second, reference.datasetVersion) { returned = true }
+            }
+        }
+
+        val firstStatus = compose.onNodeWithText("Native here").assertIsDisplayed().getUnclippedBoundsInRoot()
+        val secondStatus = compose.onNodeWithText("Invasive here").assertIsDisplayed().getUnclippedBoundsInRoot()
+        assertEquals(firstStatus.top, secondStatus.top)
+        assertTrue(firstStatus.right < secondStatus.left)
+        val fruit = compose.onNodeWithText("Berries · Edible").assertIsDisplayed().getUnclippedBoundsInRoot()
+        val hazard = compose.onNodeWithText("Aerial bulbils · Toxic").assertIsDisplayed().getUnclippedBoundsInRoot()
+        val scopedName = compose.onNodeWithText(exact.scientificName).assertIsDisplayed().getUnclippedBoundsInRoot()
+        assertTrue(fruit.right < hazard.left)
+        assertTrue(scopedName.top < hazard.top)
+        compose.onNodeWithText("First plant description.", substring = true).assertDoesNotExist()
+        captureEvidence("species-comparison.png")
+
+        val list = compose.onNode(hasScrollToIndexAction())
+        list.performScrollToNode(hasText("Wikipedia descriptions"))
+        compose.onNodeWithText("Wikipedia descriptions").performClick()
+        list.performScrollToIndex(5)
+        compose.onNodeWithText("First plant description.", substring = true).assertIsDisplayed()
+        compose.onNodeWithText(first.commonName).assertIsDisplayed()
+        compose.onNodeWithText(second.commonName).assertIsDisplayed()
+        compose.onNodeWithContentDescription("Back to species selection").performClick()
+        assertTrue(returned)
+    }
+
+    @Test
+    fun conflictingFoodClaimsStayQualified() {
+        val disputed = reference.copy(
+            foodUse = FoodUseStatus.Disputed,
+            partEvidence = listOf(PlantPartEvidence("Berries", PlantPartEvidenceKind.Edible, null, reference.sources.single())),
+        )
+        compose.setContent { HikeJournalTheme { EdibilitySection(disputed) } }
+        val conflict = compose.onNodeWithText("Sources disagree about food use").assertIsDisplayed()
+        val claim = compose.onNodeWithText("Berries · Reported edible").assertIsDisplayed()
+        assertTrue(conflict.getUnclippedBoundsInRoot().top < claim.getUnclippedBoundsInRoot().top)
+    }
+
+    private fun speciesRecord(name: String, report: EdibilityReference, ecology: String, overview: String) =
+        SpeciesRecord(
             key = "taxon:${report.taxonId}",
             taxonId = report.taxonId,
             commonName = name,
@@ -241,6 +305,9 @@ class EdibilitySectionTest {
             edibilityReferenceEnabled = true,
             edibilityDatasetVersion = report.datasetVersion,
         )
+
+    private fun showSpecies(name: String, report: EdibilityReference, ecology: String, overview: String) {
+        val species = speciesRecord(name, report, ecology, overview)
         compose.setContent {
             HikeJournalTheme { SpeciesDetailScreen(species, listOf(species), "Plants", false, {}, {}, {}) }
         }
