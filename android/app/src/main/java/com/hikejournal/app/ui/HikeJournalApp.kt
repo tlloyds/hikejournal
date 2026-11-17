@@ -596,7 +596,8 @@ private fun HikeJournalAppContent(viewModel: AppViewModel) {
         enabled = (trackingVisible && activeTracking != null) || hikeMapRequest != null || selectedPhoto != null || syncAttentionOpen || settingsOpen || placeBrowserOpen ||
             pendingUpload.isNotEmpty() ||
             pendingHikeDelete != null || createEntryOpen || creatingHike || editingHike != null || badgesOpen || state.journal != null ||
-            state.speciesDetail != null || state.questMapQuest != null || state.longitudinalDestination != null,
+            state.speciesDetail != null || state.isSpeciesDetailLoading || state.questMapQuest != null ||
+            state.longitudinalDestination != null,
     ) {
         when {
             trackingVisible && activeTracking != null -> {
@@ -622,7 +623,7 @@ private fun HikeJournalAppContent(viewModel: AppViewModel) {
             }
             badgesOpen -> badgesOpen = false
             state.questMapQuest != null -> viewModel.closeQuestSightingsMap()
-            state.speciesDetail != null -> {
+            state.speciesDetail != null || state.isSpeciesDetailLoading -> {
                 speciesBrowseContext = null
                 viewModel.closeSpecies()
             }
@@ -888,17 +889,21 @@ private fun HikeJournalAppContent(viewModel: AppViewModel) {
                     )
                 }
                 key.startsWith("species:") && state.speciesDetail != null -> {
+                    val species = state.speciesDetail!!
                     SpeciesDetailScreen(
-                        species = state.speciesDetail!!,
+                        species = species,
                         allSpecies = speciesBrowseContext?.species ?: state.species,
                         browseContext = speciesBrowseContext?.label,
-                        loading = state.isSpeciesLoading,
+                        loading = state.isSpeciesDetailLoading,
                         onBack = {
                             speciesBrowseContext = null
                             viewModel.closeSpecies()
                         },
                         onOpenSpecies = viewModel::openSpecies,
                         onOpenPhoto = { selectedPhoto = it },
+                        onRetry = if (state.speciesDetailLoadFailed) {
+                            { viewModel.openSpecies(species.key, forceRefresh = true) }
+                        } else null,
                     )
                 }
                 key == "badges" -> BadgesScreen(
@@ -1040,7 +1045,7 @@ private fun HikeJournalAppContent(viewModel: AppViewModel) {
         }
 
         AnimatedVisibility(
-            visible = state.isSpeciesLoading && speciesBrowseContext != null && state.speciesDetail == null,
+            visible = state.isSpeciesDetailLoading && speciesBrowseContext != null && state.speciesDetail == null,
             enter = fadeIn(tween(140)),
             exit = fadeOut(tween(140)),
             modifier = Modifier.align(Alignment.Center),

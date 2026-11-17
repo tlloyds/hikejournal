@@ -136,7 +136,7 @@ from hike_journal.services.discovery import SpeciesDiscoveryService
 from hike_journal.services.outdoor_conditions import OutdoorConditionsService
 from hike_journal.services.storage import StorageService
 from hike_journal.services.supabase_transport import build_supabase_client
-from hike_journal.services.edibility import EdibilityReference, load_edibility_reference
+from hike_journal.services.edibility import EdibilityReference, load_edibility_reference, taxon_id
 from hike_journal.services.edibility_lookup import CATALOG_VERSION, EdibilityLookup
 from hike_journal.services.taxonomy import ensure_observation_taxonomy
 from hike_journal.services.weather import (
@@ -1980,6 +1980,57 @@ def _visible_species_data(
     scoped_cache[cache_key] = (current_time, result)
     _species_data_cache = scoped_cache
     return result
+
+
+def _visible_species_detail_data(
+    svc: Services, key: str,
+) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
+    kind, separator, value = key.partition(":")
+    group_id = taxon_id(value) if kind == "taxon" else None
+    if not separator or kind not in {"taxon", "scientific", "common"}:
+        return [], {}, {}
+    if kind == "taxon" and (group_id is None or str(group_id) != value):
+        return [], {}, {}
+
+    repository = svc.repository
+    fetch_observations = getattr(repository, "list_mobile_species_detail_observations", None)
+    if not callable(fetch_observations):
+        observations, photos, hikes = _visible_species_data(svc, species_page_projection=True)
+        return [row for row in observations if _species_key(row) == key], photos, hikes
+
+    context = _user_context()
+    observations = [
+        row for row in fetch_observations(group_id)
+        if row.get("status") == "confirmed" and _species_key(row) == key and row.get("photo_id")
+        and (row.get("hike_id") or user_owns_record(row, context))
+    ]
+    if not observations:
+        return [], {}, {}
+    photo_ids = list(dict.fromkeys(str(row["photo_id"]) for row in observations))
+    photos = repository.list_mobile_photo_records_for_ids(photo_ids, decorate=False)
+    related_hikes = sorted({str(row["hike_id"]) for row in (*observations, *photos) if row.get("hike_id")})
+    hikes = [
+        row
+        for offset in range(0, len(related_hikes), 100)
+        for row in repository.list_hikes_by_ids(related_hikes[offset : offset + 100])
+    ]
+    hikes_by_id = {str(row["id"]): row for row in filter_hikes_for_user(hikes, context)}
+    visible_hikes = set(hikes_by_id)
+    visible_photos = {
+        str(row["id"]): row for row in photos if record_visible_for_user(row, visible_hikes, context)
+    }
+    matching = [
+        row for row in observations
+        if str(row["photo_id"]) in visible_photos and record_visible_for_user(row, visible_hikes, context)
+    ]
+    matching_photo_ids = dict.fromkeys(str(row["photo_id"]) for row in matching)
+    # A signed URL is a bearer credential. Mint it only for encounters the
+    # current account can view.
+    photos_by_id = {
+        str(row["id"]): row
+        for row in repository.decorate_media_rows([visible_photos[photo_id] for photo_id in matching_photo_ids])
+    }
+    return matching, photos_by_id, hikes_by_id
 
 
 def _visible_species_counts_by_hike(
@@ -5343,17 +5394,12 @@ def publish_species_observation(observation_id: str, payload: PublishInput) -> d
 @app.get("/v1/species/detail", dependencies=[Depends(require_mobile_key)])
 def get_species_detail(key: str) -> dict[str, Any]:
     svc = get_services()
-    observations, photos_by_id, hikes_by_id = _visible_species_data(
-        svc, species_page_projection=True
-    )
-    matching = _decorate_observation_history(
-        svc.repository,
-        [observation for observation in observations if _species_key(observation) == key],
-    )
-    reference = _edibility_reference(svc, matching, lookup_limit=2, lookup_wait=2.5)
-    summaries = _build_species_payloads(matching, photos_by_id, hikes_by_id, reference=reference)
-    if not summaries:
+    observations, photos_by_id, hikes_by_id = _visible_species_detail_data(svc, key)
+    if not observations:
         raise HTTPException(status_code=404, detail="Species not found.")
+    matching = _decorate_observation_history(svc.repository, observations)
+    reference = _edibility_reference(svc, matching, lookup_limit=2)
+    summaries = _build_species_payloads(matching, photos_by_id, hikes_by_id, reference=reference)
     summary_enrichment = {
         "wikipedia_url": str(summaries[0].get("wikipedia_url") or ""),
         "wikipedia_summary": str(summaries[0].get("wikipedia_summary") or ""),

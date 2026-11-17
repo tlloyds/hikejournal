@@ -69,6 +69,8 @@ import java.time.Instant
 import java.time.LocalDate
 import java.util.Locale
 import java.util.UUID
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -118,6 +120,8 @@ data class AppState(
     val journal: Hike? = null,
     val species: List<SpeciesRecord> = emptyList(),
     val speciesDetail: SpeciesRecord? = null,
+    val isSpeciesDetailLoading: Boolean = false,
+    val speciesDetailLoadFailed: Boolean = false,
     val placeProfile: PlaceProfile? = null,
     val fieldBriefing: FieldBriefing? = null,
     val hikeComparison: HikeComparison? = null,
@@ -227,6 +231,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private var handledPublishBatchWorkId: UUID? = null
     private var mapDataValidated = false
     private var mapViewportJob: Job? = null
+    private var speciesDetailJob: Job? = null
     private var mapViewportRequestGeneration = 0
     private var lastMapViewport: MapViewportRequest? = null
     private var loadedTrackingMarksForHikeId: String? = null
@@ -412,6 +417,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun markAuthenticationExpired() {
+        speciesDetailJob?.cancel()
         _state.update {
             it.copy(
                 authRequired = true,
@@ -421,6 +427,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 isOffline = false,
                 isReviewOffline = false,
                 isPublishOffline = false,
+                speciesDetail = null,
+                isSpeciesDetailLoading = false,
+                speciesDetailLoadFailed = false,
                 error = null,
             )
         }
@@ -443,6 +452,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun signOut() {
+        closeSpecies()
         viewModelScope.launch {
             runCatching { repository.signOut() }
             _state.value = AppState(
@@ -459,6 +469,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             _state.update { it.copy(isAuthLoading = true, error = null) }
             runCatching { repository.deleteAccount() }
                 .onSuccess {
+                    closeSpecies()
                     _state.value = AppState(
                         authRequired = BuildConfig.GOOGLE_AUTH_ENABLED,
                         isLoading = false,
@@ -1454,30 +1465,53 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun openSpecies(key: String) = openSpecies(key, forceRefresh = false)
 
     fun openSpecies(key: String, forceRefresh: Boolean) {
-        viewModelScope.launch {
-            _state.update { it.copy(isSpeciesLoading = true, error = null) }
-            runCatching { repository.loadSpeciesDetail(key, forceRefresh = forceRefresh) }
-                .onSuccess { result ->
-                    _state.update {
-                        it.copy(
-                            speciesDetail = result.value,
-                            isSpeciesLoading = false,
-                            isOffline = result.fromCache || !it.syncStatus.connected,
-                        )
-                    }
+        speciesDetailJob?.cancel()
+        _state.update { state ->
+            val preview = state.speciesDetail?.takeIf { it.key == key }
+                ?: state.species.firstOrNull { it.key == key }
+            state.copy(
+                speciesDetail = preview,
+                isSpeciesDetailLoading = true,
+                speciesDetailLoadFailed = false,
+                error = null,
+            )
+        }
+        speciesDetailJob = viewModelScope.launch {
+            try {
+                val result = repository.loadSpeciesDetail(key, forceRefresh = forceRefresh)
+                ensureActive()
+                _state.update {
+                    it.copy(
+                        speciesDetail = result.value,
+                        isSpeciesDetailLoading = false,
+                        isOffline = result.fromCache || !it.syncStatus.connected,
+                    )
                 }
-                .onFailure { error ->
-                    _state.update { it.copy(isSpeciesLoading = false, error = error.userMessage()) }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                ensureActive()
+                if (handleAuthenticationFailure(error)) return@launch
+                _state.update {
+                    it.copy(
+                        isSpeciesDetailLoading = false,
+                        speciesDetailLoadFailed = it.speciesDetail != null,
+                        error = if (it.speciesDetail == null) error.userMessage() else null,
+                    )
                 }
+            }
         }
     }
 
     fun closeSpecies() {
-        _state.update { it.copy(speciesDetail = null, error = null) }
+        speciesDetailJob?.cancel()
+        _state.update {
+            it.copy(speciesDetail = null, isSpeciesDetailLoading = false, speciesDetailLoadFailed = false, error = null)
+        }
     }
 
     fun openEncounterHike(hikeId: String) {
-        _state.update { it.copy(speciesDetail = null) }
+        closeSpecies()
         openHike(hikeId)
     }
 

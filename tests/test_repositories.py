@@ -106,6 +106,54 @@ def test_mobile_observation_projections_use_columns_in_schema() -> None:
     assert calls == [MOBILE_SPECIES_OBSERVATION_COLUMNS]
 
 
+@pytest.mark.parametrize(("taxon_id", "filter_calls"), [
+    (42, [("or", "species_taxon_id.eq.42,and(species_taxon_id.is.null,taxon_id.eq.42)")]),
+    (None, [("is", "species_taxon_id", "null"), ("is", "taxon_id", "null")]),
+])
+def test_species_detail_observation_query_filters_before_fetching(taxon_id, filter_calls) -> None:
+    calls = []
+
+    class Query:
+        def select(self, columns):
+            calls.append(("select", columns))
+            return self
+
+        def eq(self, column, value):
+            calls.append(("eq", column, value))
+            return self
+
+        def is_(self, column, value):
+            calls.append(("is", column, value))
+            return self
+
+        def or_(self, condition):
+            calls.append(("or", condition))
+            return self
+
+        def order(self, column):
+            calls.append(("order", column))
+            return self
+
+        def range(self, start, end):
+            calls.append(("range", start, end))
+            return self
+
+        def execute(self):
+            return type("Response", (), {"data": []})()
+
+    class Client:
+        def table(self, name):
+            assert name == "species_observations"
+            return Query()
+
+    repository = HikeJournalRepository(client=Client())
+    assert repository.list_mobile_species_detail_observations(taxon_id) == []
+    assert calls == [
+        ("select", MOBILE_SPECIES_OBSERVATION_COLUMNS), ("eq", "status", "confirmed"),
+        *filter_calls, ("order", "id"), ("range", 0, 999),
+    ]
+
+
 def test_lightweight_observations_include_species_log_photo_preference() -> None:
     assert "species_log_main_photo:raw_response_json->species_log_main_photo" in LIGHTWEIGHT_OBSERVATION_COLUMNS
     assert "species_taxon_id,rank," in LIGHTWEIGHT_OBSERVATION_COLUMNS

@@ -3015,3 +3015,100 @@ def test_mobile_recommendation_starts_review_for_an_unqueued_photo(monkeypatch):
 
     assert request_species_recommendation("photo-2")["id"] == "photo-2"
     assert repository.status_updates == [("photo-2", "in_review")]
+
+
+def test_species_detail_queries_only_matching_species_and_signs_only_visible_photos(monkeypatch):
+    from types import SimpleNamespace
+
+    import mobile_api
+
+    owner = {"mode": "google", "auth_configured": True, "user_id": "mine", "subject": "legacy-mine", "email": "me@example.test"}
+    shared_fields = {"status": "confirmed", "scientific_name": "Example plant", "common_name": "Example plant"}
+    observations = [
+        {**shared_fields, "id": "mine-1", "taxon_id": 42, "photo_id": "photo-1", "hike_id": "my-hike"},
+        {**shared_fields, "id": "mine-2", "taxon_id": 43, "species_taxon_id": 42, "photo_id": "photo-2",
+         "hike_id": None, "owner_subject": "legacy-mine", "rank": "variety"},
+        {**shared_fields, "id": "unrelated", "taxon_id": 42, "species_taxon_id": 71,
+         "photo_id": "unrelated-photo", "hike_id": "my-hike"},
+        {**shared_fields, "id": "unconfirmed", "taxon_id": 42, "photo_id": "unconfirmed-photo", "hike_id": "my-hike",
+         "status": "pending"},
+        {**shared_fields, "id": "other-hike", "taxon_id": 42, "photo_id": "foreign-photo", "hike_id": "private-hike"},
+        {**shared_fields, "id": "other-standalone", "taxon_id": 42, "photo_id": "private-standalone",
+         "owner_subject": "someone-else"},
+        {**shared_fields, "id": "moved-photo", "taxon_id": 42, "photo_id": "moved", "hike_id": "my-hike"},
+    ]
+    photos = [
+        {"id": "photo-1", "hike_id": "my-hike", "taken_at": "2026-11-10", "public_url": "photo-1.jpg"},
+        {"id": "photo-2", "owner_user_id": "mine", "taken_at": "2026-11-12", "public_url": "photo-2.jpg"},
+        {"id": "foreign-photo", "hike_id": "private-hike"},
+        {"id": "moved", "hike_id": "private-hike"},
+    ]
+
+    def read_photos(ids, *, decorate):
+        assert ids == ["photo-1", "photo-2", "foreign-photo", "moved"]
+        assert not decorate
+        return photos
+
+    def read_hikes(ids):
+        assert ids == ["my-hike", "private-hike"]
+        return [
+            {"id": "my-hike", "owner_user_id": "mine", "title": "Local hike", "location_name": "Orange Trail"},
+            {"id": "private-hike", "owner_user_id": "someone-else", "owner_subject": "legacy-mine"},
+        ]
+
+    def sign(rows):
+        assert [row["id"] for row in rows] == ["photo-1", "photo-2"]
+        return [{**row, "public_url": f"https://example.test/{row['public_url']}"} for row in rows]
+
+    def read_annotations(ids):
+        assert ids == ["mine-1", "mine-2"]
+        return [{"observation_id": "mine-1", "category": "phenophase", "code": "flowering"}]
+
+    requested = []
+    repository = SimpleNamespace(
+        list_mobile_species_detail_observations=lambda group_id: requested.append(group_id) or observations,
+        list_mobile_photo_records_for_ids=read_photos,
+        list_hikes_by_ids=read_hikes,
+        decorate_media_rows=sign,
+        list_observation_annotations=read_annotations,
+        list_identification_events=lambda ids: [],
+    )
+    monkeypatch.setattr(mobile_api, "get_services", lambda: SimpleNamespace(repository=repository))
+    monkeypatch.setattr(mobile_api, "_user_context", lambda: owner)
+    monkeypatch.setattr(mobile_api, "_visible_species_data", lambda *args, **kwargs: pytest.fail("A detail read loaded the index"))
+    reference_calls = []
+    monkeypatch.setattr(
+        mobile_api, "_edibility_reference",
+        lambda svc, rows, **kwargs: reference_calls.append((rows, kwargs)) or mobile_api.EdibilityReference(),
+    )
+    detail = mobile_api.get_species_detail("taxon:42")
+    assert requested == [42]
+    assert detail["encounter_count"] == 2
+    assert detail["hike_count"] == 1
+    assert [encounter["photo"]["id"] for encounter in detail["encounters"]] == ["photo-2", "photo-1"]
+    assert detail["encounters"][1]["location_name"] == "Orange Trail"
+    assert detail["encounters"][1]["photo"]["species"][0]["phenophases"][0]["code"] == "flowering"
+    assert reference_calls[0][1] == {"lookup_limit": 2}
+
+
+def test_species_detail_keeps_legacy_scientific_name_keys(monkeypatch):
+    from types import SimpleNamespace
+
+    import mobile_api
+
+    context = {"mode": "local-dev"}
+    repository = SimpleNamespace(
+        list_mobile_species_detail_observations=lambda group_id: [
+            {"id": "matches", "photo_id": "p1", "scientific_name": "  Éxample plant\t", "status": "confirmed"},
+            {"id": "another", "photo_id": "p2", "scientific_name": "Other plant", "status": "confirmed"},
+        ] if group_id is None else pytest.fail("Used a taxon query for a legacy name"),
+        list_mobile_photo_records_for_ids=lambda ids, *, decorate: [{"id": item} for item in ids],
+        list_hikes_by_ids=lambda ids: pytest.fail("Queried hikes for a standalone photo"),
+        decorate_media_rows=lambda photos: photos,
+    )
+    monkeypatch.setattr(mobile_api, "_user_context", lambda: context)
+    service = SimpleNamespace(repository=repository)
+    rows, photos, hikes = mobile_api._visible_species_detail_data(service, "scientific:éxample plant")
+    assert [row["id"] for row in rows] == ["matches"]
+    assert list(photos) == ["p1"]
+    assert hikes == {}

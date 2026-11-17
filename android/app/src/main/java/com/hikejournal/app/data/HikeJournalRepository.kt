@@ -636,13 +636,16 @@ class HikeJournalRepository(context: Context) {
             cacheFile = cacheFile,
             fetch = {
                 val startedAt = System.currentTimeMillis()
-                val detail = JSONObject(api.getSpeciesDetailJson(key))
-                foodUsePreferences.recordDatasetVersion(detail.edibilityDatasetVersion(), startedAt)
-                val encounters = detail.optJSONArray("encounters")
-                for (index in 0 until (encounters?.length() ?: 0)) {
-                    encounters?.optJSONObject(index)?.optJSONObject("photo")?.put(EdibilityReadStartedAt, startedAt)
+                val json = api.getSpeciesDetailJson(key)
+                withContext(Dispatchers.Default) {
+                    val detail = JSONObject(json)
+                    foodUsePreferences.recordDatasetVersion(detail.edibilityDatasetVersion(), startedAt)
+                    val encounters = detail.optJSONArray("encounters")
+                    for (index in 0 until (encounters?.length() ?: 0)) {
+                        encounters?.optJSONObject(index)?.optJSONObject("photo")?.put(EdibilityReadStartedAt, startedAt)
+                    }
+                    detail.toString()
                 }
-                detail.toString()
             },
             parse = ::parseSpecies,
         )

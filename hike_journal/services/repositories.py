@@ -1502,7 +1502,9 @@ class HikeJournalRepository:
                     rows_by_id[row_id] = row
         return [rows_by_id[photo_id] for photo_id in normalized_ids if photo_id in rows_by_id]
 
-    def list_mobile_photo_records_for_ids(self, photo_ids: list[str]) -> list[dict[str, Any]]:
+    def list_mobile_photo_records_for_ids(
+        self, photo_ids: list[str], *, decorate: bool = True,
+    ) -> list[dict[str, Any]]:
         """Fetch native species/sighting media without transferring raw EXIF."""
         normalized_ids = [str(photo_id) for photo_id in photo_ids if str(photo_id).strip()]
         if not normalized_ids:
@@ -1541,7 +1543,8 @@ class HikeJournalRepository:
                             .in_("id", chunk_ids)
                             .execute()
                         )
-            for row in self.decorate_media_rows(response.data or []):
+            rows = response.data or []
+            for row in self.decorate_media_rows(rows) if decorate else rows:
                 row_id = str(row.get("id") or "")
                 if row_id:
                     rows_by_id[row_id] = row
@@ -1857,6 +1860,28 @@ class HikeJournalRepository:
                 status="confirmed",
                 unlinked_only=unlinked_only,
             )
+
+    def list_mobile_species_detail_observations(self, taxon_id: int | None) -> list[dict[str, Any]]:
+        """Filter by the same preferred group ID used by the Field Guide."""
+        def query_factory(columns: str):
+            query = self.client.table("species_observations").select(columns).eq("status", "confirmed")
+            if taxon_id is None:
+                # Legacy name keys are normalized with Python casefold and
+                # strip. Fetch only unresolved rows for that exact comparison.
+                return query.is_("species_taxon_id", "null").is_("taxon_id", "null").order("id")
+            return query.or_(
+                f"species_taxon_id.eq.{taxon_id},and(species_taxon_id.is.null,taxon_id.eq.{taxon_id})"
+            ).order("id")
+
+        try:
+            return self._select_all_rows(lambda: query_factory(MOBILE_SPECIES_OBSERVATION_COLUMNS), decorate=False)
+        except Exception as error:
+            if not any(_missing_schema_column(error, column) for column in (
+                "species_taxon_id", "rank", "iconic_taxon_name", "observed_on",
+                "occurrence_precision", "identification_confidence", "identification_provenance",
+            )):
+                raise
+            return self.list_lightweight_observations(status="confirmed")
 
     def list_observations_by_ids(self, observation_ids: list[str]) -> list[dict[str, Any]]:
         normalized_ids = [str(observation_id) for observation_id in observation_ids if str(observation_id).strip()]

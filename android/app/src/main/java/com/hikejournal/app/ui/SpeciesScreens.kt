@@ -1928,6 +1928,7 @@ fun SpeciesDetailScreen(
     onBack: () -> Unit,
     onOpenSpecies: (String) -> Unit,
     onOpenPhoto: (Photo) -> Unit,
+    onRetry: (() -> Unit)? = null,
 ) {
     val currentIndex = allSpecies.indexOfFirst { it.key == species.key }
     var sharing by remember(species.key) { mutableStateOf(false) }
@@ -1952,7 +1953,15 @@ fun SpeciesDetailScreen(
         state = listState,
         contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 54.dp),
     ) {
-        item { SpeciesHero(species, onBack, onShare = { sharing = true }, shareEnabled = !loading) }
+        item {
+            SpeciesHero(
+                species,
+                onBack,
+                onShare = { sharing = true },
+                preferThumbnail = loading && species.encounters.isEmpty(),
+                shareEnabled = !loading && (onRetry == null || species.encounters.isNotEmpty()),
+            )
+        }
         item {
             Column(Modifier.padding(horizontal = 20.dp, vertical = 20.dp)) {
                 Text(
@@ -2066,6 +2075,23 @@ fun SpeciesDetailScreen(
                 if (loading) CircularProgressIndicator(Modifier.size(20.dp), color = Moss, strokeWidth = 2.dp)
             }
         }
+        if (onRetry != null) {
+            item {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "Couldn’t load field records.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = InkMuted,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = onRetry) { Text("Retry") }
+                }
+            }
+        }
         items(species.encounters, key = { it.photo.id }) { encounter ->
             EncounterRow(encounter, onOpenPhoto)
         }
@@ -2080,10 +2106,17 @@ private fun ecologyStatusColor(label: String): Color = when (label) {
 }
 
 @Composable
-private fun SpeciesHero(species: SpeciesRecord, onBack: () -> Unit, onShare: () -> Unit, shareEnabled: Boolean) {
+private fun SpeciesHero(
+    species: SpeciesRecord, onBack: () -> Unit, onShare: () -> Unit, preferThumbnail: Boolean, shareEnabled: Boolean,
+) {
+    val cover = if (preferThumbnail) {
+        species.coverThumbnailUrl.ifBlank { species.coverUrl }
+    } else {
+        species.coverUrl.ifBlank { species.coverThumbnailUrl }
+    }
     Box(Modifier.fillMaxWidth().height(280.dp).background(Moss)) {
         AsyncImage(
-            species.coverUrl.ifBlank { species.coverThumbnailUrl },
+            cover,
             "Field photo of ${species.commonName}",
             Modifier.fillMaxSize(),
             contentScale = ContentScale.Crop,
@@ -2122,7 +2155,7 @@ private fun EncounterRow(encounter: Encounter, onOpenPhoto: (Photo) -> Unit) {
     ) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
             AsyncImage(
-                encounter.photo.url,
+                encounter.photo.thumbnailUrl.ifBlank { encounter.photo.url },
                 encounter.photo.caption.ifBlank { encounter.hikeTitle },
                 Modifier.width(136.dp).height(104.dp).background(Moss),
                 contentScale = ContentScale.Crop,

@@ -416,6 +416,35 @@ class BrandDesignReviewTest {
         org.junit.Assert.assertEquals(encounters.first().photo.id, openedPhoto?.id)
     }
 
+    @Test fun speciesSummaryRemainsVisibleWhileFieldRecordsLoadAndCanRetry() {
+        val loading = mutableStateOf(true)
+        val failed = mutableStateOf(false)
+        val visible = mutableStateOf(species)
+        val encounter = Encounter(photo, hike.id, hike.title, hike.hikeDate, hike.locationName, hike.hikeDate)
+        rule.setContent {
+            HikeJournalTheme {
+                SpeciesDetailScreen(
+                    visible.value, listOf(species), null, loading.value, {}, {}, {},
+                    onRetry = if (failed.value) ({ failed.value = false; loading.value = true }) else null,
+                )
+            }
+        }
+        rule.onNodeWithText(species.commonName).assertIsDisplayed()
+        rule.onNodeWithContentDescription("Share species").assertIsNotEnabled()
+        rule.runOnIdle { loading.value = false; failed.value = true }
+        val list = rule.onNode(hasScrollToIndexAction())
+        list.performScrollToNode(hasText("Retry"))
+        rule.onNodeWithText("Couldn’t load field records.").assertIsDisplayed()
+        rule.onNodeWithText("Retry").performClick()
+        rule.onNodeWithText("Retry").assertDoesNotExist()
+        rule.runOnIdle {
+            visible.value = species.copy(encounters = listOf(encounter))
+            loading.value = false
+        }
+        list.performScrollToNode(hasText(hike.title))
+        rule.onNodeWithText(hike.title).assertIsDisplayed()
+    }
+
     @Test fun placeProfileWordmark() {
         rule.setContent { HikeJournalTheme {
             PlaceProfileScreen(null, true, hike.locationName, imageUrl, false, "1 of 5", 7, false,
