@@ -55,6 +55,8 @@ class InatClient:
         base_url: str | None = None,
         *,
         plant_status_client: USDAPlantsClient | None = None,
+        reference_timeout: float = 30,
+        reference_retry: bool = True,
     ):
         self.access_token = access_token or settings.inat_access_token
         self.base_url = (base_url or settings.inat_base_url).rstrip("/")
@@ -64,6 +66,8 @@ class InatClient:
         self._last_request_at = 0.0
         self.user_agent = "HikeJournal/1.0 (personal field journal; contact: addlloyd@gmail.com)"
         self.plant_status_client = plant_status_client or USDAPlantsClient()
+        self.reference_timeout = reference_timeout
+        self.reference_retry = reference_retry
 
     @property
     def is_configured(self) -> bool:
@@ -290,7 +294,8 @@ class InatClient:
         response = self._request(
             "get", f"{self.base_url}/taxa", headers=self._headers(auth=False),
             params={"q": scientific_name, "is_active": "true", "per_page": 100},
-            timeout=30,
+            timeout=self.reference_timeout, transport_retries=2 if self.reference_retry else 0,
+            retry_rate_limit=self.reference_retry,
         )
         if response.status_code >= 400:
             raise InatRequestError(f"iNaturalist scientific search returned {response.status_code}")
@@ -318,7 +323,8 @@ class InatClient:
         path = ",".join(str(value) for value in sorted(requested))
         response = self._request(
             "get", f"{self.base_url}/taxa/{path}", headers=self._headers(auth=False),
-            params={"per_page": len(requested)}, timeout=30,
+            params={"per_page": len(requested)}, timeout=self.reference_timeout,
+            transport_retries=2 if self.reference_retry else 0, retry_rate_limit=self.reference_retry,
         )
         if response.status_code == 404:
             return {}
@@ -532,6 +538,7 @@ class InatClient:
 
     def _request(self, method: str, url: str, **kwargs: Any) -> requests.Response:
         request_interval = float(kwargs.pop("min_interval", self.request_interval_seconds))
+        retry_rate_limit = kwargs.pop("retry_rate_limit", True)
         transport_retries = int(
             kwargs.pop("transport_retries", 2 if method.lower() == "get" else 0)
         )
@@ -560,8 +567,9 @@ class InatClient:
             return response
         retry_after = _parse_retry_after(response.headers.get("Retry-After"))
         wait_seconds = retry_after if retry_after is not None else 5.0
-        time.sleep(min(max(wait_seconds, request_interval), 20.0))
-        response = send()
+        if retry_rate_limit:
+            time.sleep(min(max(wait_seconds, request_interval), 20.0))
+            response = send()
         if response.status_code == 429:
             raise InatRateLimitError(
                 "iNaturalist is rate limiting these requests. Wait a minute, then continue processing.",

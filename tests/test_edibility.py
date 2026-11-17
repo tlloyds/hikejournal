@@ -20,7 +20,8 @@ from hike_journal.services.edibility import (
 from hike_journal.services.inat import InatClient
 from hike_journal.services.repositories import HikeJournalRepository
 from scripts.backfill_taxon_edibility import assess_batch
-from scripts.build_ethnobotany_cross_references import _binding, _duke_records, _kew_records
+from hike_journal.services.ethnobotany import match_cross_references
+from scripts.build_ethnobotany_cross_references import _duke_records, _kew_records
 from scripts.import_food_plants import USE_FIELDS, normalize_evidence, read_verified_archive, stage_release
 
 
@@ -221,9 +222,9 @@ def test_cross_reference_import_retains_original_locators_and_rejects_ambiguous_
     names = {"example taxon"}
     candidates = list(_kew_records(pages, names)) + list(_duke_records([duke], names))
     assert not list(_duke_records([{**duke, "SPRANK": "var."}, {**duke, "REFERENCE": ""}], names))
-    assert _binding(candidates, identity(family="Anotheraceae"), {42}) == []
-    assert _binding(candidates, identity(), {42, 43}) == []
-    kew, duke_ref = _binding(candidates, identity(), {42})
+    assert match_cross_references(candidates, identity(family="Anotheraceae"), {42}) == []
+    assert match_cross_references(candidates, identity(), {42, 43}) == []
+    kew, duke_ref = match_cross_references(candidates, identity(), {42})
     assert kew["locator"] == "Page 12 · IPNI 100-1"
     assert kew["categories"] == ["HF", "PO", "MA"]
     assert kew["reference_ids"] == [2, 14]
@@ -511,3 +512,92 @@ def test_unresolved_conflict_does_not_publish_only_the_positive_record():
     target = identity()
     matches = [assess_evidence(row, target, {42}) for row in [food, hazard]]
     assert derive_profile(target, [food, hazard], matches) is None
+
+
+def test_automatic_lookup_finds_new_taxa_and_keeps_supplemental_claims_separate(monkeypatch):
+    from hike_journal.services import edibility_lookup
+
+    finished = {}
+    searched = []
+    target = identity()
+    reference_target = identity(taxon_id=43, scientific_name="Example history")
+    unresolved = identity(taxon_id=44, scientific_name="Example unresolved")
+
+    def claim(ids, version, limit):
+        assert ids == [43, 42, 44]
+        assert limit == 6
+        assert version == edibility_lookup.CATALOG_VERSION
+        return [{"taxon_id": value, "release_id": "fixture"} for value in ids]
+
+    def find_exact(name):
+        searched.append(name)
+        return {"Example taxon": {42}, "Example history": {43}, "Example unresolved": {44, 45}}[name]
+
+    def finish(target, version, reference, assessment):
+        assert version == edibility_lookup.CATALOG_VERSION
+        finished[target["taxon_id"]] = (reference, assessment)
+
+    repository = SimpleNamespace(
+        claim_edibility_lookups=claim, finish_edibility_lookup=finish,
+        edibility_reviews=lambda *_: {},
+        edibility_evidence=lambda _, name, keys: [source_row()] if name == "example taxon" else [],
+    )
+    inat = SimpleNamespace(
+        fetch_taxon_reference_identities=lambda ids: {42: target, 43: reference_target, 44: unresolved},
+        find_active_scientific_taxon_ids=find_exact,
+    )
+    monkeypatch.setattr(edibility_lookup, "InatClient", lambda **kwargs: inat)
+    lookup = edibility_lookup.EdibilityLookup(repository)
+    lookup.candidates = {
+        "example " + name: [{
+            "source": "duke", "scientific_name": "Example " + name,
+            "family": "Exampleaceae", "rank": "species", "record_key": str(index), "reference_key": "fixture",
+        }]
+        for index, name in enumerate(["taxon", "history", "unresolved"], 1)
+    }
+    try:
+        observations = [
+            target | {"status": "confirmed", "identified_at": "2026-11-14T10:00:00Z"},
+            target | {"status": "confirmed", "identified_at": "2026-11-15T10:00:00Z"},
+            reference_target | {"status": "confirmed", "identified_at": "2026-11-16T10:00:00Z"},
+            unresolved | {"status": "confirmed"},
+            identity(taxon_id=45, rank="genus", status="confirmed"),
+            identity(taxon_id=46, status="pending"),
+        ]
+        lookup.refresh(observations, limit=6, wait=2)
+    finally:
+        lookup.close()
+
+    assert searched == ["Example history", "Example taxon", "Example unresolved"]
+    assert finished[42][1]["profile"]["has_documented_food_use"]
+    assert finished[43][1]["profile"] is None
+    assert finished[44][0] is None and finished[44][1]["profile"] is None
+    repository.read_ethnobotany_references = lambda ids, version: {str(key): val[0] for key, val in finished.items()}
+    repository.read_edibility_profiles = lambda ids: ("fixture", {})
+    payload = load_edibility_reference(
+        repository, observations, enabled=True, catalog_version=edibility_lookup.CATALOG_VERSION,
+    )
+    assert payload.for_observation(observations[2])["cross_references"][0]["locator"] == "ETHNOBOT.csv · Record 2"
+    assert not payload.for_observation(observations[2])["has_documented_food_use"]
+
+
+def test_incomplete_exact_search_leaves_claim_retryable(monkeypatch):
+    from hike_journal.services import edibility_lookup
+
+    provider = SimpleNamespace(
+        fetch_taxon_reference_identities=lambda ids: {42: identity()},
+        find_active_scientific_taxon_ids=lambda name: None,
+    )
+    monkeypatch.setattr(edibility_lookup, "InatClient", lambda **kwargs: provider)
+    finished = []
+    repository = SimpleNamespace(
+        claim_edibility_lookups=lambda ids, version, limit: [{"taxon_id": 42, "release_id": "fixture"}],
+        finish_edibility_lookup=lambda *args: finished.append(args),
+        edibility_reviews=lambda *_: {}, edibility_evidence=lambda *_: [source_row()],
+    )
+    lookup = edibility_lookup.EdibilityLookup(repository)
+    try:
+        lookup.refresh([identity(status="confirmed")], limit=1, wait=2)
+    finally:
+        lookup.close()
+    assert finished == []

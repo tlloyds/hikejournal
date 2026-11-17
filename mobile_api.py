@@ -137,6 +137,7 @@ from hike_journal.services.outdoor_conditions import OutdoorConditionsService
 from hike_journal.services.storage import StorageService
 from hike_journal.services.supabase_transport import build_supabase_client
 from hike_journal.services.edibility import EdibilityReference, load_edibility_reference
+from hike_journal.services.edibility_lookup import CATALOG_VERSION, EdibilityLookup
 from hike_journal.services.taxonomy import ensure_observation_taxonomy
 from hike_journal.services.weather import (
     OpenMeteoWeatherProvider,
@@ -474,6 +475,7 @@ class Services:
         self.entitlement_store = SupabaseEntitlementStore(self.client)
         self.entitlements = EntitlementService(self.entitlement_store)
         self.mobile_job_store = build_mobile_job_store(self.client)
+        self.edibility_lookup = EdibilityLookup(self.repository) if getattr(settings, "edibility_enabled", False) else None
 
 
 services: Services | None = None
@@ -535,6 +537,8 @@ async def lifespan(_: FastAPI):
         recovery_task.cancel()
         with suppress(asyncio.CancelledError):
             await recovery_task
+        if services and services.edibility_lookup:
+            services.edibility_lookup.close()
         services = None
 
 
@@ -1655,8 +1659,16 @@ def _normalize_client_uuid(value: str | None, *, field_name: str) -> str | None:
         raise HTTPException(status_code=400, detail=f"{field_name} must be a UUID.") from exc
 
 
-def _edibility_reference(svc: Services, observations: list[dict[str, Any]]) -> EdibilityReference:
-    return load_edibility_reference(svc.repository, observations, enabled=settings.edibility_enabled)
+def _edibility_reference(
+    svc: Services, observations: list[dict[str, Any]], *, lookup_limit: int = 0, lookup_wait: float = 0,
+) -> EdibilityReference:
+    lookup = getattr(svc, "edibility_lookup", None)
+    if settings.edibility_enabled and lookup and lookup_limit:
+        lookup.refresh(observations, limit=lookup_limit, wait=lookup_wait)
+    return load_edibility_reference(
+        svc.repository, observations, enabled=settings.edibility_enabled,
+        catalog_version=CATALOG_VERSION if lookup else None,
+    )
 
 
 def _photo_payload(
@@ -3856,7 +3868,8 @@ def list_species() -> list[dict[str, Any]]:
         svc, species_page_projection=True
     )
     return _build_species_payloads(
-        observations, photos_by_id, hikes_by_id, reference=_edibility_reference(svc, observations),
+        observations, photos_by_id, hikes_by_id,
+        reference=_edibility_reference(svc, observations, lookup_limit=6, lookup_wait=1),
     )
 
 
@@ -4851,6 +4864,9 @@ def decide_species_review(photo_id: str, payload: ReviewDecisionInput) -> dict[s
         if isinstance(updated, dict):
             ensure_observation_taxonomy(svc.repository, inat_client, updated)
         svc.repository.update_photo_processing_status(photo_id, "ready")
+        lookup = getattr(svc, "edibility_lookup", None)
+        if lookup and isinstance(updated, dict):
+            lookup.refresh([updated], limit=1, wait=1.75)
 
     _invalidate_species_data_cache()
     return {"ok": True, "photo_id": photo_id, "action": payload.action}
@@ -5334,7 +5350,7 @@ def get_species_detail(key: str) -> dict[str, Any]:
         svc.repository,
         [observation for observation in observations if _species_key(observation) == key],
     )
-    reference = _edibility_reference(svc, matching)
+    reference = _edibility_reference(svc, matching, lookup_limit=2, lookup_wait=2.5)
     summaries = _build_species_payloads(matching, photos_by_id, hikes_by_id, reference=reference)
     if not summaries:
         raise HTTPException(status_code=404, detail="Species not found.")
@@ -6181,7 +6197,8 @@ def assign_known_species_to_photo(photo_id: str, payload: KnownSpeciesInput) -> 
     svc, photo = _get_visible_photo(photo_id)
 
     def assigned_photo(observations: list[dict[str, Any]]) -> dict[str, Any]:
-        return _photo_payload(photo, observations, reference=_edibility_reference(svc, observations))
+        reference = _edibility_reference(svc, observations, lookup_limit=1, lookup_wait=1)
+        return _photo_payload(photo, observations, reference=reference)
 
     if payload.action == "set" and str(photo.get("content_type") or "").lower().startswith("video/"):
         raise HTTPException(status_code=409, detail="Videos cannot be assigned a species.")

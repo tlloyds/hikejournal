@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 import hashlib
 import re
 from typing import Any, Callable
@@ -2364,6 +2364,44 @@ class HikeJournalRepository:
                     **profile, "taxon_id": int(key), "dataset_version": release_id, "sources": [source],
                 }
         return release_id, profiles
+
+    def claim_edibility_lookups(self, ids: list[int], version: str, limit: int) -> list[dict]:
+        return self.client.rpc("claim_edibility_lookups", {
+            "p_taxon_ids": ids, "p_catalog_version": version, "p_limit": limit,
+        }).execute().data or []
+
+    def finish_edibility_lookup(
+        self, claim: dict, version: str, reference: dict | None, assessment: dict | None,
+    ) -> None:
+        self.client.rpc("finish_edibility_lookup", {
+            "p_taxon_id": claim["taxon_id"], "p_claimed_at": claim["claimed_at"], "p_catalog_version": version,
+            "p_release_id": claim["release_id"], "p_reference": reference, "p_assessment": assessment,
+        }).execute()
+
+    def read_ethnobotany_references(self, ids: list[int], version: str) -> dict[str, dict | None]:
+        references = {}
+        cutoff = (datetime.now(UTC) - timedelta(days=30)).isoformat()
+        for chunk in self._chunks(ids, size=200):
+            rows = (
+                self.client.table("taxon_edibility_lookups").select("taxon_id,reference").in_("taxon_id", chunk)
+                .eq("catalog_version", version).gte("checked_at", cutoff).execute().data
+            )
+            references.update({str(row["taxon_id"]): row["reference"] for row in rows})
+        return references
+
+    def edibility_evidence(self, release: str, name: str, record_keys: list[str]) -> list[dict]:
+        table = self.client.table("taxon_food_use_evidence")
+        rows = table.select("*").eq("release_id", release).eq("normalized_name", name).execute().data
+        if record_keys:
+            rows.extend(table.select("*").eq("release_id", release).in_("record_key", record_keys).execute().data)
+        return list({row["record_key"]: row for row in rows}.values())
+
+    def edibility_reviews(self, release: str, identity_id: int) -> dict[str, dict]:
+        rows = (
+            self.client.table("taxon_edibility_matches").select("record_key,review_basis")
+            .eq("release_id", release).eq("taxon_id", identity_id).not_.is_("review_basis", "null").execute().data
+        )
+        return {row["record_key"]: row["review_basis"] for row in rows}
 
     def upsert_taxon_ecology_status(self, enrichment: dict[str, Any]) -> dict[str, Any] | None:
         """Persist the latest place-aware status without making it user-owned."""

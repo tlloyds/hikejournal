@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 from collections import defaultdict
 import csv
+import gzip
 from hashlib import file_digest
 from io import TextIOWrapper
 import json
@@ -16,7 +17,8 @@ from zipfile import ZipFile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from hike_journal.services.edibility import assess_evidence, eligible_identity, taxon_id
+from hike_journal.services.edibility import eligible_identity, taxon_id
+from hike_journal.services.ethnobotany import DUKE_SOURCE_KEY, KEW_CATEGORIES, KEW_SOURCE_KEY, match_cross_references
 from hike_journal.services.inat import InatClient
 from hike_journal.services.taxonomy import normalize_taxon_name
 
@@ -35,22 +37,7 @@ KEW_SOURCE = {
     "license_url": "https://creativecommons.org/licenses/by/4.0/",
     "modifications": "HikeJournal indexed selected checklist records and matched exact species.",
 }
-# Duke's attribution already lives in the reviewed catalog. This key lets the
-# API display the same publication once for both reviewed and indexed records.
-DUKE_SOURCE_KEY = "duke"
-KEW_SOURCE_KEY = "kew_useful_plants"
-KEW_CATEGORIES = {
-    "HF": "food",
-    "ME": "medicine",
-    "MA": "materials",
-    "PO": "use as a poison",
-    "SU": "social uses",
-    "FU": "fuel",
-    "EU": "environmental uses",
-    "GS": "gene sources",
-    "AF": "animal food",
-    "IF": "invertebrate food",
-}
+
 _FAMILY = re.compile(r"[A-Z][a-z]+aceae")
 _SPECIES = re.compile(r"([A-Z][a-z-]+ [a-z][a-z-]+) (.+)")
 _KEW_USE = re.compile(r"(\d+-\d+)\s*\|\s*([A-Z ]+)\s*(?:\|\s*\[([\d, ]+)\])?")
@@ -63,7 +50,7 @@ def _verify(path: Path, expected: str) -> None:
             raise ValueError(f"Source digest changed: {path.name}")
 
 
-def _kew_records(pages, names: set[str]):
+def _kew_records(pages, names: set[str] | None):
     family = None
     for number, page in enumerate(pages, 1):
         if number < 12:
@@ -78,7 +65,7 @@ def _kew_records(pages, names: set[str]):
                 continue
             name, authority = name_match.groups()
             key, codes, references = use_match.groups()
-            if normalize_taxon_name(name) not in names or _INFRASPECIFIC.match(authority):
+            if (names is not None and normalize_taxon_name(name) not in names) or _INFRASPECIFIC.match(authority):
                 continue
             codes = codes.split()
             if set(codes) - KEW_CATEGORIES.keys():
@@ -90,11 +77,11 @@ def _kew_records(pages, names: set[str]):
             )
 
 
-def _duke_records(rows, names: set[str]):
+def _duke_records(rows, names: set[str] | None):
     for row in rows:
         name = row["TAXON"]
         if (
-            normalize_taxon_name(name) not in names or len(name.split()) != 2
+            (names is not None and normalize_taxon_name(name) not in names) or len(name.split()) != 2
             or any(row[key] for key in ("SPRANK", "SPXNAM"))
             or not row["FAMILY"] or not row["REFERENCE"] or not row["ETHNO"].isdigit()
         ):
@@ -105,57 +92,27 @@ def _duke_records(rows, names: set[str]):
         )
 
 
-def _binding(candidates: list[dict], identity: dict, exact_ids: set[int] | None) -> list[dict]:
-    accepted = [
-        row for row in candidates if
-        assess_evidence(row, identity, exact_ids)["review_status"] == "source_matched"
-    ]
-    output = []
-    kew = [row for row in accepted if row["source"] == KEW_SOURCE_KEY]
-    if len(kew) == 1:
-        row = kew[0]
-        fields = ", ".join(KEW_CATEGORIES[code] for code in row["categories"])
-        output.append({
-            "source": KEW_SOURCE_KEY, "summary": f"Checklist categories include {fields}.",
-            "locator": f"Page {row['page']} · IPNI {row['record_key']}",
-            "record_key": row["record_key"], "categories": row["categories"],
-            "reference_ids": row["reference_ids"],
-        })
-    duke = [row for row in accepted if row["source"] == DUKE_SOURCE_KEY]
-    if duke:
-        record_keys = sorted({int(row["record_key"]) for row in duke})
-        references = sorted({row["reference_key"] for row in duke})
-        records = "1 cited use record" if len(record_keys) == 1 else f"{len(record_keys)} cited use records"
-        bibliography = "1 reference" if len(references) == 1 else f"{len(references)} references"
-        output.append({
-            "source": DUKE_SOURCE_KEY,
-            "summary": f"{records} from {bibliography}.",
-            "locator": "ETHNOBOT.csv · " + (
-                f"Record {record_keys[0]}" if len(record_keys) == 1 else f"First record {record_keys[0]}"
-            ),
-            "record_keys": record_keys,
-            "reference_keys": references,
-        })
-    return output
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--kew-pdf", type=Path, required=True)
     parser.add_argument("--duke-zip", type=Path, required=True)
-    parser.add_argument("--taxa", type=Path, required=True, help="JSON array of taxon_id and scientific_name objects")
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--taxa", type=Path, help="JSON array of taxon_id and scientific_name objects")
+    mode.add_argument("--candidate-index", action="store_true", help="Write all sourced candidates as a gzip catalog")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     _verify(args.kew_pdf, KEW_SHA256)
     _verify(args.duke_zip, DUKE_SHA256)
     targets = {}
-    for row in json.loads(args.taxa.read_text()):
+    for row in json.loads(args.taxa.read_text()) if args.taxa else []:
         identity_id = taxon_id(row["taxon_id"])
         name = normalize_taxon_name(row["scientific_name"])
         if identity_id is None or not name or identity_id in targets:
             raise ValueError("Invalid or duplicate iNaturalist target")
         targets[identity_id] = name
-    names = set(targets.values())
+    names = set(targets.values()) if args.taxa else None
     candidates = defaultdict(list)
     import pymupdf
 
@@ -165,6 +122,11 @@ def main() -> None:
     with ZipFile(args.duke_zip) as archive, TextIOWrapper(archive.open("ETHNOBOT.csv"), encoding="latin1") as file:
         for row in _duke_records(csv.DictReader(file), names):
             candidates[normalize_taxon_name(row["scientific_name"])].append(row)
+    if args.candidate_index:
+        catalog = json.dumps(candidates, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()
+        args.output.write_bytes(gzip.compress(catalog, mtime=0))
+        print(f"Indexed cited source candidates for {len(candidates)} names")
+        return
     inat = InatClient(access_token="")
     inat.request_interval_seconds = 1.0
     taxa = {}
@@ -176,7 +138,7 @@ def main() -> None:
             if not eligible_identity(identity) or normalize_taxon_name(identity["scientific_name"]) != name:
                 continue
             exact_ids = inat.find_active_scientific_taxon_ids(identity["scientific_name"])
-            records = _binding(candidates[name], identity, exact_ids)
+            records = match_cross_references(candidates[name], identity, exact_ids)
             if records:
                 taxa[str(identity_id)] = {
                     "scientific_name": identity["scientific_name"], "rank": identity["rank"],

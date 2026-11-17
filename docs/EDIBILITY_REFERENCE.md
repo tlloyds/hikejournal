@@ -56,7 +56,20 @@ uv run --with-requirements requirements.txt --with pymupdf==2.1 \
   --taxa /tmp/taxonomy-targets.json --output /tmp/ethnobotany-cross-references.json
 ```
 
-Newly confirmed observations automatically receive any supplemental references for their exact indexed species. Species outside the index require a new import pass. Regional extension references and primary studies are reviewed per claim, including citations and relevant community context where the source provides it.
+### Newly confirmed plants
+
+The API checks for references when a plant ID is confirmed and when the private Field Guide opens or refreshes. Recent confirmations get priority. If the lookup is still running, opening the species detail or refreshing the guide again picks up the result. No account setup or per-hike import is needed. IDs and scientific names sent to iNaturalist are public taxonomic identifiers. The shared lookup table contains no journal entries, locations, or account details.
+
+The lookup checks the active WCFP release and a pinned candidate catalog covering 43,707 scientific names from Kew and USDA. Each positive match requires a current, active vascular taxon and the same rank and family. Automatic name matching also requires exactly one active iNaturalist taxon for that name. Persisted manual WCFP reviews retain their existing precedence. A missing record is cached and checked again after 14 days of elapsed time when the guide is used. An interrupted lookup can retry after its short database lease. Regional extension references and primary studies are still reviewed per claim, with citations and community context where documented.
+
+Regenerate the shared candidate catalog when either published archive changes. Validate the sources and update the pinned fingerprints before running the importer for a new edition.
+
+```sh
+uv run --with-requirements requirements.txt --with pymupdf==2.1 \
+  python scripts/build_ethnobotany_cross_references.py \
+  --kew-pdf /tmp/kew-checklist.pdf --duke-zip /tmp/duke.zip \
+  --candidate-index --output hike_journal/services/ethnobotany_candidates.json.gz
+```
 
 To add or withdraw a reviewed finding, edit the version-controlled catalog and deploy the API. The API includes a digest of both source files in the dataset version, which invalidates cached references on refresh. These references are available independently of the active WCFP release and have the same maximum 24-hour Android cache lifetime. `EDIBILITY_ENABLED=false` suppresses all three sources.
 
@@ -88,7 +101,7 @@ Cloud Run revision `hikejournal-git-00279-kdv` serves the API with `EDIBILITY_EN
 
 Use a disposable local or explicitly selected staging database and a service-role credential for that database. The write commands require an explicit URL and read only `EDIBILITY_IMPORT_SERVICE_KEY` for database authentication. Keep `EDIBILITY_ENABLED=false` during data setup. This document records the procedure for a future staging environment.
 
-1. Apply [the additive migration](../sql/taxon_edibility_migration.sql) after the base journal and taxonomy migrations.
+1. Apply [the initial reference migration](../sql/taxon_edibility_migration.sql) after the base journal and taxonomy migrations. Apply [the automatic lookup migration](../sql/taxon_edibility_auto_lookup_migration.sql) before rolling out automatic lookups.
 2. Download the pinned archive outside the checkout and validate it with a dry run.
 
    ```sh
@@ -111,7 +124,7 @@ Use a disposable local or explicitly selected staging database and a service-rol
      --version 2 --dry-run --batch-size 25 --limit 500
    ```
 
-4. Review the coverage counters and investigate unsupported and ambiguous rows. Repeat with `--write` to persist the audit decisions and profiles. A completed batch prints a resumable `after_taxon_id` cursor. Continue with `--after-taxon-id <cursor>`. Each batch publishes changes for one release atomically, including the removal of previously matched profiles where applicable. New observations of already matched taxa need only the API's indexed query. Run the backfill periodically to enroll newly encountered taxa and renew mapping validation before profiles age out. An explicit `--taxon-ids` pass verifies a targeted ID fresh, even if an older observation enrichment was a negative prefilter.
+4. Review the coverage counters and investigate unsupported and ambiguous rows. Repeat with `--write` to persist the audit decisions and profiles. A completed batch prints a resumable `after_taxon_id` cursor. Continue with `--after-taxon-id <cursor>`. Each batch publishes changes for one release atomically, including the removal of previously matched profiles where applicable. Use this command for staging, bulk audits, and targeted corrections. An explicit `--taxon-ids` pass verifies a targeted ID fresh, even if an older observation enrichment was a negative prefilter.
 
    A version-scoped `--reviewed-mappings` JSON file may contain entries like this synthetic example. `manual_review` requires an accountable review of exact applicability. `verified_identifier` also requires the original `source_taxon_id`. `verified_synonym` requires `synonym_taxon_id`. Use `rejected` for an explicit exclusion. Explicit decisions are stored and reused on later backfills of the same release. Supply the file again to amend a decision. New releases require a new mapping audit.
 
@@ -146,7 +159,7 @@ Use a disposable local or explicitly selected staging database and a service-rol
 | Offline | Existing JSON caches retain the exact taxon and dataset version. Cached reference data expires after at most 24 hours from the last server read. WCFP profiles are suppressed after 30 days without taxonomic revalidation. Source withdrawal takes effect on a relevant refresh or expiry. |
 | Changes to a photo ID | A persistent local cutoff suppresses responses started before an assignment, review decision, tag removal, or photo deletion. Successful sync advances that cutoff again. A fresh journal read supplies the new per-tag reference when an exact profile exists. |
 
-No food or taxonomy provider is called from the food-use request path or directly from Android. The backend reads profiles in chunks of up to 200 distinct IDs from already visible rows. Under the flag, species list/detail bypass the existing process-level observation cache to use current assignments across API workers. The protected OpenAPI fingerprint remains unchanged because these additive response objects use the existing untyped dictionary shapes. Ecology and existing species identity fields are preserved.
+The Android app reads exact references from the HikeJournal API. The backend reads profiles in chunks of up to 200 distinct IDs from already visible rows. A bounded server worker contacts the public iNaturalist taxonomy API for due taxa after confirmation or on a Field Guide read. Cached results and the reviewed catalog remain available if a lookup is slow or the provider fails. Under the flag, species list/detail bypass the existing process-level observation cache to use current assignments across API workers. The protected OpenAPI fingerprint remains unchanged because these additive response objects use the existing untyped dictionary shapes. Ecology and existing species identity fields are preserved.
 
 ## Verification and outstanding work
 
@@ -154,5 +167,5 @@ No food or taxonomy provider is called from the food-use request path or directl
 - `uv run --with-requirements requirements.txt --with openpyxl==3.1.5 pytest -q` passed 586 tests with one Starlette dependency deprecation warning.
 - From `android/`, `./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:connectedDebugAndroidTest` passed 191 JVM tests and 44 Android 15 emulator tests. Debug lint reported zero errors, 61 warnings and two hints. The debug APK built with an isolated application ID so the existing emulator installation could stay in place. An existing share test was corrected to scroll through the lazy list before looking up an off-screen control.
 - The migration was applied twice in local PGlite. Local checks covered incomplete and staged release activation, duplicate import, stale assessments and attempts to omit a prior manual review, rollback, withdrawal, exact joins, and service-role restrictions. The local full data load used the validated normalized archive and did not connect to Supabase.
-- The production import and confirmed-taxon audit passed, including direct checks of the source records behind each poison-use warning. A physical-device test with an authenticated account, representative endpoint latency measurement, and a recurring revalidation job remain open. Profiles expire 30 days after validation. The existing acknowledgment and foraging warning continue to apply to the educational reference.
+- The production import and confirmed-taxon audit passed, including direct checks of the source records behind each poison-use warning. A physical-device test with an authenticated account and representative endpoint latency measurement remain open. Profiles expire 30 days after validation. Automatic revalidation occurs during journal use. The existing acknowledgment and foraging warning continue to apply to the educational reference.
 - iOS and web UI parity and fungi are outside this implementation. Onboard each additional dataset with its own reviewed license, mappings, evidence semantics, version, and tests.

@@ -169,7 +169,7 @@ class EdibilityReference:
 
 
 def load_edibility_reference(
-    repository: Any, observations: Iterable[dict[str, Any]], *, enabled: bool
+    repository: Any, observations: Iterable[dict[str, Any]], *, enabled: bool, catalog_version: str | None = None,
 ) -> EdibilityReference:
     if not enabled:
         return EdibilityReference()
@@ -183,7 +183,15 @@ def load_edibility_reference(
         # A missing migration or reference outage must not break journal reads.
         logger.warning("Food-use reference unavailable (%s)", type(error).__name__)
         return EdibilityReference()
+    automatic = {}
+    if catalog_version and ids:
+        try:
+            automatic = repository.read_ethnobotany_references(ids, catalog_version)
+        except Exception as error:
+            logger.warning("Supplemental reference lookup unavailable (%s)", type(error).__name__)
     revision = f"{release_id or 'independent'}+parts-{_REFERENCE_REVISION}"
+    if catalog_version:
+        revision += f"+lookup-{catalog_version}"
     profiles = {}
     for key, profile in stored_profiles.items():
         # Older WCFP assessments encoded its broad poison-use category as a
@@ -200,7 +208,7 @@ def load_edibility_reference(
     for identity_id in ids:
         key = str(identity_id)
         reviewed = _PART_REFERENCE["taxa"].get(key)
-        indexed = _CROSS_REFERENCE["taxa"].get(key)
+        indexed = automatic.get(key, _CROSS_REFERENCE["taxa"].get(key))
         entry = reviewed or indexed
         if not entry:
             continue
