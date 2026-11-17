@@ -18,6 +18,7 @@ import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasScrollToIndexAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isDialog
+import androidx.compose.ui.test.isSelectable
 import androidx.compose.ui.test.isToggleable
 import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.performScrollToNode
@@ -54,6 +55,7 @@ import com.hikejournal.app.data.*
 import com.hikejournal.app.ui.theme.HikeJournalTheme
 import com.hikejournal.app.ui.theme.Parchment
 import java.io.File
+import java.time.Instant
 import kotlin.math.abs
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -152,6 +154,42 @@ class BrandDesignReviewTest {
         capture("02-field-guide")
         rule.onNodeWithText("FIELD QUESTS").performClick()
         rule.onNodeWithText("Field Quests").assertIsDisplayed()
+    }
+
+    @Test fun fieldGuideEdibleFilterKeepsSpeciesWithToxicParts() {
+        val source = FoodUseSource(
+            "Field Guide fixture", "1", "https://example.test/plants",
+            "Fixture author", "Fixture publisher", "Fixture license", null, "",
+        )
+        val coralBean = species.copy(
+            key = "coral-bean", taxonId = 123L, commonName = "Coral bean", scientificName = "Erythrina herbacea",
+            edibility = EdibilityReference(
+                123L, "Erythrina herbacea", "species", "fixture", FoodUseStatus.Documented, ToxicityStatus.DocumentedConcern,
+                false, true, listOf("Flowers"), null, null, listOf(source), Instant.now().plusSeconds(300), true,
+                listOf(
+                    PlantPartEvidence("Flowers", PlantPartEvidenceKind.Edible, null, source),
+                    PlantPartEvidence("Seeds", PlantPartEvidenceKind.Toxic, null, source),
+                ),
+            ),
+            edibilityReferenceEnabled = true,
+            edibilityDatasetVersion = "fixture",
+        )
+        rule.setContent { FieldGuide(listOf(coralBean, species)) }
+        val guideList = rule.onNode(hasScrollToIndexAction())
+        guideList.performScrollToNode(hasText("Toxic parts"))
+        rule.onNodeWithText("Coral bean").assertIsDisplayed()
+        rule.onNode(hasText("Edible") and hasText("Toxic parts")).assertIsDisplayed()
+        capture("28-field-guide-edibility")
+        val edibleFilter = hasText("Edible") and isSelectable()
+        guideList.performScrollToNode(edibleFilter)
+        rule.onNode(edibleFilter).performClick()
+        guideList.performScrollToNode(hasText("Toxic parts"))
+        rule.onNodeWithText("Coral bean").assertIsDisplayed()
+        rule.onNodeWithText("Swamp smartweed").assertDoesNotExist()
+        guideList.performScrollToNode(edibleFilter)
+        rule.onNode(edibleFilter).performClick()
+        guideList.performScrollToNode(hasText("Swamp smartweed"))
+        rule.onNodeWithText("Swamp smartweed").assertIsDisplayed()
     }
 
     @Test fun fieldGuideComparesTwoSpeciesAcrossSearchesAndReturnsToSelection() {

@@ -89,7 +89,24 @@ class EdibilityTest {
         assertEquals(listOf(PlantPartEvidenceKind.Toxic, PlantPartEvidenceKind.Edible), reference.partEvidence.map { it.kind })
         assertEquals(reference.sources.single(), reference.partEvidence.first().source)
         assertEquals("Leaves · Toxic", reference.indicatorLabel)
+        assertEquals(FoodUseIndicator.Edible, reference.fieldGuideFoodStatus)
         assertEquals("Flowers · Edible", reference.copy(partEvidence = reference.partEvidence.drop(1)).indicatorLabel)
+    }
+
+    @Test
+    fun `cross references require citations and leave classification unknown`() {
+        val reference = checkNotNull(parseEdibility(referenceJson()
+            .put("food_use_status", "unknown")
+            .put("cross_references", JSONArray("""
+                [
+                  {"summary":"Historical use is indexed.","locator":"Page 42","source_url":"https://example.test/checklist"},
+                  {"summary":"Unsigned source","source_url":"https://example.test/unlisted"}
+                ]
+            """.trimIndent()))))
+        assertEquals("Page 42", reference.crossReferences.single().locator)
+        assertEquals(reference.sources.single(), reference.crossReferences.single().source)
+        assertNull(reference.fieldGuideFoodStatus)
+        assertNull(reference.indicator)
     }
 
     @Test

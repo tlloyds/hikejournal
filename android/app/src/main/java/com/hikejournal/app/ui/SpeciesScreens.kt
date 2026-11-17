@@ -1,5 +1,6 @@
 @file:OptIn(
     androidx.compose.foundation.ExperimentalFoundationApi::class,
+    androidx.compose.foundation.layout.ExperimentalLayoutApi::class,
     androidx.compose.material3.ExperimentalMaterial3Api::class,
 )
 
@@ -26,6 +27,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.statusBars
@@ -54,6 +56,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material.icons.rounded.CloudOff
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Edit
@@ -65,6 +68,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -123,6 +127,9 @@ import com.hikejournal.app.data.Photo
 import com.hikejournal.app.data.QuestSightingsMap
 import com.hikejournal.app.data.SpeciesRecord
 import com.hikejournal.app.data.currentEdibility
+import com.hikejournal.app.data.currentEdibilityReferences
+import com.hikejournal.app.data.EdibilityReference
+import com.hikejournal.app.data.FoodUseIndicator
 import com.hikejournal.app.data.filterSpeciesByFoodUse
 import com.hikejournal.app.data.showsEdibilityReference
 import com.hikejournal.app.data.currentEdibilityByTaxon
@@ -324,7 +331,7 @@ fun SpeciesIndexScreen(
     val browseContext = buildList {
         hikes.firstOrNull { it.id == selectedHikeId }?.title?.let(::add)
         if (observationType != ObservationTypeFilter.All) add(observationType.label)
-        if (documentedFoodUsesOnly) add("Documented food uses")
+        if (documentedFoodUsesOnly) add("Edible")
         if (query.isNotBlank()) add("\u201c$query\u201d")
         add(speciesSort.label)
     }.joinToString(" \u00b7 ")
@@ -422,12 +429,34 @@ fun SpeciesIndexScreen(
         }
         if (foodReferenceEnabled) {
             item {
-                FilterChip(
-                    selected = documentedFoodUsesOnly,
-                    onClick = { filterFoodUse = !filterFoodUse },
-                    label = { Text("Documented food uses") },
-                    modifier = Modifier.padding(horizontal = 20.dp),
-                )
+                Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp)) {
+                    FilterChip(
+                        selected = documentedFoodUsesOnly,
+                        onClick = { filterFoodUse = !filterFoodUse },
+                        label = { Text("Edible") },
+                        leadingIcon = {
+                            Icon(
+                                if (documentedFoodUsesOnly) Icons.Rounded.Check else Icons.AutoMirrored.Rounded.MenuBook,
+                                contentDescription = null,
+                                modifier = Modifier.size(17.dp),
+                            )
+                        },
+                        colors = FilterChipDefaults.filterChipColors(
+                            labelColor = Moss,
+                            iconColor = Moss,
+                            selectedContainerColor = Moss,
+                            selectedLabelColor = Paper,
+                            selectedLeadingIconColor = Paper,
+                        ),
+                    )
+                    AnimatedVisibility(documentedFoodUsesOnly) {
+                        Text(
+                            "Includes documented food use and plants with toxic parts.",
+                            color = InkMuted,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
             }
         }
         item {
@@ -506,7 +535,7 @@ fun SpeciesIndexScreen(
                     )
                     Text(
                         when {
-                            documentedFoodUsesOnly -> "Clear the food-use filter to see other species."
+                            documentedFoodUsesOnly -> "Turn off Edible to see other species."
                             query.isNotBlank() -> "Try a common name, scientific name, or Wikipedia description."
                             observationType != ObservationTypeFilter.All -> "Choose another observation type to widen the field guide."
                             selectedHikeId != null -> "This outing has no confirmed encounters yet."
@@ -522,7 +551,11 @@ fun SpeciesIndexScreen(
                 val selected = record.key in selectedKeys
                 SpeciesIndexRow(
                     record = record,
-                    showFoodUse = record.showsEdibilityReference(edibilityDataset),
+                    references = if (record.showsEdibilityReference(edibilityDataset)) {
+                        record.currentEdibilityReferences(edibilityDataset)
+                    } else {
+                        emptyList()
+                    },
                     selectedForComparison = selected.takeIf { selecting },
                     comparisonSelectionEnabled = selectedKeys.size < 2 || selected,
                     onClick = {
@@ -1776,7 +1809,7 @@ private fun SpeciesJumpSheet(
 @Composable
 private fun SpeciesIndexRow(
     record: SpeciesRecord,
-    showFoodUse: Boolean,
+    references: List<EdibilityReference>,
     selectedForComparison: Boolean?,
     comparisonSelectionEnabled: Boolean,
     onClick: () -> Unit,
@@ -1835,12 +1868,7 @@ private fun SpeciesIndexRow(
                     color = ecologyStatusColor(record.ecology.label),
                     modifier = Modifier.padding(top = 3.dp),
                 )
-                if (showFoodUse) {
-                    val reference = record.currentEdibility()
-                    reference?.indicator?.let {
-                        FoodUseIndicatorLabel(it, it.fieldGuideColor(), label = reference.indicatorLabel ?: it.label)
-                    }
-                }
+                SpeciesIndexFoodLabels(references)
             }
             if (selectedForComparison == null) {
                 Text(
@@ -1858,6 +1886,36 @@ private fun SpeciesIndexRow(
             }
         }
         HorizontalDivider(color = Line, modifier = Modifier.padding(start = 127.dp))
+    }
+}
+
+@Composable
+private fun SpeciesIndexFoodLabels(references: List<EdibilityReference>) {
+    val foodStatuses = references.mapNotNull { it.fieldGuideFoodStatus }
+    val food = listOf(FoodUseIndicator.Edible, FoodUseIndicator.Conditional, FoodUseIndicator.FoodUses)
+        .firstOrNull { it in foodStatuses }
+    val cautions = references.mapNotNull { reference ->
+        reference.indicator?.takeUnless { it == reference.fieldGuideFoodStatus }
+    }
+    val caution = listOf(FoodUseIndicator.Toxicity, FoodUseIndicator.ToxicParts, FoodUseIndicator.NotEdible,
+        FoodUseIndicator.Caution, FoodUseIndicator.Conflict).firstOrNull { it in cautions }
+    if (food == null && caution == null) return
+    FlowRow(
+        modifier = Modifier.padding(top = 5.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        food?.let {
+            FoodUseIndicatorLabel(it, Moss, label = if (it == FoodUseIndicator.Edible) "Edible" else it.label)
+        }
+        caution?.let {
+            val label = if (references.size > 1 && food != null && it == FoodUseIndicator.Toxicity) {
+                "Toxic parts"
+            } else {
+                it.label
+            }
+            FoodUseIndicatorLabel(it, it.fieldGuideColor(), label = label)
+        }
     }
 }
 

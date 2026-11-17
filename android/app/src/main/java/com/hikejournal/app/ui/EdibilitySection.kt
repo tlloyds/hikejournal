@@ -159,7 +159,11 @@ private fun EdibilityEvidence(reference: EdibilityReference) {
         }
         scoped.isEmpty() && reference.indicator == null -> {
             EvidenceHeading("Edibility unknown")
-            ReferenceText("We don’t have a food-use record for this species yet.")
+            ReferenceText(if (reference.crossReferences.isNotEmpty()) {
+                "Sources & notes has reference records for this species."
+            } else {
+                "We don’t have a food-use record for this species yet."
+            })
         }
     }
     if (reference.traditionalUses.isNotEmpty()) {
@@ -281,6 +285,10 @@ private fun FoodUseSources(reference: EdibilityReference) {
                     Text("${source.title} · $version", color = Moss)
                 }
                 ReferenceText(listOf(source.attribution, source.publisher).filter(String::isNotBlank).distinct().joinToString(" · "))
+                reference.crossReferences.filter { it.source == source }.forEach { record ->
+                    ReferenceText(record.summary)
+                    record.locator?.let { ReferenceText(it) }
+                }
                 if (source.licenseUrl != null) {
                     TextButton(onClick = { uriHandler.openUri(source.licenseUrl) }) {
                         Text(source.license, color = Moss)

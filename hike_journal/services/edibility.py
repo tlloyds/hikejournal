@@ -18,7 +18,10 @@ INAT_VASCULAR_PLANTS = 211194
 _PART_REFERENCE_PATH = Path(__file__).with_name("edibility_parts.json")
 _PART_REFERENCE_BYTES = _PART_REFERENCE_PATH.read_bytes()
 _PART_REFERENCE = json.loads(_PART_REFERENCE_BYTES)
-_PART_REFERENCE_REVISION = hashlib.sha256(_PART_REFERENCE_BYTES).hexdigest()[:16]
+_CROSS_REFERENCE_BYTES = Path(__file__).with_name("ethnobotany_cross_references.json").read_bytes()
+_CROSS_REFERENCE = json.loads(_CROSS_REFERENCE_BYTES)
+_REFERENCE_SOURCES = _PART_REFERENCE["sources"] | _CROSS_REFERENCE["sources"]
+_REFERENCE_REVISION = hashlib.sha256(_PART_REFERENCE_BYTES + _CROSS_REFERENCE_BYTES).hexdigest()[:16]
 
 
 def taxon_id(value: Any) -> int | None:
@@ -180,7 +183,7 @@ def load_edibility_reference(
         # A missing migration or reference outage must not break journal reads.
         logger.warning("Food-use reference unavailable (%s)", type(error).__name__)
         return EdibilityReference()
-    revision = f"{release_id or 'independent'}+parts-{_PART_REFERENCE_REVISION}"
+    revision = f"{release_id or 'independent'}+parts-{_REFERENCE_REVISION}"
     profiles = {}
     for key, profile in stored_profiles.items():
         # Older WCFP assessments encoded its broad poison-use category as a
@@ -196,7 +199,9 @@ def load_edibility_reference(
     now = datetime.now(UTC)
     for identity_id in ids:
         key = str(identity_id)
-        entry = _PART_REFERENCE["taxa"].get(key)
+        reviewed = _PART_REFERENCE["taxa"].get(key)
+        indexed = _CROSS_REFERENCE["taxa"].get(key)
+        entry = reviewed or indexed
         if not entry:
             continue
         baseline = profiles.get(key)
@@ -204,20 +209,25 @@ def load_edibility_reference(
             normalize_taxon_name(baseline["scientific_name"]) != normalize_taxon_name(entry["scientific_name"])
             or baseline["rank"] != entry["rank"]
         ):
-            profiles.pop(key)
             continue
-        profiles[key] = _with_reviewed_evidence(identity_id, entry, baseline, revision, now)
+        if reviewed and indexed and all(reviewed[field] == indexed[field] for field in ("scientific_name", "rank")):
+            entry = {
+                **reviewed,
+                "cross_references": reviewed.get("cross_references", []) + indexed["cross_references"],
+            }
+        profiles[key] = _with_supplemental_evidence(identity_id, entry, baseline, revision, now)
     return EdibilityReference(revision, profiles)
 
 
-def _with_reviewed_evidence(
+def _with_supplemental_evidence(
     identity_id: int, entry: dict[str, Any], baseline: dict[str, Any] | None, revision: str, now: datetime
 ) -> dict[str, Any]:
     profile = baseline or {}
     part_claims = entry.get("claims", [])
     traditional_uses = entry.get("traditional_uses", [])
-    source_keys = dict.fromkeys(claim["source"] for claim in (*part_claims, *traditional_uses))
-    sources = {key: _PART_REFERENCE["sources"][key] for key in source_keys}
+    cross_references = entry.get("cross_references", [])
+    source_keys = dict.fromkeys(claim["source"] for claim in (*part_claims, *traditional_uses, *cross_references))
+    sources = {key: _REFERENCE_SOURCES[key] for key in source_keys}
     claims = [
         {**claim, "source_url": sources[claim["source"]]["url"]}
         for claim in part_claims
@@ -249,7 +259,16 @@ def _with_reviewed_evidence(
             {**use, "source_url": sources[use["source"]]["url"]}
             for use in traditional_uses
         ],
+        "cross_references": [
+            {
+                "summary": record["summary"], "locator": record.get("locator"),
+                "source_url": sources[record["source"]]["url"],
+            }
+            for record in cross_references
+        ],
         "sources": [*sources.values(), *profile.get("sources", [])],
-        "review_status": profile.get("review_status", "reviewed"),
+        "review_status": profile.get(
+            "review_status", "reviewed" if part_claims or traditional_uses else "source_matched",
+        ),
         "expires_at": profile.get("expires_at") or (now + timedelta(hours=24)).isoformat(),
     }

@@ -10,6 +10,7 @@ from types import SimpleNamespace
 import pytest
 
 import mobile_api
+from hike_journal.services import edibility
 from hike_journal.services.edibility import (
     EdibilityReference,
     assess_evidence,
@@ -19,6 +20,7 @@ from hike_journal.services.edibility import (
 from hike_journal.services.inat import InatClient
 from hike_journal.services.repositories import HikeJournalRepository
 from scripts.backfill_taxon_edibility import assess_batch
+from scripts.build_ethnobotany_cross_references import _binding, _duke_records, _kew_records
 from scripts.import_food_plants import USE_FIELDS, normalize_evidence, read_verified_archive, stage_release
 
 
@@ -208,6 +210,50 @@ def test_inat_exact_lookup_ignores_common_names_and_incomplete_results(monkeypat
     assert client.find_active_scientific_taxon_ids("Example taxon") == {42}
     data["total_results"] += 1
     assert client.find_active_scientific_taxon_ids("Example taxon") is None
+
+
+def test_cross_reference_import_retains_original_locators_and_rejects_ambiguous_taxa():
+    pages = [""] * 11 + ["Exampleaceae\nExample taxon A.Author\n100-1 | HF PO MA | [2, 14]"]
+    duke = {
+        "TAXON": "Example taxon", "TAXAUTHOR": "A.Author", "FAMILY": "EXAMPLEACEAE",
+        "SPRANK": "", "SPXNAM": "", "ETHNO": "12", "REFERENCE": "cited work",
+    }
+    names = {"example taxon"}
+    candidates = list(_kew_records(pages, names)) + list(_duke_records([duke], names))
+    assert not list(_duke_records([{**duke, "SPRANK": "var."}, {**duke, "REFERENCE": ""}], names))
+    assert _binding(candidates, identity(family="Anotheraceae"), {42}) == []
+    assert _binding(candidates, identity(), {42, 43}) == []
+    kew, duke_ref = _binding(candidates, identity(), {42})
+    assert kew["locator"] == "Page 12 · IPNI 100-1"
+    assert kew["categories"] == ["HF", "PO", "MA"]
+    assert kew["reference_ids"] == [2, 14]
+    assert duke_ref["record_keys"] == [12]
+    assert duke_ref["reference_keys"] == ["cited work"]
+
+
+def test_discovery_sources_are_bound_to_confirmed_exact_taxa_without_changing_classification(monkeypatch):
+    cross_reference = {"source": "duke", "summary": "Indexed food and poison use.", "locator": "Test locator"}
+    monkeypatch.setattr(edibility, "_CROSS_REFERENCE", {
+        "taxa": {"42": {**identity(), "cross_references": [cross_reference]}},
+    })
+    repository = SimpleNamespace(read_edibility_profiles=lambda ids: (None, {}))
+    observation = {**identity(), "status": "confirmed"}
+    profile = load_edibility_reference(repository, [observation], enabled=True).profiles["42"]
+    assert profile["cross_references"] == [{
+        **{key: cross_reference[key] for key in ("summary", "locator")},
+        "source_url": profile["sources"][0]["url"],
+    }]
+    assert profile["food_use_status"] == profile["toxicity_status"] == "unknown"
+    assert not profile["has_documented_food_use"]
+    for changed in ({"status": "pending"}, {"rank": "variety"}, {"scientific_name": "Example different"}):
+        mismatched = observation | changed
+        assert load_edibility_reference(repository, [mismatched], enabled=True).for_observation(mismatched) is None
+    monkeypatch.setattr(edibility, "_PART_REFERENCE", {
+        "taxa": {"42": {**identity(), "traditional_uses": [{"source": "duke", "note": "Historically used."}]}},
+    })
+    combined = load_edibility_reference(repository, [observation], enabled=True).profiles["42"]
+    assert combined["review_status"] == "reviewed"
+    assert len(combined["sources"]) == len(combined["traditional_uses"]) == len(combined["cross_references"]) == 1
 
 
 def test_api_for_observation_uses_exact_tag_and_suppresses_mixed_species_groups():

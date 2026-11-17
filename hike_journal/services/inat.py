@@ -308,27 +308,40 @@ class InatClient:
 
     def fetch_taxon_reference_identity(self, taxon_id: int) -> dict[str, Any] | None:
         """Fetch a single taxon and its lineage for offline reference matching."""
+        return self.fetch_taxon_reference_identities([taxon_id]).get(taxon_id)
+
+    def fetch_taxon_reference_identities(self, taxon_ids: list[int]) -> dict[int, dict[str, Any]]:
+        """Resolve one batch of public iNaturalist taxa with their current lineages."""
+        requested = set(taxon_ids)
+        if not 1 <= len(requested) <= 30:
+            raise ValueError("Use between 1 and 30 taxon IDs per request")
+        path = ",".join(str(value) for value in sorted(requested))
         response = self._request(
-            "get", f"{self.base_url}/taxa/{taxon_id}", headers=self._headers(auth=False), timeout=30,
+            "get", f"{self.base_url}/taxa/{path}", headers=self._headers(auth=False),
+            params={"per_page": len(requested)}, timeout=30,
         )
         if response.status_code == 404:
-            return None
+            return {}
         if response.status_code >= 400:
             raise InatRequestError(f"iNaturalist reference taxon lookup returned {response.status_code}")
-        results = response.json().get("results") or []
-        if not results:
-            return None
-        if len(results) != 1 or not isinstance(results[0], dict) or _coerce_int(results[0].get("id")) != taxon_id:
-            raise InatRequestError("iNaturalist reference lookup did not resolve the requested taxon")
-        taxon = results[0]
-        return {
-            **extract_taxon_enrichment(taxon),
-            "family": next((
-                _coerce_text(ancestor.get("name")) for ancestor in taxon.get("ancestors") or []
-                if isinstance(ancestor, dict) and ancestor.get("rank") == "family"
-            ), None),
-            "authority": _coerce_text(taxon.get("name_authority")),
-        }
+        payload = response.json()
+        results = payload.get("results") or []
+        if _coerce_int(payload.get("total_results")) != len(results):
+            raise InatRequestError("iNaturalist reference lookup did not return a complete page")
+        identities = {}
+        for taxon in results:
+            key = _coerce_int(taxon.get("id")) if isinstance(taxon, dict) else None
+            if key not in requested or key in identities:
+                raise InatRequestError("iNaturalist reference lookup did not resolve the requested taxa")
+            identities[key] = {
+                **extract_taxon_enrichment(taxon),
+                "family": next((
+                    _coerce_text(ancestor.get("name")) for ancestor in taxon.get("ancestors") or []
+                    if isinstance(ancestor, dict) and ancestor.get("rank") == "family"
+                ), None),
+                "authority": _coerce_text(taxon.get("name_authority")),
+            }
+        return identities
 
     def _with_plant_ecology_fallback(self, enrichment: dict[str, Any]) -> dict[str, Any]:
         if not settings.usda_plants_enabled:

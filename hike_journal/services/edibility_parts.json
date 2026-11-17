@@ -118,6 +118,15 @@
       "license": "Original factual summary",
       "license_url": null
     },
+    "ema_passionflower": {
+      "title": "Passiflorae herba",
+      "url": "https://www.ema.europa.eu/en/medicines/herbal/passiflorae-herba",
+      "publisher": "European Medicines Agency",
+      "attribution": "European Medicines Agency",
+      "version": "Reviewed 2026-11-16",
+      "license": "Original factual summary",
+      "license_url": null
+    },
     "ficus_carica": {
       "title": "Ficus carica",
       "url": "https://plants.ces.ncsu.edu/plants/ficus-carica/",
@@ -127,11 +136,29 @@
       "license": "Original factual summary",
       "license_url": null
     },
+    "florida_poison_plants": {
+      "title": "Plants",
+      "url": "https://floridapoisoncontrol.org/poisoning-in-florida/plants/",
+      "publisher": "Florida’s Poison Control Centers",
+      "attribution": "Florida’s Poison Control Centers",
+      "version": "Reviewed 2026-11-16",
+      "license": "Original factual summary",
+      "license_url": null
+    },
     "fringed_bell_tree": {
       "title": "Elaeocarpus hainanensis",
       "url": "https://plants.ces.ncsu.edu/plants/elaeocarpus-hainanensis/",
       "publisher": "NC State Extension",
       "attribution": "NC State Extension",
+      "version": "Reviewed 2026-11-16",
+      "license": "Original factual summary",
+      "license_url": null
+    },
+    "grin_beautyberry": {
+      "title": "Callicarpa americana L.",
+      "url": "https://npgsweb.ars-grin.gov/gringlobal/taxon/taxonomydetail?id=8516",
+      "publisher": "USDA Agricultural Research Service",
+      "attribution": "USDA Agricultural Research Service",
       "version": "Reviewed 2026-11-16",
       "license": "Original factual summary",
       "license_url": null
@@ -213,6 +240,24 @@
       "url": "https://www.nccih.nih.gov/health/passionflower",
       "publisher": "NIH National Center for Complementary and Integrative Health",
       "attribution": "NIH National Center for Complementary and Integrative Health",
+      "version": "Reviewed 2026-11-16",
+      "license": "U.S. government work",
+      "license_url": null
+    },
+    "nrcs_cattail": {
+      "title": "Broad-leaved cattail plant guide",
+      "url": "https://plants.usda.gov/DocumentLibrary/plantguide/pdf/pg_tyla.pdf",
+      "publisher": "USDA Natural Resources Conservation Service",
+      "attribution": "USDA Natural Resources Conservation Service",
+      "version": "Reviewed 2026-11-16",
+      "license": "U.S. government work",
+      "license_url": null
+    },
+    "nrcs_spanish_moss": {
+      "title": "Spanish moss plant guide",
+      "url": "https://plants.usda.gov/documentlibrary/plantguide/pdf/cs_tius.pdf",
+      "publisher": "USDA Natural Resources Conservation Service",
+      "attribution": "USDA Natural Resources Conservation Service",
       "version": "Reviewed 2026-11-16",
       "license": "U.S. government work",
       "license_url": null
@@ -361,6 +406,15 @@
       "license": "Original factual summary",
       "license_url": null
     },
+    "uf_pokeweed": {
+      "title": "Common Poisonous Weed and Invasive Plant Species in Florida Residential Landscapes",
+      "url": "https://ask.ifas.ufl.edu/publication/EP631/pdf",
+      "publisher": "UF/IFAS Extension",
+      "attribution": "UF/IFAS Extension",
+      "version": "Reviewed 2026-11-16",
+      "license": "Original factual summary",
+      "license_url": null
+    },
     "vaccinium_fuscatum": {
       "title": "Vaccinium fuscatum",
       "url": "https://plants.ces.ncsu.edu/plants/vaccinium-fuscatum/",
@@ -412,6 +466,9 @@
       "claims": [
         {"part": "Entire plant", "kind": "toxic", "source": "pokeweed", "note": "Eating the berries can cause illness. Severe poisonings have followed root ingestion."},
         {"part": "Young leaves", "kind": "conditional", "source": "pokeweed", "note": "A traditional cooked green with a documented poisoning risk."}
+      ],
+      "cross_references": [
+        {"source": "uf_pokeweed", "summary": "UF/IFAS reports poisoning risk throughout the plant and highlights the roots and seeds.", "locator": "Common Pokeweed · Toxicity"}
       ]
     },
     "48685": {
@@ -420,7 +477,14 @@
       "claims": [
         {"part": "Young shoots", "kind": "edible", "source": "typha_latifolia"},
         {"part": "Rhizomes", "kind": "edible", "source": "typha_latifolia"},
-        {"part": "Pollen", "kind": "edible", "source": "typha_latifolia", "note": "The pollen has been used in flour."}
+        {"part": "Pollen", "kind": "edible", "source": "typha_latifolia", "note": "The pollen has been used in flour."},
+        {"part": "Young flower stalks", "kind": "conditional", "source": "nrcs_cattail", "note": "The plant guide describes food use of young stalks after cooking."}
+      ],
+      "traditional_uses": [
+        {"note": "The USDA guide describes Klamath and Modoc basketry and mats made from twined cattail or tule.", "source": "nrcs_cattail"}
+      ],
+      "cross_references": [
+        {"source": "nrcs_cattail", "summary": "The USDA guide also records food use of young shoots, pollen and rhizomes.", "locator": "Uses · p. 1"}
       ]
     },
     "49013": {
@@ -439,6 +503,16 @@
       "traditional_uses": [
         {"note": "Farmers once put crushed leaves under horse and mule harnesses to repel mosquitoes.", "source": "beautyberry_nc"},
         {"note": "NC State Extension records traditional Indigenous medicinal uses of the roots, leaves, and branches, including for joint pain.", "source": "beautyberry_nc"}
+      ],
+      "cross_references": [
+        {"source": "grin_beautyberry", "summary": "GRIN lists a historical medicinal-use reference in the CRC Handbook of Medicinal Herbs.", "locator": "Economic Uses · Medicines (folklore)"}
+      ]
+    },
+    "49569": {
+      "scientific_name": "Tillandsia usneoides",
+      "rank": "species",
+      "traditional_uses": [
+        {"note": "Houma and Koasati communities have used Spanish moss in dollmaking. Its fibers have also been used to stuff upholstery.", "source": "nrcs_spanish_moss"}
       ]
     },
     "49658": {
@@ -464,6 +538,9 @@
       ],
       "traditional_uses": [
         {"note": "Passionflower was used as a sedative in European folk medicine.", "source": "nccih_passionflower"}
+      ],
+      "cross_references": [
+        {"source": "ema_passionflower", "summary": "The EMA assessment covers specific herbal preparations of the above-ground parts. Its conclusions rely on traditional use.", "locator": "Overview · What evidence supports the use"}
       ]
     },
     "52599": {
@@ -645,6 +722,9 @@
       "rank": "species",
       "claims": [
         {"part": "Mature tubers", "kind": "conditional", "source": "apios_americana", "note": "The documented use is for cooked tubers."}
+      ],
+      "cross_references": [
+        {"source": "uf_native", "summary": "The circular records longstanding use of groundnut tubers as food in North America, including by Indigenous communities.", "locator": "Table 3 · p. 13"}
       ]
     },
     "119956": {
@@ -652,6 +732,13 @@
       "rank": "species",
       "traditional_uses": [
         {"note": "Wax from the berries was used to make bayberry candles.", "source": "wax_myrtle"}
+      ]
+    },
+    "119982": {
+      "scientific_name": "Verbesina virginica",
+      "rank": "species",
+      "traditional_uses": [
+        {"note": "UF/IFAS documents a Seminole healing tradition involving the leaves, citing Moerman’s ethnobotanical reference.", "source": "uf_native"}
       ]
     },
     "122835": {
@@ -667,6 +754,9 @@
       "rank": "species",
       "claims": [
         {"part": "Growing bud", "kind": "edible", "source": "uf_native", "note": "This is the palm heart. Removing it kills the palm."}
+      ],
+      "traditional_uses": [
+        {"note": "Seminole makers used the leaves for thatch and mats.", "source": "uf_native"}
       ]
     },
     "125677": {
@@ -725,6 +815,9 @@
       "rank": "species",
       "claims": [
         {"part": "Sap", "kind": "caution", "source": "peppertree_sap", "note": "Skin contact with the sap can cause a rash."}
+      ],
+      "cross_references": [
+        {"source": "florida_poison_plants", "summary": "Florida Poison Control reports that skin contact with Brazilian pepper leaves or plant oils can cause an itchy, blistering rash.", "locator": "Poisonous Plants · Brazilian Pepper"}
       ]
     },
     "133291": {

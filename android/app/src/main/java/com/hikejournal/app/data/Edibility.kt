@@ -21,6 +21,8 @@ data class PlantPartEvidence(
 
 data class TraditionalUse(val note: String, val source: FoodUseSource, val citation: String? = null)
 
+data class EthnobotanyCrossReference(val source: FoodUseSource, val summary: String, val locator: String?)
+
 enum class FoodUseIndicator(val label: String, val warning: Boolean) {
     Edible("Edible parts", false),
     FoodUses("Used as food", false),
@@ -61,7 +63,17 @@ data class EdibilityReference(
     val partEvidence: List<PlantPartEvidence> = emptyList(),
     val checklistPoisonUse: Boolean = false,
     val traditionalUses: List<TraditionalUse> = emptyList(),
+    val crossReferences: List<EthnobotanyCrossReference> = emptyList(),
 ) {
+    val fieldGuideFoodStatus: FoodUseIndicator?
+        get() = when {
+            !hasDocumentedFoodUse -> null
+            evidenceConflict || foodUse == FoodUseStatus.Disputed -> FoodUseIndicator.FoodUses
+            partEvidence.any { it.kind == PlantPartEvidenceKind.Edible } -> FoodUseIndicator.Edible
+            foodUse == FoodUseStatus.Conditional -> FoodUseIndicator.Conditional
+            else -> FoodUseIndicator.FoodUses
+        }
+
     val indicator: FoodUseIndicator?
         get() = when {
             partEvidence.any { it.kind == PlantPartEvidenceKind.Toxic } ->
@@ -176,6 +188,16 @@ internal fun parseEdibility(json: JSONObject?): EdibilityReference? {
             )
         }
     }.orEmpty()
+    val crossReferences = json.optJSONArray("cross_references")?.let { records ->
+        (0 until records.length()).mapNotNull { index ->
+            val record = records.optJSONObject(index) ?: return@mapNotNull null
+            EthnobotanyCrossReference(
+                source = sourcesByUrl[record.httpsUrl("source_url")] ?: return@mapNotNull null,
+                summary = record.nonblank("summary") ?: return@mapNotNull null,
+                locator = record.nonblank("locator"),
+            )
+        }
+    }.orEmpty()
     return EdibilityReference(
         taxonId = taxonId,
         scientificName = name,
@@ -203,6 +225,7 @@ internal fun parseEdibility(json: JSONObject?): EdibilityReference? {
             json.nonblank("toxicity_notes")?.startsWith("The checklist also records a poison use.") == true,
         ),
         traditionalUses = traditionalUses,
+        crossReferences = crossReferences,
     )
 }
 
@@ -218,6 +241,11 @@ internal fun SpeciesRecord.currentEdibility(now: Instant = Instant.now()): Edibi
 
 internal fun SpeciesRecord.currentEdibilityByTaxon(now: Instant = Instant.now()): List<EdibilityReference> =
     edibilityByTaxon.filter { now.isBefore(it.expiresAt) && it.datasetVersion == edibilityDatasetVersion }
+
+internal fun SpeciesRecord.currentEdibilityReferences(currentDatasetVersion: String?): List<EdibilityReference> =
+    (listOfNotNull(currentEdibility()) + currentEdibilityByTaxon()).filter {
+        currentDatasetVersion == null || it.datasetVersion == currentDatasetVersion
+    }
 
 internal fun SpeciesRecord.showsEdibilityReference(currentDatasetVersion: String?): Boolean =
     edibilityReferenceEnabled && (currentDatasetVersion == null || edibilityDatasetVersion == currentDatasetVersion)

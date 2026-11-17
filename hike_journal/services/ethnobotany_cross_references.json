@@ -1,0 +1,6316 @@
+{
+  "sources": {
+    "kew_useful_plants": {
+      "title": "World Checklist of Useful Plant Species",
+      "url": "https://doi.org/10.5063/F1CV4G34",
+      "publisher": "Royal Botanic Gardens, Kew",
+      "attribution": "Mauricio Diazgranados, Bob Allkin, Nicholas Black, Rodrigo Cámara-Leret, Cátia Canteiro, Julia Carretero, Ruth Eastwood, Samantha Hargreaves, Alex Hudson, William Milliken, Mark Nesbitt, Ian Ondo, Kristina Patmore, Samuel Pironon, Robert Turner and Tiziana Ulian",
+      "version": "2020 checklist",
+      "license": "CC BY 4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "modifications": "HikeJournal indexed selected checklist records and matched exact species."
+    }
+  },
+  "taxa": {
+    "47912": {
+      "scientific_name": "Asclepias tuberosa",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses, food, materials, medicine.",
+          "locator": "Page 351 · IPNI 94704-1",
+          "record_key": "94704-1",
+          "categories": [
+            "EU",
+            "HF",
+            "MA",
+            "ME"
+          ],
+          "reference_ids": [
+            1,
+            3,
+            4,
+            9
+          ]
+        }
+      ]
+    },
+    "48038": {
+      "scientific_name": "Lobelia cardinalis",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses, medicine, use as a poison.",
+          "locator": "Page 192 · IPNI 142115-2",
+          "record_key": "142115-2",
+          "categories": [
+            "EU",
+            "ME",
+            "PO"
+          ],
+          "reference_ids": [
+            1,
+            3,
+            4
+          ]
+        }
+      ]
+    },
+    "48233": {
+      "scientific_name": "Nephrolepis cordifolia",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "duke",
+          "summary": "1 cited use record from 1 reference.",
+          "locator": "ETHNOBOT.csv · Record 14047",
+          "record_keys": [
+            14047
+          ],
+          "reference_keys": [
+            "Woi.7"
+          ]
+        }
+      ]
+    },
+    "48599": {
+      "scientific_name": "Phytolacca americana",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses, gene sources, food, materials, medicine, use as a poison.",
+          "locator": "Page 234 · IPNI 323290-2",
+          "record_key": "323290-2",
+          "categories": [
+            "EU",
+            "GS",
+            "HF",
+            "MA",
+            "ME",
+            "PO"
+          ],
+          "reference_ids": [
+            1,
+            3,
+            4,
+            7,
+            8
+          ]
+        },
+        {
+          "source": "duke",
+          "summary": "42 cited use records from 12 references.",
+          "locator": "ETHNOBOT.csv · First record 1821",
+          "record_keys": [
+            1821,
+            6478,
+            9293,
+            9294,
+            9295,
+            9632,
+            18478,
+            21288,
+            21289,
+            21290,
+            25093,
+            31620,
+            35160,
+            38181,
+            38182,
+            39920,
+            39921,
+            39922,
+            41468,
+            49308,
+            52487,
+            60227,
+            60228,
+            60231,
+            60232,
+            60236,
+            60239,
+            60240,
+            60241,
+            64929,
+            66281,
+            69944,
+            70654,
+            73861,
+            73956,
+            75115,
+            75364,
+            75643,
+            76803,
+            81890,
+            81893,
+            81895
+          ],
+          "reference_keys": [
+            "Eb21: 206",
+            "Eb22: 333",
+            "Eb29: 177",
+            "Eb31: 35",
+            "Eb33: 244",
+            "FontQuer",
+            "Hartwell",
+            "Krochmal",
+            "Lewis",
+            "Nas",
+            "Steinmetz",
+            "Takeda"
+          ]
+        }
+      ]
+    },
+    "48685": {
+      "scientific_name": "Typha latifolia",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include animal food, environmental uses, gene sources, food, materials, medicine, use as a poison.",
+          "locator": "Page 123 · IPNI 836870-1",
+          "record_key": "836870-1",
+          "categories": [
+            "AF",
+            "EU",
+            "GS",
+            "HF",
+            "MA",
+            "ME",
+            "PO"
+          ],
+          "reference_ids": [
+            1,
+            3,
+            4,
+            7,
+            8,
+            11
+          ]
+        },
+        {
+          "source": "duke",
+          "summary": "44 cited use records from 12 references.",
+          "locator": "ETHNOBOT.csv · First record 133",
+          "record_keys": [
+            133,
+            2018,
+            2985,
+            8631,
+            8632,
+            11981,
+            14635,
+            17135,
+            18871,
+            18872,
+            27027,
+            27028,
+            27827,
+            27869,
+            27998,
+            28231,
+            28461,
+            28509,
+            32098,
+            33966,
+            36881,
+            38422,
+            40554,
+            42357,
+            46372,
+            48290,
+            49128,
+            52752,
+            53347,
+            53410,
+            54721,
+            55220,
+            62358,
+            62361,
+            62365,
+            68673,
+            70301,
+            72006,
+            72037,
+            72141,
+            73845,
+            79866,
+            80675,
+            82531
+          ],
+          "reference_keys": [
+            "Duke,1972",
+            "Eb24: 307",
+            "Eb25: 77",
+            "Eb31: 305",
+            "Hartwell",
+            "Hunan",
+            "Keys",
+            "Krochmal",
+            "Lewis",
+            "Nas",
+            "Tackholm",
+            "Takeda"
+          ]
+        }
+      ]
+    },
+    "49013": {
+      "scientific_name": "Quercus virginiana",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses, materials, medicine.",
+          "locator": "Page 347 · IPNI 324846-2",
+          "record_key": "324846-2",
+          "categories": [
+            "EU",
+            "MA",
+            "ME"
+          ],
+          "reference_ids": [
+            1,
+            3,
+            4
+          ]
+        },
+        {
+          "source": "duke",
+          "summary": "3 cited use records from 1 reference.",
+          "locator": "ETHNOBOT.csv · First record 45106",
+          "record_keys": [
+            45106,
+            60837,
+            70612
+          ],
+          "reference_keys": [
+            "Krochmal"
+          ]
+        }
+      ]
+    },
+    "49193": {
+      "scientific_name": "Callicarpa americana",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses, medicine.",
+          "locator": "Page 410 · IPNI 319128-2",
+          "record_key": "319128-2",
+          "categories": [
+            "EU",
+            "ME"
+          ],
+          "reference_ids": [
+            3,
+            4
+          ]
+        },
+        {
+          "source": "duke",
+          "summary": "1 cited use record from 1 reference.",
+          "locator": "ETHNOBOT.csv · Record 9761",
+          "record_keys": [
+            9761
+          ],
+          "reference_keys": [
+            "Hartwell"
+          ]
+        }
+      ]
+    },
+    "49399": {
+      "scientific_name": "Juniperus virginiana",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses, materials, medicine, social uses.",
+          "locator": "Page 669 · IPNI 132551-2",
+          "record_key": "132551-2",
+          "categories": [
+            "EU",
+            "MA",
+            "ME",
+            "SU"
+          ],
+          "reference_ids": [
+            1,
+            3,
+            4,
+            7
+          ]
+        },
+        {
+          "source": "duke",
+          "summary": "18 cited use records from 8 references.",
+          "locator": "ETHNOBOT.csv · First record 304",
+          "record_keys": [
+            304,
+            8139,
+            21723,
+            23718,
+            33609,
+            38680,
+            40202,
+            41305,
+            44265,
+            48478,
+            58908,
+            58924,
+            63590,
+            67507,
+            70650,
+            76771,
+            78544,
+            80384
+          ],
+          "reference_keys": [
+            "Eb22: 333",
+            "Hartwell",
+            "Krochmal",
+            "Lewis",
+            "Nc",
+            "Steinmetz",
+            "Woi.1",
+            "Woi.5"
+          ]
+        }
+      ]
+    },
+    "49569": {
+      "scientific_name": "Tillandsia usneoides",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses, materials, medicine.",
+          "locator": "Page 83 · IPNI 1169665-2",
+          "record_key": "1169665-2",
+          "categories": [
+            "EU",
+            "MA",
+            "ME"
+          ],
+          "reference_ids": [
+            1,
+            3,
+            4
+          ]
+        },
+        {
+          "source": "duke",
+          "summary": "14 cited use records from 5 references.",
+          "locator": "ETHNOBOT.csv · First record 6221",
+          "record_keys": [
+            6221,
+            21908,
+            25511,
+            28456,
+            29639,
+            35164,
+            52721,
+            52722,
+            55215,
+            55216,
+            62166,
+            70281,
+            78304,
+            82473
+          ],
+          "reference_keys": [
+            "Brutus",
+            "Hartwell",
+            "Liogier",
+            "Martinez",
+            "Pan"
+          ]
+        }
+      ]
+    },
+    "49658": {
+      "scientific_name": "Liquidambar styraciflua",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses, food, materials, medicine.",
+          "locator": "Page 642 · IPNI 430718-1",
+          "record_key": "430718-1",
+          "categories": [
+            "EU",
+            "HF",
+            "MA",
+            "ME"
+          ],
+          "reference_ids": [
+            1,
+            3,
+            4
+          ]
+        }
+      ]
+    },
+    "49666": {
+      "scientific_name": "Taxodium distichum",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses, materials, medicine.",
+          "locator": "Page 670 · IPNI 30052311-2",
+          "record_key": "30052311-2",
+          "categories": [
+            "EU",
+            "MA",
+            "ME"
+          ],
+          "reference_ids": [
+            1,
+            3,
+            4,
+            5
+          ]
+        }
+      ]
+    },
+    "50202": {
+      "scientific_name": "Bidens bipinnata",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include animal food, environmental uses, gene sources, food, invertebrate food, medicine, use as a poison.",
+          "locator": "Page 157 · IPNI 184769-1",
+          "record_key": "184769-1",
+          "categories": [
+            "AF",
+            "EU",
+            "GS",
+            "HF",
+            "IF",
+            "ME",
+            "PO"
+          ],
+          "reference_ids": [
+            1,
+            3,
+            4,
+            8,
+            10,
+            11
+          ]
+        },
+        {
+          "source": "duke",
+          "summary": "6 cited use records from 1 reference.",
+          "locator": "ETHNOBOT.csv · First record 9901",
+          "record_keys": [
+            9901,
+            28121,
+            56909,
+            65578,
+            72805,
+            75963
+          ],
+          "reference_keys": [
+            "Nas"
+          ]
+        }
+      ]
+    },
+    "50278": {
+      "scientific_name": "Parthenocissus quinquefolia",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses, materials, medicine, use as a poison.",
+          "locator": "Page 665 · IPNI 184091-2",
+          "record_key": "184091-2",
+          "categories": [
+            "EU",
+            "MA",
+            "ME",
+            "PO"
+          ],
+          "reference_ids": [
+            1,
+            3,
+            4
+          ]
+        },
+        {
+          "source": "duke",
+          "summary": "22 cited use records from 5 references.",
+          "locator": "ETHNOBOT.csv · First record 1813",
+          "record_keys": [
+            1813,
+            5936,
+            13581,
+            16888,
+            18419,
+            19188,
+            19189,
+            23212,
+            23213,
+            38158,
+            46837,
+            50777,
+            50778,
+            50779,
+            60029,
+            60030,
+            64044,
+            64045,
+            64610,
+            71078,
+            76501,
+            80220
+          ],
+          "reference_keys": [
+            "Hartwell",
+            "Lewis",
+            "Standley",
+            "Steinmetz",
+            "Uphof"
+          ]
+        }
+      ]
+    },
+    "50333": {
+      "scientific_name": "Lantana camara",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "duke",
+          "summary": "110 cited use records from 20 references.",
+          "locator": "ETHNOBOT.csv · First record 73",
+          "record_keys": [
+            73,
+            1550,
+            2200,
+            2970,
+            2971,
+            3675,
+            3928,
+            3929,
+            6720,
+            10959,
+            11482,
+            11518,
+            12280,
+            12281,
+            13197,
+            13964,
+            15566,
+            16248,
+            16249,
+            17263,
+            19680,
+            19681,
+            20166,
+            21728,
+            23113,
+            23114,
+            24754,
+            24755,
+            24756,
+            24757,
+            24758,
+            25654,
+            25655,
+            25732,
+            25841,
+            25842,
+            28351,
+            29509,
+            30512,
+            30513,
+            30514,
+            30723,
+            30724,
+            31916,
+            31917,
+            32960,
+            33410,
+            34132,
+            35786,
+            35950,
+            36225,
+            36315,
+            38029,
+            38030,
+            41316,
+            41317,
+            41318,
+            41319,
+            41320,
+            43080,
+            43728,
+            43729,
+            44855,
+            46743,
+            47216,
+            48068,
+            49722,
+            50612,
+            50613,
+            50614,
+            51425,
+            52329,
+            56044,
+            56045,
+            56446,
+            56447,
+            59011,
+            59012,
+            59013,
+            59014,
+            59015,
+            59019,
+            59020,
+            59021,
+            59023,
+            59024,
+            59025,
+            59026,
+            59027,
+            59028,
+            66643,
+            66938,
+            67187,
+            67480,
+            68408,
+            69790,
+            70992,
+            70993,
+            71285,
+            73533,
+            74168,
+            74525,
+            76058,
+            76774,
+            77739,
+            78642,
+            79181,
+            79454,
+            81514,
+            81516
+          ],
+          "reference_keys": [
+            "Al-Rawi",
+            "Altschul",
+            "Ayensu",
+            "Brutus",
+            "Duke,1972",
+            "Eb25: 446",
+            "Eb29: 323",
+            "Eb30: 135",
+            "Gupta",
+            "Hartwell",
+            "Hunan",
+            "Lewis",
+            "Liogier",
+            "Martinez",
+            "Pittier",
+            "Standley",
+            "Steinmetz",
+            "Uphof",
+            "Woi.Syria",
+            "Wong"
+          ]
+        }
+      ]
+    },
+    "50338": {
+      "scientific_name": "Ludwigia peruviana",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses, medicine.",
+          "locator": "Page 553 · IPNI 144406-2",
+          "record_key": "144406-2",
+          "categories": [
+            "EU",
+            "ME"
+          ],
+          "reference_ids": [
+            3,
+            4
+          ]
+        }
+      ]
+    },
+    "51119": {
+      "scientific_name": "Nymphaea odorata",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses, medicine.",
+          "locator": "Page 555 · IPNI 171201-2",
+          "record_key": "171201-2",
+          "categories": [
+            "EU",
+            "ME"
+          ],
+          "reference_ids": [
+            3,
+            4
+          ]
+        },
+        {
+          "source": "duke",
+          "summary": "10 cited use records from 5 references.",
+          "locator": "ETHNOBOT.csv · First record 2647",
+          "record_keys": [
+            2647,
+            3714,
+            5915,
+            8400,
+            15018,
+            44969,
+            49567,
+            52426,
+            56125,
+            59811
+          ],
+          "reference_keys": [
+            "Eb27: 254",
+            "Eb28: 326",
+            "Eb32: 113",
+            "Hartwell",
+            "Steinmetz"
+          ]
+        }
+      ]
+    },
+    "51453": {
+      "scientific_name": "Passiflora incarnata",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include medicine.",
+          "locator": "Page 494 · IPNI 675096-1",
+          "record_key": "675096-1",
+          "categories": [
+            "ME"
+          ],
+          "reference_ids": [
+            4
+          ]
+        },
+        {
+          "source": "duke",
+          "summary": "32 cited use records from 7 references.",
+          "locator": "ETHNOBOT.csv · First record 4539",
+          "record_keys": [
+            4539,
+            8586,
+            20193,
+            20194,
+            22459,
+            22460,
+            30053,
+            30054,
+            30055,
+            33657,
+            34052,
+            34350,
+            34351,
+            34967,
+            36444,
+            43155,
+            43806,
+            44375,
+            45817,
+            45818,
+            60039,
+            60043,
+            67897,
+            70601,
+            72625,
+            73953,
+            74152,
+            74169,
+            76600,
+            77461,
+            81828,
+            81829
+          ],
+          "reference_keys": [
+            "Al-Rawi",
+            "Eb22: 333",
+            "Eb30: 402",
+            "Krochmal",
+            "Steinmetz",
+            "Uphof",
+            "Woi.7"
+          ]
+        }
+      ]
+    },
+    "51599": {
+      "scientific_name": "Psychotria nervosa",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include medicine.",
+          "locator": "Page 387 · IPNI 329821-2",
+          "record_key": "329821-2",
+          "categories": [
+            "ME"
+          ],
+          "reference_ids": [
+            4,
+            12
+          ]
+        }
+      ]
+    },
+    "51768": {
+      "scientific_name": "Gaillardia pulchella",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses, gene sources, medicine.",
+          "locator": "Page 167 · IPNI 329185-2",
+          "record_key": "329185-2",
+          "categories": [
+            "EU",
+            "GS",
+            "ME"
+          ],
+          "reference_ids": [
+            3,
+            4,
+            8
+          ]
+        }
+      ]
+    },
+    "52078": {
+      "scientific_name": "Richardia grandiflora",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include medicine.",
+          "locator": "Page 389 · IPNI 764663-1",
+          "record_key": "764663-1",
+          "categories": [
+            "ME"
+          ],
+          "reference_ids": [
+            4
+          ]
+        }
+      ]
+    },
+    "52446": {
+      "scientific_name": "Enterolobium contortisiliquum",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses, materials, medicine.",
+          "locator": "Page 305 · IPNI 1032130-2",
+          "record_key": "1032130-2",
+          "categories": [
+            "EU",
+            "MA",
+            "ME"
+          ],
+          "reference_ids": [
+            1,
+            4,
+            8,
+            11
+          ]
+        }
+      ]
+    },
+    "52599": {
+      "scientific_name": "Pontederia cordata",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses, medicine.",
+          "locator": "Page 72 · IPNI 283610-2",
+          "record_key": "283610-2",
+          "categories": [
+            "EU",
+            "ME"
+          ],
+          "reference_ids": [
+            3,
+            4,
+            11
+          ]
+        }
+      ]
+    },
+    "52681": {
+      "scientific_name": "Pteridium aquilinum",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "duke",
+          "summary": "30 cited use records from 10 references.",
+          "locator": "ETHNOBOT.csv · First record 6497",
+          "record_keys": [
+            6497,
+            7977,
+            10052,
+            14545,
+            18582,
+            25214,
+            34142,
+            38222,
+            38223,
+            39312,
+            42545,
+            43192,
+            43474,
+            47276,
+            49442,
+            54588,
+            54589,
+            56219,
+            60771,
+            60773,
+            60774,
+            60775,
+            60776,
+            60777,
+            65289,
+            68625,
+            72316,
+            72483,
+            72681,
+            80127
+          ],
+          "reference_keys": [
+            "Bliss",
+            "Duke,1972",
+            "Eb25: 69",
+            "Eb30: 402",
+            "FontQuer",
+            "Hartwell",
+            "Krochmal",
+            "Lewis",
+            "Uphof",
+            "Woi.8"
+          ]
+        }
+      ]
+    },
+    "52763": {
+      "scientific_name": "Cephalanthus occidentalis",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses, materials, medicine, use as a poison.",
+          "locator": "Page 372 · IPNI 319140-2",
+          "record_key": "319140-2",
+          "categories": [
+            "EU",
+            "MA",
+            "ME",
+            "PO"
+          ],
+          "reference_ids": [
+            1,
+            3,
+            4
+          ]
+        },
+        {
+          "source": "duke",
+          "summary": "23 cited use records from 5 references.",
+          "locator": "ETHNOBOT.csv · First record 5553",
+          "record_keys": [
+            5553,
+            13743,
+            24244,
+            31381,
+            31382,
+            32852,
+            35596,
+            35597,
+            37439,
+            50258,
+            50259,
+            53795,
+            53796,
+            53797,
+            67647,
+            69875,
+            70820,
+            73031,
+            73496,
+            74979,
+            76733,
+            78818,
+            80966
+          ],
+          "reference_keys": [
+            "Altschul",
+            "Krochmal",
+            "Martinez",
+            "Standley",
+            "Uphof"
+          ]
+        }
+      ]
+    },
+    "52899": {
+      "scientific_name": "Solanum carolinense",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include medicine, use as a poison.",
+          "locator": "Page 658 · IPNI 285195-2",
+          "record_key": "285195-2",
+          "categories": [
+            "ME",
+            "PO"
+          ],
+          "reference_ids": [
+            1,
+            3,
+            4
+          ]
+        },
+        {
+          "source": "duke",
+          "summary": "24 cited use records from 5 references.",
+          "locator": "ETHNOBOT.csv · First record 2791",
+          "record_keys": [
+            2791,
+            2792,
+            6510,
+            8245,
+            18735,
+            18736,
+            22484,
+            22485,
+            33719,
+            34724,
+            43224,
+            43225,
+            43226,
+            45887,
+            61631,
+            61645,
+            61648,
+            65084,
+            70277,
+            76617,
+            77480,
+            78629,
+            78647,
+            82327
+          ],
+          "reference_keys": [
+            "E",
+            "Eb31: 35",
+            "Krochmal",
+            "Steinmetz",
+            "Uphof"
+          ]
+        }
+      ]
+    },
+    "53478": {
+      "scientific_name": "Commelina erecta",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include animal food, environmental uses, food, medicine, social uses.",
+          "locator": "Page 71 · IPNI 172048-1",
+          "record_key": "172048-1",
+          "categories": [
+            "AF",
+            "EU",
+            "HF",
+            "ME",
+            "SU"
+          ],
+          "reference_ids": [
+            3,
+            4,
+            8,
+            10,
+            11,
+            12
+          ]
+        },
+        {
+          "source": "duke",
+          "summary": "6 cited use records from 3 references.",
+          "locator": "ETHNOBOT.csv · First record 22776",
+          "record_keys": [
+            22776,
+            24331,
+            34671,
+            45656,
+            57513,
+            77620
+          ],
+          "reference_keys": [
+            "Altschul",
+            "Eb31: 304",
+            "Liogier"
+          ]
+        }
+      ]
+    },
+    "53587": {
+      "scientific_name": "Ambrosia artemisiifolia",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include food, medicine, use as a poison.",
+          "locator": "Page 152 · IPNI 176058-1",
+          "record_key": "176058-1",
+          "categories": [
+            "HF",
+            "ME",
+            "PO"
+          ],
+          "reference_ids": [
+            1,
+            3,
+            4,
+            12
+          ]
+        },
+        {
+          "source": "duke",
+          "summary": "1 cited use record from 1 reference.",
+          "locator": "ETHNOBOT.csv · Record 80759",
+          "record_keys": [
+            80759
+          ],
+          "reference_keys": [
+            "Hartwell"
+          ]
+        }
+      ]
+    },
+    "54789": {
+      "scientific_name": "Carya glabra",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include fuel, gene sources, materials.",
+          "locator": "Page 347 · IPNI 30055752-2",
+          "record_key": "30055752-2",
+          "categories": [
+            "FU",
+            "GS",
+            "MA"
+          ],
+          "reference_ids": [
+            1,
+            3
+          ]
+        }
+      ]
+    },
+    "54921": {
+      "scientific_name": "Packera glabella",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include use as a poison.",
+          "locator": "Page 178 · IPNI 963667-1",
+          "record_key": "963667-1",
+          "categories": [
+            "PO"
+          ],
+          "reference_ids": [
+            3
+          ]
+        }
+      ]
+    },
+    "55745": {
+      "scientific_name": "Trifolium repens",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include animal food, environmental uses, gene sources, food, invertebrate food, medicine, use as a poison, social uses.",
+          "locator": "Page 336 · IPNI 523626-1",
+          "record_key": "523626-1",
+          "categories": [
+            "AF",
+            "EU",
+            "GS",
+            "HF",
+            "IF",
+            "ME",
+            "PO",
+            "SU"
+          ],
+          "reference_ids": [
+            3,
+            4,
+            7,
+            8,
+            9
+          ]
+        },
+        {
+          "source": "duke",
+          "summary": "20 cited use records from 8 references.",
+          "locator": "ETHNOBOT.csv · First record 9516",
+          "record_keys": [
+            9516,
+            15742,
+            22765,
+            38756,
+            39160,
+            41728,
+            41729,
+            42676,
+            45277,
+            45912,
+            49125,
+            51116,
+            62285,
+            62288,
+            62291,
+            63920,
+            67916,
+            70535,
+            71744,
+            75410
+          ],
+          "reference_keys": [
+            "Al-Rawi",
+            "Eb28: 324",
+            "Eb30: 402",
+            "Hartwell",
+            "Lewis",
+            "Steinmetz",
+            "Uphof",
+            "Woi.Syria"
+          ]
+        }
+      ]
+    },
+    "57481": {
+      "scientific_name": "Calystegia sepium",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include medicine.",
+          "locator": "Page 649 · IPNI 30033025-2",
+          "record_key": "30033025-2",
+          "categories": [
+            "ME"
+          ],
+          "reference_ids": [
+            3,
+            4
+          ]
+        },
+        {
+          "source": "duke",
+          "summary": "7 cited use records from 2 references.",
+          "locator": "ETHNOBOT.csv · First record 7890",
+          "record_keys": [
+            7890,
+            17675,
+            39568,
+            49673,
+            57069,
+            75347,
+            78797
+          ],
+          "reference_keys": [
+            "Bliss",
+            "FontQuer"
+          ]
+        }
+      ]
+    },
+    "58389": {
+      "scientific_name": "Sorghum bicolor",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "duke",
+          "summary": "12 cited use records from 6 references.",
+          "locator": "ETHNOBOT.csv · First record 1306",
+          "record_keys": [
+            1306,
+            9471,
+            14563,
+            15077,
+            18754,
+            18755,
+            22116,
+            22117,
+            25977,
+            30376,
+            68070,
+            70278
+          ],
+          "reference_keys": [
+            "Al-Rawi",
+            "Bliss",
+            "Eb24: 263",
+            "Eb30: 401",
+            "Hartwell",
+            "Steinmetz"
+          ]
+        }
+      ]
+    },
+    "59040": {
+      "scientific_name": "Phyla nodiflora",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses, gene sources, food, materials, medicine, social uses.",
+          "locator": "Page 441 · IPNI 194567-2",
+          "record_key": "194567-2",
+          "categories": [
+            "EU",
+            "GS",
+            "HF",
+            "MA",
+            "ME",
+            "SU"
+          ],
+          "reference_ids": [
+            3,
+            4,
+            8,
+            11
+          ]
+        },
+        {
+          "source": "duke",
+          "summary": "21 cited use records from 4 references.",
+          "locator": "ETHNOBOT.csv · First record 7773",
+          "record_keys": [
+            7773,
+            10654,
+            15034,
+            18462,
+            20474,
+            20475,
+            25065,
+            25066,
+            26941,
+            34712,
+            34970,
+            39394,
+            40456,
+            45019,
+            48735,
+            49578,
+            54833,
+            54834,
+            60197,
+            63916,
+            77465
+          ],
+          "reference_keys": [
+            "Brutus",
+            "Eb29: 323",
+            "Eb32: 307",
+            "Liogier"
+          ]
+        }
+      ]
+    },
+    "60125": {
+      "scientific_name": "Cicuta maculata",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include medicine, use as a poison.",
+          "locator": "Page 135 · IPNI 58605-2",
+          "record_key": "58605-2",
+          "categories": [
+            "ME",
+            "PO"
+          ],
+          "reference_ids": [
+            3,
+            4
+          ]
+        },
+        {
+          "source": "duke",
+          "summary": "4 cited use records from 3 references.",
+          "locator": "ETHNOBOT.csv · First record 48671",
+          "record_keys": [
+            48671,
+            52070,
+            67494,
+            70641
+          ],
+          "reference_keys": [
+            "Eb21: 210",
+            "Hartwell",
+            "Lewis"
+          ]
+        }
+      ]
+    },
+    "60146": {
+      "scientific_name": "Pluchea odorata",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include materials, medicine.",
+          "locator": "Page 180 · IPNI 1099254-2",
+          "record_key": "1099254-2",
+          "categories": [
+            "MA",
+            "ME"
+          ],
+          "reference_ids": [
+            1,
+            3,
+            4,
+            12
+          ]
+        },
+        {
+          "source": "duke",
+          "summary": "43 cited use records from 9 references.",
+          "locator": "ETHNOBOT.csv · First record 3148",
+          "record_keys": [
+            3148,
+            5812,
+            7208,
+            12380,
+            12381,
+            12882,
+            12883,
+            21825,
+            21826,
+            25135,
+            25136,
+            25137,
+            25885,
+            25886,
+            27595,
+            28396,
+            29017,
+            29018,
+            34974,
+            34975,
+            34976,
+            35363,
+            37555,
+            37556,
+            41499,
+            41500,
+            47261,
+            60439,
+            60440,
+            60441,
+            60443,
+            60445,
+            60446,
+            60449,
+            63793,
+            67226,
+            68417,
+            71117,
+            71887,
+            74156,
+            74268,
+            76115,
+            78039
+          ],
+          "reference_keys": [
+            "Altschul",
+            "Brutus",
+            "Eb29: 325",
+            "Eb30: 142",
+            "Martinez",
+            "Pittier",
+            "Standley",
+            "Uphof",
+            "Wong"
+          ]
+        }
+      ]
+    },
+    "60749": {
+      "scientific_name": "Ilex opaca",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "duke",
+          "summary": "12 cited use records from 3 references.",
+          "locator": "ETHNOBOT.csv · First record 13937",
+          "record_keys": [
+            13937,
+            27084,
+            31513,
+            37447,
+            38673,
+            51779,
+            52282,
+            52283,
+            58718,
+            58726,
+            58731,
+            70974
+          ],
+          "reference_keys": [
+            "Hartwell",
+            "Krochmal",
+            "Lewis"
+          ]
+        }
+      ]
+    },
+    "61369": {
+      "scientific_name": "Momordica charantia",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "duke",
+          "summary": "155 cited use records from 25 references.",
+          "locator": "ETHNOBOT.csv · First record 84",
+          "record_keys": [
+            84,
+            85,
+            235,
+            236,
+            634,
+            2972,
+            4512,
+            4513,
+            5214,
+            5215,
+            5883,
+            6734,
+            7170,
+            7407,
+            8574,
+            8575,
+            9236,
+            9624,
+            9952,
+            10972,
+            12319,
+            12675,
+            12676,
+            14025,
+            15862,
+            15863,
+            16049,
+            16050,
+            16054,
+            16102,
+            16103,
+            19745,
+            19746,
+            19747,
+            20176,
+            20442,
+            20837,
+            21255,
+            21764,
+            22639,
+            23645,
+            24912,
+            24913,
+            24914,
+            24915,
+            24916,
+            27094,
+            27095,
+            27474,
+            27475,
+            27671,
+            28565,
+            28946,
+            28947,
+            29009,
+            30538,
+            30736,
+            30901,
+            31583,
+            31929,
+            31930,
+            31931,
+            31932,
+            32405,
+            32996,
+            32997,
+            32998,
+            32999,
+            33164,
+            33765,
+            33791,
+            35050,
+            35984,
+            36789,
+            36790,
+            38105,
+            38698,
+            39884,
+            39885,
+            39886,
+            40421,
+            40607,
+            41383,
+            41384,
+            41385,
+            42059,
+            42345,
+            43772,
+            43773,
+            44271,
+            44937,
+            44938,
+            46097,
+            46148,
+            46301,
+            47377,
+            48128,
+            48248,
+            48992,
+            50706,
+            53396,
+            53397,
+            54448,
+            54449,
+            54450,
+            54451,
+            54452,
+            54453,
+            54454,
+            54769,
+            56108,
+            56421,
+            59569,
+            59570,
+            59571,
+            59572,
+            59573,
+            59574,
+            59577,
+            59579,
+            59581,
+            59582,
+            59584,
+            63570,
+            63775,
+            64770,
+            64832,
+            65804,
+            66662,
+            66945,
+            67329,
+            68347,
+            68581,
+            69463,
+            70652,
+            72559,
+            72835,
+            72965,
+            73099,
+            73207,
+            73537,
+            73588,
+            75091,
+            75444,
+            75797,
+            76075,
+            76343,
+            77174,
+            80092,
+            81690,
+            81691,
+            81692,
+            81693,
+            81694,
+            81696
+          ],
+          "reference_keys": [
+            "Al-Rawi",
+            "Ayensu",
+            "Bliss",
+            "Brutus",
+            "Burkill,1966",
+            "Duke,19",
+            "Duke,1972",
+            "Eb21: 57",
+            "Eb21: 60",
+            "Eb21: 61",
+            "Eb21: 62",
+            "Eb24: 361",
+            "Eb25: 420",
+            "Eb28: 12",
+            "Eb30: 140",
+            "Gupta",
+            "Hartwell",
+            "Lewis",
+            "Liogier",
+            "Martinez",
+            "Pittier",
+            "Standley,1931",
+            "Uphof",
+            "Woi.6",
+            "Wong"
+          ]
+        }
+      ]
+    },
+    "61963": {
+      "scientific_name": "Oxalis debilis",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses, food, medicine, use as a poison.",
+          "locator": "Page 560 · IPNI 374833-1",
+          "record_key": "374833-1",
+          "categories": [
+            "EU",
+            "HF",
+            "ME",
+            "PO"
+          ],
+          "reference_ids": [
+            4,
+            11
+          ]
+        }
+      ]
+    },
+    "62741": {
+      "scientific_name": "Rudbeckia hirta",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses, medicine, use as a poison.",
+          "locator": "Page 182 · IPNI 223740-2",
+          "record_key": "223740-2",
+          "categories": [
+            "EU",
+            "ME",
+            "PO"
+          ],
+          "reference_ids": [
+            3,
+            4
+          ]
+        },
+        {
+          "source": "duke",
+          "summary": "1 cited use record from 1 reference.",
+          "locator": "ETHNOBOT.csv · Record 75145",
+          "record_keys": [
+            75145
+          ],
+          "reference_keys": [
+            "Lewis"
+          ]
+        }
+      ]
+    },
+    "62915": {
+      "scientific_name": "Senna obtusifolia",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include animal food, environmental uses, gene sources, food, materials, medicine, use as a poison, social uses.",
+          "locator": "Page 330 · IPNI 234560-2",
+          "record_key": "234560-2",
+          "categories": [
+            "AF",
+            "EU",
+            "GS",
+            "HF",
+            "MA",
+            "ME",
+            "PO",
+            "SU"
+          ],
+          "reference_ids": [
+            1,
+            3,
+            4,
+            8,
+            9
+          ]
+        }
+      ]
+    },
+    "64093": {
+      "scientific_name": "Salvia lyrata",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include medicine.",
+          "locator": "Page 421 · IPNI 284568-2",
+          "record_key": "284568-2",
+          "categories": [
+            "ME"
+          ],
+          "reference_ids": [
+            3,
+            4
+          ]
+        },
+        {
+          "source": "duke",
+          "summary": "3 cited use records from 2 references.",
+          "locator": "ETHNOBOT.csv · First record 6115",
+          "record_keys": [
+            6115,
+            45142,
+            52608
+          ],
+          "reference_keys": [
+            "Hartwell",
+            "Uphof"
+          ]
+        }
+      ]
+    },
+    "64547": {
+      "scientific_name": "Teucrium canadense",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include medicine.",
+          "locator": "Page 425 · IPNI 30057247-2",
+          "record_key": "30057247-2",
+          "categories": [
+            "ME"
+          ],
+          "reference_ids": [
+            1,
+            3,
+            4
+          ]
+        }
+      ]
+    },
+    "69714": {
+      "scientific_name": "Rubus trivialis",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include medicine.",
+          "locator": "Page 605 · IPNI 740944-1",
+          "record_key": "740944-1",
+          "categories": [
+            "ME"
+          ],
+          "reference_ids": [
+            4
+          ]
+        },
+        {
+          "source": "duke",
+          "summary": "1 cited use record from 1 reference.",
+          "locator": "ETHNOBOT.csv · Record 9390",
+          "record_keys": [
+            9390
+          ],
+          "reference_keys": [
+            "Hartwell"
+          ]
+        }
+      ]
+    },
+    "69985": {
+      "scientific_name": "Pinus elliottii",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include fuel, food, materials, medicine.",
+          "locator": "Page 671 · IPNI 262921-1",
+          "record_key": "262921-1",
+          "categories": [
+            "FU",
+            "HF",
+            "MA",
+            "ME"
+          ],
+          "reference_ids": [
+            1,
+            3,
+            4,
+            8
+          ]
+        }
+      ]
+    },
+    "75995": {
+      "scientific_name": "Campsis radicans",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses, materials, medicine, use as a poison.",
+          "locator": "Page 404 · IPNI 30332621-2",
+          "record_key": "30332621-2",
+          "categories": [
+            "EU",
+            "MA",
+            "ME",
+            "PO"
+          ],
+          "reference_ids": [
+            1,
+            3,
+            4
+          ]
+        }
+      ]
+    },
+    "76907": {
+      "scientific_name": "Erigeron canadensis",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include fuel, food, materials, medicine, use as a poison.",
+          "locator": "Page 165 · IPNI 203653-1",
+          "record_key": "203653-1",
+          "categories": [
+            "FU",
+            "HF",
+            "MA",
+            "ME",
+            "PO"
+          ],
+          "reference_ids": [
+            1,
+            3,
+            4,
+            5,
+            8,
+            11
+          ]
+        },
+        {
+          "source": "duke",
+          "summary": "37 cited use records from 9 references.",
+          "locator": "ETHNOBOT.csv · First record 5680",
+          "record_keys": [
+            5680,
+            10929,
+            14611,
+            16627,
+            16628,
+            16629,
+            17962,
+            19123,
+            19547,
+            19548,
+            20820,
+            26848,
+            28158,
+            28159,
+            28314,
+            30866,
+            32616,
+            35900,
+            41958,
+            43026,
+            45395,
+            50453,
+            52189,
+            53447,
+            53667,
+            53668,
+            58040,
+            58041,
+            65917,
+            68516,
+            68517,
+            69397,
+            72053,
+            76239,
+            76325,
+            77332,
+            79848
+          ],
+          "reference_keys": [
+            "Al-Rawi",
+            "Eb21: 213",
+            "Eb24: 321",
+            "Guillarmod",
+            "Hartwell",
+            "Krochmal",
+            "Steinmetz",
+            "Uphof",
+            "Woi.Syria"
+          ]
+        }
+      ]
+    },
+    "77125": {
+      "scientific_name": "Eustoma exaltatum",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include medicine.",
+          "locator": "Page 366 · IPNI 367440-1",
+          "record_key": "367440-1",
+          "categories": [
+            "ME"
+          ],
+          "reference_ids": [
+            4,
+            12
+          ]
+        },
+        {
+          "source": "duke",
+          "summary": "1 cited use record from 1 reference.",
+          "locator": "ETHNOBOT.csv · Record 12848",
+          "record_keys": [
+            12848
+          ],
+          "reference_keys": [
+            "Eb29: 321"
+          ]
+        }
+      ]
+    },
+    "77398": {
+      "scientific_name": "Heterotheca subaxillaris",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include medicine.",
+          "locator": "Page 171 · IPNI 121478-2",
+          "record_key": "121478-2",
+          "categories": [
+            "ME"
+          ],
+          "reference_ids": [
+            4
+          ]
+        }
+      ]
+    },
+    "77977": {
+      "scientific_name": "Melaleuca viminalis",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses, fuel, invertebrate food, materials.",
+          "locator": "Page 546 · IPNI 914221-1",
+          "record_key": "914221-1",
+          "categories": [
+            "EU",
+            "FU",
+            "IF",
+            "MA"
+          ],
+          "reference_ids": []
+        }
+      ]
+    },
+    "77987": {
+      "scientific_name": "Melinis repens",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include animal food, environmental uses, materials, medicine.",
+          "locator": "Page 110 · IPNI 2945817-1",
+          "record_key": "2945817-1",
+          "categories": [
+            "AF",
+            "EU",
+            "MA",
+            "ME"
+          ],
+          "reference_ids": [
+            3,
+            4,
+            8,
+            11
+          ]
+        }
+      ]
+    },
+    "78243": {
+      "scientific_name": "Oenothera laciniata",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include medicine.",
+          "locator": "Page 554 · IPNI 613817-1",
+          "record_key": "613817-1",
+          "categories": [
+            "ME"
+          ],
+          "reference_ids": [
+            4
+          ]
+        }
+      ]
+    },
+    "78453": {
+      "scientific_name": "Persicaria hydropiperoides",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include medicine.",
+          "locator": "Page 237 · IPNI 190811-2",
+          "record_key": "190811-2",
+          "categories": [
+            "ME"
+          ],
+          "reference_ids": [
+            4
+          ]
+        }
+      ]
+    },
+    "78456": {
+      "scientific_name": "Persicaria punctata",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include medicine.",
+          "locator": "Page 237 · IPNI 190855-2",
+          "record_key": "190855-2",
+          "categories": [
+            "ME"
+          ],
+          "reference_ids": [
+            4,
+            12
+          ]
+        }
+      ]
+    },
+    "78589": {
+      "scientific_name": "Pistia stratiotes",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include animal food, environmental uses, fuel, gene sources, food, materials, medicine.",
+          "locator": "Page 19 · IPNI 317684-2",
+          "record_key": "317684-2",
+          "categories": [
+            "AF",
+            "EU",
+            "FU",
+            "GS",
+            "HF",
+            "MA",
+            "ME"
+          ],
+          "reference_ids": [
+            1,
+            3,
+            4,
+            7,
+            8,
+            11
+          ]
+        },
+        {
+          "source": "duke",
+          "summary": "71 cited use records from 10 references.",
+          "locator": "ETHNOBOT.csv · First record 3",
+          "record_keys": [
+            3,
+            442,
+            5268,
+            5269,
+            5270,
+            5271,
+            12879,
+            14099,
+            14100,
+            14101,
+            15036,
+            15116,
+            16070,
+            16071,
+            18973,
+            19207,
+            19840,
+            19841,
+            19842,
+            20705,
+            20738,
+            20843,
+            22084,
+            22085,
+            23568,
+            25118,
+            31632,
+            31633,
+            31945,
+            36815,
+            36816,
+            42368,
+            43824,
+            44288,
+            45040,
+            45041,
+            45042,
+            49315,
+            51814,
+            51815,
+            53334,
+            53335,
+            53891,
+            53892,
+            54540,
+            60378,
+            60379,
+            60380,
+            60381,
+            63790,
+            64314,
+            65062,
+            67223,
+            67769,
+            69436,
+            69493,
+            69494,
+            70157,
+            71996,
+            74683,
+            74684,
+            74715,
+            76252,
+            76318,
+            76808,
+            77213,
+            78711,
+            79301,
+            81931,
+            81932,
+            82814
+          ],
+          "reference_keys": [
+            "Altschul",
+            "Burkill,1966",
+            "Duke,1972",
+            "Eb23: 113",
+            "Eb23: 114",
+            "Eb32: 301",
+            "Hartwell",
+            "Pittier",
+            "Tackholm",
+            "Woi.8"
+          ]
+        }
+      ]
+    },
+    "79061": {
+      "scientific_name": "Senna marilandica",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses, medicine.",
+          "locator": "Page 330 · IPNI 518344-1",
+          "record_key": "518344-1",
+          "categories": [
+            "EU",
+            "ME"
+          ],
+          "reference_ids": [
+            1,
+            3,
+            4
+          ]
+        }
+      ]
+    },
+    "79077": {
+      "scientific_name": "Sida rhombifolia",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "duke",
+          "summary": "64 cited use records from 13 references.",
+          "locator": "ETHNOBOT.csv · First record 122",
+          "record_keys": [
+            122,
+            316,
+            4596,
+            6769,
+            7435,
+            7838,
+            11521,
+            13145,
+            14347,
+            14871,
+            15073,
+            18721,
+            18722,
+            20234,
+            20525,
+            20526,
+            22107,
+            22322,
+            23595,
+            26061,
+            27685,
+            33717,
+            35382,
+            41633,
+            41634,
+            43222,
+            43903,
+            45177,
+            47293,
+            48202,
+            49099,
+            49624,
+            49961,
+            51251,
+            51828,
+            52652,
+            52653,
+            52922,
+            53405,
+            55561,
+            56270,
+            61545,
+            61549,
+            61550,
+            61557,
+            63997,
+            65834,
+            68068,
+            68298,
+            68650,
+            69142,
+            71190,
+            72221,
+            72386,
+            72388,
+            72790,
+            73258,
+            76149,
+            76973,
+            77907,
+            78607,
+            78608,
+            79307,
+            80655
+          ],
+          "reference_keys": [
+            "Altschul",
+            "Broun",
+            "Burkill,1966",
+            "Duke,1972",
+            "Eb20: 293",
+            "Eb28: 19",
+            "Hartwell",
+            "Martinez",
+            "Pittier",
+            "Standley",
+            "Standley,Steyermark",
+            "Uphof",
+            "Woi.Syria"
+          ]
+        }
+      ]
+    },
+    "79148": {
+      "scientific_name": "Solidago altissima",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses.",
+          "locator": "Page 185 · IPNI 285347-2",
+          "record_key": "285347-2",
+          "categories": [
+            "EU"
+          ],
+          "reference_ids": [
+            3
+          ]
+        }
+      ]
+    },
+    "79383": {
+      "scientific_name": "Tradescantia ohiensis",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses.",
+          "locator": "Page 72 · IPNI 173408-1",
+          "record_key": "173408-1",
+          "categories": [
+            "EU"
+          ],
+          "reference_ids": [
+            3
+          ]
+        }
+      ]
+    },
+    "81593": {
+      "scientific_name": "Symphyotrichum dumosum",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses.",
+          "locator": "Page 187 · IPNI 981804-1",
+          "record_key": "981804-1",
+          "categories": [
+            "EU"
+          ],
+          "reference_ids": [
+            3
+          ]
+        }
+      ]
+    },
+    "81605": {
+      "scientific_name": "Yucca filamentosa",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses, materials, medicine.",
+          "locator": "Page 48 · IPNI 325008-2",
+          "record_key": "325008-2",
+          "categories": [
+            "EU",
+            "MA",
+            "ME"
+          ],
+          "reference_ids": [
+            1,
+            3,
+            4,
+            7
+          ]
+        }
+      ]
+    },
+    "81831": {
+      "scientific_name": "Smilax glauca",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include medicine.",
+          "locator": "Page 78 · IPNI 237640-2",
+          "record_key": "237640-2",
+          "categories": [
+            "ME"
+          ],
+          "reference_ids": [
+            3,
+            4
+          ]
+        }
+      ]
+    },
+    "81901": {
+      "scientific_name": "Pinus palustris",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include fuel, food, materials, medicine.",
+          "locator": "Page 672 · IPNI 263186-1",
+          "record_key": "263186-1",
+          "categories": [
+            "FU",
+            "HF",
+            "MA",
+            "ME"
+          ],
+          "reference_ids": [
+            1,
+            3,
+            4
+          ]
+        },
+        {
+          "source": "duke",
+          "summary": "30 cited use records from 6 references.",
+          "locator": "ETHNOBOT.csv · First record 3743",
+          "record_keys": [
+            3743,
+            4873,
+            8199,
+            10669,
+            14620,
+            18489,
+            21820,
+            23235,
+            26953,
+            29691,
+            31625,
+            33670,
+            42136,
+            43817,
+            49441,
+            51813,
+            52496,
+            52904,
+            60289,
+            60292,
+            67331,
+            67938,
+            68608,
+            72118,
+            72233,
+            72896,
+            76104,
+            76300,
+            78555,
+            81903
+          ],
+          "reference_keys": [
+            "Eb20: 21",
+            "Eb22: 333",
+            "Hartwell",
+            "Krochmal",
+            "Takeda",
+            "Uphof"
+          ]
+        }
+      ]
+    },
+    "81921": {
+      "scientific_name": "Gordonia lasianthus",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses, materials, medicine.",
+          "locator": "Page 281 · IPNI 830294-1",
+          "record_key": "830294-1",
+          "categories": [
+            "EU",
+            "MA",
+            "ME"
+          ],
+          "reference_ids": [
+            1,
+            3,
+            4
+          ]
+        }
+      ]
+    },
+    "82324": {
+      "scientific_name": "Clitoria mariana",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include medicine.",
+          "locator": "Page 296 · IPNI 274776-2",
+          "record_key": "274776-2",
+          "categories": [
+            "ME"
+          ],
+          "reference_ids": [
+            4
+          ]
+        }
+      ]
+    },
+    "83070": {
+      "scientific_name": "Gelsemium sempervirens",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses, materials, medicine, use as a poison.",
+          "locator": "Page 365 · IPNI 60448812-2",
+          "record_key": "60448812-2",
+          "categories": [
+            "EU",
+            "MA",
+            "ME",
+            "PO"
+          ],
+          "reference_ids": [
+            1,
+            3,
+            4
+          ]
+        }
+      ]
+    },
+    "83074": {
+      "scientific_name": "Magnolia grandiflora",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses, materials, medicine, use as a poison.",
+          "locator": "Page 458 · IPNI 554723-1",
+          "record_key": "554723-1",
+          "categories": [
+            "EU",
+            "MA",
+            "ME",
+            "PO"
+          ],
+          "reference_ids": [
+            1,
+            3,
+            4,
+            7
+          ]
+        },
+        {
+          "source": "duke",
+          "summary": "5 cited use records from 3 references.",
+          "locator": "ETHNOBOT.csv · First record 16257",
+          "record_keys": [
+            16257,
+            29148,
+            46777,
+            46778,
+            50660
+          ],
+          "reference_keys": [
+            "Takeda",
+            "Uphof",
+            "Woi."
+          ]
+        }
+      ]
+    },
+    "83102": {
+      "scientific_name": "Serenoa repens",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses, materials, medicine.",
+          "locator": "Page 35 · IPNI 941782-1",
+          "record_key": "941782-1",
+          "categories": [
+            "EU",
+            "MA",
+            "ME"
+          ],
+          "reference_ids": [
+            1,
+            3,
+            4
+          ]
+        },
+        {
+          "source": "duke",
+          "summary": "5 cited use records from 2 references.",
+          "locator": "ETHNOBOT.csv · First record 4593",
+          "record_keys": [
+            4593,
+            18712,
+            43220,
+            46961,
+            52643
+          ],
+          "reference_keys": [
+            "Hartwell",
+            "Steinmetz"
+          ]
+        }
+      ]
+    },
+    "83435": {
+      "scientific_name": "Diospyros virginiana",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses, gene sources, food, materials, medicine.",
+          "locator": "Page 261 · IPNI 323180-1",
+          "record_key": "323180-1",
+          "categories": [
+            "EU",
+            "GS",
+            "HF",
+            "MA",
+            "ME"
+          ],
+          "reference_ids": [
+            1,
+            3,
+            4
+          ]
+        },
+        {
+          "source": "duke",
+          "summary": "24 cited use records from 4 references.",
+          "locator": "ETHNOBOT.csv · First record 16602",
+          "record_keys": [
+            16602,
+            16603,
+            19518,
+            19519,
+            19520,
+            28149,
+            30293,
+            30858,
+            32234,
+            33936,
+            34065,
+            44645,
+            45392,
+            48052,
+            53665,
+            57895,
+            57899,
+            57906,
+            65182,
+            66203,
+            71552,
+            77331,
+            79409,
+            79847
+          ],
+          "reference_keys": [
+            "Eb21: 211",
+            "Hartwell",
+            "Krochmal",
+            "Standley"
+          ]
+        }
+      ]
+    },
+    "83799": {
+      "scientific_name": "Mitchella repens",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses, medicine.",
+          "locator": "Page 382 · IPNI 280970-2",
+          "record_key": "280970-2",
+          "categories": [
+            "EU",
+            "ME"
+          ],
+          "reference_ids": [
+            1,
+            3,
+            4
+          ]
+        },
+        {
+          "source": "duke",
+          "summary": "17 cited use records from 4 references.",
+          "locator": "ETHNOBOT.csv · First record 5882",
+          "record_keys": [
+            5882,
+            22209,
+            23886,
+            33632,
+            35982,
+            35983,
+            50704,
+            63323,
+            63324,
+            63325,
+            63326,
+            63327,
+            69033,
+            69591,
+            74229,
+            79854,
+            82832
+          ],
+          "reference_keys": [
+            "Eb21: 212",
+            "Eb22: 333",
+            "Steinmetz",
+            "Uphof"
+          ]
+        }
+      ]
+    },
+    "84300": {
+      "scientific_name": "Sambucus canadensis",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses, food, materials, medicine, use as a poison.",
+          "locator": "Page 256 · IPNI 321978-2",
+          "record_key": "321978-2",
+          "categories": [
+            "EU",
+            "HF",
+            "MA",
+            "ME",
+            "PO"
+          ],
+          "reference_ids": [
+            1,
+            3,
+            4,
+            11,
+            12
+          ]
+        }
+      ]
+    },
+    "84537": {
+      "scientific_name": "Dioscorea bulbifera",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "duke",
+          "summary": "21 cited use records from 9 references.",
+          "locator": "ETHNOBOT.csv · First record 1534",
+          "record_keys": [
+            1534,
+            3465,
+            9662,
+            9682,
+            9801,
+            19512,
+            24442,
+            28487,
+            37862,
+            37863,
+            37864,
+            44638,
+            49225,
+            52165,
+            57890,
+            64423,
+            71637,
+            72207,
+            74652,
+            75017,
+            81164
+          ],
+          "reference_keys": [
+            "Altschul",
+            "Duke,1972",
+            "Eb28: 5",
+            "Hartwell",
+            "Hunan",
+            "Pittier",
+            "Takeda",
+            "Woi.3",
+            "Yeh"
+          ]
+        }
+      ]
+    },
+    "84813": {
+      "scientific_name": "Baccharis halimifolia",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include materials, medicine, use as a poison.",
+          "locator": "Page 156 · IPNI 319078-2",
+          "record_key": "319078-2",
+          "categories": [
+            "MA",
+            "ME",
+            "PO"
+          ],
+          "reference_ids": [
+            1,
+            3,
+            4
+          ]
+        },
+        {
+          "source": "duke",
+          "summary": "1 cited use record from 1 reference.",
+          "locator": "ETHNOBOT.csv · Record 40797",
+          "record_keys": [
+            40797
+          ],
+          "reference_keys": [
+            "Standley"
+          ]
+        }
+      ]
+    },
+    "116694": {
+      "scientific_name": "Desmodium incanum",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include animal food, materials, medicine.",
+          "locator": "Page 303 · IPNI 1015219-2",
+          "record_key": "1015219-2",
+          "categories": [
+            "AF",
+            "MA",
+            "ME"
+          ],
+          "reference_ids": [
+            3,
+            4,
+            8,
+            11
+          ]
+        }
+      ]
+    },
+    "117439": {
+      "scientific_name": "Liatris spicata",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses, medicine.",
+          "locator": "Page 174 · IPNI 230634-1",
+          "record_key": "230634-1",
+          "categories": [
+            "EU",
+            "ME"
+          ],
+          "reference_ids": [
+            3,
+            4
+          ]
+        },
+        {
+          "source": "duke",
+          "summary": "6 cited use records from 2 references.",
+          "locator": "ETHNOBOT.csv · First record 10553",
+          "record_keys": [
+            10553,
+            18250,
+            18251,
+            46758,
+            48483,
+            59103
+          ],
+          "reference_keys": [
+            "Steinmetz",
+            "Uphof"
+          ]
+        }
+      ]
+    },
+    "118776": {
+      "scientific_name": "Monarda punctata",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses, materials, medicine.",
+          "locator": "Page 416 · IPNI 452072-1",
+          "record_key": "452072-1",
+          "categories": [
+            "EU",
+            "MA",
+            "ME"
+          ],
+          "reference_ids": [
+            1,
+            3,
+            4
+          ]
+        },
+        {
+          "source": "duke",
+          "summary": "15 cited use records from 2 references.",
+          "locator": "ETHNOBOT.csv · First record 10612",
+          "record_keys": [
+            10612,
+            16272,
+            17286,
+            18337,
+            18338,
+            28375,
+            34501,
+            46804,
+            59588,
+            59592,
+            59593,
+            59594,
+            64771,
+            66663,
+            70072
+          ],
+          "reference_keys": [
+            "Steinmetz",
+            "Uphof"
+          ]
+        }
+      ]
+    },
+    "119145": {
+      "scientific_name": "Mikania scandens",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include animal food, environmental uses, food, medicine, use as a poison, social uses.",
+          "locator": "Page 176 · IPNI 233204-1",
+          "record_key": "233204-1",
+          "categories": [
+            "AF",
+            "EU",
+            "HF",
+            "ME",
+            "PO",
+            "SU"
+          ],
+          "reference_ids": [
+            1,
+            3,
+            4,
+            5,
+            11,
+            12
+          ]
+        },
+        {
+          "source": "duke",
+          "summary": "4 cited use records from 2 references.",
+          "locator": "ETHNOBOT.csv · First record 11935",
+          "record_keys": [
+            11935,
+            30536,
+            52390,
+            80600
+          ],
+          "reference_keys": [
+            "Burkill,1966",
+            "Hartwell"
+          ]
+        }
+      ]
+    },
+    "119737": {
+      "scientific_name": "Ipomoea pandurata",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "duke",
+          "summary": "1 cited use record from 1 reference.",
+          "locator": "ETHNOBOT.csv · Record 52291",
+          "record_keys": [
+            52291
+          ],
+          "reference_keys": [
+            "Hartwell"
+          ]
+        }
+      ]
+    },
+    "119809": {
+      "scientific_name": "Lonicera sempervirens",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses, medicine.",
+          "locator": "Page 255 · IPNI 30080890-2",
+          "record_key": "30080890-2",
+          "categories": [
+            "EU",
+            "ME"
+          ],
+          "reference_ids": [
+            3,
+            4
+          ]
+        }
+      ]
+    },
+    "119817": {
+      "scientific_name": "Apios americana",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses, gene sources, food, medicine.",
+          "locator": "Page 287 · IPNI 30141320-2",
+          "record_key": "30141320-2",
+          "categories": [
+            "EU",
+            "GS",
+            "HF",
+            "ME"
+          ],
+          "reference_ids": [
+            3,
+            4,
+            8
+          ]
+        },
+        {
+          "source": "duke",
+          "summary": "1 cited use record from 1 reference.",
+          "locator": "ETHNOBOT.csv · Record 8860",
+          "record_keys": [
+            8860
+          ],
+          "reference_keys": [
+            "Hartwell"
+          ]
+        }
+      ]
+    },
+    "119982": {
+      "scientific_name": "Verbesina virginica",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include medicine.",
+          "locator": "Page 189 · IPNI 257707-1",
+          "record_key": "257707-1",
+          "categories": [
+            "ME"
+          ],
+          "reference_ids": [
+            4
+          ]
+        },
+        {
+          "source": "duke",
+          "summary": "3 cited use records from 1 reference.",
+          "locator": "ETHNOBOT.csv · First record 33968",
+          "record_keys": [
+            33968,
+            39461,
+            80471
+          ],
+          "reference_keys": [
+            "Eb31: 348"
+          ]
+        }
+      ]
+    },
+    "120009": {
+      "scientific_name": "Hypericum hypericoides",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include medicine.",
+          "locator": "Page 488 · IPNI 30080839-2",
+          "record_key": "30080839-2",
+          "categories": [
+            "ME"
+          ],
+          "reference_ids": [
+            4
+          ]
+        }
+      ]
+    },
+    "120152": {
+      "scientific_name": "Asclepias perennis",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include medicine.",
+          "locator": "Page 351 · IPNI 30270360-2",
+          "record_key": "30270360-2",
+          "categories": [
+            "ME"
+          ],
+          "reference_ids": [
+            4
+          ]
+        }
+      ]
+    },
+    "122835": {
+      "scientific_name": "Colocasia esculenta",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "duke",
+          "summary": "40 cited use records from 10 references.",
+          "locator": "ETHNOBOT.csv · First record 181",
+          "record_keys": [
+            181,
+            595,
+            1613,
+            2413,
+            3058,
+            5596,
+            6304,
+            6830,
+            7640,
+            9737,
+            14406,
+            20341,
+            20342,
+            30284,
+            34050,
+            34187,
+            35864,
+            37784,
+            38941,
+            42097,
+            46592,
+            47085,
+            48220,
+            48221,
+            49926,
+            51713,
+            54208,
+            55324,
+            64420,
+            66605,
+            67861,
+            73042,
+            74534,
+            74645,
+            74993,
+            75303,
+            76386,
+            77054,
+            78186,
+            79385
+          ],
+          "reference_keys": [
+            "Bliss",
+            "Duke,1972",
+            "Eb23: 105",
+            "Eb25: 248",
+            "Eb28: 4",
+            "Eb30: 400",
+            "Hartwell",
+            "Tackholm",
+            "Woi.2",
+            "Wong"
+          ]
+        }
+      ]
+    },
+    "123481": {
+      "scientific_name": "Sabal palmetto",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses, materials, medicine.",
+          "locator": "Page 34 · IPNI 1004566-2",
+          "record_key": "1004566-2",
+          "categories": [
+            "EU",
+            "MA",
+            "ME"
+          ],
+          "reference_ids": [
+            1,
+            3,
+            4
+          ]
+        },
+        {
+          "source": "duke",
+          "summary": "2 cited use records from 2 references.",
+          "locator": "ETHNOBOT.csv · First record 11866",
+          "record_keys": [
+            11866,
+            26385
+          ],
+          "reference_keys": [
+            "Eb29: 314",
+            "Woi.9"
+          ]
+        }
+      ]
+    },
+    "123822": {
+      "scientific_name": "Sorghastrum secundum",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses.",
+          "locator": "Page 118 · IPNI 240832-2",
+          "record_key": "240832-2",
+          "categories": [
+            "EU"
+          ],
+          "reference_ids": [
+            3
+          ]
+        }
+      ]
+    },
+    "125381": {
+      "scientific_name": "Asclepias incarnata",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses, materials, medicine, use as a poison.",
+          "locator": "Page 351 · IPNI 94351-1",
+          "record_key": "94351-1",
+          "categories": [
+            "EU",
+            "MA",
+            "ME",
+            "PO"
+          ],
+          "reference_ids": [
+            1,
+            3,
+            4,
+            9
+          ]
+        }
+      ]
+    },
+    "125677": {
+      "scientific_name": "Smilax bona-nox",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include medicine.",
+          "locator": "Page 78 · IPNI 541314-1",
+          "record_key": "541314-1",
+          "categories": [
+            "ME"
+          ],
+          "reference_ids": [
+            4
+          ]
+        }
+      ]
+    },
+    "126142": {
+      "scientific_name": "Vaccinium darrowii",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include gene sources.",
+          "locator": "Page 267 · IPNI 262082-2",
+          "record_key": "262082-2",
+          "categories": [
+            "GS"
+          ],
+          "reference_ids": [
+            3
+          ]
+        }
+      ]
+    },
+    "126298": {
+      "scientific_name": "Sabatia brevifolia",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include medicine.",
+          "locator": "Page 368 · IPNI 370507-1",
+          "record_key": "370507-1",
+          "categories": [
+            "ME"
+          ],
+          "reference_ids": [
+            4
+          ]
+        }
+      ]
+    },
+    "126300": {
+      "scientific_name": "Ipomoea hederifolia",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses, medicine.",
+          "locator": "Page 651 · IPNI 268999-1",
+          "record_key": "268999-1",
+          "categories": [
+            "EU",
+            "ME"
+          ],
+          "reference_ids": [
+            3,
+            4,
+            11,
+            12
+          ]
+        },
+        {
+          "source": "duke",
+          "summary": "4 cited use records from 1 reference.",
+          "locator": "ETHNOBOT.csv · First record 842",
+          "record_keys": [
+            842,
+            10956,
+            46391,
+            73531
+          ],
+          "reference_keys": [
+            "Liogier"
+          ]
+        }
+      ]
+    },
+    "126309": {
+      "scientific_name": "Habenaria floribunda",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include medicine.",
+          "locator": "Page 63 · IPNI 637263-1",
+          "record_key": "637263-1",
+          "categories": [
+            "ME"
+          ],
+          "reference_ids": [
+            4
+          ]
+        }
+      ]
+    },
+    "126342": {
+      "scientific_name": "Bejaria racemosa",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses.",
+          "locator": "Page 262 · IPNI 303137-2",
+          "record_key": "303137-2",
+          "categories": [
+            "EU"
+          ],
+          "reference_ids": [
+            3
+          ]
+        }
+      ]
+    },
+    "126595": {
+      "scientific_name": "Piloblephis rigida",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include medicine.",
+          "locator": "Page 418 · IPNI 454213-1",
+          "record_key": "454213-1",
+          "categories": [
+            "ME"
+          ],
+          "reference_ids": [
+            4
+          ]
+        }
+      ]
+    },
+    "126617": {
+      "scientific_name": "Xyris ambigua",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include medicine.",
+          "locator": "Page 123 · IPNI 321292-2",
+          "record_key": "321292-2",
+          "categories": [
+            "ME"
+          ],
+          "reference_ids": [
+            4
+          ]
+        },
+        {
+          "source": "duke",
+          "summary": "2 cited use records from 1 reference.",
+          "locator": "ETHNOBOT.csv · First record 12488",
+          "record_keys": [
+            12488,
+            62801
+          ],
+          "reference_keys": [
+            "Uphof"
+          ]
+        }
+      ]
+    },
+    "126633": {
+      "scientific_name": "Ruellia simplex",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses, medicine.",
+          "locator": "Page 402 · IPNI 54585-1",
+          "record_key": "54585-1",
+          "categories": [
+            "EU",
+            "ME"
+          ],
+          "reference_ids": [
+            3,
+            4
+          ]
+        }
+      ]
+    },
+    "126698": {
+      "scientific_name": "Rhus copallinum",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses, food, materials, medicine.",
+          "locator": "Page 618 · IPNI 219750-2",
+          "record_key": "219750-2",
+          "categories": [
+            "EU",
+            "HF",
+            "MA",
+            "ME"
+          ],
+          "reference_ids": [
+            1,
+            3,
+            4
+          ]
+        }
+      ]
+    },
+    "127032": {
+      "scientific_name": "Argemone albiflora",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses, medicine.",
+          "locator": "Page 574 · IPNI 671680-1",
+          "record_key": "671680-1",
+          "categories": [
+            "EU",
+            "ME"
+          ],
+          "reference_ids": [
+            3,
+            4
+          ]
+        }
+      ]
+    },
+    "127033": {
+      "scientific_name": "Froelichia floridana",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include medicine.",
+          "locator": "Page 219 · IPNI 106089-2",
+          "record_key": "106089-2",
+          "categories": [
+            "ME"
+          ],
+          "reference_ids": [
+            4
+          ]
+        }
+      ]
+    },
+    "127045": {
+      "scientific_name": "Scutellaria integrifolia",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include medicine.",
+          "locator": "Page 422 · IPNI 284797-2",
+          "record_key": "284797-2",
+          "categories": [
+            "ME"
+          ],
+          "reference_ids": [
+            1,
+            4
+          ]
+        }
+      ]
+    },
+    "127046": {
+      "scientific_name": "Ampelaster carolinianus",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include medicine.",
+          "locator": "Page 152 · IPNI 981704-1",
+          "record_key": "981704-1",
+          "categories": [
+            "ME"
+          ],
+          "reference_ids": [
+            4
+          ]
+        }
+      ]
+    },
+    "127066": {
+      "scientific_name": "Youngia japonica",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include medicine.",
+          "locator": "Page 190 · IPNI 1124129-2",
+          "record_key": "1124129-2",
+          "categories": [
+            "ME"
+          ],
+          "reference_ids": [
+            4
+          ]
+        }
+      ]
+    },
+    "127267": {
+      "scientific_name": "Pterocaulon pycnostachyum",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include medicine.",
+          "locator": "Page 181 · IPNI 240175-1",
+          "record_key": "240175-1",
+          "categories": [
+            "ME"
+          ],
+          "reference_ids": [
+            1,
+            4
+          ]
+        }
+      ]
+    },
+    "127269": {
+      "scientific_name": "Cirsium horridulum",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include medicine.",
+          "locator": "Page 161 · IPNI 59036-2",
+          "record_key": "59036-2",
+          "categories": [
+            "ME"
+          ],
+          "reference_ids": [
+            4
+          ]
+        }
+      ]
+    },
+    "127279": {
+      "scientific_name": "Canna flaccida",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses, gene sources, medicine.",
+          "locator": "Page 124 · IPNI 146049-1",
+          "record_key": "146049-1",
+          "categories": [
+            "EU",
+            "GS",
+            "ME"
+          ],
+          "reference_ids": [
+            3,
+            4
+          ]
+        }
+      ]
+    },
+    "127638": {
+      "scientific_name": "Urena lobata",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "duke",
+          "summary": "77 cited use records from 11 references.",
+          "locator": "ETHNOBOT.csv · First record 1321",
+          "record_keys": [
+            1321,
+            1322,
+            1421,
+            1584,
+            2834,
+            7448,
+            7502,
+            7870,
+            8277,
+            8635,
+            10851,
+            12770,
+            12771,
+            12772,
+            14260,
+            15746,
+            17145,
+            17146,
+            20048,
+            20049,
+            21915,
+            22138,
+            22139,
+            22140,
+            22665,
+            22747,
+            23355,
+            25561,
+            25698,
+            25771,
+            25912,
+            26620,
+            27034,
+            27551,
+            27552,
+            27692,
+            27914,
+            28462,
+            28594,
+            29650,
+            30243,
+            32699,
+            34629,
+            37474,
+            37569,
+            40555,
+            40556,
+            42358,
+            42359,
+            45290,
+            45530,
+            45531,
+            53568,
+            56429,
+            62396,
+            62397,
+            62398,
+            62400,
+            63539,
+            63817,
+            64871,
+            65714,
+            66092,
+            66124,
+            68263,
+            68677,
+            69191,
+            71253,
+            71372,
+            71619,
+            72188,
+            72687,
+            78456,
+            82546,
+            82547,
+            82548,
+            82549
+          ],
+          "reference_keys": [
+            "Altschul",
+            "Brutus",
+            "Burkill,1966",
+            "Eb25: 430",
+            "Eb25: 441",
+            "Eb25: 61",
+            "Eb30: 132",
+            "Liogier",
+            "Pittier",
+            "Woi.10",
+            "Wong"
+          ]
+        }
+      ]
+    },
+    "127681": {
+      "scientific_name": "Centrosema virginianum",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include animal food, environmental uses, medicine.",
+          "locator": "Page 295 · IPNI 51897-2",
+          "record_key": "51897-2",
+          "categories": [
+            "AF",
+            "EU",
+            "ME"
+          ],
+          "reference_ids": [
+            3,
+            4,
+            7,
+            8
+          ]
+        },
+        {
+          "source": "duke",
+          "summary": "5 cited use records from 3 references.",
+          "locator": "ETHNOBOT.csv · First record 2189",
+          "record_keys": [
+            2189,
+            4409,
+            4410,
+            32111,
+            52058
+          ],
+          "reference_keys": [
+            "Brutus",
+            "Hartwell",
+            "Liogier"
+          ]
+        }
+      ]
+    },
+    "127907": {
+      "scientific_name": "Chamaecrista fasciculata",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses, medicine, use as a poison.",
+          "locator": "Page 295 · IPNI 54500-2",
+          "record_key": "54500-2",
+          "categories": [
+            "EU",
+            "ME",
+            "PO"
+          ],
+          "reference_ids": [
+            3,
+            4
+          ]
+        }
+      ]
+    },
+    "127910": {
+      "scientific_name": "Smilax auriculata",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include medicine.",
+          "locator": "Page 78 · IPNI 541286-1",
+          "record_key": "541286-1",
+          "categories": [
+            "ME"
+          ],
+          "reference_ids": [
+            4
+          ]
+        }
+      ]
+    },
+    "127912": {
+      "scientific_name": "Thalia geniculata",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "duke",
+          "summary": "1 cited use record from 1 reference.",
+          "locator": "ETHNOBOT.csv · Record 52716",
+          "record_keys": [
+            52716
+          ],
+          "reference_keys": [
+            "Hartwell"
+          ]
+        }
+      ]
+    },
+    "128630": {
+      "scientific_name": "Asimina reticulata",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "duke",
+          "summary": "1 cited use record from 1 reference.",
+          "locator": "ETHNOBOT.csv · Record 72867",
+          "record_keys": [
+            72867
+          ],
+          "reference_keys": [
+            "Uphof"
+          ]
+        }
+      ]
+    },
+    "128695": {
+      "scientific_name": "Eryngium yuccifolium",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses, medicine.",
+          "locator": "Page 137 · IPNI 842103-1",
+          "record_key": "842103-1",
+          "categories": [
+            "EU",
+            "ME"
+          ],
+          "reference_ids": [
+            3,
+            4
+          ]
+        },
+        {
+          "source": "duke",
+          "summary": "16 cited use records from 3 references.",
+          "locator": "ETHNOBOT.csv · First record 3076",
+          "record_keys": [
+            3076,
+            16215,
+            17974,
+            21143,
+            23029,
+            24499,
+            30868,
+            32366,
+            34159,
+            41178,
+            43462,
+            58055,
+            58059,
+            58062,
+            65603,
+            68920
+          ],
+          "reference_keys": [
+            "Eb21: 210",
+            "Krochmal",
+            "Uphof"
+          ]
+        }
+      ]
+    },
+    "128717": {
+      "scientific_name": "Erythrina herbacea",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses, food, materials, medicine, use as a poison.",
+          "locator": "Page 306 · IPNI 96601-2",
+          "record_key": "96601-2",
+          "categories": [
+            "EU",
+            "HF",
+            "MA",
+            "ME",
+            "PO"
+          ],
+          "reference_ids": [
+            1,
+            3,
+            4,
+            9
+          ]
+        },
+        {
+          "source": "duke",
+          "summary": "2 cited use records from 1 reference.",
+          "locator": "ETHNOBOT.csv · First record 9947",
+          "record_keys": [
+            9947,
+            75732
+          ],
+          "reference_keys": [
+            "Standley"
+          ]
+        }
+      ]
+    },
+    "128733": {
+      "scientific_name": "Pyrrhopappus carolinianus",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include medicine.",
+          "locator": "Page 181 · IPNI 241012-1",
+          "record_key": "241012-1",
+          "categories": [
+            "ME"
+          ],
+          "reference_ids": [
+            4
+          ]
+        }
+      ]
+    },
+    "128854": {
+      "scientific_name": "Rubus cuneifolius",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include gene sources, food, materials, medicine.",
+          "locator": "Page 603 · IPNI 30201781-2",
+          "record_key": "30201781-2",
+          "categories": [
+            "GS",
+            "HF",
+            "MA",
+            "ME"
+          ],
+          "reference_ids": [
+            3,
+            4,
+            8
+          ]
+        }
+      ]
+    },
+    "128943": {
+      "scientific_name": "Smilax tamnoides",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include materials, medicine.",
+          "locator": "Page 79 · IPNI 541894-1",
+          "record_key": "541894-1",
+          "categories": [
+            "MA",
+            "ME"
+          ],
+          "reference_ids": [
+            1,
+            4
+          ]
+        }
+      ]
+    },
+    "128998": {
+      "scientific_name": "Lythrum alatum",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include medicine.",
+          "locator": "Page 537 · IPNI 553649-1",
+          "record_key": "553649-1",
+          "categories": [
+            "ME"
+          ],
+          "reference_ids": [
+            4
+          ]
+        },
+        {
+          "source": "duke",
+          "summary": "1 cited use record from 1 reference.",
+          "locator": "ETHNOBOT.csv · Record 66262",
+          "record_keys": [
+            66262
+          ],
+          "reference_keys": [
+            "Hartwell"
+          ]
+        }
+      ]
+    },
+    "129103": {
+      "scientific_name": "Emilia fosbergii",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include medicine.",
+          "locator": "Page 165 · IPNI 90491-2",
+          "record_key": "90491-2",
+          "categories": [
+            "ME"
+          ],
+          "reference_ids": [
+            4
+          ]
+        }
+      ]
+    },
+    "129347": {
+      "scientific_name": "Ilex glabra",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses, invertebrate food.",
+          "locator": "Page 148 · IPNI 83326-1",
+          "record_key": "83326-1",
+          "categories": [
+            "EU",
+            "IF"
+          ],
+          "reference_ids": [
+            3
+          ]
+        }
+      ]
+    },
+    "129433": {
+      "scientific_name": "Lyonia lucida",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses.",
+          "locator": "Page 264 · IPNI 331149-1",
+          "record_key": "331149-1",
+          "categories": [
+            "EU"
+          ],
+          "reference_ids": [
+            3
+          ]
+        }
+      ]
+    },
+    "129859": {
+      "scientific_name": "Gleditsia aquatica",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include materials.",
+          "locator": "Page 308 · IPNI 496572-1",
+          "record_key": "496572-1",
+          "categories": [
+            "MA"
+          ],
+          "reference_ids": [
+            1
+          ]
+        }
+      ]
+    },
+    "130869": {
+      "scientific_name": "Gomphrena serrata",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include medicine.",
+          "locator": "Page 220 · IPNI 112097-2",
+          "record_key": "112097-2",
+          "categories": [
+            "ME"
+          ],
+          "reference_ids": [
+            4,
+            10,
+            12
+          ]
+        }
+      ]
+    },
+    "130872": {
+      "scientific_name": "Schinus terebinthifolia",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses, gene sources, food, invertebrate food, materials, medicine, use as a poison.",
+          "locator": "Page 619 · IPNI 71069-1",
+          "record_key": "71069-1",
+          "categories": [
+            "EU",
+            "GS",
+            "HF",
+            "IF",
+            "MA",
+            "ME",
+            "PO"
+          ],
+          "reference_ids": [
+            1,
+            3,
+            4,
+            8,
+            9,
+            11
+          ]
+        }
+      ]
+    },
+    "130888": {
+      "scientific_name": "Erechtites hieraciifolius",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include food, medicine.",
+          "locator": "Page 165 · IPNI 1152557-2",
+          "record_key": "1152557-2",
+          "categories": [
+            "HF",
+            "ME"
+          ],
+          "reference_ids": [
+            1,
+            3,
+            4
+          ]
+        }
+      ]
+    },
+    "131152": {
+      "scientific_name": "Coreopsis leavenworthii",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include medicine.",
+          "locator": "Page 162 · IPNI 198072-1",
+          "record_key": "198072-1",
+          "categories": [
+            "ME"
+          ],
+          "reference_ids": [
+            4
+          ]
+        },
+        {
+          "source": "duke",
+          "summary": "1 cited use record from 1 reference.",
+          "locator": "ETHNOBOT.csv · Record 75429",
+          "record_keys": [
+            75429
+          ],
+          "reference_keys": [
+            "Uphof"
+          ]
+        }
+      ]
+    },
+    "131154": {
+      "scientific_name": "Eupatorium capillifolium",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "duke",
+          "summary": "2 cited use records from 1 reference.",
+          "locator": "ETHNOBOT.csv · First record 6928",
+          "record_keys": [
+            6928,
+            40680
+          ],
+          "reference_keys": [
+            "Uphof"
+          ]
+        }
+      ]
+    },
+    "131167": {
+      "scientific_name": "Melanthera nivea",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "duke",
+          "summary": "2 cited use records from 1 reference.",
+          "locator": "ETHNOBOT.csv · First record 80596",
+          "record_keys": [
+            80596,
+            81644
+          ],
+          "reference_keys": [
+            "Altschul"
+          ]
+        }
+      ]
+    },
+    "131170": {
+      "scientific_name": "Pluchea foetida",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include medicine.",
+          "locator": "Page 180 · IPNI 238826-1",
+          "record_key": "238826-1",
+          "categories": [
+            "ME"
+          ],
+          "reference_ids": [
+            4
+          ]
+        }
+      ]
+    },
+    "131555": {
+      "scientific_name": "Ipomoea sagittata",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include medicine.",
+          "locator": "Page 652 · IPNI 269719-1",
+          "record_key": "269719-1",
+          "categories": [
+            "ME"
+          ],
+          "reference_ids": [
+            4
+          ]
+        }
+      ]
+    },
+    "131568": {
+      "scientific_name": "Chamaecrista nictitans",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses, medicine.",
+          "locator": "Page 295 · IPNI 30485908-2",
+          "record_key": "30485908-2",
+          "categories": [
+            "EU",
+            "ME"
+          ],
+          "reference_ids": [
+            4
+          ]
+        }
+      ]
+    },
+    "131570": {
+      "scientific_name": "Crotalaria rotundifolia",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include medicine.",
+          "locator": "Page 299 · IPNI 488795-1",
+          "record_key": "488795-1",
+          "categories": [
+            "ME"
+          ],
+          "reference_ids": [
+            4
+          ]
+        }
+      ]
+    },
+    "131578": {
+      "scientific_name": "Indigofera hirsuta",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include animal food, environmental uses, food, materials, medicine, use as a poison.",
+          "locator": "Page 311 · IPNI 499456-1",
+          "record_key": "499456-1",
+          "categories": [
+            "AF",
+            "EU",
+            "HF",
+            "MA",
+            "ME",
+            "PO"
+          ],
+          "reference_ids": [
+            3,
+            4,
+            5,
+            7,
+            8,
+            9
+          ]
+        },
+        {
+          "source": "duke",
+          "summary": "4 cited use records from 1 reference.",
+          "locator": "ETHNOBOT.csv · First record 16736",
+          "record_keys": [
+            16736,
+            38002,
+            47711,
+            80697
+          ],
+          "reference_keys": [
+            "Woi.5"
+          ]
+        }
+      ]
+    },
+    "131583": {
+      "scientific_name": "Vigna luteola",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include animal food, environmental uses, gene sources, food, medicine.",
+          "locator": "Page 339 · IPNI 525419-1",
+          "record_key": "525419-1",
+          "categories": [
+            "AF",
+            "EU",
+            "GS",
+            "HF",
+            "ME"
+          ],
+          "reference_ids": [
+            3,
+            4,
+            8,
+            9
+          ]
+        }
+      ]
+    },
+    "131597": {
+      "scientific_name": "Sida ulmifolia",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include medicine.",
+          "locator": "Page 527 · IPNI 329574-2",
+          "record_key": "329574-2",
+          "categories": [
+            "ME"
+          ],
+          "reference_ids": [
+            4
+          ]
+        }
+      ]
+    },
+    "131656": {
+      "scientific_name": "Kosteletzkya pentacarpos",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include fuel, materials.",
+          "locator": "Page 523 · IPNI 561095-1",
+          "record_key": "561095-1",
+          "categories": [
+            "FU",
+            "MA"
+          ],
+          "reference_ids": [
+            3
+          ]
+        }
+      ]
+    },
+    "132625": {
+      "scientific_name": "Lyonia ligustrina",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses.",
+          "locator": "Page 264 · IPNI 331146-1",
+          "record_key": "331146-1",
+          "categories": [
+            "EU"
+          ],
+          "reference_ids": [
+            3
+          ]
+        }
+      ]
+    },
+    "132685": {
+      "scientific_name": "Rhynchospora colorata",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include animal food, medicine, social uses.",
+          "locator": "Page 88 · IPNI 311841-1",
+          "record_key": "311841-1",
+          "categories": [
+            "AF",
+            "ME",
+            "SU"
+          ],
+          "reference_ids": [
+            4,
+            5
+          ]
+        }
+      ]
+    },
+    "133291": {
+      "scientific_name": "Rivina humilis",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include animal food, environmental uses, invertebrate food, medicine, use as a poison.",
+          "locator": "Page 233 · IPNI 221479-2",
+          "record_key": "221479-2",
+          "categories": [
+            "AF",
+            "EU",
+            "IF",
+            "ME",
+            "PO"
+          ],
+          "reference_ids": [
+            3,
+            4,
+            7,
+            10
+          ]
+        }
+      ]
+    },
+    "133294": {
+      "scientific_name": "Portulaca pilosa",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses, food, medicine.",
+          "locator": "Page 239 · IPNI 316354-2",
+          "record_key": "316354-2",
+          "categories": [
+            "EU",
+            "HF",
+            "ME"
+          ],
+          "reference_ids": [
+            3,
+            4,
+            5,
+            7,
+            9,
+            12
+          ]
+        },
+        {
+          "source": "duke",
+          "summary": "20 cited use records from 5 references.",
+          "locator": "ETHNOBOT.csv · First record 3769",
+          "record_keys": [
+            3769,
+            4135,
+            8598,
+            10031,
+            18558,
+            18559,
+            20495,
+            25178,
+            42828,
+            54568,
+            54569,
+            60631,
+            65827,
+            70355,
+            71774,
+            72179,
+            80118,
+            80634,
+            82008,
+            82013
+          ],
+          "reference_keys": [
+            "Burkill,1966",
+            "Eb30: 119",
+            "Liogier",
+            "Woi.8",
+            "Wong"
+          ]
+        }
+      ]
+    },
+    "135394": {
+      "scientific_name": "Lagerstroemia indica",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include animal food, environmental uses, fuel, materials, medicine.",
+          "locator": "Page 537 · IPNI 553576-1",
+          "record_key": "553576-1",
+          "categories": [
+            "AF",
+            "EU",
+            "FU",
+            "MA",
+            "ME"
+          ],
+          "reference_ids": [
+            1,
+            3,
+            4,
+            7,
+            8,
+            11
+          ]
+        },
+        {
+          "source": "duke",
+          "summary": "24 cited use records from 3 references.",
+          "locator": "ETHNOBOT.csv · First record 71",
+          "record_keys": [
+            71,
+            3119,
+            5813,
+            14831,
+            15779,
+            18225,
+            26505,
+            30722,
+            34298,
+            39835,
+            44852,
+            46741,
+            59000,
+            59004,
+            63619,
+            63966,
+            65799,
+            69445,
+            69815,
+            70990,
+            72266,
+            73941,
+            75482,
+            75617
+          ],
+          "reference_keys": [
+            "Al-Rawi",
+            "Hunan",
+            "Woi.6"
+          ]
+        }
+      ]
+    },
+    "138567": {
+      "scientific_name": "Rhynchosia minima",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include animal food, environmental uses, food, medicine, use as a poison, social uses.",
+          "locator": "Page 328 · IPNI 1197938-2",
+          "record_key": "1197938-2",
+          "categories": [
+            "AF",
+            "EU",
+            "HF",
+            "ME",
+            "PO",
+            "SU"
+          ],
+          "reference_ids": [
+            3,
+            4,
+            7,
+            8,
+            9,
+            10
+          ]
+        },
+        {
+          "source": "duke",
+          "summary": "2 cited use records from 1 reference.",
+          "locator": "ETHNOBOT.csv · First record 266",
+          "record_keys": [
+            266,
+            37299
+          ],
+          "reference_keys": [
+            "Woi.Syria"
+          ]
+        }
+      ]
+    },
+    "143150": {
+      "scientific_name": "Pluchea baccharis",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include medicine.",
+          "locator": "Page 180 · IPNI 60441362-2",
+          "record_key": "60441362-2",
+          "categories": [
+            "ME"
+          ],
+          "reference_ids": [
+            4
+          ]
+        }
+      ]
+    },
+    "143362": {
+      "scientific_name": "Smilax pumila",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include medicine.",
+          "locator": "Page 79 · IPNI 541776-1",
+          "record_key": "541776-1",
+          "categories": [
+            "ME"
+          ],
+          "reference_ids": [
+            4
+          ]
+        }
+      ]
+    },
+    "143469": {
+      "scientific_name": "Clematis crispa",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "duke",
+          "summary": "1 cited use record from 1 reference.",
+          "locator": "ETHNOBOT.csv · Record 8970",
+          "record_keys": [
+            8970
+          ],
+          "reference_keys": [
+            "Hartwell"
+          ]
+        }
+      ]
+    },
+    "143955": {
+      "scientific_name": "Hedychium coronarium",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses, food, materials, medicine.",
+          "locator": "Page 129 · IPNI 796836-1",
+          "record_key": "796836-1",
+          "categories": [
+            "EU",
+            "HF",
+            "MA",
+            "ME"
+          ],
+          "reference_ids": [
+            1,
+            3,
+            4,
+            5,
+            7,
+            8,
+            11,
+            12
+          ]
+        },
+        {
+          "source": "duke",
+          "summary": "13 cited use records from 5 references.",
+          "locator": "ETHNOBOT.csv · First record 10520",
+          "record_keys": [
+            10520,
+            22829,
+            27465,
+            41249,
+            45556,
+            50543,
+            51180,
+            58504,
+            71554,
+            76203,
+            78021,
+            78390,
+            79435
+          ],
+          "reference_keys": [
+            "Burkill,1966",
+            "Eb25: 249",
+            "Hartwell",
+            "Keys",
+            "Woi.5"
+          ]
+        }
+      ]
+    },
+    "152134": {
+      "scientific_name": "Hypericum crux-andreae",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include medicine.",
+          "locator": "Page 488 · IPNI 433348-1",
+          "record_key": "433348-1",
+          "categories": [
+            "ME"
+          ],
+          "reference_ids": [
+            4
+          ]
+        }
+      ]
+    },
+    "154584": {
+      "scientific_name": "Indigofera caroliniana",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include medicine.",
+          "locator": "Page 310 · IPNI 499117-1",
+          "record_key": "499117-1",
+          "categories": [
+            "ME"
+          ],
+          "reference_ids": [
+            4
+          ]
+        }
+      ]
+    },
+    "158586": {
+      "scientific_name": "Ardisia crenata",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses, food, medicine.",
+          "locator": "Page 271 · IPNI 586890-1",
+          "record_key": "586890-1",
+          "categories": [
+            "EU",
+            "HF",
+            "ME"
+          ],
+          "reference_ids": [
+            3,
+            4,
+            7
+          ]
+        }
+      ]
+    },
+    "159130": {
+      "scientific_name": "Bacopa caroliniana",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include medicine.",
+          "locator": "Page 434 · IPNI 28288-2",
+          "record_key": "28288-2",
+          "categories": [
+            "ME"
+          ],
+          "reference_ids": [
+            4
+          ]
+        }
+      ]
+    },
+    "159152": {
+      "scientific_name": "Baptisia perfoliata",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include medicine.",
+          "locator": "Page 291 · IPNI 1080719-2",
+          "record_key": "1080719-2",
+          "categories": [
+            "ME"
+          ],
+          "reference_ids": [
+            4
+          ]
+        }
+      ]
+    },
+    "159587": {
+      "scientific_name": "Buddleja madagascariensis",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include medicine.",
+          "locator": "Page 438 · IPNI 545812-1",
+          "record_key": "545812-1",
+          "categories": [
+            "ME"
+          ],
+          "reference_ids": [
+            4
+          ]
+        }
+      ]
+    },
+    "160557": {
+      "scientific_name": "Chrysopsis mariana",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include medicine.",
+          "locator": "Page 161 · IPNI 194173-1",
+          "record_key": "194173-1",
+          "categories": [
+            "ME"
+          ],
+          "reference_ids": [
+            1,
+            4
+          ]
+        }
+      ]
+    },
+    "160741": {
+      "scientific_name": "Clerodendrum indicum",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses, medicine, social uses.",
+          "locator": "Page 411 · IPNI 862153-1",
+          "record_key": "862153-1",
+          "categories": [
+            "EU",
+            "ME",
+            "SU"
+          ],
+          "reference_ids": [
+            1,
+            3,
+            4,
+            7
+          ]
+        },
+        {
+          "source": "duke",
+          "summary": "13 cited use records from 4 references.",
+          "locator": "ETHNOBOT.csv · First record 5070",
+          "record_keys": [
+            5070,
+            5071,
+            13770,
+            22601,
+            36412,
+            42613,
+            49774,
+            63430,
+            72213,
+            75995,
+            78479,
+            78831,
+            81021
+          ],
+          "reference_keys": [
+            "Burkill,1966",
+            "Eb28: 40",
+            "Eb28: 41",
+            "Woi.2"
+          ]
+        }
+      ]
+    },
+    "160765": {
+      "scientific_name": "Cnidoscolus stimulosus",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include medicine.",
+          "locator": "Page 472 · IPNI 341781-1",
+          "record_key": "341781-1",
+          "categories": [
+            "ME"
+          ],
+          "reference_ids": [
+            4
+          ]
+        }
+      ]
+    },
+    "160818": {
+      "scientific_name": "Commelina diffusa",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include animal food, environmental uses, food, materials, medicine, social uses.",
+          "locator": "Page 71 · IPNI 172020-1",
+          "record_key": "172020-1",
+          "categories": [
+            "AF",
+            "EU",
+            "HF",
+            "MA",
+            "ME",
+            "SU"
+          ],
+          "reference_ids": [
+            1,
+            3,
+            4,
+            5,
+            7,
+            8,
+            11
+          ]
+        },
+        {
+          "source": "duke",
+          "summary": "14 cited use records from 4 references.",
+          "locator": "ETHNOBOT.csv · First record 185",
+          "record_keys": [
+            185,
+            7643,
+            8467,
+            15446,
+            22517,
+            27235,
+            35283,
+            35867,
+            48991,
+            51757,
+            72091,
+            73827,
+            74646,
+            79832
+          ],
+          "reference_keys": [
+            "Ayensu",
+            "Eb25: 248",
+            "Eb32: 302",
+            "Martinez"
+          ]
+        }
+      ]
+    },
+    "161143": {
+      "scientific_name": "Crotalaria lanceolata",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include animal food, environmental uses, medicine.",
+          "locator": "Page 298 · IPNI 322602-2",
+          "record_key": "322602-2",
+          "categories": [
+            "AF",
+            "EU",
+            "ME"
+          ],
+          "reference_ids": [
+            3,
+            4
+          ]
+        }
+      ]
+    },
+    "161150": {
+      "scientific_name": "Crotalaria spectabilis",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses, materials, medicine, use as a poison.",
+          "locator": "Page 299 · IPNI 322612-2",
+          "record_key": "322612-2",
+          "categories": [
+            "EU",
+            "MA",
+            "ME",
+            "PO"
+          ],
+          "reference_ids": [
+            3,
+            4,
+            7,
+            8,
+            11
+          ]
+        },
+        {
+          "source": "duke",
+          "summary": "2 cited use records from 2 references.",
+          "locator": "ETHNOBOT.csv · First record 38558",
+          "record_keys": [
+            38558,
+            38629
+          ],
+          "reference_keys": [
+            "Lewis",
+            "Uphof"
+          ]
+        }
+      ]
+    },
+    "161255": {
+      "scientific_name": "Cuphea carthagenensis",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include fuel, medicine.",
+          "locator": "Page 536 · IPNI 72326-2",
+          "record_key": "72326-2",
+          "categories": [
+            "FU",
+            "ME"
+          ],
+          "reference_ids": [
+            1,
+            3,
+            4,
+            12
+          ]
+        }
+      ]
+    },
+    "162094": {
+      "scientific_name": "Drosera capillaris",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include medicine.",
+          "locator": "Page 231 · IPNI 321807-1",
+          "record_key": "321807-1",
+          "categories": [
+            "ME"
+          ],
+          "reference_ids": [
+            4
+          ]
+        }
+      ]
+    },
+    "163157": {
+      "scientific_name": "Galactia volubilis",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include medicine.",
+          "locator": "Page 307 · IPNI 106742-2",
+          "record_key": "106742-2",
+          "categories": [
+            "ME"
+          ],
+          "reference_ids": [
+            4
+          ]
+        }
+      ]
+    },
+    "163871": {
+      "scientific_name": "Hydrocotyle bonariensis",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses, materials, medicine.",
+          "locator": "Page 144 · IPNI 125117-2",
+          "record_key": "125117-2",
+          "categories": [
+            "EU",
+            "MA",
+            "ME"
+          ],
+          "reference_ids": [
+            4,
+            11
+          ]
+        }
+      ]
+    },
+    "164025": {
+      "scientific_name": "Hyptis verticillata",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "duke",
+          "summary": "10 cited use records from 3 references.",
+          "locator": "ETHNOBOT.csv · First record 20417",
+          "record_keys": [
+            20417,
+            30504,
+            36213,
+            41284,
+            43063,
+            47067,
+            58702,
+            58706,
+            63759,
+            77432
+          ],
+          "reference_keys": [
+            "Brutus",
+            "Duke,1972",
+            "Liogier"
+          ]
+        }
+      ]
+    },
+    "164056": {
+      "scientific_name": "Imperata cylindrica",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "duke",
+          "summary": "70 cited use records from 11 references.",
+          "locator": "ETHNOBOT.csv · First record 2043",
+          "record_keys": [
+            2043,
+            5179,
+            6843,
+            9666,
+            9810,
+            9909,
+            11209,
+            13938,
+            15542,
+            16734,
+            16735,
+            18158,
+            18159,
+            18160,
+            19148,
+            19654,
+            22529,
+            22530,
+            22531,
+            24693,
+            24694,
+            26897,
+            27966,
+            28062,
+            28063,
+            28064,
+            28172,
+            28340,
+            28341,
+            28498,
+            28613,
+            30304,
+            32639,
+            34168,
+            34482,
+            34613,
+            35071,
+            35165,
+            36757,
+            40393,
+            40846,
+            41288,
+            43064,
+            49793,
+            50580,
+            53101,
+            53703,
+            54985,
+            56022,
+            58747,
+            58749,
+            58750,
+            58751,
+            58752,
+            58754,
+            64690,
+            66246,
+            67968,
+            68553,
+            68979,
+            70975,
+            70976,
+            71671,
+            71966,
+            71990,
+            72111,
+            72825,
+            74713,
+            78925,
+            80290
+          ],
+          "reference_keys": [
+            "Bliss",
+            "Burkill,1966",
+            "Eb32: 299",
+            "Hartwell",
+            "Hunan",
+            "Keys",
+            "Kimura",
+            "M,B,G,&S,1991",
+            "Nas",
+            "Woi.Syria",
+            "Yeh"
+          ]
+        }
+      ]
+    },
+    "164063": {
+      "scientific_name": "Indigofera spicata",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include animal food, environmental uses, food, materials, medicine, use as a poison.",
+          "locator": "Page 311 · IPNI 500027-1",
+          "record_key": "500027-1",
+          "categories": [
+            "AF",
+            "EU",
+            "HF",
+            "MA",
+            "ME",
+            "PO"
+          ],
+          "reference_ids": [
+            3,
+            4,
+            7,
+            8,
+            9,
+            11
+          ]
+        }
+      ]
+    },
+    "164230": {
+      "scientific_name": "Jasminum multiflorum",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses, food, materials, medicine, social uses.",
+          "locator": "Page 429 · IPNI 609641-1",
+          "record_key": "609641-1",
+          "categories": [
+            "EU",
+            "HF",
+            "MA",
+            "ME",
+            "SU"
+          ],
+          "reference_ids": [
+            1,
+            3,
+            4,
+            7,
+            8
+          ]
+        },
+        {
+          "source": "duke",
+          "summary": "1 cited use record from 1 reference.",
+          "locator": "ETHNOBOT.csv · Record 44815",
+          "record_keys": [
+            44815
+          ],
+          "reference_keys": [
+            "Woi.5"
+          ]
+        }
+      ]
+    },
+    "164857": {
+      "scientific_name": "Ludwigia leptocarpa",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses, food, materials, medicine, use as a poison.",
+          "locator": "Page 553 · IPNI 144366-2",
+          "record_key": "144366-2",
+          "categories": [
+            "EU",
+            "HF",
+            "MA",
+            "ME",
+            "PO"
+          ],
+          "reference_ids": [
+            4,
+            8,
+            11
+          ]
+        }
+      ]
+    },
+    "164861": {
+      "scientific_name": "Ludwigia octovalvis",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include animal food, materials, medicine, social uses.",
+          "locator": "Page 553 · IPNI 144385-2",
+          "record_key": "144385-2",
+          "categories": [
+            "AF",
+            "MA",
+            "ME",
+            "SU"
+          ],
+          "reference_ids": [
+            1,
+            4,
+            5,
+            7,
+            8,
+            11
+          ]
+        }
+      ]
+    },
+    "164987": {
+      "scientific_name": "Lyonia ferruginea",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses, materials.",
+          "locator": "Page 264 · IPNI 331130-1",
+          "record_key": "331130-1",
+          "categories": [
+            "EU",
+            "MA"
+          ],
+          "reference_ids": [
+            1,
+            3
+          ]
+        }
+      ]
+    },
+    "164989": {
+      "scientific_name": "Lyonia mariana",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include medicine.",
+          "locator": "Page 264 · IPNI 331154-1",
+          "record_key": "331154-1",
+          "categories": [
+            "ME"
+          ],
+          "reference_ids": [
+            4
+          ]
+        }
+      ]
+    },
+    "165060": {
+      "scientific_name": "Macroptilium lathyroides",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include animal food, environmental uses, gene sources, food, medicine, use as a poison.",
+          "locator": "Page 317 · IPNI 149066-2",
+          "record_key": "149066-2",
+          "categories": [
+            "AF",
+            "EU",
+            "GS",
+            "HF",
+            "ME",
+            "PO"
+          ],
+          "reference_ids": [
+            3,
+            4,
+            7,
+            8,
+            10
+          ]
+        },
+        {
+          "source": "duke",
+          "summary": "3 cited use records from 1 reference.",
+          "locator": "ETHNOBOT.csv · First record 12665",
+          "record_keys": [
+            12665,
+            16793,
+            81603
+          ],
+          "reference_keys": [
+            "Liogier"
+          ]
+        }
+      ]
+    },
+    "165587": {
+      "scientific_name": "Murdannia nudiflora",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include animal food, food, materials, medicine, social uses.",
+          "locator": "Page 71 · IPNI 172873-1",
+          "record_key": "172873-1",
+          "categories": [
+            "AF",
+            "HF",
+            "MA",
+            "ME",
+            "SU"
+          ],
+          "reference_ids": [
+            4,
+            5,
+            7,
+            11
+          ]
+        }
+      ]
+    },
+    "166298": {
+      "scientific_name": "Peltandra sagittifolia",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses.",
+          "locator": "Page 18 · IPNI 186955-2",
+          "record_key": "186955-2",
+          "categories": [
+            "EU"
+          ],
+          "reference_ids": [
+            3
+          ]
+        }
+      ]
+    },
+    "166889": {
+      "scientific_name": "Pinguicula pumila",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include medicine.",
+          "locator": "Page 426 · IPNI 526505-1",
+          "record_key": "526505-1",
+          "categories": [
+            "ME"
+          ],
+          "reference_ids": [
+            4
+          ]
+        }
+      ]
+    },
+    "166910": {
+      "scientific_name": "Piriqueta cistoides",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include medicine.",
+          "locator": "Page 495 · IPNI 30068867-2",
+          "record_key": "30068867-2",
+          "categories": [
+            "ME"
+          ],
+          "reference_ids": [
+            4,
+            12
+          ]
+        }
+      ]
+    },
+    "167403": {
+      "scientific_name": "Pouzolzia zeylanica",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include food, medicine.",
+          "locator": "Page 609 · IPNI 856264-1",
+          "record_key": "856264-1",
+          "categories": [
+            "HF",
+            "ME"
+          ],
+          "reference_ids": [
+            4,
+            7
+          ]
+        },
+        {
+          "source": "duke",
+          "summary": "24 cited use records from 4 references.",
+          "locator": "ETHNOBOT.csv · First record 1271",
+          "record_keys": [
+            1271,
+            7796,
+            7797,
+            7976,
+            9636,
+            11858,
+            15960,
+            19871,
+            26479,
+            31168,
+            40482,
+            45076,
+            45077,
+            48740,
+            51516,
+            53529,
+            54574,
+            60677,
+            65828,
+            70213,
+            77937,
+            78674,
+            80120,
+            80299
+          ],
+          "reference_keys": [
+            "Burkill,1966",
+            "Hartwell",
+            "Hunan",
+            "Woi.8"
+          ]
+        }
+      ]
+    },
+    "168847": {
+      "scientific_name": "Senna occidentalis",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses, food, medicine, use as a poison.",
+          "locator": "Page 330 · IPNI 1117728-2",
+          "record_key": "1117728-2",
+          "categories": [
+            "EU",
+            "HF",
+            "ME",
+            "PO"
+          ],
+          "reference_ids": [
+            1,
+            3,
+            4,
+            5,
+            8,
+            10,
+            12
+          ]
+        }
+      ]
+    },
+    "169043": {
+      "scientific_name": "Smilax laurifolia",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "duke",
+          "summary": "1 cited use record from 1 reference.",
+          "locator": "ETHNOBOT.csv · Record 7561",
+          "record_keys": [
+            7561
+          ],
+          "reference_keys": [
+            "Eb29: 314"
+          ]
+        }
+      ]
+    },
+    "169171": {
+      "scientific_name": "Spermacoce verticillata",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include animal food, materials, medicine, use as a poison.",
+          "locator": "Page 391 · IPNI 767031-1",
+          "record_key": "767031-1",
+          "categories": [
+            "AF",
+            "MA",
+            "ME",
+            "PO"
+          ],
+          "reference_ids": [
+            4,
+            8,
+            10,
+            11,
+            12
+          ]
+        }
+      ]
+    },
+    "169488": {
+      "scientific_name": "Symphyotrichum simmondsii",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include medicine.",
+          "locator": "Page 187 · IPNI 981900-1",
+          "record_key": "981900-1",
+          "categories": [
+            "ME"
+          ],
+          "reference_ids": [
+            4
+          ]
+        }
+      ]
+    },
+    "169944": {
+      "scientific_name": "Tridax procumbens",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include animal food, environmental uses, gene sources, food, materials, medicine.",
+          "locator": "Page 188 · IPNI 257735-2",
+          "record_key": "257735-2",
+          "categories": [
+            "AF",
+            "EU",
+            "GS",
+            "HF",
+            "MA",
+            "ME"
+          ],
+          "reference_ids": [
+            4,
+            5,
+            7,
+            8,
+            11,
+            12
+          ]
+        },
+        {
+          "source": "duke",
+          "summary": "14 cited use records from 3 references.",
+          "locator": "ETHNOBOT.csv · First record 1651",
+          "record_keys": [
+            1651,
+            3817,
+            8452,
+            17125,
+            20029,
+            29899,
+            35768,
+            40550,
+            56335,
+            65974,
+            66797,
+            72140,
+            72580,
+            73468
+          ],
+          "reference_keys": [
+            "Martinez",
+            "Standley",
+            "Woi.10"
+          ]
+        }
+      ]
+    },
+    "170106": {
+      "scientific_name": "Vaccinium myrsinites",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include gene sources, medicine.",
+          "locator": "Page 267 · IPNI 261931-2",
+          "record_key": "261931-2",
+          "categories": [
+            "GS",
+            "ME"
+          ],
+          "reference_ids": [
+            3,
+            4
+          ]
+        }
+      ]
+    },
+    "170358": {
+      "scientific_name": "Xyris caroliniana",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include medicine.",
+          "locator": "Page 123 · IPNI 321291-2",
+          "record_key": "321291-2",
+          "categories": [
+            "ME"
+          ],
+          "reference_ids": [
+            4
+          ]
+        },
+        {
+          "source": "duke",
+          "summary": "1 cited use record from 1 reference.",
+          "locator": "ETHNOBOT.csv · Record 43975",
+          "record_keys": [
+            43975
+          ],
+          "reference_keys": [
+            "Uphof"
+          ]
+        }
+      ]
+    },
+    "204165": {
+      "scientific_name": "Osmundastrum cinnamomeum",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses, medicine.",
+          "locator": "Page 676 · IPNI 60447721-2",
+          "record_key": "60447721-2",
+          "categories": [
+            "EU",
+            "ME"
+          ],
+          "reference_ids": [
+            3,
+            4
+          ]
+        }
+      ]
+    },
+    "246102": {
+      "scientific_name": "Sphagneticola trilobata",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses, medicine, use as a poison.",
+          "locator": "Page 186 · IPNI 1093589-2",
+          "record_key": "1093589-2",
+          "categories": [
+            "EU",
+            "ME",
+            "PO"
+          ],
+          "reference_ids": [
+            3,
+            4,
+            11,
+            12
+          ]
+        }
+      ]
+    },
+    "326037": {
+      "scientific_name": "Spermacoce remota",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include medicine.",
+          "locator": "Page 391 · IPNI 319724-2",
+          "record_key": "319724-2",
+          "categories": [
+            "ME"
+          ],
+          "reference_ids": [
+            4
+          ]
+        }
+      ]
+    },
+    "355607": {
+      "scientific_name": "Asemeia grandiflora",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include materials.",
+          "locator": "Page 340 · IPNI 21367-2",
+          "record_key": "21367-2",
+          "categories": [
+            "MA"
+          ],
+          "reference_ids": []
+        }
+      ]
+    },
+    "551846": {
+      "scientific_name": "Nekemias arborea",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include medicine.",
+          "locator": "Page 665 · IPNI 77142315-1",
+          "record_key": "77142315-1",
+          "categories": [
+            "ME"
+          ],
+          "reference_ids": [
+            4
+          ]
+        }
+      ]
+    },
+    "635336": {
+      "scientific_name": "Hypericum fasciculatum",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include materials, medicine.",
+          "locator": "Page 488 · IPNI 126209-2",
+          "record_key": "126209-2",
+          "categories": [
+            "MA",
+            "ME"
+          ],
+          "reference_ids": [
+            1,
+            4
+          ]
+        }
+      ]
+    },
+    "773685": {
+      "scientific_name": "Hemerocallis minor",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses, food, medicine.",
+          "locator": "Page 51 · IPNI 536354-1",
+          "record_key": "536354-1",
+          "categories": [
+            "EU",
+            "HF",
+            "ME"
+          ],
+          "reference_ids": [
+            1,
+            3,
+            4,
+            7
+          ]
+        }
+      ]
+    },
+    "852222": {
+      "scientific_name": "Torenia crustacea",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include medicine.",
+          "locator": "Page 427 · IPNI 1189750-2",
+          "record_key": "1189750-2",
+          "categories": [
+            "ME"
+          ],
+          "reference_ids": [
+            4
+          ]
+        }
+      ]
+    },
+    "860746": {
+      "scientific_name": "Geobalanus oblongifolius",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include medicine.",
+          "locator": "Page 464 · IPNI 108790-2",
+          "record_key": "108790-2",
+          "categories": [
+            "ME"
+          ],
+          "reference_ids": [
+            4
+          ]
+        }
+      ]
+    },
+    "890511": {
+      "scientific_name": "Sesbania vesicaria",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include medicine, use as a poison.",
+          "locator": "Page 331 · IPNI 518555-1",
+          "record_key": "518555-1",
+          "categories": [
+            "ME",
+            "PO"
+          ],
+          "reference_ids": [
+            4
+          ]
+        },
+        {
+          "source": "duke",
+          "summary": "1 cited use record from 1 reference.",
+          "locator": "ETHNOBOT.csv · Record 38317",
+          "record_keys": [
+            38317
+          ],
+          "reference_keys": [
+            "Lewis"
+          ]
+        }
+      ]
+    },
+    "907480": {
+      "scientific_name": "Distimake dissectus",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include environmental uses, materials, medicine, use as a poison.",
+          "locator": "Page 650 · IPNI 77163242-1",
+          "record_key": "77163242-1",
+          "categories": [
+            "EU",
+            "MA",
+            "ME",
+            "PO"
+          ],
+          "reference_ids": [
+            4
+          ]
+        }
+      ]
+    },
+    "962637": {
+      "scientific_name": "Pontederia crassipes",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include animal food, environmental uses, fuel, gene sources, food, materials, medicine.",
+          "locator": "Page 72 · IPNI 310928-2",
+          "record_key": "310928-2",
+          "categories": [
+            "AF",
+            "EU",
+            "FU",
+            "GS",
+            "HF",
+            "MA",
+            "ME"
+          ],
+          "reference_ids": [
+            4
+          ]
+        }
+      ]
+    },
+    "1153571": {
+      "scientific_name": "Oplismenus burmanni",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include animal food, medicine, social uses.",
+          "locator": "Page 111 · IPNI 30453766-2",
+          "record_key": "30453766-2",
+          "categories": [
+            "AF",
+            "ME",
+            "SU"
+          ],
+          "reference_ids": [
+            4,
+            7,
+            8,
+            11
+          ]
+        },
+        {
+          "source": "duke",
+          "summary": "1 cited use record from 1 reference.",
+          "locator": "ETHNOBOT.csv · Record 39067",
+          "record_keys": [
+            39067
+          ],
+          "reference_keys": [
+            "Burkill,1966"
+          ]
+        }
+      ]
+    },
+    "1530846": {
+      "scientific_name": "Stillingia sylvatica",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "kew_useful_plants",
+          "summary": "Checklist categories include materials, medicine.",
+          "locator": "Page 486 · IPNI 356605-1",
+          "record_key": "356605-1",
+          "categories": [
+            "MA",
+            "ME"
+          ],
+          "reference_ids": [
+            1,
+            3,
+            4,
+            9
+          ]
+        },
+        {
+          "source": "duke",
+          "summary": "33 cited use records from 6 references.",
+          "locator": "ETHNOBOT.csv · First record 1870",
+          "record_keys": [
+            1870,
+            1871,
+            9478,
+            11175,
+            15724,
+            18776,
+            20242,
+            21366,
+            23323,
+            28587,
+            31736,
+            31737,
+            32439,
+            33243,
+            39452,
+            40660,
+            42670,
+            42671,
+            43925,
+            49366,
+            49367,
+            51032,
+            51033,
+            61847,
+            61848,
+            61850,
+            61851,
+            64059,
+            69968,
+            73142,
+            75181,
+            76847,
+            78524
+          ],
+          "reference_keys": [
+            "Altschul",
+            "Hartwell",
+            "Krochmal",
+            "Standley",
+            "Steinmetz",
+            "Uphof"
+          ]
+        }
+      ]
+    },
+    "1648274": {
+      "scientific_name": "Trilisa odoratissima",
+      "rank": "species",
+      "cross_references": [
+        {
+          "source": "duke",
+          "summary": "8 cited use records from 3 references.",
+          "locator": "ETHNOBOT.csv · First record 18861",
+          "record_keys": [
+            18861,
+            26319,
+            26320,
+            34731,
+            47011,
+            51118,
+            74598,
+            78306
+          ],
+          "reference_keys": [
+            "Eb23: 185",
+            "Steinmetz",
+            "Uphof"
+          ]
+        }
+      ]
+    }
+  }
+}
