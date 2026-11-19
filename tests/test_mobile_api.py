@@ -3,14 +3,17 @@ from __future__ import annotations
 import asyncio
 from datetime import date
 import logging
+from types import SimpleNamespace
 
 import pytest
+from botocore.exceptions import ClientError
 from fastapi import BackgroundTasks, HTTPException
 from fastapi.testclient import TestClient
 
 import mobile_api
 from hike_journal.models import PhotoMetadata, ProcessedImage, SpeciesCandidate
 from hike_journal.services.inat import InatRequestError
+from hike_journal.services.storage import StorageService
 from mobile_api import (
     CoverPhotoInput,
     HikeInput,
@@ -945,6 +948,81 @@ def test_picker_metadata_fallback_parses_capture_time_and_coordinates():
 def test_picker_metadata_treats_missing_android_capture_time_as_absent():
     assert _parse_picker_taken_at("") is None
     assert _parse_picker_taken_at("null") is None
+
+
+def test_large_video_waits_for_storage_and_finishes_once(monkeypatch):
+    owner = {"mode": "google", "user_id": "video-owner"}
+    records = {}
+    objects = {}
+    signed = []
+
+    def head_object(*, Bucket, Key):
+        if Key not in objects:
+            raise ClientError({"ResponseMetadata": {"HTTPStatusCode": 404}}, "HeadObject")
+        return objects[Key]
+
+    def sign_upload(operation, *, Params, ExpiresIn):
+        assert operation == "put_object"
+        assert ExpiresIn == 3600
+        signed.append(Params)
+        return "https://private-storage.example/upload"
+
+    def create_photo(record):
+        assert record["id"] not in records
+        records[record["id"]] = record
+        return record
+
+    storage = StorageService.__new__(StorageService)
+    storage.backend = "r2"
+    storage.r2_bucket = "journal-videos"
+    storage._r2_client = SimpleNamespace(head_object=head_object, generate_presigned_url=sign_upload)
+    repository = SimpleNamespace(
+        list_mobile_photo_records_for_ids=lambda ids, **_: [records[key] for key in ids if key in records],
+        create_photo=create_photo,
+        decorate_media_row=lambda row: row,
+    )
+    monkeypatch.setattr(mobile_api, "get_services", lambda: SimpleNamespace(storage=storage, repository=repository))
+    monkeypatch.setattr(mobile_api, "_user_context", lambda: owner)
+    monkeypatch.setitem(app.dependency_overrides, require_mobile_key, lambda: None)
+    client = TestClient(app)
+    url = "/v1/hikes/everyday/video-uploads"
+    payload = {
+        "photo_id": "46358995-abbf-40ee-b1a2-86aa30baf800",
+        "content_type": "video/mp4",
+        "extension": "mp4",
+        "size_bytes": 250 * 1024 * 1024,
+        "caption": "Trail clip",
+        "taken_at": "2026-11-18T18:12:00Z",
+        "lat": 28.5,
+        "lng": -81.25,
+    }
+
+    assert client.post(url, json={**payload, "size_bytes": payload["size_bytes"] + 1}).status_code == 413
+    assert not signed
+    presigned = client.post(url, json=payload)
+    assert presigned.json() == {"upload_url": "https://private-storage.example/upload"}
+    assert not records
+    key = signed[0]["Key"]
+    assert signed[0] == {
+        "Bucket": "journal-videos", "Key": key, "ContentLength": payload["size_bytes"],
+        "ContentType": "video/mp4", "IfNoneMatch": "*",
+    }
+    objects[key] = {"ContentLength": 42, "ContentType": "video/mp4"}
+    assert client.post(url, json=payload).status_code == 409
+    assert not records
+
+    objects[key]["ContentLength"] = payload["size_bytes"]
+    finished = client.post(url, json=payload)
+    assert finished.status_code == 200
+    video = finished.json()["photo"]
+    assert video["id"] == payload["photo_id"]
+    assert video["hike_id"] is None
+    assert video["content_type"] == "video/mp4"
+    assert video["processing_status"] == "ready"
+    assert (video["lat"], video["lng"]) == (28.5, -81.25)
+    assert client.post(url, json=payload).json() == finished.json()
+    owner["user_id"] = "other-owner"
+    assert client.post(url, json=payload).status_code == 409
 
 
 def test_photo_upload_uses_picker_metadata_when_file_exif_is_redacted(monkeypatch):

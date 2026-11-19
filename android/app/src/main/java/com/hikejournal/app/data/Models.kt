@@ -159,6 +159,7 @@ internal val Photo.isVideo: Boolean
 data class MediaLocationSummary(
     val totalCount: Int,
     val geotaggedCount: Int,
+    val videoCount: Int = 0,
 ) {
     val missingCount: Int get() = (totalCount - geotaggedCount).coerceAtLeast(0)
     val allGeotagged: Boolean get() = totalCount > 0 && missingCount == 0

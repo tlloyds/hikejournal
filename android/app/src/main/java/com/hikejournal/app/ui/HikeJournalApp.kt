@@ -49,6 +49,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -173,6 +174,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.location.LocationManagerCompat
 import coil.compose.AsyncImage
@@ -413,8 +415,7 @@ private fun HikeJournalAppContent(viewModel: AppViewModel) {
     var directReviewItem by remember { mutableStateOf<ReviewItem?>(null) }
     var identifyAfterUpload by remember { mutableStateOf(false) }
     var speciesAssignmentPhoto by remember { mutableStateOf<Photo?>(null) }
-    var localMediaPickerOpen by remember { mutableStateOf(false) }
-    var localMediaPermissionError by remember { mutableStateOf<String?>(null) }
+    var localMediaPickerOpen by rememberSaveable { mutableStateOf(false) }
     var grantedLocalMediaAccess by remember { mutableStateOf<LocalMediaAccess?>(null) }
     var pendingUpload by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var mediaLocationSummary by remember { mutableStateOf<MediaLocationSummary?>(null) }
@@ -518,19 +519,8 @@ private fun HikeJournalAppContent(viewModel: AppViewModel) {
     }
 
     val localMediaPermissions = rememberLauncherForActivityResult(RequestMultiplePermissions()) {
-        val access = localMediaAccess(context)
-        grantedLocalMediaAccess = access
-        when {
-            !access.canReadMedia -> {
-                localMediaPermissionError =
-                    "Allow HikeJournal to read photos and videos so it can browse originals stored on this phone."
-            }
-            !access.canReadLocations -> {
-                localMediaPermissionError =
-                    "Photo access was granted, but photo-location access is still off. Enable it so HikeJournal can read embedded GPS coordinates."
-            }
-            else -> localMediaPickerOpen = true
-        }
+        grantedLocalMediaAccess = localMediaAccess(context)
+        localMediaPickerOpen = true
     }
     val trackingPermissions = rememberLauncherForActivityResult(RequestMultiplePermissions()) {
         if (!pendingTrackingStart) return@rememberLauncherForActivityResult
@@ -1229,7 +1219,7 @@ private fun HikeJournalAppContent(viewModel: AppViewModel) {
             locationSummary = mediaLocationSummary,
             checkingLocations = checkingMediaLocations,
             onDismiss = { pendingUpload = emptyList() },
-            onChooseDifferentPhotos = {
+            onChooseDifferentFiles = {
                 pendingUpload = emptyList()
                 launchLocalMediaPicker()
             },
@@ -1253,40 +1243,21 @@ private fun HikeJournalAppContent(viewModel: AppViewModel) {
     }
 
     if (localMediaPickerOpen && state.journal != null) {
+        LifecycleResumeEffect(context) {
+            grantedLocalMediaAccess = localMediaAccess(context)
+            onPauseOrDispose { }
+        }
         LocalMediaPickerDialog(
             access = grantedLocalMediaAccess ?: localMediaAccess(context),
             onDismiss = { localMediaPickerOpen = false },
+            onOpenSettings = {
+                context.startActivity(
+                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}")),
+                )
+            },
             onConfirm = { uris ->
                 pendingUpload = uris
                 localMediaPickerOpen = false
-            },
-        )
-    }
-
-    localMediaPermissionError?.let { message ->
-        AlertDialog(
-            onDismissRequest = { localMediaPermissionError = null },
-            title = { Text("Phone originals need permission") },
-            text = { Text(message) },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        localMediaPermissionError = null
-                        context.startActivity(
-                            Intent(
-                                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                                Uri.parse("package:${context.packageName}"),
-                            ),
-                        )
-                    },
-                ) {
-                    Text("Open app settings")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { localMediaPermissionError = null }) {
-                    Text("Not now")
-                }
             },
         )
     }
@@ -2332,6 +2303,7 @@ private fun HikeComparisonPickerDialog(
 }
 
 @Composable
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 private fun JournalScreen(
     hike: Hike,
     sameDayHikes: List<Hike>,
@@ -2443,7 +2415,10 @@ private fun JournalScreen(
                         }
                     }
                 }
-                Row(Modifier.fillMaxWidth().padding(top = 24.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                FlowRow(
+                    Modifier.fillMaxWidth().padding(top = 24.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
                     Button(
                         onClick = onAddPhotos,
                         enabled = !opening,
@@ -2451,7 +2426,7 @@ private fun JournalScreen(
                     ) {
                         Icon(Icons.Rounded.CameraAlt, null, Modifier.size(19.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text("Upload photos")
+                        Text("Add photos & videos")
                     }
                     if (onEdit != null) {
                         OutlinedButton(onClick = onEdit) {
@@ -3319,12 +3294,19 @@ private fun UploadSheet(
     locationSummary: MediaLocationSummary?,
     checkingLocations: Boolean,
     onDismiss: () -> Unit,
-    onChooseDifferentPhotos: () -> Unit,
+    onChooseDifferentFiles: () -> Unit,
     onUpload: (String, Boolean) -> Unit,
 ) {
     var caption by remember { mutableStateOf("") }
     val missingLocations = locationSummary?.missingCount ?: 0
     val locationsReady = locationSummary?.allGeotagged == true
+    val videosOnly = locationSummary?.videoCount == photoCount
+    val identify = isEverydaySighting && !videosOnly
+    val saveLabel = if (videosOnly) {
+        "Save $photoCount video${if (photoCount == 1) "" else "s"}"
+    } else {
+        "Save $photoCount file${if (photoCount == 1) "" else "s"}"
+    }
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Paper) {
         Column(
             Modifier
@@ -3338,7 +3320,7 @@ private fun UploadSheet(
             Text("$photoCount FILE${if (photoCount == 1) "" else "S"} SELECTED", style = MaterialTheme.typography.labelSmall, color = TrailText)
             Text("Add to this journal", style = MaterialTheme.typography.headlineLarge, color = Ink)
             Text(
-                "HikeJournal checks for embedded coordinates so each entry can appear accurately on maps and in species tools.",
+                "HikeJournal checks for embedded coordinates to place your photos and videos on the map.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = InkMuted,
                 modifier = Modifier.padding(top = 6.dp),
@@ -3368,7 +3350,7 @@ private fun UploadSheet(
                             color = TrailText,
                         )
                         Text(
-                            "These local originals do not contain readable embedded coordinates. Check that location tagging was enabled in the Camera app.",
+                            "You can save these files without a map location.",
                             style = MaterialTheme.typography.bodySmall,
                             color = InkMuted,
                         )
@@ -3376,14 +3358,14 @@ private fun UploadSheet(
                 }
             }
             OutlinedTextField(caption, { caption = it }, Modifier.fillMaxWidth().padding(top = 18.dp), label = { Text("Note · optional") })
-            if (isEverydaySighting) {
+            if (identify) {
                 Text(
                     "After saving, the first photo opens so you can ask iNaturalist for a recommendation and choose the best match.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = InkMuted,
                     modifier = Modifier.padding(vertical = 16.dp),
                 )
-            } else {
+            } else if (!videosOnly) {
                 Text(
                     "After upload, use Select for species review in the journal to choose one or more photos.",
                     style = MaterialTheme.typography.bodyMedium,
@@ -3391,26 +3373,26 @@ private fun UploadSheet(
                     modifier = Modifier.padding(vertical = 16.dp),
                 )
             }
-            if (locationSummary != null && !locationsReady) {
+            if (locationSummary != null && !locationsReady && !videosOnly) {
                 Button(
-                    onClick = onChooseDifferentPhotos,
+                    onClick = onChooseDifferentFiles,
                     modifier = Modifier.fillMaxWidth().height(54.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Moss),
                 ) {
                     Icon(Icons.Rounded.LocationOn, null)
                     Spacer(Modifier.width(8.dp))
-                    Text("Choose different photos")
+                    Text("Choose different files")
                 }
                 TextButton(
-                    onClick = { onUpload(caption, isEverydaySighting) },
+                    onClick = { onUpload(caption, identify) },
                     modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 4.dp),
                 ) {
                     Text("Save without GPS")
                 }
             } else {
                 Button(
-                    onClick = { onUpload(caption, isEverydaySighting) },
-                    enabled = locationsReady && !checkingLocations,
+                    onClick = { onUpload(caption, identify) },
+                    enabled = (locationsReady || videosOnly) && !checkingLocations,
                     modifier = Modifier.fillMaxWidth().height(54.dp),
                 ) {
                     if (checkingLocations || locationSummary == null) {
@@ -3420,14 +3402,19 @@ private fun UploadSheet(
                     } else {
                         Icon(Icons.Rounded.CameraAlt, null)
                         Spacer(Modifier.width(8.dp))
-                        Text(if (isEverydaySighting) "Save & identify" else "Save $photoCount file${if (photoCount == 1) "" else "s"}")
+                        Text(if (identify) "Save & identify" else saveLabel)
                     }
                 }
-                if (isEverydaySighting) {
+                if (identify) {
                     TextButton(
                         onClick = { onUpload(caption, false) },
                         modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 4.dp),
                     ) { Text("Save without identifying") }
+                } else if (videosOnly) {
+                    TextButton(
+                        onClick = onChooseDifferentFiles,
+                        modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 4.dp),
+                    ) { Text("Choose different files") }
                 }
             }
         }
@@ -5296,8 +5283,8 @@ private fun EmptyLibrary(onCreate: () -> Unit) {
 private fun EmptyPhotos(onAdd: () -> Unit) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 42.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Icon(Icons.Rounded.Image, null, tint = Fern, modifier = Modifier.size(48.dp))
-        Text("The first photo is waiting", style = MaterialTheme.typography.headlineSmall, color = Ink, modifier = Modifier.padding(top = 12.dp))
-        TextButton(onClick = onAdd) { Text("Upload photos") }
+        Text("No photos or videos yet", style = MaterialTheme.typography.headlineSmall, color = Ink, modifier = Modifier.padding(top = 12.dp))
+        TextButton(onClick = onAdd) { Text("Add photos & videos") }
     }
 }
 

@@ -7,6 +7,7 @@ from pathlib import Path
 
 import boto3
 from botocore.config import Config
+from botocore.exceptions import ClientError
 from supabase import Client
 
 from hike_journal.config import settings
@@ -226,6 +227,35 @@ class StorageService:
         if object_id:
             return self.replace_file(path, video_bytes, content_type)
         return self._upload_bytes(path, video_bytes, content_type)
+
+    def prepare_video_upload(
+        self, path: str, content_type: str, size_bytes: int,
+    ) -> tuple[str | None, str]:
+        """Return a write URL or confirm an already uploaded object has the expected metadata."""
+        client = self._r2_client
+        if client is None:
+            raise RuntimeError("Large video uploads require R2 storage.")
+        public_url = self._build_public_url(path)
+        try:
+            existing = client.head_object(Bucket=self.r2_bucket, Key=path)
+        except ClientError as exc:
+            if exc.response.get("ResponseMetadata", {}).get("HTTPStatusCode") != 404:
+                raise
+            write_url = client.generate_presigned_url(
+                "put_object",
+                Params={
+                    "Bucket": self.r2_bucket,
+                    "Key": path,
+                    "ContentType": content_type,
+                    "ContentLength": size_bytes,
+                    "IfNoneMatch": "*",
+                },
+                ExpiresIn=3600,
+            )
+            return str(write_url), public_url
+        if existing["ContentLength"] != size_bytes or existing.get("ContentType") != content_type:
+            raise ValueError("The stored video does not match this upload.")
+        return None, public_url
 
     def upload_hike_route_import(self, hike_id: str, file_bytes: bytes, content_type: str = "application/vnd.garmin.tcx+xml") -> tuple[str, str]:
         path = f"hikes/{hike_id}/imports/{uuid4().hex}.tcx"

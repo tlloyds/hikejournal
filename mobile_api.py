@@ -24,6 +24,7 @@ from uuid import UUID, uuid4
 from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile, status
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from postgrest.exceptions import APIError
 from pydantic import BaseModel, ConfigDict, Field
 from supabase import Client
 
@@ -148,6 +149,7 @@ from hike_journal.services.wikipedia import enrich_missing_wikipedia_summaries
 
 
 MAX_UPLOAD_BYTES = 30 * 1024 * 1024
+MAX_VIDEO_UPLOAD_BYTES = 250 * 1024 * 1024
 EVERYDAY_JOURNAL_ID = "everyday"
 MOBILE_JOB_OWNER_SCOPE = "single-owner"
 SPECIES_REVIEW_JOB_TYPE = "species-review-batch"
@@ -348,6 +350,16 @@ class HikeLocationInput(BaseModel):
 
 class CaptionInput(BaseModel):
     caption: str = Field(default="", max_length=5_000)
+
+
+class VideoUploadInput(CaptionInput):
+    photo_id: UUID
+    content_type: str = Field(pattern=r"^video/[a-z0-9.+-]+$", max_length=100)
+    extension: str = Field(pattern=r"^[a-z0-9]{1,10}$")
+    size_bytes: int = Field(gt=0)
+    taken_at: str = Field(default="", max_length=64)
+    lat: float | None = Field(default=None, ge=-90, le=90)
+    lng: float | None = Field(default=None, ge=-180, le=180)
 
 
 class ArchiveInput(BaseModel):
@@ -6071,6 +6083,77 @@ def update_hike_cover(hike_id: str, payload: CoverPhotoInput) -> dict[str, Any]:
     updated = svc.repository.update_hike_cover_photo(hike_id, photo_id)
     _invalidate_species_data_cache()
     return _hike_payload(updated, photos=svc.repository.list_photos(hike_id))
+
+
+@app.post("/v1/hikes/{hike_id}/video-uploads", dependencies=[Depends(require_mobile_key)])
+def prepare_or_finish_video_upload(hike_id: str, payload: VideoUploadInput) -> dict[str, Any]:
+    if payload.size_bytes > MAX_VIDEO_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="Videos must be 250 MB or smaller.")
+    svc = get_services()
+    is_standalone = hike_id == EVERYDAY_JOURNAL_ID
+    if not is_standalone:
+        _get_visible_hike(svc.repository, hike_id)
+    if svc.storage.backend != "r2":
+        raise HTTPException(status_code=501, detail="Large video uploads require R2 storage.")
+
+    owner = _user_context()
+    owner_key = str(owner.get("user_id") or owner.get("subject") or owner.get("email") or "local-dev")
+    owner_scope = hashlib.sha256(owner_key.encode()).hexdigest()
+    photo_id = str(payload.photo_id)
+    storage_path = f"hikes/{hike_id}/videos/{owner_scope}/{photo_id}.{payload.extension}"
+
+    def existing_video() -> dict[str, Any] | None:
+        rows = svc.repository.list_mobile_photo_records_for_ids([photo_id], decorate=False)
+        if not rows:
+            return None
+        video = rows[0]
+        if video.get("storage_path") != storage_path or not user_owns_record(video, owner):
+            raise HTTPException(status_code=409, detail="This ID belongs to another journal upload.")
+        return {"photo": _photo_payload(svc.repository.decorate_media_row(video))}
+
+    if existing := existing_video():
+        return existing
+    taken_at = _parse_picker_taken_at(payload.taken_at)
+    try:
+        upload_url, public_url = svc.storage.prepare_video_upload(
+            storage_path, payload.content_type, payload.size_bytes,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if upload_url is not None:
+        return {"upload_url": upload_url}
+
+    exif_json = {}
+    if taken_at is not None:
+        exif_json["picker_taken_at"] = taken_at.isoformat()
+    if payload.lat is not None:
+        exif_json["gps_latitude"] = payload.lat
+    if payload.lng is not None:
+        exif_json["gps_longitude"] = payload.lng
+    try:
+        created = svc.repository.create_photo({
+            "id": photo_id,
+            "hike_id": None if is_standalone else hike_id,
+            "owner_user_id": owner.get("user_id"),
+            "owner_subject": owner.get("subject"),
+            "owner_email": owner.get("email"),
+            "storage_path": storage_path,
+            "public_url": public_url,
+            "caption": payload.caption.strip() or None,
+            "taken_at": taken_at.isoformat() if taken_at else None,
+            "lat": payload.lat,
+            "lng": payload.lng,
+            "file_size": payload.size_bytes,
+            "content_type": payload.content_type,
+            "processing_status": "ready",
+            "exif_json": exif_json,
+        })
+    except APIError as exc:
+        if exc.code == "23505" and (existing := existing_video()):
+            return existing
+        raise
+    _invalidate_species_data_cache()
+    return {"photo": _photo_payload(created)}
 
 
 @app.post("/v1/hikes/{hike_id}/photos", dependencies=[Depends(require_mobile_key)], status_code=201)

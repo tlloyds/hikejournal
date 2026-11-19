@@ -3,6 +3,8 @@
 package com.hikejournal.app.ui
 
 import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
@@ -55,6 +57,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -93,6 +96,7 @@ import com.hikejournal.app.ui.theme.TrailText
 internal fun LocalMediaPickerDialog(
     access: LocalMediaAccess,
     onDismiss: () -> Unit,
+    onOpenSettings: () -> Unit,
     onConfirm: (List<Uri>) -> Unit,
 ) {
     val context = LocalContext.current
@@ -103,18 +107,31 @@ internal fun LocalMediaPickerDialog(
     }
     var albums by remember { mutableStateOf<List<LocalMediaAlbum>?>(null) }
     var loadError by remember { mutableStateOf<String?>(null) }
-    var openAlbumId by remember { mutableStateOf<String?>(null) }
-    var selectedUris by remember { mutableStateOf<List<String>>(emptyList()) }
+    var openAlbumId by rememberSaveable { mutableStateOf<String?>(null) }
+    var selectedUris by rememberSaveable { mutableStateOf<List<String>>(emptyList()) }
     var selectionNotice by remember { mutableStateOf<String?>(null) }
+    val browseFiles = rememberLauncherForActivityResult(OpenMultipleDocuments()) { files ->
+        if (files.isNotEmpty()) {
+            val batch = (selectedUris + files.map(Uri::toString)).distinct()
+            if (batch.size > MAX_LOCAL_MEDIA_SELECTION) {
+                selectionNotice = "Choose up to $MAX_LOCAL_MEDIA_SELECTION files for this batch."
+            } else {
+                onConfirm(batch.map(Uri::parse))
+            }
+        }
+    }
 
     DisposableEffect(imageLoader) {
         onDispose { imageLoader.shutdown() }
     }
     LaunchedEffect(access) {
+        albums = null
+        loadError = null
+        if (!access.readyForOriginals) return@LaunchedEffect
         runCatching { loadLocalMediaLibrary(context, access) }
             .onSuccess { albums = it }
             .onFailure {
-                loadError = "HikeJournal couldn't open your photo library. Check access in Settings and try again."
+                loadError = "HikeJournal couldn't open your media library. Check access in Settings and try again."
             }
     }
 
@@ -196,6 +213,12 @@ internal fun LocalMediaPickerDialog(
                                 modifier = Modifier.padding(bottom = 8.dp),
                             )
                         }
+                        TextButton(
+                            onClick = { browseFiles.launch(arrayOf("image/*", "video/*")) },
+                            modifier = Modifier.align(Alignment.CenterHorizontally),
+                        ) {
+                            Text("Browse files")
+                        }
                         Button(
                             onClick = { onConfirm(selectedUris.map(Uri::parse)) },
                             enabled = selectedUris.isNotEmpty(),
@@ -227,6 +250,11 @@ internal fun LocalMediaPickerDialog(
         ) { innerPadding ->
             Box(Modifier.fillMaxSize().padding(innerPadding)) {
                 when {
+                    !access.readyForOriginals -> LocalMediaMessage(
+                        title = "Phone originals need permission",
+                        detail = "Allow photo, video, and photo location access to browse phone albums and preserve embedded GPS. You can also browse files below.",
+                        action = { TextButton(onClick = onOpenSettings) { Text("Open app settings") } },
+                    )
                     loadError != null -> LocalMediaMessage(
                         title = "Phone library unavailable",
                         detail = loadError.orEmpty(),
@@ -246,7 +274,7 @@ internal fun LocalMediaPickerDialog(
                     albums!!.isEmpty() -> LocalMediaMessage(
                         title = "No local originals found",
                         detail = if (access.hasFullLibraryAccess) {
-                            "No supported photos or videos under 30 MB are stored on this phone."
+                            "Choose files up to 30 MB for photos or 250 MB for videos."
                         } else {
                             "No supported photos or videos are available in your current selection. Close this screen and choose Browse media to pick more."
                         },
@@ -340,9 +368,9 @@ private fun LocalAlbumGrid(
                 )
                 Text(
                     if (limitedAccess) {
-                        "Only your selected photos are shown. They stay on this phone until you add them to HikeJournal."
+                        "Only photos and videos you've shared access to are shown."
                     } else {
-                        "Choose original photos or videos from this phone. Location and photo details are preserved when available."
+                        "Select photos and videos together. Photos can be up to 30 MB and videos up to 250 MB."
                     },
                     style = MaterialTheme.typography.bodyMedium,
                     color = InkMuted,
@@ -513,7 +541,7 @@ private fun LocalMediaGrid(
 }
 
 @Composable
-private fun LocalMediaMessage(title: String, detail: String) {
+private fun LocalMediaMessage(title: String, detail: String, action: (@Composable () -> Unit)? = null) {
     Column(
         Modifier.fillMaxWidth().padding(horizontal = 28.dp, vertical = 48.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -525,5 +553,6 @@ private fun LocalMediaMessage(title: String, detail: String) {
             color = InkMuted,
             modifier = Modifier.padding(top = 8.dp),
         )
+        action?.invoke()
     }
 }

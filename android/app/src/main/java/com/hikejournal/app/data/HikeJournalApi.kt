@@ -629,7 +629,19 @@ class HikeJournalApi(private val context: Context) {
         latitude: Double?,
         longitude: Double?,
     ): String = withContext(Dispatchers.IO) {
-        if (!file.exists()) throw IOException("The queued field photo is missing from this phone.")
+        if (!file.exists()) throw IOException("The queued file is missing from this phone.")
+        if (contentType.startsWith("video/") && file.length() > MAX_LOCAL_PHOTO_BYTES) {
+            val metadata = JSONObject()
+                .put("photo_id", photoId)
+                .put("content_type", contentType)
+                .put("extension", fileName.substringAfterLast('.', "mp4"))
+                .put("size_bytes", file.length())
+                .put("caption", caption)
+                .put("taken_at", takenAt.orEmpty())
+                .put("lat", latitude)
+                .put("lng", longitude)
+            return@withContext uploadLargeVideo(hikeId, file, contentType, metadata)
+        }
         val multipartBuilder = MultipartBody.Builder()
             .setType(MultipartBody.FORM)
             .addFormDataPart("caption", caption)
@@ -653,6 +665,34 @@ class HikeJournalApi(private val context: Context) {
                 .post(multipart)
                 .build(),
         )
+    }
+
+    private suspend fun uploadLargeVideo(
+        hikeId: String,
+        file: java.io.File,
+        contentType: String,
+        metadata: JSONObject,
+    ): String {
+        val path = "/v1/hikes/$hikeId/video-uploads"
+        val body = metadata.toString().toRequestBody(jsonMediaType)
+        val prepared = JSONObject(request(path, "POST", body))
+        prepared.optJSONObject("photo")?.let { return it.toString() }
+        val uploadUrl = prepared.optString("upload_url")
+        if (!uploadUrl.startsWith("https://")) throw IOException("The server did not return a secure video upload URL.")
+
+        // The signed storage URL gives permission for this single file. Keep app credentials on the API.
+        val upload = Request.Builder()
+            .url(uploadUrl)
+            .header("If-None-Match", "*")
+            .put(file.asRequestBody(contentType.toMediaType()))
+            .build()
+        client.newCall(upload).execute().use { response ->
+            if (!response.isSuccessful && response.code != 412) {
+                throw IOException("The video upload could not be completed (HTTP ${response.code}).")
+            }
+        }
+        return JSONObject(request(path, "POST", body)).optJSONObject("photo")?.toString()
+            ?: throw IOException("The server could not confirm the video upload yet.")
     }
 
     private suspend fun request(

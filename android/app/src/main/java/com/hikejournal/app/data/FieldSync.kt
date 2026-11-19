@@ -20,6 +20,7 @@ import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
 import android.provider.OpenableColumns
+import android.webkit.MimeTypeMap
 import androidx.core.content.ContextCompat
 import androidx.core.app.NotificationCompat
 import androidx.exifinterface.media.ExifInterface
@@ -84,7 +85,7 @@ object OperationKind {
     const val UpdateNaturalHistory = "update_natural_history"
 }
 
-private const val MAX_LOCAL_MEDIA_BYTES = 30L * 1024L * 1024L
+private const val MAX_LOCAL_ROUTE_BYTES = 30L * 1024L * 1024L
 private const val QUEUED_PHOTO_MAX_DIMENSION = 1_600
 private const val QUEUED_PHOTO_JPEG_QUALITY = 86
 private const val MAX_PARALLEL_PHOTO_UPLOADS = 2
@@ -95,7 +96,8 @@ internal val journalCacheMutex = Mutex()
 internal fun shouldPromoteFieldSyncToForeground(
     photoCount: Int,
     reviewCount: Int,
-): Boolean = reviewCount > 0 || photoCount >= LONG_RUNNING_PHOTO_UPLOAD_THRESHOLD
+    hasLargeVideo: Boolean = false,
+): Boolean = hasLargeVideo || reviewCount > 0 || photoCount >= LONG_RUNNING_PHOTO_UPLOAD_THRESHOLD
 
 data class HikeDeletionStatus(
     val pending: Boolean,
@@ -120,6 +122,7 @@ data class FieldSyncProgress(
     val totalReviewCount: Int = 0,
     val completedReviewCount: Int = 0,
     val remainingReviewCount: Int = 0,
+    val hasLargeVideo: Boolean = false,
 )
 
 data class SpeciesReviewSelection(
@@ -560,7 +563,8 @@ class FieldOperationQueue(private val context: Context) {
     ): Photo = withContext(Dispatchers.IO) {
         val photoId = UUID.randomUUID().toString()
         val selectedContentType = selectedMediaContentType(context, uri)
-        val extension = when (selectedContentType.lowercase(Locale.US)) {
+        val isVideo = selectedContentType.startsWith("video/")
+        val extension = when (selectedContentType) {
             "image/png" -> "png"
             "image/heic", "image/heif" -> "heic"
             "video/mp4" -> "mp4"
@@ -568,14 +572,22 @@ class FieldOperationQueue(private val context: Context) {
             "video/x-m4v" -> "m4v"
             "video/3gpp" -> "3gp"
             "video/webm" -> "webm"
-            else -> "jpg"
+            else -> if (isVideo) {
+                MimeTypeMap.getSingleton().getExtensionFromMimeType(selectedContentType) ?: "mp4"
+            } else {
+                "jpg"
+            }
         }
         val selectedFile = File(photoDirectory, "$photoId-source.$extension")
-        copySelectedMedia(context, uri, selectedFile, requestOriginal = true)
+        copySelectedMedia(
+            context, uri, selectedFile, requestOriginal = true,
+            maxBytes = if (isVideo) MAX_LOCAL_VIDEO_BYTES else MAX_LOCAL_PHOTO_BYTES,
+            sizeError = if (isVideo) "Videos must be 250 MB or smaller." else "Photos must be 30 MB or smaller.",
+        )
         val pickerTakenAt = readPickerTakenAt(context, uri)
         val fileMetadata = readMediaMetadata(selectedFile, selectedContentType)
         val metadata = fileMetadata.copy(takenAt = fileMetadata.takenAt ?: pickerTakenAt)
-        val queuedMedia = if (selectedContentType.startsWith("video/", ignoreCase = true)) {
+        val queuedMedia = if (isVideo) {
             QueuedMedia(
                 file = selectedFile,
                 contentType = selectedContentType,
@@ -636,11 +648,10 @@ class FieldOperationQueue(private val context: Context) {
             throw IOException("Choose a .tcx or .tcx.txt route file.")
         }
         val destination = File(routeDirectory, "${UUID.randomUUID()}.tcx")
-        copySelectedMedia(context, uri, destination, requestOriginal = true)
-        if (destination.length() > MAX_LOCAL_MEDIA_BYTES) {
-            destination.delete()
-            throw IOException("TCX files must be 30 MB or smaller.")
-        }
+        copySelectedMedia(
+            context, uri, destination, requestOriginal = true,
+            maxBytes = MAX_LOCAL_ROUTE_BYTES, sizeError = "TCX files must be 30 MB or smaller.",
+        )
         enqueue(
             kind = OperationKind.UploadRoute,
             entityId = UUID.randomUUID().toString(),
@@ -654,7 +665,7 @@ class FieldOperationQueue(private val context: Context) {
 
     suspend fun queueRecordedRoute(hikeId: String, route: RecordedRouteUpload) = withContext(Dispatchers.IO) {
         if (!route.file.exists()) throw IOException("The recorded route is no longer available on this phone.")
-        if (route.file.length() > MAX_LOCAL_MEDIA_BYTES) throw IOException("Recorded routes must be 30 MB or smaller.")
+        if (route.file.length() > MAX_LOCAL_ROUTE_BYTES) throw IOException("Recorded routes must be 30 MB or smaller.")
         val operationEntityId = "recorded-route:$hikeId"
         val destination = File(routeDirectory, "$hikeId-recorded.tcx")
         val temporary = File(routeDirectory, "$hikeId-recorded.tcx.tmp")
@@ -713,15 +724,18 @@ class FieldOperationQueue(private val context: Context) {
 
     suspend fun inspectMediaLocations(uris: List<Uri>): MediaLocationSummary =
         withContext(Dispatchers.IO) {
+            var videoCount = 0
             val geotaggedCount = uris.count { uri ->
                 runCatching {
                     val contentType = selectedMediaContentType(context, uri)
+                    if (contentType.startsWith("video/")) videoCount++
                     readSelectedMediaLocation(context, uri, contentType) != null
                 }.getOrDefault(false)
             }
             MediaLocationSummary(
                 totalCount = uris.size,
                 geotaggedCount = geotaggedCount,
+                videoCount = videoCount,
             )
         }
 
@@ -1466,6 +1480,8 @@ private fun copySelectedMedia(
     uri: Uri,
     destination: File,
     requestOriginal: Boolean,
+    maxBytes: Long,
+    sizeError: String,
 ) {
     val candidates = selectedMediaCandidates(context, uri, requestOriginal)
     var lastError: Exception? = null
@@ -1473,7 +1489,7 @@ private fun copySelectedMedia(
         destination.delete()
         try {
             val input = context.contentResolver.openInputStream(candidate)
-                ?: throw IOException("The selected photo could not be opened.")
+                ?: throw IOException("The selected file could not be opened.")
             input.use {
                 destination.outputStream().use { output ->
                     val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
@@ -1482,9 +1498,7 @@ private fun copySelectedMedia(
                         val count = it.read(buffer)
                         if (count < 0) break
                         copied += count
-                        if (copied > MAX_LOCAL_MEDIA_BYTES) {
-                            throw IOException("Photos and videos must be 30 MB or smaller.")
-                        }
+                        if (copied > maxBytes) throw IOException(sizeError)
                         output.write(buffer, 0, count)
                     }
                 }
@@ -1496,15 +1510,21 @@ private fun copySelectedMedia(
     }
     destination.delete()
     throw IOException(
-        lastError?.message ?: "The selected photo could not be copied into field storage.",
+        lastError?.message ?: "The selected file could not be copied into field storage.",
         lastError,
     )
 }
 
-private fun selectedMediaContentType(context: Context, uri: Uri): String =
-    runCatching { context.contentResolver.getType(uri) }.getOrNull()
+private fun selectedMediaContentType(context: Context, uri: Uri): String {
+    val reported = runCatching { context.contentResolver.getType(uri)?.lowercase(Locale.US) }.getOrNull()
+    if (reported != null && (reported.startsWith("image/") || reported.startsWith("video/")) &&
+        !reported.endsWith("/*")
+    ) return reported
+    return runCatching { selectedFileName(context, uri) }.getOrNull()?.let(::mediaContentType)
         ?: uri.lastPathSegment?.let(::mediaContentType)
+        ?: reported?.takeUnless { it == "application/octet-stream" || it.endsWith("/*") }
         ?: "image/jpeg"
+}
 
 private fun mediaContentType(fileName: String): String? =
     when (fileName.substringAfterLast('.', "").lowercase()) {
@@ -1528,6 +1548,7 @@ private fun selectedMediaCandidates(
     requestOriginal: Boolean,
 ): List<Uri> {
     val canRequestOriginal = requestOriginal &&
+        uri.authority == MediaStore.AUTHORITY &&
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
         ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_MEDIA_LOCATION) ==
         PackageManager.PERMISSION_GRANTED
@@ -1745,14 +1766,6 @@ class FieldSyncEngine(private val context: Context) {
             }
     }
 
-    suspend fun pendingPhotoCount(): Int = dao.listAll().count { operation ->
-        operation.kind == OperationKind.UploadPhoto && operation.state in setOf("queued", "syncing")
-    }
-
-    suspend fun pendingSpeciesReviewCount(): Int = dao.listAll().count { operation ->
-        operation.kind == OperationKind.QueueSpeciesReview && operation.state in setOf("queued", "syncing")
-    }
-
     suspend fun drain(
         prioritizedPhotoId: String? = null,
         onProgress: suspend (FieldSyncProgress) -> Unit = {},
@@ -1760,12 +1773,14 @@ class FieldSyncEngine(private val context: Context) {
         var shouldRetry = false
         var completedPhotoCount = 0
         var completedReviewCount = 0
-        var totalPhotoCount = pendingPhotoCount()
-        var totalReviewCount = pendingSpeciesReviewCount()
+        var totalPhotoCount = 0
+        var totalReviewCount = 0
 
         suspend fun reportProgress() {
-            val remainingPhotoCount = pendingPhotoCount()
-            val remainingReviewCount = pendingSpeciesReviewCount()
+            val pending = dao.listAll().filter { it.state == "queued" || it.state == "syncing" }
+            val remainingUploads = pending.filter { it.kind == OperationKind.UploadPhoto }
+            val remainingPhotoCount = remainingUploads.size
+            val remainingReviewCount = pending.count { it.kind == OperationKind.QueueSpeciesReview }
             totalPhotoCount = maxOf(totalPhotoCount, completedPhotoCount + remainingPhotoCount)
             totalReviewCount = maxOf(totalReviewCount, completedReviewCount + remainingReviewCount)
             onProgress(
@@ -1776,6 +1791,10 @@ class FieldSyncEngine(private val context: Context) {
                     totalReviewCount = totalReviewCount,
                     completedReviewCount = completedReviewCount,
                     remainingReviewCount = remainingReviewCount,
+                    hasLargeVideo = remainingUploads.any { upload ->
+                        upload.contentType?.startsWith("video/") == true &&
+                            (upload.localFilePath?.let { File(it).length() } ?: 0L) > MAX_LOCAL_PHOTO_BYTES
+                    },
                 )
             )
         }
@@ -2151,24 +2170,12 @@ private fun selectedFileName(context: Context, uri: Uri): String? =
 class FieldSyncWorker(context: Context, parameters: WorkerParameters) : CoroutineWorker(context, parameters) {
     override suspend fun doWork(): Result {
         val engine = FieldSyncEngine(applicationContext)
-        val initialPhotoCount = engine.pendingPhotoCount()
-        val initialReviewCount = engine.pendingSpeciesReviewCount()
-        var foregroundTransfer = shouldPromoteFieldSyncToForeground(initialPhotoCount, initialReviewCount)
-        if (foregroundTransfer) {
-            setForeground(
-                createForegroundInfo(
-                    FieldSyncProgress(
-                        totalPhotoCount = initialPhotoCount,
-                        completedPhotoCount = 0,
-                        remainingPhotoCount = initialPhotoCount,
-                        totalReviewCount = initialReviewCount,
-                        remainingReviewCount = initialReviewCount,
-                    ),
-                ),
-            )
-        }
+        var foregroundTransfer = false
         val shouldRetry = engine.drain { progress ->
-            if (shouldPromoteFieldSyncToForeground(progress.totalPhotoCount, progress.totalReviewCount)) {
+            if (shouldPromoteFieldSyncToForeground(
+                    progress.totalPhotoCount, progress.totalReviewCount, progress.hasLargeVideo,
+                )
+            ) {
                 foregroundTransfer = true
             }
             if (foregroundTransfer) setForeground(createForegroundInfo(progress))

@@ -17,6 +17,7 @@ import com.hikejournal.app.data.PerformanceTrace
 import com.hikejournal.app.data.HikeLocation
 import com.hikejournal.app.data.HikeLocationSuggestion
 import com.hikejournal.app.data.MediaLocationSummary
+import com.hikejournal.app.data.isVideo
 import com.hikejournal.app.data.BadgeMetric
 import com.hikejournal.app.data.CompanionConfig
 import com.hikejournal.app.data.DiscoveryArea
@@ -2813,6 +2814,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     ) {
         if (uris.isEmpty()) return
         viewModelScope.launch {
+            var photoToIdentify: String? = null
             _state.update { it.copy(uploadCurrent = 0, uploadTotal = uris.size, error = null) }
             for ((index, uri) in uris.withIndex()) {
                 val result = runCatching {
@@ -2830,13 +2832,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         it.copy(
                             uploadCurrent = 0,
                             uploadTotal = 0,
+                            prioritizingPhotoId = null,
                             error = result.exceptionOrNull().userMessage(),
                         )
                     }
                     return@launch
                 }
                 val savedPhoto = result.getOrThrow()
-                if (prioritizeForIdentification && index == 0 && !savedPhoto.contentType.startsWith("video/")) {
+                if (prioritizeForIdentification && photoToIdentify == null && !savedPhoto.isVideo) {
+                    photoToIdentify = savedPhoto.id
                     _state.update { it.copy(prioritizingPhotoId = savedPhoto.id) }
                 }
                 _state.update { state ->
@@ -2864,8 +2868,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             }
             repository.scheduleSync()
             _state.update { it.copy(uploadCurrent = 0, uploadTotal = 0) }
-            if (prioritizeForIdentification && _state.value.prioritizingPhotoId != null) {
-                runCatching { repository.syncPhotoNow(_state.value.prioritizingPhotoId ?: return@launch) }
+            if (photoToIdentify != null) {
+                runCatching { repository.syncPhotoNow(photoToIdentify) }
                     .onSuccess { refreshJournalAfterSync(hikeId) }
                     .onFailure { error -> _state.update { it.copy(error = error.userMessage()) } }
                 _state.update { it.copy(prioritizingPhotoId = null) }

@@ -11,7 +11,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 const val MAX_LOCAL_MEDIA_SELECTION = 500
-private const val MAX_LOCAL_MEDIA_BYTES = 30L * 1024L * 1024L
+internal const val MAX_LOCAL_PHOTO_BYTES = 30L * 1024L * 1024L
+internal const val MAX_LOCAL_VIDEO_BYTES = 250L * 1024L * 1024L
 private const val ALL_LOCAL_MEDIA_ALBUM_ID = "__all_local_media__"
 
 data class LocalMediaAccess(
@@ -152,7 +153,7 @@ private fun queryLocalMedia(context: Context, isVideo: Boolean): List<LocalMedia
         MediaStore.Images.ImageColumns.BUCKET_DISPLAY_NAME,
     )
     val selection = "${MediaStore.MediaColumns.SIZE} > 0 AND ${MediaStore.MediaColumns.SIZE} <= ?"
-    val selectionArgs = arrayOf(MAX_LOCAL_MEDIA_BYTES.toString())
+    val selectionArgs = arrayOf((if (isVideo) MAX_LOCAL_VIDEO_BYTES else MAX_LOCAL_PHOTO_BYTES).toString())
 
     return runCatching {
         context.contentResolver.query(
