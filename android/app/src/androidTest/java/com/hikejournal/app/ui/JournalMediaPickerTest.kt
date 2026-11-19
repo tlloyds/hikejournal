@@ -47,6 +47,7 @@ class JournalMediaPickerTest {
             ContentValues().apply {
                 put(MediaStore.MediaColumns.DISPLAY_NAME, photoName)
                 put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
+                put(MediaStore.MediaColumns.IS_PENDING, 1)
             },
         )!!
         var video: Uri? = null
@@ -60,6 +61,7 @@ class JournalMediaPickerTest {
                 ContentValues().apply {
                     put(MediaStore.MediaColumns.DISPLAY_NAME, videoName)
                     put(MediaStore.MediaColumns.MIME_TYPE, "video/mp4")
+                    put(MediaStore.MediaColumns.IS_PENDING, 1)
                 },
             )!!
             val padding = ByteArray(1024 * 1024)
@@ -69,11 +71,16 @@ class JournalMediaPickerTest {
                 output.writeBytes("free")
                 repeat(35) { output.write(padding) }
             }
+            val published = ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }
+            assertEquals(1, resolver.update(photo, published, null, null))
+            assertEquals(1, resolver.update(video, published, null, null))
+            val access = localMediaAccess(context)
+            assertTrue(access.hasFullLibraryAccess)
 
             var selected = emptyList<Uri>()
             rule.setContent {
                 HikeJournalTheme {
-                    LocalMediaPickerDialog(localMediaAccess(context), {}, {}) { selected = it }
+                    LocalMediaPickerDialog(access, {}, {}) { selected = it }
                 }
             }
             rule.waitUntil(5_000) { rule.onAllNodesWithText("All phone media").fetchSemanticsNodes().isNotEmpty() }
